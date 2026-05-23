@@ -84,6 +84,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@signal-console/detectors':
+        specifier: workspace:*
+        version: link:../../packages/detectors
       '@signal-console/ui':
         specifier: workspace:*
         version: link:../../packages/ui

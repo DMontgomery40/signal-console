@@ -35,6 +35,7 @@ const themeExtend = {
     "2xl": "28px",
     "3xl": "40px",
     "4xl": "64px",
+    "5xl": "96px",
   },
   fontWeight: {
     normal: "400",

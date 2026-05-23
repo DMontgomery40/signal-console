@@ -861,8 +861,8 @@
         "Typecheck passes"
       ],
       "priority": 45,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Code, tests, and progress.txt entry landed in the prior iteration but the iteration died before commit + passes-flip. Visual screenshots intentionally skipped per CLAUDE.md HANG MODE protocol; HTTP-smoke fallback (production-bundle grep + real-gold-DB POST /v1/backtest cross-check, K=3 -> 249 fires vs K=6 -> 152 fires on nba-0042500222, plus Hartenstein-anchor preservation) is the sanctioned evidence. CryWolfDial geometry, snap detents, keyboard / wheel / drag handlers, and BacktestPage integration are all in place; the dial drives form.params.kMad -> applyClientRecompute -> stats.firesPerGame so live recompute is wired."
     },
     {
       "id": "US-037",

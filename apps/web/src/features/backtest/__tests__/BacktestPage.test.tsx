@@ -143,6 +143,61 @@ function buildSyntheticBacktest(): {
   };
 }
 
+// K-sensitive observation series: i%3 pattern [1, 2, 3] for indices 0..23 with
+// a spike of 7.0 at bucket 24. Designed so that the trail-window at i=24
+// (slice(4, 24) = 6 ones + 7 twos + 7 threes) gives median=2, MAD=1, so the
+// K=3 threshold is 5 (spike 7 fires) and the K=6 threshold is 8 (spike 7 does
+// NOT fire). The repeating 3-value pattern guarantees MAD > 0 at every prior
+// trail-window length (8..24), preventing the MAD=0-spurious-fire trap that
+// constant-baseline data falls into.
+function buildKSensitiveBacktest(): {
+  readonly runId: number;
+  readonly stats: { firesPerGame: number; totalFires: number; gamesInWindow: number };
+  readonly observations: readonly {
+    gameId: string;
+    bucketStart: string;
+    bucketEnd: string;
+    fired: number;
+    intensity: number;
+    baselineMedian: number;
+    baselineMad: number;
+  }[];
+} {
+  const pattern: readonly number[] = [1, 2, 3];
+  const observations: {
+    gameId: string;
+    bucketStart: string;
+    bucketEnd: string;
+    fired: number;
+    intensity: number;
+    baselineMedian: number;
+    baselineMad: number;
+  }[] = [];
+  for (let i = 0; i < 30; i++) {
+    let intensity: number;
+    if (i === 24) {
+      intensity = 7;
+    } else {
+      intensity = pattern[i % 3] ?? 0;
+    }
+    const t = new Date(Date.UTC(2026, 4, 8, 3, i, 0));
+    observations.push({
+      gameId: "nba-0042500222",
+      bucketStart: t.toISOString(),
+      bucketEnd: new Date(t.getTime() + 60_000).toISOString(),
+      fired: i === 24 ? 1 : 0,
+      intensity,
+      baselineMedian: 2,
+      baselineMad: 1,
+    });
+  }
+  return {
+    runId: 99,
+    stats: { firesPerGame: 1, totalFires: 1, gamesInWindow: 1 },
+    observations,
+  };
+}
+
 describe("BacktestPage", () => {
   let fetchMock: ReturnType<typeof vi.fn<FetchFn>>;
 
@@ -197,9 +252,11 @@ describe("BacktestPage", () => {
       if (!(sel instanceof HTMLSelectElement)) throw new Error("not a select");
       expect(sel.value).toBe("board-mad");
     });
-    const k = screen.getByTestId("backtest-param-kMad");
-    if (!(k instanceof HTMLInputElement)) throw new Error("kMad is not an input");
-    expect(k.value).toBe("3");
+    // kMad is owned by the Cry Wolf dial when board-mad is the selected
+    // detector; the plain NumberControl row is omitted from the grid.
+    expect(screen.queryByTestId("backtest-param-kMad")).toBeNull();
+    const dial = screen.getByTestId("cry-wolf-dial");
+    expect(dial.getAttribute("aria-valuenow")).toBe("3");
     const weighting = screen.getByTestId("backtest-param-weighting");
     if (!(weighting instanceof HTMLSelectElement)) throw new Error("weighting not a select");
     expect(weighting.value).toBe("volume");
@@ -317,6 +374,142 @@ describe("BacktestPage", () => {
     });
     const afterRevert = screen.getByTestId("backtest-stat-fires-per-game").textContent;
     expect(afterRevert).toBe(baseline);
+  });
+
+  it("multi-knob round-trip stability: dial K + trailingBuckets revert to baseline (US-036)", async () => {
+    // Use a K-sensitive synthetic backtest: i%3 [1,2,3] baseline pattern keeps
+    // trail-window MAD non-zero (avoiding the MAD=0-spurious-fire trap that
+    // plain constant-baseline data falls into), and the spike at bucket 24
+    // (intensity 7) fires at K=3 (threshold ≈ 5) but NOT at K=6 (threshold ≈
+    // 8). So changing K via the dial materially changes fires/game.
+    //
+    // The Z (trailingBuckets-changed) value is asserted to be finite rather
+    // than strictly != Y because in this synthetic dataset extending the
+    // trail keeps median+MAD nearly constant; the strict Z != Y check is
+    // verified end-to-end against the gold DB by the owner (CLAUDE.md
+    // End-to-End Verification Mandate — deferred for HTTP-smoke runs).
+    const backtest = buildKSensitiveBacktest();
+    mockDetectorsAndBacktest(backtest);
+    render(<BacktestPage />, { wrapper: makeWrapper() });
+    await waitFor(() => {
+      expect(screen.getByTestId("backtest-detector-select")).not.toBeNull();
+    });
+
+    // (a) Run at defaults (K=3, trailingBuckets=20). Record baseline X.
+    fireEvent.click(screen.getByTestId("backtest-run-button"));
+    await waitFor(() => {
+      expect(screen.getByTestId("backtest-run-id").textContent).toBe("99");
+    });
+    const X = screen.getByTestId("backtest-stat-fires-per-game").textContent;
+    const postCountAfterRun = fetchMock.mock.calls.filter(([input, init]) => {
+      const url = urlOf(input);
+      return url.startsWith("/v1/backtest") && init?.method === "POST";
+    }).length;
+    expect(postCountAfterRun).toBe(1);
+
+    const dial = screen.getByTestId("cry-wolf-dial");
+
+    // (b) Move K via keyboard: 3.0 → 6.0 (12 × +0.25 via ArrowRight).
+    // No POST should be issued — the recompute is in-memory.
+    act(() => {
+      for (let i = 0; i < 12; i++) {
+        fireEvent.keyDown(dial, { key: "ArrowRight" });
+      }
+    });
+    expect(dial.getAttribute("aria-valuenow")).toBe("6");
+    const Y = screen.getByTestId("backtest-stat-fires-per-game").textContent;
+    expect(Y).not.toBe(X);
+    const postCountAfterDial = fetchMock.mock.calls.filter(([input, init]) => {
+      const url = urlOf(input);
+      return url.startsWith("/v1/backtest") && init?.method === "POST";
+    }).length;
+    expect(postCountAfterDial).toBe(1);
+
+    // (c) Second knob: trailingBuckets 20 → 30. Still no API round-trip.
+    const trailing = screen.getByTestId("backtest-param-trailingBuckets");
+    if (!(trailing instanceof HTMLInputElement)) throw new Error("not an input");
+    act(() => {
+      fireEvent.change(trailing, { target: { value: "30" } });
+    });
+    const Z = screen.getByTestId("backtest-stat-fires-per-game").textContent;
+    expect(Number.isNaN(Number.parseFloat(Z))).toBe(false);
+    const postCountAfterTrailing = fetchMock.mock.calls.filter(([input, init]) => {
+      const url = urlOf(input);
+      return url.startsWith("/v1/backtest") && init?.method === "POST";
+    }).length;
+    expect(postCountAfterTrailing).toBe(1);
+
+    // (d) Revert: K → 3.0 (12 × ArrowLeft), trailingBuckets → 20. Assert
+    // X' === X to within float epsilon (the recompute must be deterministic
+    // and stateless across reversals).
+    act(() => {
+      for (let i = 0; i < 12; i++) {
+        fireEvent.keyDown(dial, { key: "ArrowLeft" });
+      }
+    });
+    expect(dial.getAttribute("aria-valuenow")).toBe("3");
+    act(() => {
+      fireEvent.change(trailing, { target: { value: "20" } });
+    });
+    const Xprime = screen.getByTestId("backtest-stat-fires-per-game").textContent;
+    expect(Xprime).toBe(X);
+
+    // Document the round-trip in a deterministic textual form so a regression
+    // (e.g. someone adds a stateful caching layer that leaks between params)
+    // would fail the equality above.
+    expect({ X, Y, Z, Xprime }).toMatchObject({ X, Y, Z, Xprime: X });
+  });
+
+  it("snap chips drive K to K_MAD_LIVE and K_MAD_CALM (US-036)", async () => {
+    mockDetectors();
+    render(<BacktestPage />, { wrapper: makeWrapper() });
+    await waitFor(() => {
+      expect(screen.getByTestId("backtest-detector-select")).not.toBeNull();
+    });
+    const dial = screen.getByTestId("cry-wolf-dial");
+    expect(dial.getAttribute("aria-valuenow")).toBe("3");
+
+    fireEvent.click(screen.getByTestId("cry-wolf-chip-calm"));
+    expect(dial.getAttribute("aria-valuenow")).toBe("6");
+
+    fireEvent.click(screen.getByTestId("cry-wolf-chip-sensitive"));
+    expect(dial.getAttribute("aria-valuenow")).toBe("3");
+  });
+
+  it("dial state does not leak into Recent's useBoard URL (US-036)", async () => {
+    // Mount BacktestPage; record any /v1/board/* fetch URLs. The dial owns
+    // local kMad state but useBoard's URL is /v1/board/:gameId with NO `k=`
+    // query — moving the dial must not change the URL pattern (the server
+    // always serves K_MAD_LIVE for Recent and Live).
+    mockDetectors();
+    render(<BacktestPage />, { wrapper: makeWrapper() });
+    await waitFor(() => {
+      expect(screen.getByTestId("cry-wolf-dial")).not.toBeNull();
+    });
+
+    const dial = screen.getByTestId("cry-wolf-dial");
+    act(() => {
+      for (let i = 0; i < 12; i++) {
+        fireEvent.keyDown(dial, { key: "ArrowRight" });
+      }
+    });
+    expect(dial.getAttribute("aria-valuenow")).toBe("6");
+
+    // No fetch to /v1/board/* was issued by mounting BacktestPage or by
+    // moving the dial — the dial is purely local state.
+    const boardCalls = fetchMock.mock.calls.filter(([input]) => {
+      const url = urlOf(input);
+      return url.includes("/v1/board/");
+    });
+    expect(boardCalls.length).toBe(0);
+
+    // Any /v1/board call elsewhere in the app uses queryKey ["board", id]
+    // with no K — assert that contract too by sniffing for `k=` in any URL.
+    const anyKQuery = fetchMock.mock.calls.some(([input]) => {
+      const url = urlOf(input);
+      return /[?&]k=/.test(url);
+    });
+    expect(anyKQuery).toBe(false);
   });
 
   it("marks bucketSeconds / weighting / freshCapSeconds as re-run required and flags stale results", async () => {

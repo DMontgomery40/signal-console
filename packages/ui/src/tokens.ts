@@ -37,6 +37,9 @@ export interface TypographyScale {
   readonly "2xl": string;
   readonly "3xl": string;
   readonly "4xl": string;
+  // 96 px — Cry Wolf dial above-knob headline number ONLY. Sourced from
+  // docs/design-language.md §"The Cry Wolf dial".
+  readonly "5xl": string;
 }
 
 export interface TypographyTokens {
@@ -97,6 +100,7 @@ export const typography: TypographyTokens = {
     "2xl": "28px",
     "3xl": "40px",
     "4xl": "64px",
+    "5xl": "96px",
   },
 };
 

@@ -41,6 +41,7 @@ exports[`tokens (US-043) > typography snapshot — drift is a deliberate review 
     "2xl": "28px",
     "3xl": "40px",
     "4xl": "64px",
+    "5xl": "96px",
     "base": "14px",
     "lg": "16px",
     "sm": "13px",

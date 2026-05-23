@@ -34,6 +34,14 @@ import {
   isBoardMadPrebucketField,
   BOARD_MAD_DETECTOR_ID,
 } from "./clientRecompute";
+import { CryWolfDial } from "./CryWolfDial";
+import { K_MAD_LIVE } from "@signal-console/detectors/board-mad/config";
+
+const KMAD_PARAM_NAME = "kMad";
+
+function readNumber(v: unknown, fallback: number): number {
+  return typeof v === "number" && Number.isFinite(v) ? v : fallback;
+}
 
 const MAX_WINDOW_DAYS = 28;
 const MAX_GAMES = 20;
@@ -588,26 +596,44 @@ export function BacktestPage(): JSX.Element {
             )}
           </div>
 
+          {/* Cry Wolf dial owns the kMad knob when board-mad is selected; the
+              text-input row for kMad is omitted from the param grid below. */}
+          {selectedDetector?.id === BOARD_MAD_DETECTOR_ID ? (
+            <div className="mt-8 flex flex-col items-center" data-testid="backtest-cry-wolf-dial">
+              <CryWolfDial
+                value={readNumber(form.params[KMAD_PARAM_NAME], K_MAD_LIVE)}
+                onChange={(next) => {
+                  updateParam(KMAD_PARAM_NAME, next);
+                }}
+              />
+            </div>
+          ) : null}
+
           {selectedDetector !== undefined && parsedProps.length > 0 ? (
             <div
               data-testid="backtest-param-form"
               className="mt-4 grid grid-cols-[max-content_1fr] gap-x-8"
             >
-              {parsedProps.map((p) => (
-                <ParamRow
-                  key={p.name}
-                  detectorId={selectedDetector.id}
-                  prop={p}
-                  value={form.params[p.name]}
-                  needsRerunHint={
-                    selectedDetector.id === BOARD_MAD_DETECTOR_ID &&
-                    isBoardMadPrebucketField(p.name)
-                  }
-                  onChange={(next) => {
-                    updateParam(p.name, next);
-                  }}
-                />
-              ))}
+              {parsedProps
+                .filter(
+                  (p) =>
+                    selectedDetector.id !== BOARD_MAD_DETECTOR_ID || p.name !== KMAD_PARAM_NAME,
+                )
+                .map((p) => (
+                  <ParamRow
+                    key={p.name}
+                    detectorId={selectedDetector.id}
+                    prop={p}
+                    value={form.params[p.name]}
+                    needsRerunHint={
+                      selectedDetector.id === BOARD_MAD_DETECTOR_ID &&
+                      isBoardMadPrebucketField(p.name)
+                    }
+                    onChange={(next) => {
+                      updateParam(p.name, next);
+                    }}
+                  />
+                ))}
             </div>
           ) : null}
 
