@@ -172,8 +172,8 @@
         "Typecheck passes"
       ],
       "priority": 10,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Fixtures committed as .json.gz for all three anchor games (sizes 29 KB / 146 KB / 31 KB — total 208 KB, well under 5 MB). Window choice: 2 h centred on each anchored event (222: 02:00–04:00 on 5/8; 223+224: 03:30–05:30 on 5/12). NOTE: scheduled_start for nba-0042500223 in the games table is 2026-05-10T00:30Z but its tick density on 2026-05-12 (the Reaves event date) is 4× the 5/10 density — the live in-play window for 223 is 5/12, not 5/10 (likely series rescheduling not reflected in games.scheduled_start). Future US-018 callers of /v1/games should not rely on scheduled_start as ground truth for live-play. Extract path uses GOLD_DB_PATH env override so the script can run pre-Phase-0 cutover (forbidden literal stays out of code). quote_ticks.volume is NULLABLE in the gold schema (100% NULL in nba-0042500223's reaves window, partial NULL in 224); extract COALESCEs to 0 because the detector's Tick.volume is non-nullable and log1p(NaN) would silently break intensities — any future API/route fetching ticks must do the same coalesce. Fixture row order is (sourceMarketId, capturedAt) per UNIQUE index; the detector sorts internally so order doesn't affect results. fixture-loader.ts at __tests__/fixture-loader.ts (NOT under vitest's default test pattern) loads either .json.gz or .json transparently; the plain-JSON branch is dead code today but kept for symmetry."
     },
     {
       "id": "US-011",
