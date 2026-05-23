@@ -454,8 +454,8 @@ export function BacktestPage(): JSX.Element {
         </p>
       </div>
       <p className="mt-2 text-sm text-text-md">
-        Replay a detector over a window. Editable knobs below; K dial and live preview attach in
-        subsequent stories.
+        Replay a detector over a window. The K dial recomputes the live preview in memory after the
+        first sweep — no API round-trip.
       </p>
 
       <form
@@ -597,14 +597,25 @@ export function BacktestPage(): JSX.Element {
           </div>
 
           {/* Cry Wolf dial owns the kMad knob when board-mad is selected; the
-              text-input row for kMad is omitted from the param grid below. */}
+              text-input row for kMad is omitted from the param grid below. The
+              live-preview metric (US-037) sits directly below the dial so the
+              eye tracks "K moves → fires/game moves" in one visual region. */}
           {selectedDetector?.id === BOARD_MAD_DETECTOR_ID ? (
-            <div className="mt-8 flex flex-col items-center" data-testid="backtest-cry-wolf-dial">
+            <div
+              className="mt-8 flex flex-col items-center gap-8"
+              data-testid="backtest-cry-wolf-dial"
+            >
               <CryWolfDial
                 value={readNumber(form.params[KMAD_PARAM_NAME], K_MAD_LIVE)}
                 onChange={(next) => {
                   updateParam(KMAD_PARAM_NAME, next);
                 }}
+              />
+              <LivePreview
+                pending={runMutation.isPending}
+                hasSnapshot={snapshot !== null}
+                firesPerGame={recomputeView?.stats.firesPerGame ?? null}
+                fromRecompute={recomputeView?.fromRecompute ?? false}
               />
             </div>
           ) : null}
@@ -764,6 +775,41 @@ function Stat({
     <div className="flex flex-col gap-1">
       <span className={FIELD_LABEL_CLASS}>{label}</span>
       <span className="text-text-hi text-2xl tabular font-mono">{children}</span>
+    </div>
+  );
+}
+
+// Live preview (US-037): "Estimated fires/game" — the headline metric that
+// updates as the K dial moves. Reads from the same `recomputeView` the Results
+// panel uses; never triggers an API call. The dial owns kMad; this readout is
+// the visible feedback that K is doing something.
+function LivePreview({
+  pending,
+  hasSnapshot,
+  firesPerGame,
+  fromRecompute,
+}: {
+  readonly pending: boolean;
+  readonly hasSnapshot: boolean;
+  readonly firesPerGame: number | null;
+  readonly fromRecompute: boolean;
+}): JSX.Element {
+  const value =
+    hasSnapshot && firesPerGame !== null ? firesPerGame.toFixed(2) : pending ? "…" : "—";
+  return (
+    <div className="flex flex-col items-center gap-1" data-testid="backtest-live-preview">
+      <span className="text-text-lo text-xs uppercase tracking-[0.08em] font-sans">
+        Estimated fires/game
+      </span>
+      <MaybeExplain id="fires-per-game">
+        <span
+          data-testid="backtest-live-fires-per-game"
+          data-from-recompute={fromRecompute ? "1" : "0"}
+          className="text-text-hi text-4xl tabular font-mono"
+        >
+          {value}
+        </span>
+      </MaybeExplain>
     </div>
   );
 }

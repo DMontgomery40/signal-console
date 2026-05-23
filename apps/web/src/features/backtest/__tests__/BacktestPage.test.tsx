@@ -512,6 +512,103 @@ describe("BacktestPage", () => {
     expect(anyKQuery).toBe(false);
   });
 
+  it("renders the prominent 'Estimated fires/game' live preview as a placeholder before any run (US-037)", async () => {
+    mockDetectors();
+    render(<BacktestPage />, { wrapper: makeWrapper() });
+    await waitFor(() => {
+      expect(screen.getByTestId("cry-wolf-dial")).not.toBeNull();
+    });
+    const preview = screen.getByTestId("backtest-live-preview");
+    expect(preview).not.toBeNull();
+    // Label literal — the AC asks for this exact phrase to be visible.
+    expect(preview.textContent).toMatch(/Estimated fires\/game/);
+    const value = screen.getByTestId("backtest-live-fires-per-game");
+    expect(value.textContent).toBe("—");
+    expect(value.getAttribute("data-from-recompute")).toBe("0");
+  });
+
+  it("populates the live preview from the backtest response and tracks dial moves without an API call (US-037)", async () => {
+    const backtest = buildKSensitiveBacktest();
+    mockDetectorsAndBacktest(backtest);
+    render(<BacktestPage />, { wrapper: makeWrapper() });
+    await waitFor(() => {
+      expect(screen.getByTestId("backtest-detector-select")).not.toBeNull();
+    });
+
+    fireEvent.click(screen.getByTestId("backtest-run-button"));
+    await waitFor(() => {
+      expect(screen.getByTestId("backtest-run-id").textContent).toBe("99");
+    });
+
+    const preview = screen.getByTestId("backtest-live-fires-per-game");
+    const stat = screen.getByTestId("backtest-stat-fires-per-game");
+    // After a run the preview value equals the Results-panel stat (single
+    // source of truth) and is no longer the placeholder dash.
+    expect(preview.textContent).not.toBe("—");
+    expect(preview.textContent).toBe(stat.textContent);
+    const baseline = preview.textContent;
+
+    const postCountBefore = fetchMock.mock.calls.filter(([input, init]) => {
+      const url = urlOf(input);
+      return url.startsWith("/v1/backtest") && init?.method === "POST";
+    }).length;
+    expect(postCountBefore).toBe(1);
+
+    // Move K from 3.0 → 6.0 via the dial. The preview must update without a
+    // new POST /v1/backtest call.
+    const dial = screen.getByTestId("cry-wolf-dial");
+    act(() => {
+      for (let i = 0; i < 12; i++) {
+        fireEvent.keyDown(dial, { key: "ArrowRight" });
+      }
+    });
+    expect(dial.getAttribute("aria-valuenow")).toBe("6");
+
+    const postCountAfter = fetchMock.mock.calls.filter(([input, init]) => {
+      const url = urlOf(input);
+      return url.startsWith("/v1/backtest") && init?.method === "POST";
+    }).length;
+    expect(postCountAfter).toBe(1);
+
+    const after = screen.getByTestId("backtest-live-fires-per-game");
+    expect(after.textContent).not.toBe(baseline);
+    // The recompute path marks the readout so a future regression that drops
+    // the in-memory recompute (and falls back to the static snapshot value)
+    // would be detectable in tests + screenshots.
+    expect(after.getAttribute("data-from-recompute")).toBe("1");
+    // Preview and Results-panel stat stay in lockstep — one source of truth.
+    expect(after.textContent).toBe(screen.getByTestId("backtest-stat-fires-per-game").textContent);
+  });
+
+  it("preview shows '…' while a backtest run is pending (US-037)", async () => {
+    let resolveBacktest: (v: Response) => void = () => {};
+    const pendingBacktest = new Promise<Response>((resolve) => {
+      resolveBacktest = resolve;
+    });
+    fetchMock.mockImplementation(async (input, init) => {
+      await Promise.resolve();
+      const url = urlOf(input);
+      if (url.startsWith("/v1/detectors")) return jsonResponse(DETECTORS_RESPONSE);
+      if (url.startsWith("/v1/backtest") && init?.method === "POST") return await pendingBacktest;
+      return new Response("not found", { status: 404 });
+    });
+    render(<BacktestPage />, { wrapper: makeWrapper() });
+    await waitFor(() => {
+      expect(screen.getByTestId("cry-wolf-dial")).not.toBeNull();
+    });
+
+    fireEvent.click(screen.getByTestId("backtest-run-button"));
+    await waitFor(() => {
+      expect(screen.getByTestId("backtest-live-fires-per-game").textContent).toBe("…");
+    });
+    resolveBacktest(jsonResponse(buildSyntheticBacktest()));
+    await waitFor(() => {
+      const value = screen.getByTestId("backtest-live-fires-per-game").textContent;
+      expect(value).not.toBe("…");
+      expect(value).not.toBe("—");
+    });
+  });
+
   it("marks bucketSeconds / weighting / freshCapSeconds as re-run required and flags stale results", async () => {
     const backtest = buildSyntheticBacktest();
     mockDetectorsAndBacktest(backtest);
