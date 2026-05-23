@@ -645,8 +645,8 @@
         "Typecheck passes"
       ],
       "priority": 35,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Route returns { detectors: [...] } wrapper (matches games.ts convention). zod-to-json-schema used with $refStrategy: \"none\" so each detector's params schema inlines without $ref pointers (the US-032 UI can render controls without a resolver). Added local declaration file apps/api/src/types/zod-to-json-schema.d.ts that augments the upstream module to tighten the schema parameter from ZodSchema<any> to ZodTypeAny (suppressing no-unsafe-argument without `as` casts or eslint-disable comments — both forbidden by this repo). The response JSON Schema declares paramsSchema as { type: \"object\", additionalProperties: true } with no `required`; fast-json-stringify would otherwise strip the per-detector keys (properties/required/type/$schema). RegisteredDetector type added to the @signal-console/detectors barrel export (alongside DetectorRegistry) so callers outside the detectors package can type the optional registry-injection point. Tests inject unreachable DB paths for every other route in the same buildServer() instance to prove the detectors route performs zero DB reads (200 response, no thrown error). Also asserts the registry surfaces both shipped detectors (board-mad + off-price-print) with their expected versions, displayNames, and JSON-Schema-shaped params containing every Zod field that should round-trip."
     },
     {
       "id": "US-031",

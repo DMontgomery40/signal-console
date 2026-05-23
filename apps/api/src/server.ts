@@ -12,6 +12,7 @@ import Fastify, { type FastifyInstance } from "fastify";
 import authPlugin, { type AuthPluginOptions } from "./plugins/auth";
 import boardRoutes, { type BoardRoutesOptions } from "./routes/board";
 import cacheRoutes, { type CacheRoutesOptions } from "./routes/cache";
+import detectorsRoutes, { type DetectorsRoutesOptions } from "./routes/detectors";
 import gamesRoutes, { type GamesRoutesOptions } from "./routes/games";
 import healthRoutes, { type HealthRoutesOptions } from "./routes/health";
 import liveRoutes, { type LiveRoutesOptions } from "./routes/live";
@@ -30,6 +31,7 @@ export interface BuildServerOptions {
   readonly board?: BoardRoutesOptions;
   readonly live?: LiveRoutesOptions;
   readonly microstructure?: MicrostructureRoutesOptions;
+  readonly detectors?: DetectorsRoutesOptions;
 }
 
 export async function buildServer(options: BuildServerOptions = {}): Promise<FastifyInstance> {
@@ -66,6 +68,7 @@ export async function buildServer(options: BuildServerOptions = {}): Promise<Fas
   await app.register(boardRoutes, options.board ?? {});
   await app.register(liveRoutes, options.live ?? {});
   await app.register(microstructureRoutes, options.microstructure ?? {});
+  await app.register(detectorsRoutes, options.detectors ?? {});
 
   // Fastify instances are thenable (await app === app.ready()); awaiting here
   // satisfies @typescript-eslint/return-await:always and gives callers a

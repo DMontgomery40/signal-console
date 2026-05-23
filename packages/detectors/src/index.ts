@@ -7,4 +7,4 @@ export type {
   MicrostructureEvent,
   Tick,
 } from "./types";
-export { registry, type DetectorRegistry } from "./registry";
+export { registry, type DetectorRegistry, type RegisteredDetector } from "./registry";
