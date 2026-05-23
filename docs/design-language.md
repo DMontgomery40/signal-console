@@ -79,15 +79,49 @@ No bouncy springs, no parallax, no scroll-jacking, no entrance animations on ini
 
 ## The Cry Wolf dial (centerpiece)
 
-The single chunky thing on the entire app. Specs:
+**This is a rotary dial — a circular knob you turn — not a horizontal slider.** The original plan, the video, and the trader mental model all say "dial." The UI must match that — a tactile-looking knob that a desk operator would reach to grab.
 
-- **Track:** `surface-1`, 8 px tall, rounded full.
-- **Thumb:** 32 px diameter, `accent-yellow` filled, 2 px white inner ring. Active drag area extends 24 px beyond the thumb for fat-finger tolerance.
-- **K value display:** Mono, 64 px (`text-4xl`), `accent-yellow`, 2-decimal precision, positioned above the thumb.
-- **Snap detents:** at K=3.0 (`Sensitive`) and K=6.0 (`Calm`). Detent feedback is a subtle 1 px white tick on the track + the K value flashing `text-hi` for 80 ms when the snap engages. No sound.
-- **Label chips:** below the slider, `accent-green` outline (1 px) for the unselected, filled `accent-green` background for the active snap. Click to snap.
+**Aesthetic level:** ~20% of the way from "minimal flat" toward "fully rendered 3D knob." Inspiration: an analog audio potentiometer (Sennheiser volume, Yamaha mixing console, hi-fi tuning dial). It looks like a real thing, but the depth is implied by flat hairlines, not raster shadows. **NO** dynamic shadows, **NO** 3D / WebGL rendering, **NO** haptics, **NO** GPU-blurred glows.
 
-Everything else on the Backtest page recedes so the dial earns its prominence.
+**Geometry (all SVG):**
+
+- **Knob body:** 160 px diameter circle, `surface-1` fill.
+- **Inner bezel ring:** 1 px inset stroke, `text-lo` at 30% opacity, 4 px inside the knob edge. Implies machined metal lip; no drop shadow.
+- **Outer bezel:** 192 px diameter ring (16 px wider than knob), 1 px `text-lo` at 30% opacity. Holds the tick marks.
+- **Ticks:** every 1.0 K from K=2 to K=8 = 7 ticks across a 270° travel arc (K=2 at -135°, K=5 at 0°, K=8 at +135°). Each tick is a 12 px line, `text-lo`. Major ticks at K=3 and K=6 (the snap detents) are 16 px and `accent-green`.
+- **Indicator:** 3 px wide line from center to bezel edge (radius 88 px), `accent-yellow` stroke, rounded ends. Rotates with the knob. A 0.5 px lighter `accent-yellow` hairline along its leading edge suggests bevel depth without a shadow.
+- **K value (inside the knob):** mono 32 px (`text-2xl`), `accent-yellow`, 2-decimal precision, centered.
+- **K value (large above):** mono 96 px (add `text-5xl 96 px` token if not present — used here and nowhere else), `accent-yellow`, 2-decimal precision. Sits above the knob when the dial is the focal point; this is the bet365-style oversized headline number.
+
+**Interaction:**
+
+- **Vertical drag:** mousedown anywhere inside the knob, then drag up to raise K, down to lower K. 200 px of vertical travel = full 270° rotation = K range 2.0 → 8.0. Drag is the primary interaction.
+- **Click a tick mark:** snaps the dial to that K value (instant, no animation longer than the 50 ms snap-magnetize below).
+- **Click a snap chip** ("Sensitive" K=3, "Calm" K=6): snaps with an 80 ms `text-hi`→`accent-yellow` flash on the inline K value.
+- **Wheel / scroll over knob:** each tick = ±0.25 K.
+- **Keyboard (when focused):** ← ↓ = -0.25, → ↑ = +0.25, PageUp/Down = ±1.0, Home/End = K=2.0/8.0.
+- Touch: vertical pan, same mapping. No haptic vibration.
+
+**Snap detents:**
+
+- At K=3.0 ("Sensitive — live default") and K=6.0 ("Calm — comparison preset"). Both tick marks rendered in `accent-green` (vs `text-lo` for non-snap ticks).
+- **Magnetize behavior:** when the dragged value lands within ±0.1 K of a snap, the indicator smoothly transitions to the exact snap value over 50 ms — no bounce, no spring, just a tight ease-out to lock in.
+
+**Snap chips (below the knob):**
+
+- Two chips horizontally: `Sensitive` and `Calm`. `accent-green` 1 px outline for unselected, filled `accent-green` background + `surface-0` text for the currently-active snap. Click to snap. Same chip styling pattern as elsewhere; the only "selected" state in the whole app.
+
+**The "20% toward rich" deltas vs a flat circle:**
+
+1. The 1 px inset bezel ring (machined-edge hint).
+2. The 16 px outer bezel ring with tick marks (looks mounted, not painted-on).
+3. Major-tick differentiation in `accent-green` (subtle, only the two snap positions get the brand color).
+4. The indicator line's 0.5 px bevel hairline (depth without shadow).
+5. Tick tips have a 1 px `text-hi` at 10% opacity (faint glow without `box-shadow`).
+
+That's it. Anything beyond these five — drop shadows, gradients, glow filters, animated rotation on idle — is over the line.
+
+**Everything else on the Backtest page recedes** so the dial earns its prominence. The dial is the only object on its row; the params form (US-035) lives below it; the per-game timelines (US-038) live below that.
 
 ---
 
