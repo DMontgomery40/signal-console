@@ -1,85 +1,140 @@
-import { useEffect, useRef, useState } from "react";
 import type { JSX } from "react";
 
-import { ApiUnreachableBanner } from "../../components/ApiUnreachableBanner";
+import { ApiUnreachableBanner, isNetworkError } from "../../components/ApiUnreachableBanner";
+import { QueryErrorBanner } from "../../components/QueryErrorBanner";
+import { useGames, type Game } from "../../data/queries";
 
-const API_BASE_URL: string =
-  typeof import.meta.env.VITE_API_URL === "string" && import.meta.env.VITE_API_URL.length > 0
-    ? import.meta.env.VITE_API_URL
-    : "";
+const TIME_FMT = new Intl.DateTimeFormat(undefined, {
+  month: "short",
+  day: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+});
 
-type HealthState =
-  | { readonly kind: "loading" }
-  | { readonly kind: "ok" }
-  | { readonly kind: "error"; readonly error: unknown };
+function formatScheduledStart(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return TIME_FMT.format(d);
+}
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null;
+}
+
+// Pull a short, display-friendly identifier out of the participant JSON the
+// gold DB stores. Real rows carry { key, name, shortName, abbreviation, side };
+// fixture/test rows may only carry { teamId }. Pick the first recognised key.
+export function participantLabel(raw: string): string {
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!isRecord(parsed)) return "?";
+    for (const key of ["abbreviation", "teamId", "shortName", "key", "name", "id"]) {
+      const v = parsed[key];
+      if (typeof v === "string" && v.length > 0) return v;
+    }
+    return "?";
+  } catch {
+    return "?";
+  }
+}
+
+function renderStatus(status: string | null): JSX.Element {
+  if (status === null || status.length === 0) {
+    return <span className="text-text-lo">—</span>;
+  }
+  return <span className="text-text-md">{status}</span>;
+}
 
 export function RecentPage(): JSX.Element {
-  const [health, setHealth] = useState<HealthState>({ kind: "loading" });
-  const controllerRef = useRef<AbortController | null>(null);
+  const games = useGames("PT24H");
 
-  function runHealthCheck(): void {
-    if (controllerRef.current !== null) {
-      controllerRef.current.abort();
-    }
-    const controller = new AbortController();
-    controllerRef.current = controller;
-    setHealth({ kind: "loading" });
-    void (async () => {
-      try {
-        const res = await fetch(`${API_BASE_URL}/v1/health/live`, {
-          signal: controller.signal,
-        });
-        if (controller.signal.aborted) return;
-        setHealth(
-          res.ok
-            ? { kind: "ok" }
-            : { kind: "error", error: new Error(`HTTP ${String(res.status)}`) },
-        );
-      } catch (err: unknown) {
-        if (controller.signal.aborted) return;
-        setHealth({ kind: "error", error: err });
-      }
-    })();
+  function handleRefresh(): void {
+    void games.refetch();
   }
 
-  useEffect(() => {
-    runHealthCheck();
-    return () => {
-      if (controllerRef.current !== null) {
-        controllerRef.current.abort();
-      }
-    };
-  }, []);
+  const banner =
+    games.isError && isNetworkError(games.error) ? (
+      <ApiUnreachableBanner error={games.error} />
+    ) : (
+      <QueryErrorBanner query={games} label="Failed to load games" />
+    );
+
+  const rows: readonly Game[] = games.data?.games ?? [];
 
   return (
     <section>
-      {health.kind === "error" ? <ApiUnreachableBanner error={health.error} /> : null}
-      <h2 className="text-text-hi text-lg font-semibold">Recent</h2>
-      <p className="mt-3 text-text-md text-sm">Last 24 h of games (list lands in US-024).</p>
-      <div className="mt-6 flex items-center gap-6">
-        <p className="tabular font-mono text-sm" data-testid="health-status">
-          <span className="text-text-lo">API status:</span> {renderHealth(health)}
-        </p>
-        <button
-          type="button"
-          onClick={runHealthCheck}
-          data-testid="refresh-button"
-          className="inline-block border border-accent-yellow px-3 py-1.5 text-sm font-medium text-text-hi transition-colors duration-fast ease-out hover:bg-accent-yellow hover:text-surface-0-from"
-        >
-          Refresh
-        </button>
+      {banner}
+      <div className="flex items-baseline justify-between gap-6">
+        <h2 className="text-text-hi text-lg font-semibold">Recent</h2>
+        <div className="flex items-center gap-6">
+          <p className="tabular font-mono text-xs text-text-lo" data-testid="recent-meta">
+            {games.isLoading
+              ? "loading…"
+              : games.isError
+                ? "—"
+                : `${String(rows.length)} game${rows.length === 1 ? "" : "s"} · last 24 h`}
+          </p>
+          <button
+            type="button"
+            onClick={handleRefresh}
+            data-testid="refresh-button"
+            disabled={games.isFetching}
+            className="inline-block border border-accent-yellow px-3 py-1.5 text-sm font-medium text-text-hi transition-colors duration-fast ease-out hover:bg-accent-yellow hover:text-surface-0-from disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            Refresh
+          </button>
+        </div>
+      </div>
+
+      <div className="mt-6" data-testid="recent-list">
+        {games.isLoading && rows.length === 0 ? (
+          <p className="text-text-md text-sm">Loading games…</p>
+        ) : games.isError && rows.length === 0 ? null : rows.length === 0 ? (
+          <p className="text-text-md text-sm" data-testid="recent-empty">
+            No games scheduled in the last 24 h.
+          </p>
+        ) : (
+          <table className="w-full text-left text-sm">
+            <thead>
+              <tr className="text-text-lo">
+                <th className="pb-3 pr-6 font-medium">Scheduled</th>
+                <th className="pb-3 pr-6 font-medium">Sport</th>
+                <th className="pb-3 pr-6 font-medium">League</th>
+                <th className="pb-3 pr-6 font-medium">Home</th>
+                <th className="pb-3 pr-6 font-medium">Away</th>
+                <th className="pb-3 pr-6 font-medium">Status</th>
+                <th className="pb-3 font-medium">Fires</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((g) => (
+                <tr
+                  key={g.id}
+                  data-testid="recent-row"
+                  data-game-id={g.id}
+                  className="border-t border-surface-1"
+                >
+                  <td className="py-3 pr-6 tabular font-mono text-text-md">
+                    {formatScheduledStart(g.scheduledStart)}
+                  </td>
+                  <td className="py-3 pr-6 text-text-md">{g.sport}</td>
+                  <td className="py-3 pr-6 text-text-md">{g.league}</td>
+                  <td className="py-3 pr-6 tabular font-mono text-text-hi">
+                    {participantLabel(g.homeParticipantJson)}
+                  </td>
+                  <td className="py-3 pr-6 tabular font-mono text-text-hi">
+                    {participantLabel(g.awayParticipantJson)}
+                  </td>
+                  <td className="py-3 pr-6">{renderStatus(g.status)}</td>
+                  <td className="py-3 tabular font-mono text-text-lo" data-testid="fires-cell">
+                    —
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </div>
     </section>
   );
-}
-
-function renderHealth(state: HealthState): JSX.Element {
-  switch (state.kind) {
-    case "loading":
-      return <span className="text-text-md">checking…</span>;
-    case "ok":
-      return <span className="text-accent-green">ok</span>;
-    case "error":
-      return <span className="text-negative">unreachable</span>;
-  }
 }

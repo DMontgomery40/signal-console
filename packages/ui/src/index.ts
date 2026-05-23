@@ -11,13 +11,12 @@ export {
   type MotionEasings,
 } from "./tokens";
 
-// The Tailwind preset is shipped as a CommonJS file. We re-export it here so
-// `import { tailwindPreset } from "@signal-console/ui"` works alongside the
-// direct `@signal-console/ui/tailwind-preset` subpath import. Tailwind config
-// loaders (which run in Node) consume the .cjs file directly; this ESM re-export
-// is for tests, tooling, and any future consumer that wants a single entry.
-import tailwindPreset from "./tailwind-preset.cjs";
-export { tailwindPreset };
+// The Tailwind preset is shipped as a CommonJS file consumed by Tailwind's
+// config loader (runs in Node) via the `@signal-console/ui/tailwind-preset`
+// subpath. We deliberately do NOT re-export it from this index, because Vite
+// pulls index.ts into the browser bundle and cannot load the .cjs as an ESM
+// module ("does not provide an export named 'default'"). The subpath import
+// is the single, working path. Types still re-export below.
 export type { TailwindPreset, TailwindPresetThemeExtend } from "./tailwind-preset.cjs";
 
 // Explainer content for HoverCards. 17 entries spanning the board-MAD and
