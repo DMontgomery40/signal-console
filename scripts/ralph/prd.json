@@ -206,8 +206,8 @@
         "Typecheck passes"
       ],
       "priority": 12,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "K=3 snapshots committed: gameCount=66, meanVolume=19.4697 (volume-weighted). Game nba-0042500223 produces 0 fires at K=3 volume-weighted because its 5/12 Reaves-window ticks have 100% NULL volume (consistent with US-011 learning). Game nba-0042500224 produces 15 fires at K=3 volume-weighted. Snapshot file at packages/detectors/src/board-mad/__tests__/__snapshots__/canonical.test.ts.snap (vitest default location)."
     },
     {
       "id": "US-013",
