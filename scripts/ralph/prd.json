@@ -135,8 +135,8 @@
         "Typecheck passes"
       ],
       "priority": 8,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Two-export module with the required comment phrasing. Both literals appear nowhere else in the repo: the only `3.0` hit is the eslint-plugin-functional `^7.3.0` semver constraint (a dependency version, not a K value); the only `6.0` hits are inside scripts/verify-no-stale-plan.ts as the forbidden-string descriptor `K = 6.0 only`, which is the linter rule itself, not a K declaration. No barrel re-export from packages/detectors/src/index.ts — US-009 will import from `./board-mad/config` directly."
     },
     {
       "id": "US-009",
