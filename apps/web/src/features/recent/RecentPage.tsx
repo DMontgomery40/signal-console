@@ -2,7 +2,13 @@ import type { JSX } from "react";
 
 import { ApiUnreachableBanner, isNetworkError } from "../../components/ApiUnreachableBanner";
 import { QueryErrorBanner } from "../../components/QueryErrorBanner";
-import { useGames, type Game } from "../../data/queries";
+import { useBoard, useGames, type Game } from "../../data/queries";
+
+// Cap concurrent /v1/board/:gameId fetches per AC #5 ("page does not exceed 20
+// in-flight requests simultaneously"). Rows past the cap render the plain "—"
+// placeholder; today the desk window holds well under 20 games at once so this
+// only matters in synthetic test renders and a future high-density layout.
+const FIRES_CELL_BUDGET = 20;
 
 const TIME_FMT = new Intl.DateTimeFormat(undefined, {
   month: "short",
@@ -43,6 +49,33 @@ function renderStatus(status: string | null): JSX.Element {
     return <span className="text-text-lo">—</span>;
   }
   return <span className="text-text-md">{status}</span>;
+}
+
+function FiresCell({ gameId }: { gameId: string }): JSX.Element {
+  const board = useBoard(gameId);
+  if (board.isLoading) {
+    return (
+      <span
+        data-testid="fires-pending"
+        role="status"
+        aria-label="loading fire count"
+        className="inline-block h-3 w-3 animate-spin rounded-full border border-text-lo border-t-transparent align-middle"
+      />
+    );
+  }
+  if (board.isError) {
+    return (
+      <span data-testid="fires-error" title={board.error.message} className="text-negative">
+        error
+      </span>
+    );
+  }
+  const fired = board.data?.observations.filter((o) => o.fired === 1).length ?? 0;
+  return (
+    <span data-testid="fires-count" className={fired > 0 ? "text-accent-yellow" : "text-text-md"}>
+      {String(fired)}
+    </span>
+  );
 }
 
 export function RecentPage(): JSX.Element {
@@ -107,7 +140,7 @@ export function RecentPage(): JSX.Element {
               </tr>
             </thead>
             <tbody>
-              {rows.map((g) => (
+              {rows.map((g, idx) => (
                 <tr
                   key={g.id}
                   data-testid="recent-row"
@@ -126,8 +159,12 @@ export function RecentPage(): JSX.Element {
                     {participantLabel(g.awayParticipantJson)}
                   </td>
                   <td className="py-3 pr-6">{renderStatus(g.status)}</td>
-                  <td className="py-3 tabular font-mono text-text-lo" data-testid="fires-cell">
-                    —
+                  <td className="py-3 tabular font-mono" data-testid="fires-cell">
+                    {idx < FIRES_CELL_BUDGET ? (
+                      <FiresCell gameId={g.id} />
+                    ) : (
+                      <span className="text-text-lo">—</span>
+                    )}
                   </td>
                 </tr>
               ))}
