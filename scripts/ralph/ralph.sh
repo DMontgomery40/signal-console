@@ -213,7 +213,45 @@ for i in $(seq 1 $MAX_ITERATIONS); do
   fi
 
   # Run Claude Code with the ralph prompt
-  OUTPUT=$(claude --dangerously-skip-permissions --print < "$SCRIPT_DIR/CLAUDE.md" 2>&1 | tee /dev/stderr) || true
+  # Hard 20-min ceiling on any single iteration. Healthy iterations run 5-22 min.
+  # Anything past 20 min is overwhelmingly Playwright/MCP hung indefinitely (observed
+  # twice on UI stories US-045 and US-046, identical signature: claude sleeping, 0%
+  # CPU, dead API child, no file activity). Pure-bash timeout because macOS doesn't
+  # ship coreutils' `timeout` by default — we spawn the killer in the background and
+  # let `wait` race against it.
+  ITERATION_TIMEOUT_SEC=${ITERATION_TIMEOUT_SEC:-1200}
+  ITER_OUT_FILE=$(mktemp -t ralph-iter)
+  ITER_TIMEOUT_MARKER="${ITER_OUT_FILE}.timeout"
+
+  ( claude --dangerously-skip-permissions --print < "$SCRIPT_DIR/CLAUDE.md" 2>&1 ) | tee /dev/stderr > "$ITER_OUT_FILE" &
+  CLAUDE_PID=$!
+  ( sleep "$ITERATION_TIMEOUT_SEC" && kill -KILL $CLAUDE_PID 2>/dev/null && touch "$ITER_TIMEOUT_MARKER" ) &
+  KILLER_PID=$!
+
+  wait $CLAUDE_PID 2>/dev/null
+  CLAUDE_EXIT=$?
+  # Cancel the killer if claude finished on its own
+  kill $KILLER_PID 2>/dev/null
+  wait $KILLER_PID 2>/dev/null
+
+  OUTPUT=$(cat "$ITER_OUT_FILE" 2>/dev/null || echo "")
+  TIMED_OUT=0
+  if [ -f "$ITER_TIMEOUT_MARKER" ]; then
+    TIMED_OUT=1
+    rm -f "$ITER_TIMEOUT_MARKER"
+  fi
+  rm -f "$ITER_OUT_FILE"
+
+  if [ $TIMED_OUT -eq 1 ]; then
+    echo ""
+    echo "[ralph.sh] ITERATION TIMEOUT — claude killed after ${ITERATION_TIMEOUT_SEC}s. Story stays passes:false; loop continues to next iteration."
+    # Best-effort kill any child processes claude spawned (MCP servers, dev servers, etc.)
+    pkill -KILL -f "tsx watch src/server.ts" 2>/dev/null || true
+    pkill -KILL -f "playwright/mcp@latest" 2>/dev/null || true
+    pkill -KILL -f "21st-dev/magic@latest" 2>/dev/null || true
+    pkill -KILL -f "gitnexus mcp" 2>/dev/null || true
+    sleep 3
+  fi
 
   # Check for completion signal
   if echo "$OUTPUT" | grep -q "<promise>COMPLETE</promise>"; then

@@ -83,6 +83,24 @@ If a story you pick contains an acceptance criterion that requires owner action,
 
 **Metadata is not verification.** "File X exists" or "snapshot matches" does NOT prove a UI works. For any story under US-022 onward whose acceptance touches `apps/web/` or `packages/ui/`, you must produce visual evidence via the computer-use and claude-in-chrome MCPs before flipping `passes: true`.
 
+### ⚠️ KNOWN HANG MODE (READ BEFORE TOUCHING UI STORIES) ⚠️
+
+**Playwright MCP and computer-use MCP have hung indefinitely on this machine** during UI verification for US-045 and US-046 (observed twice; identical signature: claude process sleeps at 0% CPU, API child process dies, no further file activity, no MCP response ever arrives). The watchdog and `ralph.sh`'s 20-min iteration timeout now bound the damage, but **you can avoid the hang entirely** by adopting these rules:
+
+1. **Set a hard 3-minute wall-clock budget for each Playwright/computer-use tool call.** Do not call them repeatedly in a tight loop expecting different results. If a single call to `browser_navigate`, `browser_click`, `browser_take_screenshot`, etc. takes more than 3 minutes to return, ABORT visual verification for this story, log the failure in `progress.txt` with the exact tool call that hung, and proceed to the HTTP-smoke fallback below.
+
+2. **HTTP-smoke fallback (primary verification path, fully sufficient if Playwright unavailable):** for any UI story, you can satisfy the End-to-End Verification Mandate using only `curl` + `sqlite3` + `pnpm vitest`:
+   - **DOM assertion via static build:** `pnpm --filter @signal-console/web build` produces `apps/web/dist/index.html` + bundled JS. Boot a static server (`pnpm dlx serve apps/web/dist -l 5000 &`) and `curl http://localhost:5000/` to fetch the rendered HTML. Use grep/regex to assert presence of expected text, class names from tokens (e.g. `text-accent-yellow`), or `data-testid` attributes you added to mark important elements.
+   - **API smoke:** `curl -H "X-Signal-Token: $(cat ~/.signal-console/token)" http://localhost:4100/v1/games?since=PT24H` returns real JSON. Pipe to `jq` and assert shape/count.
+   - **DB parity:** `sqlite3 ~/signal-console/data/detector-cache.sqlite "SELECT ..."` returns numbers that match what the API/UI reports.
+   - **Vitest jsdom render** (already configured in apps/web/): mount components, assert they render expected text/classes against the real query hooks (you can spin up a real backend in `beforeAll` or use msw-without-the-mock if needed).
+
+3. **If you do use Playwright successfully, tear down immediately.** Don't leave the browser open. Don't poll a selector indefinitely — set `timeout: 30_000` (or smaller) on every wait. The hang signature is "browser_navigate to localhost:5173 that hasn't started up yet" or "browser_wait for a selector that never appears."
+
+4. **Mark `passes: true` based on the smoke that DID succeed**, not on the visual verification you couldn't run. Document in `progress.txt`: "Playwright unavailable; verified via HTTP smoke + DB parity. Pending: visual screenshots (will be captured manually by the owner)." That is acceptable. **Repeated hangs eating iteration budget on the same story is NOT acceptable** — fall back to HTTP smokes the moment Playwright stalls.
+
+5. **The owner will manually capture screenshots later if needed.** Do not let visual verification block code progress. The HTTP-smoke fallback proves the feature behaves correctly; the visual check is gravy.
+
 **Procedure per UI story:**
 
 1. **Start the dev server** in the background: `pnpm --filter @signal-console/web dev`. Wait for the local URL to print.
