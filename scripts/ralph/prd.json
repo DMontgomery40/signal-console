@@ -73,7 +73,7 @@
       ],
       "priority": 4,
       "passes": true,
-      "notes": "better-sqlite3 does not enable `file:` URI parsing by default; the PRD §11.1 example code is incomplete. open.ts sets `process.env.SQLITE_USE_URI = '1'` at module load to make guard #1 (the `?mode=ro` URI) actually effective. The native addon loads lazily on first `new Database()` call and calls `sqlite3_config(SQLITE_CONFIG_URI, 1)` once based on this env var. Guard #2 (`readonly: true`) is independent of this and continues to enforce SQLITE_OPEN_READONLY. Future db-package modules (US-005+) that import better-sqlite3 must import this module first or replicate the env-var setting before their own `new Database()` calls, since `std::call_once` makes the URI config a one-shot per process."
+      "notes": "better-sqlite3 does not enable `file:` URI parsing by default; the PRD \u00a711.1 example code is incomplete. open.ts sets `process.env.SQLITE_USE_URI = '1'` at module load to make guard #1 (the `?mode=ro` URI) actually effective. The native addon loads lazily on first `new Database()` call and calls `sqlite3_config(SQLITE_CONFIG_URI, 1)` once based on this env var. Guard #2 (`readonly: true`) is independent of this and continues to enforce SQLITE_OPEN_READONLY. Future db-package modules (US-005+) that import better-sqlite3 must import this module first or replicate the env-var setting before their own `new Database()` calls, since `std::call_once` makes the URI config a one-shot per process."
     },
     {
       "id": "US-005",
@@ -91,7 +91,7 @@
       ],
       "priority": 5,
       "passes": true,
-      "notes": "Migration uses CREATE TABLE/INDEX IF NOT EXISTS so runMigrations is naturally idempotent. The UNIQUE constraint test row sets game_id AND window_start AND window_end (despite scope='window') because SQLite treats NULLs as distinct under UNIQUE — without filling every key column the duplicate would be allowed. cache:reset removes the .sqlite + -wal + -shm trio, mkdir -p's data/, then openCacheDb() recreates the schema. runner.ts also sets process.env.SQLITE_USE_URI = '1' (mirroring open.ts) so module-load ordering between cache and gold-DB consumers cannot disable URI parsing process-wide."
+      "notes": "Migration uses CREATE TABLE/INDEX IF NOT EXISTS so runMigrations is naturally idempotent. The UNIQUE constraint test row sets game_id AND window_start AND window_end (despite scope='window') because SQLite treats NULLs as distinct under UNIQUE \u2014 without filling every key column the duplicate would be allowed. cache:reset removes the .sqlite + -wal + -shm trio, mkdir -p's data/, then openCacheDb() recreates the schema. runner.ts also sets process.env.SQLITE_USE_URI = '1' (mirroring open.ts) so module-load ordering between cache and gold-DB consumers cannot disable URI parsing process-wide."
     },
     {
       "id": "US-006",
@@ -107,7 +107,7 @@
       ],
       "priority": 6,
       "passes": true,
-      "notes": "CTE bodies are bare SELECTs (no leading WITH); callers wrap them in `WITH v_games AS (${v_games}) ...`. The v_games current-status column uses a correlated subquery against game_states ordered by captured_at DESC LIMIT 1 — `status` is the column name per ~/nba-predict/packages/shared/src/migrations.ts. v_events is intentionally NBA-only today; the file comment documents the UNION ALL extension point for football."
+      "notes": "CTE bodies are bare SELECTs (no leading WITH); callers wrap them in `WITH v_games AS (${v_games}) ...`. The v_games current-status column uses a correlated subquery against game_states ordered by captured_at DESC LIMIT 1 \u2014 `status` is the column name per ~/nba-predict/packages/shared/src/migrations.ts. v_events is intentionally NBA-only today; the file comment documents the UNION ALL extension point for football."
     },
     {
       "id": "US-007",
@@ -136,7 +136,7 @@
       ],
       "priority": 8,
       "passes": true,
-      "notes": "Two-export module with the required comment phrasing. Both literals appear nowhere else in the repo: the only `3.0` hit is the eslint-plugin-functional `^7.3.0` semver constraint (a dependency version, not a K value); the only `6.0` hits are inside scripts/verify-no-stale-plan.ts as the forbidden-string descriptor `K = 6.0 only`, which is the linter rule itself, not a K declaration. No barrel re-export from packages/detectors/src/index.ts — US-009 will import from `./board-mad/config` directly."
+      "notes": "Two-export module with the required comment phrasing. Both literals appear nowhere else in the repo: the only `3.0` hit is the eslint-plugin-functional `^7.3.0` semver constraint (a dependency version, not a K value); the only `6.0` hits are inside scripts/verify-no-stale-plan.ts as the forbidden-string descriptor `K = 6.0 only`, which is the linter rule itself, not a K declaration. No barrel re-export from packages/detectors/src/index.ts \u2014 US-009 will import from `./board-mad/config` directly."
     },
     {
       "id": "US-009",
@@ -173,7 +173,7 @@
       ],
       "priority": 10,
       "passes": true,
-      "notes": "Fixtures committed as .json.gz for all three anchor games (sizes 29 KB / 146 KB / 31 KB — total 208 KB, well under 5 MB). Window choice: 2 h centred on each anchored event (222: 02:00–04:00 on 5/8; 223+224: 03:30–05:30 on 5/12). NOTE: scheduled_start for nba-0042500223 in the games table is 2026-05-10T00:30Z but its tick density on 2026-05-12 (the Reaves event date) is 4× the 5/10 density — the live in-play window for 223 is 5/12, not 5/10 (likely series rescheduling not reflected in games.scheduled_start). Future US-018 callers of /v1/games should not rely on scheduled_start as ground truth for live-play. Extract path uses GOLD_DB_PATH env override so the script can run pre-Phase-0 cutover (forbidden literal stays out of code). quote_ticks.volume is NULLABLE in the gold schema (100% NULL in nba-0042500223's reaves window, partial NULL in 224); extract COALESCEs to 0 because the detector's Tick.volume is non-nullable and log1p(NaN) would silently break intensities — any future API/route fetching ticks must do the same coalesce. Fixture row order is (sourceMarketId, capturedAt) per UNIQUE index; the detector sorts internally so order doesn't affect results. fixture-loader.ts at __tests__/fixture-loader.ts (NOT under vitest's default test pattern) loads either .json.gz or .json transparently; the plain-JSON branch is dead code today but kept for symmetry."
+      "notes": "Fixtures committed as .json.gz for all three anchor games (sizes 29 KB / 146 KB / 31 KB \u2014 total 208 KB, well under 5 MB). Window choice: 2 h centred on each anchored event (222: 02:00\u201304:00 on 5/8; 223+224: 03:30\u201305:30 on 5/12). NOTE: scheduled_start for nba-0042500223 in the games table is 2026-05-10T00:30Z but its tick density on 2026-05-12 (the Reaves event date) is 4\u00d7 the 5/10 density \u2014 the live in-play window for 223 is 5/12, not 5/10 (likely series rescheduling not reflected in games.scheduled_start). Future US-018 callers of /v1/games should not rely on scheduled_start as ground truth for live-play. Extract path uses GOLD_DB_PATH env override so the script can run pre-Phase-0 cutover (forbidden literal stays out of code). quote_ticks.volume is NULLABLE in the gold schema (100% NULL in nba-0042500223's reaves window, partial NULL in 224); extract COALESCEs to 0 because the detector's Tick.volume is non-nullable and log1p(NaN) would silently break intensities \u2014 any future API/route fetching ticks must do the same coalesce. Fixture row order is (sourceMarketId, capturedAt) per UNIQUE index; the detector sorts internally so order doesn't affect results. fixture-loader.ts at __tests__/fixture-loader.ts (NOT under vitest's default test pattern) loads either .json.gz or .json transparently; the plain-JSON branch is dead code today but kept for symmetry."
     },
     {
       "id": "US-011",
@@ -181,8 +181,8 @@
       "description": "As a developer, I need contract tests locking in the research report's K=6.0 outcomes so future drift is immediately caught.",
       "acceptanceCriteria": [
         "File ~/signal-console/packages/detectors/src/board-mad/__tests__/canonical.test.ts exists",
-        "Test 'hartenstein fires at K=6': running board-mad on the nba-0042500222 fixture with kMad=6.0 produces a fire whose bucket_start equals 2026-05-08T03:12:00Z and whose bucket_end equals 2026-05-08T03:13:00Z (watcher confirmation ≈ T+23 s after event 03:12:36.8Z)",
-        "Test 'reaves no-fire at K=6': running board-mad on both nba-0042500223 and nba-0042500224 fixtures with kMad=6.0 produces zero fires within ±5 min of event 2026-05-12T04:51:40.2Z",
+        "Test 'hartenstein fires at K=6': running board-mad on the nba-0042500222 fixture with kMad=6.0 produces a fire whose bucket_start equals 2026-05-08T03:12:00Z and whose bucket_end equals 2026-05-08T03:13:00Z (watcher confirmation \u2248 T+23 s after event 03:12:36.8Z)",
+        "Test 'reaves no-fire at K=6': running board-mad on both nba-0042500223 and nba-0042500224 fixtures with kMad=6.0 produces zero fires within \u00b15 min of event 2026-05-12T04:51:40.2Z",
         "Test '64-game mean fires at K=6': running board-mad across the 64-game PBP fixture set with kMad=6.0 and weighting='equal' produces mean fires per game in [8.3, 10.3]; with weighting='volume' produces mean in [7.6, 9.6]",
         "Test names cite event timestamp and bucket timestamp explicitly so future readers cannot conflate detector output (bucket-start) with watcher confirmation (bucket-end)",
         "Tests pass",
@@ -215,14 +215,14 @@
       "description": "As the owner, I need ~/signal-console/docs/gold-db-relocation.md documenting the verbatim 8-step Phase-0 procedure so the manual cutover is reviewable and reproducible.",
       "acceptanceCriteria": [
         "File ~/signal-console/docs/gold-db-relocation.md exists",
-        "Document contains 8 labeled steps (a through h) matching PRD §11.3: stop old processes (with ps aux + lsof verification), park Cloudflare tunnel (with curl --fail verification), confirm no DB-file holders via lsof, optional sqlite3 .backup, mv main+wal+shm, sqlite3 PRAGMA integrity_check, sentinel files (MOVED.txt + .DEPRECATED), Phase-1 tunnel repoint placeholder",
+        "Document contains 8 labeled steps (a through h) matching PRD \u00a711.3: stop old processes (with ps aux + lsof verification), park Cloudflare tunnel (with curl --fail verification), confirm no DB-file holders via lsof, optional sqlite3 .backup, mv main+wal+shm, sqlite3 PRAGMA integrity_check, sentinel files (MOVED.txt + .DEPRECATED), Phase-1 tunnel repoint placeholder",
         "Document explicitly states 'do not wrap in a single script; each Bash invocation is reviewed and approved individually; no bypass-permissions'",
         "Allow-list in scripts/verify-no-stale-plan.ts already permits this file (verified in US-003)",
         "Running 'pnpm verify:no-stale-plan' exits 0"
       ],
       "priority": 13,
       "passes": true,
-      "notes": "Runbook written verbatim from PRD §11.3 with 8 labeled steps a-h. The 'do not wrap in a single script; each Bash invocation is reviewed and approved individually; no bypass-permissions' sentence is on ONE single line in the doc (lowercase, matches the AC phrasing) so a single-line literal grep finds it — markdown rendering doesn't care about line breaks inside a paragraph, but a future literal grep verifier does. Allow-list permits docs/gold-db-relocation.md via the ALLOW_LIST_PATHS array in scripts/verify-no-stale-plan.ts (US-003), so the legacy literal nba-predict/data/signal-console.sqlite that appears verbatim in step c and the surrounding prose does not trip verify:no-stale-plan. Doc explicitly tags the legacy path with the '(historical, do not use)' marker in the lead-in paragraph, doubling the allow-list belt-and-suspenders. Step h is intentionally a Phase-1 placeholder (out of scope for Phase-0 cutover) per PRD §11.3 wording 'h. (Phase 1) Repoint Cloudflare to the new API once smoke passes.' — actual repoint is owned by a future Phase-1 story."
+      "notes": "Runbook written verbatim from PRD \u00a711.3 with 8 labeled steps a-h. The 'do not wrap in a single script; each Bash invocation is reviewed and approved individually; no bypass-permissions' sentence is on ONE single line in the doc (lowercase, matches the AC phrasing) so a single-line literal grep finds it \u2014 markdown rendering doesn't care about line breaks inside a paragraph, but a future literal grep verifier does. Allow-list permits docs/gold-db-relocation.md via the ALLOW_LIST_PATHS array in scripts/verify-no-stale-plan.ts (US-003), so the legacy literal nba-predict/data/signal-console.sqlite that appears verbatim in step c and the surrounding prose does not trip verify:no-stale-plan. Doc explicitly tags the legacy path with the '(historical, do not use)' marker in the lead-in paragraph, doubling the allow-list belt-and-suspenders. Step h is intentionally a Phase-1 placeholder (out of scope for Phase-0 cutover) per PRD \u00a711.3 wording 'h. (Phase 1) Repoint Cloudflare to the new API once smoke passes.' \u2014 actual repoint is owned by a future Phase-1 story."
     },
     {
       "id": "US-014",
@@ -239,8 +239,8 @@
         "Typecheck passes"
       ],
       "priority": 14,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Script lives at scripts/verify-queries.ts; runs against the gold DB resolved via env-overridable GOLD_DB_PATH (defaults to packages/db's GOLD_DB_PATH constant, the post-Phase-0 location). Five queries: games-last-24h uses v_games CTE + correlated game_states subquery; ticks-for-one-game-window joins quote_ticks + source_markets; microstructure-for-one-game hits market_microstructure_events by game_id; board-buckets-for-one-game is the same join shape as ticks but with only a lower captured_at bound (board-mad in-play window); pbp-for-one-game hits nba_play_by_play_actions by game_id. All five plan rows use either USING INDEX or USING COVERING INDEX with no full scans of non-trivial tables (NON_TRIVIAL_TABLES = quote_ticks, market_microstructure_events, source_markets, nba_play_by_play_actions, game_states). Plans are rendered as 2-space-indented text snapshots (parent->depth via id/parent columns from EXPLAIN QUERY PLAN); plain text files at packages/db/src/queries/__tests__/__snapshots__/<name>.plan.txt. Both modes verified: `verify:queries -u` writes fresh snapshots, `verify:queries` (no args) re-runs against the same DB and exits 0 on match. Perturbation tests (mutating one snapshot file, deleting one snapshot file) both correctly produced exit 1 with named-file diagnostics. Script is NOT chained into `pnpm verify` (per PRD §FR-29 it's part of `verify:gold` which requires the local 54 GB gold DB). Eslint trap: `import Database from 'better-sqlite3'` was unresolvable from scripts/tsconfig.json (no @types/better-sqlite3 in scripts scope); use `type GoldDbHandle = ReturnType<typeof openGoldDb>` instead. Per US-008 K=3.0 K=6.0 outcomes already validate the detector contract; this story validates the query-side guarantee that the planner won't silently regress."
     },
     {
       "id": "US-015",
@@ -412,7 +412,7 @@
       "acceptanceCriteria": [
         "File ~/signal-console/apps/web/src/features/recent/RecentPage.tsx exists",
         "Route '/' renders a list of games returned by useGames({ since: 'PT24H' })",
-        "Each row shows: scheduled_start (formatted local), sport, league, home team identifier, away team identifier, current status, and a 'fires: —' cell (filled by US-025)",
+        "Each row shows: scheduled_start (formatted local), sport, league, home team identifier, away team identifier, current status, and a 'fires: \u2014' cell (filled by US-025)",
         "Page does not auto-refresh on mount; a 'Refresh' button re-runs the query",
         "API errors render as a top-of-page banner; the rest of the page remains usable",
         "Typecheck passes",
@@ -624,11 +624,11 @@
     {
       "id": "US-036",
       "title": "Cry Wolf dial component",
-      "description": "As an analyst, I need a continuous K slider (2.0–8.0, step 0.25, default 3.0) with two labelled snap points so I can explore K_MAD sensitivity around the live default.",
+      "description": "As an analyst, I need a continuous K slider (2.0\u20138.0, step 0.25, default 3.0) with two labelled snap points so I can explore K_MAD sensitivity around the live default.",
       "acceptanceCriteria": [
         "File ~/signal-console/apps/web/src/features/backtest/CryWolfDial.tsx exists",
         "Component renders an input type=range with min=2.0, max=8.0, step=0.25, defaultValue=3.0",
-        "Two snap-point chips render below the slider: 'Sensitive — live default' at K=3.0 and 'Calm — comparison preset' at K=6.0; clicking each chip sets the slider value to that K",
+        "Two snap-point chips render below the slider: 'Sensitive \u2014 live default' at K=3.0 and 'Calm \u2014 comparison preset' at K=6.0; clicking each chip sets the slider value to that K",
         "Tooltip text on the dial reads (verbatim) 'It's a dial.' sourced from the video plan narration",
         "Current K value is displayed numerically next to the slider with 2-decimal precision",
         "Component is integrated into BacktestPage so changing K triggers an in-memory recomputation via the response from POST /v1/backtest (no second API call needed; uses runSweep semantics on cached pre-buckets)",
@@ -689,6 +689,29 @@
       "notes": ""
     },
     {
+      "id": "US-042",
+      "title": "Backtest warmup dial (alongside Cry Wolf dial)",
+      "description": "As an analyst, I want a second dial next to the Cry Wolf K-dial that adjusts warmupBuckets so I can explore how early in a game fires can occur and compare warmup variants without rerunning the API call.",
+      "acceptanceCriteria": [
+        "File ~/signal-console/apps/web/src/features/backtest/WarmupDial.tsx exists and exports a WarmupDial component",
+        "Component renders an input type=range with min=2, max=20, step=1, defaultValue=8 (matching board-mad paramsSchema bounds for warmupBuckets)",
+        "Dial renders horizontally adjacent to CryWolfDial inside BacktestPage; the two dials share a 'Dials' panel/section with K on the left and Warmup on the right",
+        "Three labelled snap-point chips render below the warmup slider: 'Default (8)', 'Eager (4)', 'Off (2)'; clicking each chip sets warmupBuckets to that value",
+        "Current warmupBuckets value displayed numerically next to slider with integer precision",
+        "Tooltip on the warmup dial reads (verbatim) 'Skip the first N buckets before fires can occur. Lower = earlier fires; below ~4 the MAD becomes noisy.'",
+        "Backtest in-memory recompute (the same path used by the K dial in US-037) responds to warmupBuckets changes within 1 second; Network tab shows zero requests to /v1/backtest during warmup-dial drag after the initial sweep",
+        "Per-game timeline markers (US-038) and Reaves/Hartenstein lead-time display (US-039) both update in place when warmupBuckets changes, using the cached pre-bucketed series",
+        "Recent and Live pages remain unaffected by the warmup dial value: integration test asserts that mounting BacktestPage with warmupBuckets=2 has zero effect on the params_hash used by useBoard() in RecentPage (verified by inspecting the cache key or request payload)",
+        "runSweep helper (US-033) is extended to accept a sweep over (kMad, warmupBuckets) pairs OR a base params object whose warmupBuckets can vary per sweep call; unit test asserts runSweep with warmupBuckets=2 and warmupBuckets=8 produces different fire counts on the same bucket series, and the warmupBuckets=2 result has at least as many fires as warmupBuckets=8 (lower warmup -> >= fires on the same data)",
+        "Typecheck passes",
+        "Tests pass",
+        "Verify in browser using dev-browser skill: navigate to /backtest, run a 7-day backtest containing the Hartenstein date (2026-05-08), drag warmup dial from 8 down to 2, confirm fires/game increases monotonically and the per-game timelines show earlier fire markers (the first marker appears closer to the start of each game)"
+      ],
+      "priority": 40,
+      "passes": false,
+      "notes": ""
+    },
+    {
       "id": "US-040",
       "title": "Add sport= filter to /v1/games",
       "description": "As an integrator, I need /v1/games?sport= so future NFL/NCAA football consumers can filter without breaking NBA callers.",
@@ -702,7 +725,7 @@
         "Tests pass",
         "Typecheck passes"
       ],
-      "priority": 40,
+      "priority": 41,
       "passes": false,
       "notes": ""
     },
@@ -716,7 +739,7 @@
         "Document includes a checklist a future engineer can run through",
         "Running 'pnpm verify:no-stale-plan' exits 0"
       ],
-      "priority": 41,
+      "priority": 42,
       "passes": false,
       "notes": ""
     }
