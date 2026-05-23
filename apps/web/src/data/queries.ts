@@ -320,6 +320,75 @@ export function useSettings(): UseQueryResult<Settings, Error> {
   });
 }
 
+// /v1/backtest — mirrors apps/api/src/routes/backtest.ts response. The body
+// is { detector_id, params, window: {start, end}, game_ids? }; the response
+// shape matches BacktestResult: { runId, stats, observations[] }.
+// Observations are all-buckets (not fires-only) so US-035/US-036/US-037 can
+// recompute kMad/trailingBuckets/warmupBuckets client-side without re-fetching.
+const backtestObservationSchema = z.object({
+  gameId: z.string(),
+  bucketStart: z.string(),
+  bucketEnd: z.string(),
+  fired: z.number().int(),
+  intensity: z.number(),
+  baselineMedian: z.number(),
+  baselineMad: z.number(),
+});
+const backtestStatsSchema = z.object({
+  firesPerGame: z.number(),
+  totalFires: z.number().int(),
+  gamesInWindow: z.number().int(),
+});
+const backtestResponseSchema = z.object({
+  runId: z.number().int(),
+  stats: backtestStatsSchema,
+  observations: z.array(backtestObservationSchema),
+});
+const backtestErrorSchema = z.object({ error: z.string() });
+
+export type BacktestObservation = z.infer<typeof backtestObservationSchema>;
+export type BacktestStats = z.infer<typeof backtestStatsSchema>;
+export type BacktestResponse = z.infer<typeof backtestResponseSchema>;
+
+export interface BacktestRequest {
+  readonly detector_id: string;
+  readonly params: Record<string, unknown>;
+  readonly window: { readonly start: string; readonly end: string };
+  readonly game_ids?: readonly string[];
+}
+
+async function runBacktestRequest(req: BacktestRequest): Promise<BacktestResponse> {
+  const res = await fetch(`${API_BASE_URL}/v1/backtest`, {
+    method: "POST",
+    headers: {
+      "X-Signal-Token": SIGNAL_TOKEN,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(req),
+  });
+  const text = await res.text();
+  if (!res.ok) {
+    // Best-effort message extraction — API returns { error: string } on 400.
+    const parsed = (() => {
+      try {
+        return backtestErrorSchema.safeParse(JSON.parse(text));
+      } catch {
+        return { success: false } as const;
+      }
+    })();
+    const detail = parsed.success ? parsed.data.error : text || res.statusText;
+    throw new Error(`HTTP ${String(res.status)}: ${detail}`);
+  }
+  const json: unknown = JSON.parse(text);
+  return backtestResponseSchema.parse(json);
+}
+
+export function useBacktest(): UseMutationResult<BacktestResponse, Error, BacktestRequest> {
+  return useMutation({
+    mutationFn: runBacktestRequest,
+  });
+}
+
 // /v1/cache — DELETE clears detector_runs (cascade) and returns { deleted }.
 const clearCacheResponseSchema = z.object({ deleted: z.number().int() });
 export type ClearCacheResponse = z.infer<typeof clearCacheResponseSchema>;

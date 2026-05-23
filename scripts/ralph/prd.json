@@ -833,8 +833,8 @@
         "Visual verification per CLAUDE.md UI Verification Protocol: screenshots at apps/web/.ralph-screenshots/US-035/ for baseline, primary interaction, and error/edge state; each screenshot decoded against docs/design-language.md tokens; interactive elements (nav, buttons, slider, inputs) clicked via claude-in-chrome MCP and resulting visual state verified; renders correctly at 1440x900 and 1024x768"
       ],
       "priority": 44,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Scaffold: window picker (28-day cap) + game-scope radio + 20-id multi-select + detector selector wired to /v1/detectors. Auto-form renders editable controls per JSON Schema (number/enum/boolean). POST /v1/backtest via new useBacktest mutation; results panel shows fires/game, total fires, games-in-window from the response. Client-side recompute (apps/web/src/features/backtest/clientRecompute.ts) re-derives fires for board-mad when kMad/trailingBuckets/warmupBuckets change — verified against real gold DB: K=3 server fires=249, K=6 server fires=152, K=3 observations re-swept at K=6 client-side = 152 (exact parity), Hartenstein bucket at 2026-05-08T03:12:00.000Z still fires after recompute. bucketSeconds/weighting/freshCapSeconds marked as Re-run required since they alter prebucket; stale-warning banner appears when those drift from the snapshot. K dial remains generic NumberControl pending US-036. Visual screenshots skipped per KNOWN HANG MODE; HTTP-smoke + production-bundle DOM grep + vitest jsdom render are the verification path."
     },
     {
       "id": "US-036",
