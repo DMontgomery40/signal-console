@@ -12,6 +12,7 @@ import Fastify, { type FastifyInstance } from "fastify";
 import authPlugin, { type AuthPluginOptions } from "./plugins/auth";
 import gamesRoutes, { type GamesRoutesOptions } from "./routes/games";
 import healthRoutes, { type HealthRoutesOptions } from "./routes/health";
+import settingsRoutes, { type SettingsRoutesOptions } from "./routes/settings";
 
 const DEFAULT_PORT = 4100;
 const DEFAULT_HOST = "localhost";
@@ -20,6 +21,7 @@ export interface BuildServerOptions {
   readonly auth?: AuthPluginOptions;
   readonly health?: HealthRoutesOptions;
   readonly games?: GamesRoutesOptions;
+  readonly settings?: SettingsRoutesOptions;
 }
 
 export async function buildServer(options: BuildServerOptions = {}): Promise<FastifyInstance> {
@@ -51,6 +53,7 @@ export async function buildServer(options: BuildServerOptions = {}): Promise<Fas
 
   await app.register(healthRoutes, options.health ?? {});
   await app.register(gamesRoutes, options.games ?? {});
+  await app.register(settingsRoutes, options.settings ?? {});
 
   // Fastify instances are thenable (await app === app.ready()); awaiting here
   // satisfies @typescript-eslint/return-await:always and gives callers a

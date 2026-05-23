@@ -53,6 +53,9 @@ importers:
       '@signal-console/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@signal-console/detectors':
+        specifier: workspace:*
+        version: link:../../packages/detectors
       fastify:
         specifier: ^5.8.0
         version: 5.8.5
