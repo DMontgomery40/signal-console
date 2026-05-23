@@ -2,7 +2,7 @@
 // packages/detectors/src/<name>/index.ts and one new line in this file.
 //
 // Wired in US-026 (the Settings UI's About section is the first consumer that
-// surfaces what's registered). off-price-print is added by US-027.
+// surfaces what's registered). off-price-print added by US-027.
 //
 // The registry stores a metadata-only projection (id, version, displayName,
 // paramsSchema). Callers that need to dispatch run() should import the concrete
@@ -18,6 +18,7 @@
 import type { z } from "zod";
 
 import { detector as boardMad } from "./board-mad";
+import { detector as offPricePrint } from "./off-price-print";
 import type { Detector } from "./types";
 
 export interface RegisteredDetector {
@@ -40,4 +41,5 @@ export type DetectorRegistry = ReadonlyMap<string, RegisteredDetector>;
 
 export const registry: DetectorRegistry = new Map<string, RegisteredDetector>([
   [boardMad.id, meta(boardMad)],
+  [offPricePrint.id, meta(offPricePrint)],
 ]);

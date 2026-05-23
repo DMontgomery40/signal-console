@@ -591,8 +591,8 @@
         "Typecheck passes"
       ],
       "priority": 32,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Port ships at packages/detectors/src/off-price-print/index.ts (66 LOC). Params: { minVolumeShare: 0.10, minOffPriceDistance: 0.40 } both clamped [0,1] with the AC defaults. run() filters window.microstructureEvents by gameIds (Set lookup), then by passesThresholds (BOTH thresholds must clear), then maps each surviving event to a DetectorFire with bucketStart=bucketEnd=eventTimestamp and intensity=offPriceDistance (baselineMedian/baselineMad = 0 because there is no trailing baseline for this detector). DetectorResult.buckets is an empty array - off-price-print does not time-bucket so there are no warmup/baseline buckets to surface; US-047 drilldown for off-price-print would derive context from the fires list directly. Added MicrostructureEvent type (gameId, sourceMarketId, eventTimestamp, source, volumeShare, offPriceDistance) and optional microstructureEvents on DetectorWindow - additive per the US-007 contract guidance, so board-mad consumers are unaffected. Registry now ships with both detectors; size === 2 asserted in registry.test.ts. displayName \"Off-price print (Polymarket only)\" contains the required substring (PRD US-208 surfacing happens in the detector UI work later)."
     },
     {
       "id": "US-028",

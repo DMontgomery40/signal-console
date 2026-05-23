@@ -9,7 +9,8 @@
     "./types": "./src/types.ts",
     "./registry": "./src/registry.ts",
     "./board-mad": "./src/board-mad/index.ts",
-    "./board-mad/config": "./src/board-mad/config.ts"
+    "./board-mad/config": "./src/board-mad/config.ts",
+    "./off-price-print": "./src/off-price-print/index.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

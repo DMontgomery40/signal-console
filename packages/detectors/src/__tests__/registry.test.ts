@@ -1,6 +1,5 @@
-// US-026: board-mad is wired into the detector registry so the Settings UI's
-// About section returns a non-empty detector list. off-price-print lands in
-// US-027 and adds itself the same way.
+// US-026 wired board-mad. US-027 added off-price-print so the registry now
+// ships with two detectors as required by PRD §10.
 
 import { describe, expect, it } from "vitest";
 
@@ -17,10 +16,17 @@ describe("detector registry", () => {
     expect(entry.paramsSchema).toBeDefined();
   });
 
-  it("size is at least 1 and excludes unwired detector ids", () => {
-    expect(registry.size).toBeGreaterThanOrEqual(1);
-    // off-price-print lands in US-027; assert it is not yet present so a
-    // future iteration that lands US-027 has a self-falsifying signal here.
-    expect(registry.get("off-price-print")).toBeUndefined();
+  it("contains off-price-print after US-027 wiring", () => {
+    const entry = registry.get("off-price-print");
+    expect(entry).toBeDefined();
+    if (entry === undefined) return;
+    expect(entry.id).toBe("off-price-print");
+    expect(entry.version).toBe("1.0.0");
+    expect(entry.displayName).toContain("Polymarket only");
+    expect(entry.paramsSchema).toBeDefined();
+  });
+
+  it("ships with two detectors", () => {
+    expect(registry.size).toBe(2);
   });
 });

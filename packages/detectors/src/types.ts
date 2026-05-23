@@ -20,16 +20,31 @@ export type Tick = {
   readonly isHeartbeat: boolean;
 };
 
+// Polymarket trade-print row from market_microstructure_events. The off-price-print
+// detector (US-027) filters on `volumeShare` and `offPriceDistance`; the loader
+// (microstructure route, US-029) is responsible for computing `offPriceDistance`
+// from the row columns (typically the distance between trade_price and the
+// prevailing price). `source` is included so callers can surface the Polymarket-
+// only limitation (US-208) without re-querying the gold DB.
+export type MicrostructureEvent = {
+  readonly gameId: string;
+  readonly sourceMarketId: string;
+  readonly eventTimestamp: Date;
+  readonly source: string;
+  readonly volumeShare: number;
+  readonly offPriceDistance: number;
+};
+
 // A detector's invocation scope. Concrete data is loaded by the caller (route or
 // backtest job) and handed to run(); detectors do not open the gold DB themselves.
-// `ticks` is optional/additive (per US-007 guidance) so future detectors
-// (US-027 off-price-print) can introduce their own optional inputs without
-// breaking the contract; each detector reads only the fields it needs.
+// `ticks` and `microstructureEvents` are optional/additive (per US-007 guidance)
+// so each detector reads only the fields it needs without breaking the contract.
 export type DetectorWindow = {
   readonly gameIds: readonly string[];
   readonly start: Date;
   readonly end: Date;
   readonly ticks?: readonly Tick[];
+  readonly microstructureEvents?: readonly MicrostructureEvent[];
 };
 
 // One detector fire. Bucket-start is the detector output (the bucket whose
