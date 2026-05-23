@@ -15,6 +15,7 @@ scripts/ralph/.last-branch
 scripts/ralph/.last-story
 scripts/ralph/.story-attempts
 scripts/ralph/ralph.log
+scripts/ralph/.playwright-mcp/
 
 # Gold DB (54 GB) — never tracked
 data/*.sqlite

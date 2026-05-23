@@ -17,6 +17,12 @@ scripts/ralph/prd.json
 scripts/ralph/.last-branch
 scripts/ralph/.last-story
 scripts/ralph/.story-attempts
+scripts/ralph/.playwright-mcp/
+
+# Visual-verification screenshots committed by Ralph UI stories (binary PNGs;
+# prettier --ignore-unknown handles binaries but the directory exists as a
+# committed artifact, not a formatting target).
+apps/web/.ralph-screenshots/
 
 # Lockfile (pnpm manages it)
 pnpm-lock.yaml
