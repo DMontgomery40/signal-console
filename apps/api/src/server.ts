@@ -10,6 +10,7 @@ import swaggerUi from "@fastify/swagger-ui";
 import Fastify, { type FastifyInstance } from "fastify";
 
 import authPlugin, { type AuthPluginOptions } from "./plugins/auth";
+import backtestRoutes, { type BacktestRoutesOptions } from "./routes/backtest";
 import boardRoutes, { type BoardRoutesOptions } from "./routes/board";
 import cacheRoutes, { type CacheRoutesOptions } from "./routes/cache";
 import detectorsRoutes, { type DetectorsRoutesOptions } from "./routes/detectors";
@@ -29,6 +30,7 @@ export interface BuildServerOptions {
   readonly settings?: SettingsRoutesOptions;
   readonly cache?: CacheRoutesOptions;
   readonly board?: BoardRoutesOptions;
+  readonly backtest?: BacktestRoutesOptions;
   readonly live?: LiveRoutesOptions;
   readonly microstructure?: MicrostructureRoutesOptions;
   readonly detectors?: DetectorsRoutesOptions;
@@ -66,6 +68,7 @@ export async function buildServer(options: BuildServerOptions = {}): Promise<Fas
   await app.register(settingsRoutes, options.settings ?? {});
   await app.register(cacheRoutes, options.cache ?? {});
   await app.register(boardRoutes, options.board ?? {});
+  await app.register(backtestRoutes, options.backtest ?? {});
   await app.register(liveRoutes, options.live ?? {});
   await app.register(microstructureRoutes, options.microstructure ?? {});
   await app.register(detectorsRoutes, options.detectors ?? {});
