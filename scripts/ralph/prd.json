@@ -90,8 +90,8 @@
         "Typecheck passes"
       ],
       "priority": 5,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Migration uses CREATE TABLE/INDEX IF NOT EXISTS so runMigrations is naturally idempotent. The UNIQUE constraint test row sets game_id AND window_start AND window_end (despite scope='window') because SQLite treats NULLs as distinct under UNIQUE — without filling every key column the duplicate would be allowed. cache:reset removes the .sqlite + -wal + -shm trio, mkdir -p's data/, then openCacheDb() recreates the schema. runner.ts also sets process.env.SQLITE_USE_URI = '1' (mirroring open.ts) so module-load ordering between cache and gold-DB consumers cannot disable URI parsing process-wide."
     },
     {
       "id": "US-006",
@@ -106,8 +106,8 @@
         "Typecheck passes"
       ],
       "priority": 6,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "CTE bodies are bare SELECTs (no leading WITH); callers wrap them in `WITH v_games AS (${v_games}) ...`. The v_games current-status column uses a correlated subquery against game_states ordered by captured_at DESC LIMIT 1 — `status` is the column name per ~/nba-predict/packages/shared/src/migrations.ts. v_events is intentionally NBA-only today; the file comment documents the UNION ALL extension point for football."
     },
     {
       "id": "US-007",
