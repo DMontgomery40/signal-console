@@ -19,3 +19,8 @@ export {
 import tailwindPreset from "./tailwind-preset.cjs";
 export { tailwindPreset };
 export type { TailwindPreset, TailwindPresetThemeExtend } from "./tailwind-preset.cjs";
+
+// Explainer content for HoverCards (built in US-046). 17 entries spanning the
+// board-MAD and off-price-print detectors, the K dial and its labeled snap
+// points, detector params, math foundations, and data sanitations.
+export { explainers, type Explainer, type ExplainerId } from "./explainers";

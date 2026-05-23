@@ -20,8 +20,8 @@ All values declared once in `packages/ui/src/tokens.ts`, re-exported via a Tailw
 | `surface-0-to`   | `#0E2A1F` | App background, bottom of gradient (subtle vertical gradient on `<body>` only)                  |
 | `surface-1`      | `#0F2419` | Cards, panels, dial track                                                                       |
 | `surface-2`      | `#163020` | Row hover, focused list item                                                                    |
-| `accent-green`   | `#14EB6F` | Brand/structural — nav underline, live pulse, "recent" active, positive deltas                  |
-| `accent-yellow`  | `#FFD000` | **Fires only.** Anomaly markers, active K value on the dial, suspend warnings. Earn the yellow. |
+| `accent-green`   | `#14EB6F` | Brand/structural — nav underline, live pulse, status dots, "ok" state, secondary actions ("Open Alerts" pattern) |
+| `accent-yellow`  | `#FFD000` | **Action + positive + anomaly.** Primary CTAs (buttons you want clicked), fires/anomaly markers, active K value on the dial, positive deltas, suspend warnings. The bet365 "Join button + plus-odds" role. |
 | `negative`       | `#FF5757` | Used sparingly — error banners, negative deltas in dense tables                                 |
 | `text-hi`        | `#FFFFFF` | Headings, primary numerics                                                                      |
 | `text-md`        | `#B4C4BD` | Body, secondary metadata                                                                        |
@@ -29,7 +29,9 @@ All values declared once in `packages/ui/src/tokens.ts`, re-exported via a Tailw
 
 **Rules:**
 
-- Yellow only marks fires/anomalies/the active K. If a screen has yellow with no fires on it, something is wrong.
+- **Every screen with an action shows yellow.** Primary CTAs are yellow-outlined buttons. Yellow also marks fires, anomaly markers, the active K value, and positive deltas. Yellow is scarce but **visible on every page** — that's the bet365 lineage. A screen with no yellow at all (no CTA, no fire, no positive delta) is a sign you're either on a pure-display surface or missed an affordance.
+- **Don't sprinkle yellow.** No yellow chrome, decoration, gridlines, or hover ornaments. Yellow says "click me / fire / good news" — nothing else.
+- **Green is the structural quiet.** Nav underline, live pulse, status dots, the "Open Alerts"-style secondary action. Green is not a CTA color.
 - Negative red appears at most once per screen, only when contrasting positive.
 - The gradient applies to `<body>` exclusively — no per-panel gradients, no card gradients.
 - All non-token-color literals (e.g. `#fff`, `rgb(...)`, named colors) are forbidden in component code.
@@ -103,11 +105,82 @@ Strip Recharts to the bone. Custom theme exported from `packages/ui/src/chart-th
 
 ## Components style
 
-- **Buttons:** text + 1 px `accent-green` outline; hover fills `accent-green` background with `surface-0` text. No drop shadows.
+- **Buttons (primary CTA):** text + 1 px `accent-yellow` outline; hover fills `accent-yellow` background with `surface-0` text. This is the bet365 "Join button" treatment — apply to Reload, Refresh, Run Backtest, Clear Cache, and any action you want the user to take. No drop shadows.
+- **Buttons (secondary action):** text + 1 px `accent-green` outline; hover fills `accent-green` background with `surface-0` text. Use for "Open Alerts"-style affordances — informational/navigational, not the primary intent of the page.
 - **Inputs:** `surface-1` background, 1 px `text-lo` border, focus border `accent-green`. No floating labels.
 - **Status indicators:** dot + label, never icons. Dot is `accent-green` (live), `text-lo` (idle), `accent-yellow` (firing), `negative` (error).
 - **Lists/tables:** zebra forbidden. Use whitespace + tabular figures + row hover.
-- **Tooltips:** `surface-1` fill, `text-md`, no shadow, 1 px `text-lo` border on top edge only.
+- **Tooltips (quick label only):** `surface-1` fill, `text-md`, no shadow, 1 px `text-lo` border on top edge only. Use for terse one-liners ("scheduled start time", "team identifier"). For anything substantive, use Explainer Cards.
+
+---
+
+## Explainer Cards (hover for verbose, multi-paragraph, LaTeX-capable explanations)
+
+Many numbers and concepts in this app (`K_MAD`, `fires/game`, the various detector params, "median + K·MAD" itself, "implied probability", "MAD") are non-obvious to a sports-brain trader. A bet365 user knows "+115" — they may not know "trailing median absolute deviation." Explainer cards close that gap **without** dumbing the app down or requiring a "Help" page.
+
+**Primitive:** Radix UI `HoverCard` (not `Tooltip` — `Tooltip` auto-dismisses on blur and disallows interactive content; we need the user to be able to move the mouse INTO the card and scroll).
+
+**Trigger discoverability — subtle but visible:**
+- Any term/number with an attached explainer renders with a 1 px `text-lo` 50%-opacity dashed underline. No icon, no `(?)`, no superscript.
+- Cursor turns to `help` on hover (`cursor: help`).
+- That's it. The underline says "there's more here" without shouting it.
+
+**Card layout (two sections, vertically stacked):**
+
+```
+┌──────────────────────────────────────────────────────────┐
+│ <small-caps text-lo> Plain English </small-caps>         │
+│                                                          │
+│ <text-md sans>                                           │
+│   Multi-paragraph ELI5 explanation in sports-trader      │
+│   voice. We avoid math jargon here. Not condescending —  │
+│   just plain. Two or three paragraphs is fine.           │
+│ </text-md sans>                                          │
+│                                                          │
+│ ────────────────────────────────────────────  (1 px lo) │
+│                                                          │
+│ <small-caps text-lo> Formal </small-caps>                │
+│                                                          │
+│ <text-md mono with KaTeX>                                │
+│   Technical explanation. Real terminology, the formula   │
+│   in LaTeX, a note on why this estimator vs another.     │
+│   Readable by a "normal-small nerd" — not IMO-only.      │
+│                                                          │
+│   intensity_t > median(B_{t-W..t-1}) + K · MAD(...)      │
+│                                                          │
+│   (Above renders via KaTeX block-math.)                  │
+│ </text-md mono>                                          │
+└──────────────────────────────────────────────────────────┘
+```
+
+**Sizing:** `max-width: 480 px`, `max-height: 60vh`, **internal scroll** (overflow-y: auto). The card persists while the cursor is over it OR over the trigger, so users can scroll without it closing.
+
+**Hover bridge & persistence:**
+- Radix HoverCard config: `openDelay: 150 ms`, `closeDelay: 200 ms`, `disableHoverableContent: false`.
+- 8 px transparent bridge zone between trigger and card edge so the cursor can cross the gap without dismissal.
+- A click outside dismisses; pressing `Escape` dismisses; tab-focus dismisses sibling cards before opening a new one.
+
+**Styling:**
+- `surface-1` fill, 1 px `accent-green` top-edge border (matches the regular Tooltip pattern), all other edges borderless.
+- Internal padding 16 px.
+- Section labels ("Plain English" / "Formal") rendered in `text-lo`, `text-xs`, `letter-spacing: 0.08em`, uppercase.
+- Section divider: 1 px `text-lo` 30%-opacity, 24 px vertical margin on each side.
+- Fade in 100 ms, fade out 100 ms.
+- Custom scrollbar: 6 px wide, `surface-2` track, `text-lo` thumb.
+
+**Content source:** all explainer copy lives in `packages/ui/src/explainers.ts` as a typed record keyed by concept id. Each entry has `{ title, eli5, formal }` where `eli5` is markdown (sports-trader voice, prose only) and `formal` is markdown with KaTeX delimiters (`$inline$`, `$$block$$`) for math. The data file is the single source of truth — components reference by id, never inline copy.
+
+**Rendering:** the card body is `react-markdown` + `rehype-katex` + `remark-math`. KaTeX CSS imported once in `packages/ui/src/global.css`. No MathJax (slower, larger).
+
+**Voice guidelines (enforced by review):**
+- ELI5: second person OK, conversational, no jargon. "We watch how much every market on a game wiggles relative to its own recent calm" not "Robust dispersion of intra-game implied-probability deltas." Two or three short paragraphs. Tell them what the number means for *their job* (deciding whether to suspend a market), not for the algorithm's job.
+- Formal: technical but not IMO-only. Define notation the first time it's used. Always say WHY this estimator vs the obvious alternative ("MAD over std because a single outlier from a vacated-position blip would otherwise dominate"). Cite the canonical source (e.g. `scripts/board_signal_v2.py:33`).
+
+**Don't:**
+- Don't put an `(?)` icon next to the term. The dashed underline is enough.
+- Don't write the same explainer twice — one entry per concept, referenced everywhere.
+- Don't render LaTeX in the ELI5 section. If you need a formula, you're in the wrong section.
+- Don't truncate. If the explanation needs a thousand words, write a thousand words — that's what the scrollbar is for. Short is preferred but not mandatory.
 
 ---
 
