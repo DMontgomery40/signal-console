@@ -37,6 +37,7 @@ import {
 } from "./clientRecompute";
 import { BacktestTimelines } from "./BacktestTimelines";
 import { CryWolfDial } from "./CryWolfDial";
+import { PbpAnchoredIncidents } from "./PbpAnchoredIncidents";
 import { K_MAD_LIVE } from "@signal-console/detectors/board-mad/config";
 
 const KMAD_PARAM_NAME = "kMad";
@@ -697,6 +698,8 @@ export function BacktestPage(): JSX.Element {
         recompute={recomputeView}
         stale={stale}
         pending={runMutation.isPending}
+        startDate={form.startDate}
+        endDate={form.endDate}
       />
     </section>
   );
@@ -707,11 +710,15 @@ function ResultsPanel({
   recompute,
   stale,
   pending,
+  startDate,
+  endDate,
 }: {
   readonly snapshot: RunSnapshot | null;
   readonly recompute: RecomputeView | null;
   readonly stale: boolean;
   readonly pending: boolean;
+  readonly startDate: string;
+  readonly endDate: string;
 }): JSX.Element {
   return (
     <section
@@ -731,6 +738,11 @@ function ResultsPanel({
       ) : (
         <>
           <RunSummary snapshot={snapshot} recompute={recompute} stale={stale} />
+          <PbpAnchoredIncidents
+            observations={recompute?.observations ?? snapshot.response.observations}
+            startDate={startDate}
+            endDate={endDate}
+          />
           <BacktestTimelines
             snapshotObservations={snapshot.response.observations}
             recomputedObservations={recompute?.observations ?? snapshot.response.observations}

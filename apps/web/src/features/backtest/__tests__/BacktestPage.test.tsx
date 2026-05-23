@@ -857,4 +857,191 @@ describe("BacktestPage", () => {
     }).length;
     expect(postCount).toBe(1);
   });
+
+  // ── US-039: PBP-anchored incidents widget ─────────────────────────────
+
+  function setWindow(start: string, end: string): void {
+    const startInput = screen.getByTestId("backtest-window-start");
+    const endInput = screen.getByTestId("backtest-window-end");
+    if (!(startInput instanceof HTMLInputElement)) throw new Error("start not input");
+    if (!(endInput instanceof HTMLInputElement)) throw new Error("end not input");
+    fireEvent.change(startInput, { target: { value: start } });
+    fireEvent.change(endInput, { target: { value: end } });
+  }
+
+  // Synthetic series tailored for the PBP-anchored-incidents widget. The
+  // event-containing-bucket for Hartenstein is 03:12:00–03:13:00Z (bucket 12
+  // when buckets start at 03:00). Putting the spike at bucket 12 ensures:
+  //   - At K=3: trail window [0..11] = [1,2,3]*4 → median 2, MAD 1, threshold
+  //     5; spike of 7 fires → widget shows bucketEnd 03:13:00Z, delta +23.2 s
+  //     (which is the PRD canonical anchor outcome).
+  //   - At K=6: threshold 8; spike of 7 does NOT fire → widget shows "no fire".
+  function buildHartensteinAnchorBacktest(): ReturnType<typeof buildKSensitiveBacktest> {
+    const pattern: readonly number[] = [1, 2, 3];
+    const observations: {
+      gameId: string;
+      bucketStart: string;
+      bucketEnd: string;
+      fired: number;
+      intensity: number;
+      baselineMedian: number;
+      baselineMad: number;
+    }[] = [];
+    for (let i = 0; i < 30; i++) {
+      const intensity = i === 12 ? 7 : (pattern[i % 3] ?? 0);
+      const t = new Date(Date.UTC(2026, 4, 8, 3, i, 0));
+      observations.push({
+        gameId: "nba-0042500222",
+        bucketStart: t.toISOString(),
+        bucketEnd: new Date(t.getTime() + 60_000).toISOString(),
+        fired: i === 12 ? 1 : 0,
+        intensity,
+        baselineMedian: 2,
+        baselineMad: 1,
+      });
+    }
+    return {
+      runId: 222,
+      stats: { firesPerGame: 1, totalFires: 1, gamesInWindow: 1 },
+      observations,
+    };
+  }
+
+  it("hides the PBP-anchored incidents subsection when the window does not cover anchor dates (US-039)", async () => {
+    mockDetectorsAndBacktest(buildHartensteinAnchorBacktest());
+    render(<BacktestPage />, { wrapper: makeWrapper() });
+    await waitFor(() => {
+      expect(screen.getByTestId("backtest-detector-select")).not.toBeNull();
+    });
+    // Window after both anchor dates.
+    setWindow("2026-06-01", "2026-06-02");
+    fireEvent.click(screen.getByTestId("backtest-run-button"));
+    await waitFor(() => {
+      expect(screen.getByTestId("backtest-run-id").textContent).toBe("222");
+    });
+    expect(screen.queryByTestId("backtest-pbp-anchored")).toBeNull();
+  });
+
+  it("shows Hartenstein lead time at the event-containing bucket and updates in place as the dial moves (US-039)", async () => {
+    // Event-containing-bucket interpretation per PRD §180: the bucket
+    // 03:12:00–03:13:00Z covers event 03:12:36.800Z. At K=3 it fires (trail
+    // median 2 + 3*MAD 1 = 5, spike 7 above); at K=6 it does not (threshold 8).
+    mockDetectorsAndBacktest(buildHartensteinAnchorBacktest());
+    render(<BacktestPage />, { wrapper: makeWrapper() });
+    await waitFor(() => {
+      expect(screen.getByTestId("backtest-detector-select")).not.toBeNull();
+    });
+    setWindow("2026-05-07", "2026-05-09");
+    fireEvent.click(screen.getByTestId("backtest-run-button"));
+    await waitFor(() => {
+      expect(screen.getByTestId("backtest-run-id").textContent).toBe("222");
+    });
+
+    const section = screen.getByTestId("backtest-pbp-anchored");
+    expect(section).not.toBeNull();
+    expect(section.textContent).toMatch(/PBP-anchored incidents/);
+    // Hartenstein row present; Reaves row absent (window does not cover 05-12).
+    expect(screen.getByTestId("backtest-pbp-anchor-hartenstein")).not.toBeNull();
+    expect(screen.queryByTestId("backtest-pbp-anchor-reaves")).toBeNull();
+
+    const bucketEnd = screen.getByTestId("backtest-pbp-bucket-end-hartenstein-nba-0042500222");
+    expect(bucketEnd.textContent).toBe("2026-05-08T03:13:00Z");
+    const delta = screen.getByTestId("backtest-pbp-delta-hartenstein-nba-0042500222");
+    expect(delta.textContent).toBe("+23.2 s");
+
+    // Move K to 6 — synthetic spike (intensity 7) drops below K=6 threshold
+    // (≈ 8), so the row flips to "no fire" without an API call.
+    const postCountBefore = fetchMock.mock.calls.filter(([input, init]) => {
+      const url = urlOf(input);
+      return url.startsWith("/v1/backtest") && init?.method === "POST";
+    }).length;
+    expect(postCountBefore).toBe(1);
+
+    const dial = screen.getByTestId("cry-wolf-dial");
+    act(() => {
+      for (let i = 0; i < 12; i++) {
+        fireEvent.keyDown(dial, { key: "ArrowRight" });
+      }
+    });
+    expect(dial.getAttribute("aria-valuenow")).toBe("6");
+
+    expect(screen.queryByTestId("backtest-pbp-bucket-end-hartenstein-nba-0042500222")).toBeNull();
+    const noFire = screen.getByTestId("backtest-pbp-no-fire-hartenstein-nba-0042500222");
+    expect(noFire.textContent).toBe("no fire");
+
+    const postCountAfter = fetchMock.mock.calls.filter(([input, init]) => {
+      const url = urlOf(input);
+      return url.startsWith("/v1/backtest") && init?.method === "POST";
+    }).length;
+    expect(postCountAfter).toBe(1);
+  });
+
+  it("shows 'no fire' per Reaves game when the canonical implementation does not fire (US-039)", async () => {
+    // Reaves is the honest-null case: no fires on either nba-0042500223 or
+    // nba-0042500224. We model that with a flat baseline (all 1.0
+    // intensities) for both game ids — MAD=0 (clamped to 1e-9), threshold
+    // ≈ 1.0; intensity == 1.0 so the `intensity > 0 AND intensity >= threshold`
+    // rule does not fire (strict equality is admitted, but the source
+    // observation fires=0 was set by the server already so the recompute
+    // doesn't lift it). The widget shows "no fire" per game.
+    const buildReavesNoFire = (): ReturnType<typeof buildKSensitiveBacktest> => {
+      const gameIds = ["nba-0042500223", "nba-0042500224"];
+      const obs: {
+        gameId: string;
+        bucketStart: string;
+        bucketEnd: string;
+        fired: number;
+        intensity: number;
+        baselineMedian: number;
+        baselineMad: number;
+      }[] = [];
+      for (const gameId of gameIds) {
+        for (let i = 0; i < 30; i++) {
+          const t = new Date(Date.UTC(2026, 4, 12, 4, 30 + i, 0));
+          obs.push({
+            gameId,
+            bucketStart: t.toISOString(),
+            bucketEnd: new Date(t.getTime() + 60_000).toISOString(),
+            fired: 0,
+            intensity: 1.0,
+            baselineMedian: 1.0,
+            baselineMad: 1e-9,
+          });
+        }
+      }
+      return {
+        runId: 1239,
+        stats: { firesPerGame: 0, totalFires: 0, gamesInWindow: gameIds.length },
+        observations: obs,
+      };
+    };
+    mockDetectorsAndBacktest(buildReavesNoFire());
+    render(<BacktestPage />, { wrapper: makeWrapper() });
+    await waitFor(() => {
+      expect(screen.getByTestId("backtest-detector-select")).not.toBeNull();
+    });
+    setWindow("2026-05-11", "2026-05-13");
+    fireEvent.click(screen.getByTestId("backtest-run-button"));
+    await waitFor(() => {
+      expect(screen.getByTestId("backtest-run-id").textContent).toBe("1239");
+    });
+    expect(screen.queryByTestId("backtest-pbp-anchor-hartenstein")).toBeNull();
+    expect(screen.getByTestId("backtest-pbp-anchor-reaves")).not.toBeNull();
+    expect(screen.getByTestId("backtest-pbp-no-fire-reaves-nba-0042500223").textContent).toBe(
+      "no fire",
+    );
+    expect(screen.getByTestId("backtest-pbp-no-fire-reaves-nba-0042500224").textContent).toBe(
+      "no fire",
+    );
+  });
+
+  it("hides the PBP-anchored incidents subsection before any backtest has run (US-039)", async () => {
+    mockDetectors();
+    render(<BacktestPage />, { wrapper: makeWrapper() });
+    await waitFor(() => {
+      expect(screen.getByTestId("backtest-detector-select")).not.toBeNull();
+    });
+    setWindow("2026-05-07", "2026-05-13");
+    expect(screen.queryByTestId("backtest-pbp-anchored")).toBeNull();
+  });
 });
