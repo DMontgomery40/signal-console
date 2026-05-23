@@ -1,0 +1,97 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`board-mad canonical contract tests at K=3.0 > 64-game PBP fixture set mean fires/game at K=3 volume-weighted (snapshot) 1`] = `
+{
+  "gameCount": 66,
+  "meanVolume": "19.4697",
+}
+`;
+
+exports[`board-mad canonical contract tests at K=3.0 > reaves snapshot at K=3 on games nba-0042500223 and nba-0042500224 (fires locked to snapshot) 1`] = `
+[
+  {
+    "fires": [],
+    "gameId": "nba-0042500223",
+  },
+  {
+    "fires": [
+      {
+        "bucketEnd": "2026-05-12T04:01:00.000Z",
+        "bucketStart": "2026-05-12T04:00:00.000Z",
+        "intensity": 22.465509,
+      },
+      {
+        "bucketEnd": "2026-05-12T04:11:00.000Z",
+        "bucketStart": "2026-05-12T04:10:00.000Z",
+        "intensity": 10.160579,
+      },
+      {
+        "bucketEnd": "2026-05-12T04:32:00.000Z",
+        "bucketStart": "2026-05-12T04:31:00.000Z",
+        "intensity": 4.90117,
+      },
+      {
+        "bucketEnd": "2026-05-12T04:37:00.000Z",
+        "bucketStart": "2026-05-12T04:36:00.000Z",
+        "intensity": 7.41317,
+      },
+      {
+        "bucketEnd": "2026-05-12T04:40:00.000Z",
+        "bucketStart": "2026-05-12T04:39:00.000Z",
+        "intensity": 14.156321,
+      },
+      {
+        "bucketEnd": "2026-05-12T04:41:00.000Z",
+        "bucketStart": "2026-05-12T04:40:00.000Z",
+        "intensity": 3.854571,
+      },
+      {
+        "bucketEnd": "2026-05-12T04:42:00.000Z",
+        "bucketStart": "2026-05-12T04:41:00.000Z",
+        "intensity": 9.7544,
+      },
+      {
+        "bucketEnd": "2026-05-12T04:45:00.000Z",
+        "bucketStart": "2026-05-12T04:44:00.000Z",
+        "intensity": 5.531737,
+      },
+      {
+        "bucketEnd": "2026-05-12T04:48:00.000Z",
+        "bucketStart": "2026-05-12T04:47:00.000Z",
+        "intensity": 5.662078,
+      },
+      {
+        "bucketEnd": "2026-05-12T04:50:00.000Z",
+        "bucketStart": "2026-05-12T04:49:00.000Z",
+        "intensity": 5.580202,
+      },
+      {
+        "bucketEnd": "2026-05-12T04:51:00.000Z",
+        "bucketStart": "2026-05-12T04:50:00.000Z",
+        "intensity": 13.529021,
+      },
+      {
+        "bucketEnd": "2026-05-12T04:54:00.000Z",
+        "bucketStart": "2026-05-12T04:53:00.000Z",
+        "intensity": 9.036879,
+      },
+      {
+        "bucketEnd": "2026-05-12T05:14:00.000Z",
+        "bucketStart": "2026-05-12T05:13:00.000Z",
+        "intensity": 8.733678,
+      },
+      {
+        "bucketEnd": "2026-05-12T05:21:00.000Z",
+        "bucketStart": "2026-05-12T05:20:00.000Z",
+        "intensity": 10.195041,
+      },
+      {
+        "bucketEnd": "2026-05-12T05:27:00.000Z",
+        "bucketStart": "2026-05-12T05:26:00.000Z",
+        "intensity": 39.553325,
+      },
+    ],
+    "gameId": "nba-0042500224",
+  },
+]
+`;
