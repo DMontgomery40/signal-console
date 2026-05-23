@@ -10,6 +10,7 @@ import swaggerUi from "@fastify/swagger-ui";
 import Fastify, { type FastifyInstance } from "fastify";
 
 import authPlugin, { type AuthPluginOptions } from "./plugins/auth";
+import cacheRoutes, { type CacheRoutesOptions } from "./routes/cache";
 import gamesRoutes, { type GamesRoutesOptions } from "./routes/games";
 import healthRoutes, { type HealthRoutesOptions } from "./routes/health";
 import settingsRoutes, { type SettingsRoutesOptions } from "./routes/settings";
@@ -22,6 +23,7 @@ export interface BuildServerOptions {
   readonly health?: HealthRoutesOptions;
   readonly games?: GamesRoutesOptions;
   readonly settings?: SettingsRoutesOptions;
+  readonly cache?: CacheRoutesOptions;
 }
 
 export async function buildServer(options: BuildServerOptions = {}): Promise<FastifyInstance> {
@@ -54,6 +56,7 @@ export async function buildServer(options: BuildServerOptions = {}): Promise<Fas
   await app.register(healthRoutes, options.health ?? {});
   await app.register(gamesRoutes, options.games ?? {});
   await app.register(settingsRoutes, options.settings ?? {});
+  await app.register(cacheRoutes, options.cache ?? {});
 
   // Fastify instances are thenable (await app === app.ready()); awaiting here
   // satisfies @typescript-eslint/return-await:always and gives callers a
