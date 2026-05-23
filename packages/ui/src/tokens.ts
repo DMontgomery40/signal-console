@@ -12,6 +12,7 @@ export interface ColorTokens {
   readonly surface0To: string;
   readonly surface1: string;
   readonly surface2: string;
+  readonly surfaceElevated: string;
   readonly accentGreen: string;
   readonly accentYellow: string;
   readonly negative: string;
@@ -69,6 +70,7 @@ export const colors: ColorTokens = {
   surface0To: "#0E2A1F",
   surface1: "#0F2419",
   surface2: "#163020",
+  surfaceElevated: "#1A3528",
   accentGreen: "#14EB6F",
   accentYellow: "#FFD000",
   negative: "#FF5757",

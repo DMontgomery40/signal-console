@@ -26,6 +26,7 @@ describe("tokens (US-043)", () => {
       "surface0To",
       "surface1",
       "surface2",
+      "surfaceElevated",
       "accentGreen",
       "accentYellow",
       "negative",

@@ -9,6 +9,7 @@ exports[`tokens (US-043) > colors snapshot — drift is a deliberate review even
   "surface0To": "#0E2A1F",
   "surface1": "#0F2419",
   "surface2": "#163020",
+  "surfaceElevated": "#1A3528",
   "textHi": "#FFFFFF",
   "textLo": "#6E7E77",
   "textMd": "#B4C4BD",

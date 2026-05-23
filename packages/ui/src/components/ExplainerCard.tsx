@@ -19,19 +19,37 @@ interface ExplainerCardProps {
 // dead code without this seam.
 const EXPLAINER_LOOKUP: Record<string, Explainer | undefined> = explainers;
 
+// US-050: trigger underline color shifts from text-lo/50 to accent-yellow/60.
+// Yellow is now the explainer identity end-to-end — see yellow dashed
+// underline, know it's hoverable; see yellow stripe on the resulting card,
+// recognize the same affordance. This pairs with the bet365 "engage-with-this"
+// yellow role (Join button, +odds, active K) and stays scarce — yellow
+// underlines appear only on terms that have an attached explainer.
 const TRIGGER_CLASS =
-  "border-b border-dashed border-text-lo/50 cursor-help underline-offset-2 decoration-from-font";
+  "border-b border-dashed border-accent-yellow/60 cursor-help underline-offset-2 decoration-from-font";
 
-// US-048: width widens 480 -> 560 (closer to 60-80 chars at text-md for the
-// multi-paragraph Plain English copy) and clamps to the viewport with a 16 px
-// gutter on each side so narrow viewports never push the card off-screen.
+// US-050: aesthetic pass. The card now sits on the surface-elevated token (a
+// materially lighter green than the page gradient) so it reads as floating
+// above the page rather than embedded in it. The previous 1 px accent-green
+// top-edge border is replaced by a 3 px accent-yellow LEFT-edge stripe
+// (Notion-callout pattern) with a 1 px text-lo/30 hairline on the remaining
+// three edges. The companion .explainer-backdrop element (rendered as a
+// Portal sibling, see render below) blurs and dims the rest of the page so
+// the card has visual hierarchy WITHOUT any box-shadow / drop-shadow / CSS
+// filter on the card itself. The card stays crisp; only the background is
+// blurred.
+//
+// US-048 carryover: width 560 px clamps to viewport with a 16 px gutter on
+// each side so narrow viewports never push the card off-screen.
 const CONTENT_CLASS = [
-  "bg-surface-1 text-text-md",
-  "border-t border-accent-green",
+  "bg-surface-elevated text-text-md",
+  "border-l-[3px] border-l-accent-yellow",
+  "border-t border-r border-b border-text-lo/30",
   "p-4",
   "w-[min(560px,calc(100vw-32px))] max-h-[60vh]",
   "overflow-y-auto",
   "explainer-card-content",
+  "relative z-50",
   "data-[state=open]:animate-in data-[state=closed]:animate-out",
   "data-[state=open]:fade-in data-[state=closed]:fade-out",
 ].join(" ");
@@ -77,6 +95,19 @@ export function ExplainerCard({ id, children, className }: ExplainerCardProps): 
           {children}
         </span>
       </HoverCard.Trigger>
+      {/* US-050: backdrop is mounted via its own HoverCard.Portal so it
+          appears/disappears in sync with the card without violating the
+          single-element-child contract on HoverCardPortal (PortalPrimitive
+          is invoked with asChild: true, which routes the children through
+          @radix-ui/react-slot's Children.only check). Both Portals are
+          driven by the same HoverCard.Root open state, so the two presence
+          transitions stay coupled. pointer-events:none on the backdrop keeps
+          the trigger interactive; backdrop-filter blurs the rest of the
+          page; no box-shadow / drop-shadow / filter is applied to the card
+          body itself. */}
+      <HoverCard.Portal>
+        <div className="explainer-backdrop" aria-hidden="true" />
+      </HoverCard.Portal>
       <HoverCard.Portal>
         <HoverCard.Content
           sideOffset={8}

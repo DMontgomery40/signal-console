@@ -636,6 +636,28 @@
         "Typecheck passes"
       ],
       "priority": 34,
+      "passes": true,
+      "notes": "Surface-elevated token added (#1A3528). ExplainerCard restyled: yellow dashed-underline trigger, 3px accent-yellow left stripe, surface-elevated fill, 1px text-lo/30 hairline on top/right/bottom, backdrop blur(8px)+40%-black overlay rendered as a sibling HoverCard.Portal (Radix Portal requires single-element children — workaround documented in component comments). Design-language doc updated in three places (color tokens table, yellow rules, Explainer Cards section). Verified via Playwright at 1440x900 and 1024x768; screenshots at apps/web/.ralph-screenshots/US-050/. The Tailwind preset compiled all five new classes (border-accent-yellow/60, bg-surface-elevated, border-l-[3px], border-l-accent-yellow, border-text-lo/30) to real CSS rules in the production build."
+    },
+    {
+      "id": "US-051",
+      "title": "Fanout view: PBP context + top market movers ±5 min around each fire",
+      "description": "US-047 ships the past-alerts drilldown showing fired buckets and their 20-bucket context timeline — but it doesn't show WHY each fire happened. This story adds the 'fanout' view the old nba-predict had buried in 20-min-lag bloat: for each fired bucket, surface (1) PBP events from the sport's API within strict ±5 min, (2) the specific source_markets that drove the bucket's intensity (top movers ranked by |ΔIP| contribution), and (3) a one-line programmatic narrative tying them together. Time windows are HARD-CAPPED at ±5 min per the owner's research (3.6s stabilization in cited arxiv paper; >5 min is worthless, 3-5 is almost worthless, <3 has value, <1 is gold). Within ±5 min, color-code events by recency tier so the analyst's eye lands on the contemporaneous slice.",
+      "acceptanceCriteria": [
+        "New API route in apps/api/src/routes/board.ts (or sibling): `GET /v1/board/:gameId/fanout?bucket_start=<ISO>` returns { bucketStart, bucketEnd, pbp: [{ timeActual, actionType, playerName, description, deltaSecondsFromFire }], movers: [{ sourceMarketId, instrument, ipBefore, ipAfter, ipDelta, contributionPct, deltaSecondsFromFire }], narrative: string }",
+        "Window enforcement: query `nba_play_by_play_actions WHERE game_id = ? AND time_actual BETWEEN (bucket_start - 300s) AND (bucket_start + 300s)` — STRICT ±5 min, no event with |deltaSecondsFromFire| > 300 is returned. Cap to 50 events sorted by absolute closeness to the fire",
+        "Top movers query: aggregate |ΔIP| per source_market_id over the bucket window from quote_ticks (apply the same freshCapSeconds=300 sanitation as the detector), rank by sum of weighted |ΔIP| descending, return top 10 with ipBefore (last IP before bucket_start) and ipAfter (last IP at bucket_end). contributionPct = market's weighted |ΔIP| / sum of all weighted |ΔIP| in the bucket, expressed as percentage with 1 decimal",
+        "Narrative generator (template-based, no LLM, in apps/api/src/services/fanout-narrative.ts): produces a single-sentence summary like 'Fire at 03:12:00Z — Hartenstein dunk at +37s — top mover Hartenstein o12.5 pts (ΔIP -0.42, 31.2% of bucket). 5 player props moved >0.15 IP in window.' Honest when no anchor event is in the window: 'Fire at <ts> — no PBP within ±5 min — top mover <instrument> (ΔIP <signed>, <pct>%). <N> other markets moved >0.15 IP.'",
+        "GameDetailPage in apps/web/src/features/games/GameDetailPage.tsx: when a fired-bucket row is expanded, render two new sub-sections BELOW the existing 20-bucket context Recharts timeline: (a) the narrative one-liner (text-md, mono, full width), (b) a horizontal PBP timeline ±5 min with the fire as a yellow vertical ReferenceLine at t=0, PBP events as small dots colored by recency tier (see below), (c) a movers table with columns: instrument | ipBefore | ipAfter | ΔIP | contributionPct | seconds-from-fire",
+        "Recency tier color coding on PBP dots AND on the seconds-from-fire chip in the movers table: |Δt| < 60s = accent-yellow (gold-tier proximity), 60s ≤ |Δt| < 180s = text-hi (good), 180s ≤ |Δt| < 300s = text-md (acceptable). Beyond 300s: not rendered at all. Tooltip on PBP dots shows full description + exact deltaSecondsFromFire",
+        "Real-data smoke (per CLAUDE.md End-to-End Verification Mandate): for the Hartenstein anchor (game nba-0042500222, fire bucket 2026-05-08T03:12:00Z at K=6), assert /v1/board/nba-0042500222/fanout?bucket_start=2026-05-08T03:12:00Z returns a PBP event with timeActual 2026-05-08T03:12:36.8Z (the dunk), deltaSecondsFromFire approximately +37s, color tier yellow. Cross-check via sqlite3: `sqlite3 ~/signal-console/data/signal-console.sqlite -readonly \"SELECT time_actual, description FROM nba_play_by_play_actions WHERE game_id='nba-0042500222' AND time_actual BETWEEN '2026-05-08T03:09:00Z' AND '2026-05-08T03:17:00Z' ORDER BY time_actual\"` — assert the dunk row appears in both UI/API and SQL, and that NO events outside the ±5 min window appear in the API response",
+        "Real-data movers smoke: for the same Hartenstein bucket, assert /v1/board/.../fanout response contains at least 3 movers with contributionPct > 5%, and that the sum of all top-10 contributionPct is >= 50% (the top 10 should cover the majority of the bucket's intensity). At least one mover's instrument string should contain a player-prop identifier (e.g. 'hartenstein' or 'points') — proving the player-prop fanout the owner specifically wants",
+        "ExplainerCard wrapper on the 'narrative' line — when the user hovers, an explainer card opens explaining what the narrative is showing and the ±5 min strict cap reasoning. Add a new explainer entry 'fanout-window' to packages/ui/src/explainers.ts with eli5 (the user's framing: '>5 min is worthless, <3 has value, <1 is gold') and formal (the cited arxiv paper context, the freshCapSeconds=300 alignment, the choice to use Kalshi's minute candlestick granularity)",
+        "Visual verification per CLAUDE.md UI Verification Protocol: screenshots at apps/web/.ralph-screenshots/US-051/ for (1) GameDetailPage with one fired bucket expanded showing the new narrative + PBP timeline + movers table, (2) close-up of a PBP dot tooltip showing description + deltaSecondsFromFire, (3) the tier color coding visible in both PBP dots and movers seconds-from-fire chips, (4) empty-state when no PBP exists within ±5 min ('No play-by-play within ±5 min of this fire' in text-lo mono). Per CLAUDE.md hang-mode guidance, fall back to HTTP-smoke if Playwright stalls — bundle grep + curl assertions of the API response shape are sufficient evidence",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 35,
       "passes": false,
       "notes": ""
     },
@@ -653,7 +675,7 @@
         "Tests pass",
         "Typecheck passes"
       ],
-      "priority": 35,
+      "priority": 36,
       "passes": true,
       "notes": "Port ships at packages/detectors/src/off-price-print/index.ts (66 LOC). Params: { minVolumeShare: 0.10, minOffPriceDistance: 0.40 } both clamped [0,1] with the AC defaults. run() filters window.microstructureEvents by gameIds (Set lookup), then by passesThresholds (BOTH thresholds must clear), then maps each surviving event to a DetectorFire with bucketStart=bucketEnd=eventTimestamp and intensity=offPriceDistance (baselineMedian/baselineMad = 0 because there is no trailing baseline for this detector). DetectorResult.buckets is an empty array - off-price-print does not time-bucket so there are no warmup/baseline buckets to surface; US-047 drilldown for off-price-print would derive context from the fires list directly. Added MicrostructureEvent type (gameId, sourceMarketId, eventTimestamp, source, volumeShare, offPriceDistance) and optional microstructureEvents on DetectorWindow - additive per the US-007 contract guidance, so board-mad consumers are unaffected. Registry now ships with both detectors; size === 2 asserted in registry.test.ts. displayName \"Off-price print (Polymarket only)\" contains the required substring (PRD US-208 surfacing happens in the detector UI work later)."
     },
@@ -672,7 +694,7 @@
         "Tests pass",
         "Typecheck passes"
       ],
-      "priority": 36,
+      "priority": 37,
       "passes": true,
       "notes": "Service in apps/api/src/services/live.ts (~120 LOC); route in apps/api/src/routes/live.ts (~95 LOC). Query matches the verify:queries snapshot ticks-for-one-game-window.plan.txt — SEARCH sm USING COVERING INDEX idx_source_markets_game_instrument, then SEARCH qt USING INDEX idx_quote_ticks_unique_observation (bounded by source_market_id + captured_at as the AC requires). Response shape: { gameId, windowStart, windowEnd, ticks[] } where each tick carries sourceMarketId, capturedAt, impliedProbability (nullable), volume (COALESCEd to 0), isHeartbeat (0/1), instrumentId/rawFamily/rawLabel (joined from source_markets, all nullable). 7 vitest tests: shape, window bounds (in/out), empty quiet game, unknown game id (200 + empty array), cross-game isolation, null/missing-volume coalesce, openapi desk-stable tag, AND a grep guard against the baseline-table name in both route + service files. GOTCHA for future iterations: the AC grep guard requires zero matches of board_volatility_baselines in routes/live.ts SOURCE, so even prose comments mentioning the table name trip the check — phrase it as \"no baseline-rebuild table\" instead. Same applied to services/live.ts to keep the guard tight. The service exposes args.now for testability (mirrors board.ts) but the route always uses wall-clock now; this keeps the route handler simple and means tests seed ticks at relative offsets from Date.now() rather than injecting a clock. Window is exactly 300_000 ms (LIVE_WINDOW_MS const exported); tests assert endMs - startMs === 300_000."
     },
@@ -689,7 +711,7 @@
         "Tests pass",
         "Typecheck passes"
       ],
-      "priority": 37,
+      "priority": 38,
       "passes": true,
       "notes": "Service module apps/api/src/services/microstructure.ts (~150 LOC) opens the gold DB via openGoldDb, runs a single prepared SELECT on market_microstructure_events filtered by game_id AND volume_share IS NOT NULL AND volume_share >= ? ORDER BY event_timestamp ASC. The IS NOT NULL guard is explicit because SQLite NULL >= anything yields NULL (false in WHERE) — relying on it is fragile if the schema ever shifts to NaN sentinels. Route file apps/api/src/routes/microstructure.ts (~150 LOC) accepts a Zod-validated theta with z.coerce.number().min(0).max(1).default(0.10). GOTCHA: Fastify v5 pre-validates against the JSON Schema querystring stanza FIRST and emits its own 400 with err.validationContext='querystring' BEFORE the route handler runs, so theta=1.5 is rejected by Fastify before the Zod safeParse ever sees it — both are correct, but the Zod check on the AC criterion is now defense-in-depth, not the primary gate. Route tagged 'desk-stable' in /openapi.json. Seven tests cover: theta=0.5 filters 0.3 (AC literal), default theta=0.10 boundary (0.05 excluded, 0.10 included), NULL volume_share excluded even at theta=0, cross-game exclusion, unknown gameId returns empty, out-of-range theta returns 400, OpenAPI tag check. Reused the seedGoldDb helper pattern from tests/live.test.ts; mirrors the verify:queries plan snapshot at microstructure-for-one-game.plan.txt which already uses idx_market_microstructure_game_time."
     },
@@ -707,7 +729,7 @@
         "Tests pass",
         "Typecheck passes"
       ],
-      "priority": 38,
+      "priority": 39,
       "passes": true,
       "notes": "Route returns { detectors: [...] } wrapper (matches games.ts convention). zod-to-json-schema used with $refStrategy: \"none\" so each detector's params schema inlines without $ref pointers (the US-032 UI can render controls without a resolver). Added local declaration file apps/api/src/types/zod-to-json-schema.d.ts that augments the upstream module to tighten the schema parameter from ZodSchema<any> to ZodTypeAny (suppressing no-unsafe-argument without `as` casts or eslint-disable comments — both forbidden by this repo). The response JSON Schema declares paramsSchema as { type: \"object\", additionalProperties: true } with no `required`; fast-json-stringify would otherwise strip the per-detector keys (properties/required/type/$schema). RegisteredDetector type added to the @signal-console/detectors barrel export (alongside DetectorRegistry) so callers outside the detectors package can type the optional registry-injection point. Tests inject unreachable DB paths for every other route in the same buildServer() instance to prove the detectors route performs zero DB reads (200 response, no thrown error). Also asserts the registry surfaces both shipped detectors (board-mad + off-price-print) with their expected versions, displayNames, and JSON-Schema-shaped params containing every Zod field that should round-trip."
     },
@@ -726,7 +748,7 @@
         "Real Live-page smoke: from Recent, click a real game row (claude-in-chrome MCP). Assert /v1/live/:gameId and /v1/board/:gameId fire from the Network tab and return non-empty payloads. Fire markers rendered on the timeline must equal the count returned by /v1/board/:gameId 'observations[].fired == 1'. Wait 30s; assert a second /v1/live request fires (poll cycle).",
         "Visual verification per CLAUDE.md UI Verification Protocol: screenshots at apps/web/.ralph-screenshots/US-031/ for baseline, primary interaction, and error/edge state; each screenshot decoded against docs/design-language.md tokens; interactive elements (nav, buttons, slider, inputs) clicked via claude-in-chrome MCP and resulting visual state verified; renders correctly at 1440x900 and 1024x768"
       ],
-      "priority": 39,
+      "priority": 40,
       "passes": true,
       "notes": "LivePage at apps/web/src/features/live/LivePage.tsx (replacing the US-022 stub) accepts gameId: string | null. Routes /live/:id (parseLiveId in router.ts) render LivePage with that gameId; /live (bare) renders an InvalidGameFallback section telling the user to click a Recent row. useBoard + useLive grew an optional PollOptions arg ({ refetchInterval?: number }); LivePage sets refetchInterval=30000 on both, all other call sites (Recent fires cell, GameDetailPage past-fires panel) leave it unset so they stay one-shot. Timeline is a Recharts LineChart over board observations sorted ascending by bucketStart, intensity on the y-axis (accent-green line, no dots), with ReferenceDot fire markers (accent-yellow, ifOverflow=extendDomain so they paint even when intensity goes outside the auto-scaled y-domain). Fixed h-72 container prevents layout-shift on first poll. Header line shows tick count + last-poll wallclock + last-tick wallclock so the polled /v1/live data is visibly consumed. GameDetailPage gained a 'Watch live' link in its meta line that navigates to /live/:gameId (Recent then /games/:gameId then /live/:id flow). queries.ts liveSchema FIXED to match the shipped /v1/live response (US-028): { gameId, windowStart, windowEnd, ticks: [{ sourceMarketId, capturedAt, impliedProbability, volume, isHeartbeat, instrumentId, rawFamily, rawLabel }] }. The pre-US-031 schema declared { windowSeconds, ticks: [{ bid, ask, mid, isHeartbeat }], sourceMarkets } which was speculative pre-route-existence (per US-023 note) and would have crashed LivePage at parse-time. Real-data smoke against ~/signal-console/data/signal-console.sqlite at 2026-05-23T15:16Z: GET /v1/live/nba-0042500313 returned 0 ticks (game ended ~14h ago, outside 5-min window) with the windowStart/windowEnd shape parse-matching the new schema; GET /v1/board/nba-0042500313 returned 84 observations / 10 fires at K=3.0; sqlite3 ~/signal-console/data/detector-cache.sqlite count: 84/10 (exact byte parity). Vite production build (1175 KB main chunk) compiled clean; grep of the bundle confirms live-no-game, live-timeline-empty, 'Live polls every 30', and 'Watch live' strings all reach production. 8 new LivePage unit tests pass; full suite 56/56. AC #5 (no baseline-* function imported from packages/db or packages/detectors) satisfied: grep of LivePage.tsx for @signal-console/(db|detectors) returns 0; the only 'baseline' substring matches are Tailwind utility classes (items-baseline) which are CSS alignment, not function calls. Visual screenshots PENDING owner capture: Playwright MCP has hung on this machine for US-045/046 per CLAUDE.md; HTTP-smoke fallback was used per the protocol."
     },
@@ -743,7 +765,7 @@
         "Typecheck passes",
         "Visual verification per CLAUDE.md UI Verification Protocol: screenshots at apps/web/.ralph-screenshots/US-032/ for baseline, primary interaction, and error/edge state; each screenshot decoded against docs/design-language.md tokens; interactive elements (nav, buttons, slider, inputs) clicked via claude-in-chrome MCP and resulting visual state verified; renders correctly at 1440x900 and 1024x768"
       ],
-      "priority": 40,
+      "priority": 41,
       "passes": true,
       "notes": "DetectorsPage rebuilt to query useDetectors() and auto-render each detector's JSON-Schema paramsSchema as a read-only form (number/integer → number input, enum → select, boolean → switch). Off-price-print card displays the 'Sources: Polymarket only' accent-yellow tag. 'How to add a detector' aside ships the 3-step recipe verbatim (packages/detectors/src/<name>/index.ts → registry.ts entry → pnpm verify). queries.ts detectorsSchema fixed to wrap as { detectors: [...] } matching the apps/api response. 9 vitest specs added covering all four AC checks, plus 4 viewport screenshots (1440x900 baseline, 1440x900 ExplainerCard hover, 1024x768 reflow, 1440x900 401 error state) captured via Playwright MCP against the dev server."
     },
@@ -760,7 +782,7 @@
         "Tests pass",
         "Typecheck passes"
       ],
-      "priority": 41,
+      "priority": 42,
       "passes": false,
       "notes": ""
     },
@@ -782,7 +804,7 @@
         "Tests pass",
         "Typecheck passes"
       ],
-      "priority": 42,
+      "priority": 43,
       "passes": false,
       "notes": ""
     },
@@ -802,7 +824,7 @@
         "Real backtest smoke from the UI: navigate to /backtest via claude-in-chrome MCP. Fill window (2026-05-06 to 2026-05-10) and game scope (single id 'nba-0042500222'). Click 'Run'. Assert the response panel populates with a non-zero fires/game number that matches POST /v1/backtest's response (cross-check by also calling the API directly with the same body via curl; numbers must agree).",
         "Visual verification per CLAUDE.md UI Verification Protocol: screenshots at apps/web/.ralph-screenshots/US-035/ for baseline, primary interaction, and error/edge state; each screenshot decoded against docs/design-language.md tokens; interactive elements (nav, buttons, slider, inputs) clicked via claude-in-chrome MCP and resulting visual state verified; renders correctly at 1440x900 and 1024x768"
       ],
-      "priority": 43,
+      "priority": 44,
       "passes": false,
       "notes": ""
     },
@@ -830,7 +852,7 @@
         "Tests pass",
         "Typecheck passes"
       ],
-      "priority": 44,
+      "priority": 45,
       "passes": false,
       "notes": ""
     },
@@ -846,7 +868,7 @@
         "Typecheck passes",
         "Visual verification per CLAUDE.md UI Verification Protocol: screenshots at apps/web/.ralph-screenshots/US-037/ for baseline, primary interaction, and error/edge state; each screenshot decoded against docs/design-language.md tokens; interactive elements (nav, buttons, slider, inputs) clicked via claude-in-chrome MCP and resulting visual state verified; renders correctly at 1440x900 and 1024x768"
       ],
-      "priority": 45,
+      "priority": 46,
       "passes": false,
       "notes": ""
     },
@@ -862,7 +884,7 @@
         "Typecheck passes",
         "Visual verification per CLAUDE.md UI Verification Protocol: screenshots at apps/web/.ralph-screenshots/US-038/ for baseline, primary interaction, and error/edge state; each screenshot decoded against docs/design-language.md tokens; interactive elements (nav, buttons, slider, inputs) clicked via claude-in-chrome MCP and resulting visual state verified; renders correctly at 1440x900 and 1024x768"
       ],
-      "priority": 46,
+      "priority": 47,
       "passes": false,
       "notes": ""
     },
@@ -878,7 +900,7 @@
         "Typecheck passes",
         "Visual verification per CLAUDE.md UI Verification Protocol: screenshots at apps/web/.ralph-screenshots/US-039/ for baseline, primary interaction, and error/edge state; each screenshot decoded against docs/design-language.md tokens; interactive elements (nav, buttons, slider, inputs) clicked via claude-in-chrome MCP and resulting visual state verified; renders correctly at 1440x900 and 1024x768"
       ],
-      "priority": 47,
+      "priority": 48,
       "passes": false,
       "notes": ""
     },
@@ -902,7 +924,7 @@
         "Tests pass",
         "Visual verification per CLAUDE.md UI Verification Protocol: screenshots at apps/web/.ralph-screenshots/US-042/ for baseline (warmup=8), primary interaction (warmup=2 with markers earlier in each game timeline), and round-trip (warmup back to 8, metric returned to baseline X')"
       ],
-      "priority": 48,
+      "priority": 49,
       "passes": false,
       "notes": ""
     },
@@ -920,7 +942,7 @@
         "Tests pass",
         "Typecheck passes"
       ],
-      "priority": 49,
+      "priority": 50,
       "passes": false,
       "notes": ""
     },
@@ -934,7 +956,7 @@
         "Document includes a checklist a future engineer can run through",
         "Running 'pnpm verify:no-stale-plan' exits 0"
       ],
-      "priority": 50,
+      "priority": 51,
       "passes": false,
       "notes": ""
     }

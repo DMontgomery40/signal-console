@@ -44,9 +44,66 @@ describe("ExplainerCard — trigger discoverability", () => {
     expect(trigger).not.toBeNull();
     expect(trigger?.className).toContain("border-b");
     expect(trigger?.className).toContain("border-dashed");
-    expect(trigger?.className).toContain("border-text-lo/50");
+    // US-050: trigger underline shifts from text-lo/50 to accent-yellow/60 so
+    // the explainer affordance is visibly the same yellow identity as the
+    // card's left-edge stripe end-to-end.
+    expect(trigger?.className).toContain("border-accent-yellow/60");
+    expect(trigger?.className).not.toContain("border-text-lo/50");
     expect(trigger?.className).toContain("cursor-help");
     expect(trigger?.getAttribute("data-explainer-id")).toBe("k-mad");
+  });
+});
+
+describe("ExplainerCard — US-050 surface, stripe, and backdrop", () => {
+  it("renders the surface-elevated background + yellow left stripe + hairline ring + backdrop", async () => {
+    const user = userEvent.setup();
+    render(
+      <ExplainerCard id="k-mad">
+        <span>K</span>
+      </ExplainerCard>,
+    );
+    const trigger = screen.getByText("K").parentElement;
+    if (trigger === null) throw new Error("trigger missing");
+    await user.hover(trigger);
+    await waitFor(() => {
+      expect(screen.getByText("Plain English")).toBeDefined();
+    });
+
+    const card = document.body.querySelector(".explainer-card-content");
+    expect(card).not.toBeNull();
+    const cardClass = String(card?.className ?? "");
+    expect(cardClass).toContain("bg-surface-elevated");
+    expect(cardClass).toContain("border-l-[3px]");
+    expect(cardClass).toContain("border-l-accent-yellow");
+    expect(cardClass).toContain("border-text-lo/30");
+    // No box-shadow / drop-shadow / CSS filter classes on the card itself —
+    // depth comes from the backdrop, not from elevation shadow on the body.
+    expect(cardClass).not.toMatch(/\bshadow-/);
+    expect(cardClass).not.toMatch(/\bdrop-shadow/);
+
+    const backdrop = document.body.querySelector(".explainer-backdrop");
+    expect(backdrop).not.toBeNull();
+  });
+
+  it("unmounts the backdrop when the card closes", async () => {
+    const user = userEvent.setup();
+    render(
+      <ExplainerCard id="k-mad">
+        <span>K</span>
+      </ExplainerCard>,
+    );
+    const trigger = screen.getByText("K").parentElement;
+    if (trigger === null) throw new Error("trigger missing");
+    await user.hover(trigger);
+    await waitFor(() => {
+      expect(document.body.querySelector(".explainer-backdrop")).not.toBeNull();
+    });
+
+    await user.keyboard("{Escape}");
+
+    await waitFor(() => {
+      expect(document.body.querySelector(".explainer-backdrop")).toBeNull();
+    });
   });
 });
 

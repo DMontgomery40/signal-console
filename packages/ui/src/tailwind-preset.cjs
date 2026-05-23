@@ -14,6 +14,7 @@ const themeExtend = {
     "surface-0-to": "#0E2A1F",
     "surface-1": "#0F2419",
     "surface-2": "#163020",
+    "surface-elevated": "#1A3528",
     "accent-green": "#14EB6F",
     "accent-yellow": "#FFD000",
     negative: "#FF5757",

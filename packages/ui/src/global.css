@@ -17,6 +17,7 @@
   --surface-0-to: #0e2a1f;
   --surface-1: #0f2419;
   --surface-2: #163020;
+  --surface-elevated: #1a3528;
   --accent-green: #14eb6f;
   --accent-yellow: #ffd000;
   --negative: #ff5757;
@@ -46,6 +47,36 @@ body {
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+/* ExplainerCard — backdrop overlay. Rendered inside HoverCard.Portal as a
+ * sibling to the Content so it mounts/unmounts in sync with the card. The
+ * backdrop blurs and dims the rest of the page while keeping the card crisp
+ * — Linear/Vercel/Notion hover-card pattern. pointer-events: none so the
+ * trigger underneath stays interactive (the user can move the mouse from
+ * trigger into the card across the 8 px bridge). filter / box-shadow /
+ * drop-shadow are deliberately NOT applied here OR on the card: depth comes
+ * from the background blur, not from elevation shadow on the card body.
+ */
+
+.explainer-backdrop {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background-color: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  z-index: 40;
+  animation: explainer-backdrop-fade-in var(--motion-fast) ease-out;
+}
+
+@keyframes explainer-backdrop-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 /* ExplainerCard — Radix HoverCard content. */

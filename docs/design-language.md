@@ -14,23 +14,24 @@ The reference triangle: **bet365** (palette, type), **Linear** (typography craft
 
 All values declared once in `packages/ui/src/tokens.ts`, re-exported via a Tailwind preset, consumed everywhere. **No hex literals outside this file.**
 
-| Token            | Hex       | Role                                                                                                                                                                                                       |
-| ---------------- | --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `surface-0-from` | `#06140E` | App background, top of gradient                                                                                                                                                                            |
-| `surface-0-to`   | `#0E2A1F` | App background, bottom of gradient (subtle vertical gradient on `<body>` only)                                                                                                                             |
-| `surface-1`      | `#0F2419` | Cards, panels, dial track                                                                                                                                                                                  |
-| `surface-2`      | `#163020` | Row hover, focused list item                                                                                                                                                                               |
-| `accent-green`   | `#14EB6F` | Brand/structural — nav underline, live pulse, status dots, "ok" state, secondary actions ("Open Alerts" pattern)                                                                                           |
-| `accent-yellow`  | `#FFD000` | **Action + positive + anomaly.** Primary CTAs (buttons you want clicked), fires/anomaly markers, active K value on the dial, positive deltas, suspend warnings. The bet365 "Join button + plus-odds" role. |
-| `negative`       | `#FF5757` | Used sparingly — error banners, negative deltas in dense tables                                                                                                                                            |
-| `text-hi`        | `#FFFFFF` | Headings, primary numerics                                                                                                                                                                                 |
-| `text-md`        | `#B4C4BD` | Body, secondary metadata                                                                                                                                                                                   |
-| `text-lo`        | `#6E7E77` | Labels, axis ticks, helper text                                                                                                                                                                            |
+| Token              | Hex       | Role                                                                                                                                                                                                                                                                                                                                                                               |
+| ------------------ | --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `surface-0-from`   | `#06140E` | App background, top of gradient                                                                                                                                                                                                                                                                                                                                                    |
+| `surface-0-to`     | `#0E2A1F` | App background, bottom of gradient (subtle vertical gradient on `<body>` only)                                                                                                                                                                                                                                                                                                     |
+| `surface-1`        | `#0F2419` | Cards, panels, dial track                                                                                                                                                                                                                                                                                                                                                          |
+| `surface-2`        | `#163020` | Row hover, focused list item                                                                                                                                                                                                                                                                                                                                                       |
+| `surface-elevated` | `#1A3528` | **Elevated overlays — hover cards, popovers, dropdowns.** Stand out clearly against the page gradient. Used for Explainer Cards and any future floating surface that needs visual hierarchy above the page.                                                                                                                                                                        |
+| `accent-green`     | `#14EB6F` | Brand/structural — nav underline, live pulse, status dots, "ok" state, secondary actions ("Open Alerts" pattern)                                                                                                                                                                                                                                                                   |
+| `accent-yellow`    | `#FFD000` | **Action + positive + anomaly + engage-with-this-for-info.** Primary CTAs (buttons you want clicked), fires/anomaly markers, active K value on the dial, positive deltas, suspend warnings, explainer-trigger underlines + explainer-card left-edge stripes. The bet365 "Join button + plus-odds" role, extended to "the system has more for you here" (the explainer affordance). |
+| `negative`         | `#FF5757` | Used sparingly — error banners, negative deltas in dense tables                                                                                                                                                                                                                                                                                                                    |
+| `text-hi`          | `#FFFFFF` | Headings, primary numerics                                                                                                                                                                                                                                                                                                                                                         |
+| `text-md`          | `#B4C4BD` | Body, secondary metadata                                                                                                                                                                                                                                                                                                                                                           |
+| `text-lo`          | `#6E7E77` | Labels, axis ticks, helper text                                                                                                                                                                                                                                                                                                                                                    |
 
 **Rules:**
 
-- **Every screen with an action shows yellow.** Primary CTAs are yellow-outlined buttons. Yellow also marks fires, anomaly markers, the active K value, and positive deltas. Yellow is scarce but **visible on every page** — that's the bet365 lineage. A screen with no yellow at all (no CTA, no fire, no positive delta) is a sign you're either on a pure-display surface or missed an affordance.
-- **Don't sprinkle yellow.** No yellow chrome, decoration, gridlines, or hover ornaments. Yellow says "click me / fire / good news" — nothing else.
+- **Every screen with an action shows yellow.** Primary CTAs are yellow-outlined buttons. Yellow also marks fires, anomaly markers, the active K value, positive deltas, and the explainer affordance (dashed-underline trigger + left-edge stripe on the open hover card — see §Explainer Cards). Yellow is scarce but **visible on every page** — that's the bet365 lineage. A screen with no yellow at all (no CTA, no fire, no positive delta, no explainable term) is a sign you're either on a pure-display surface or missed an affordance.
+- **Don't sprinkle yellow.** No yellow chrome, decoration, gridlines, or hover ornaments. Yellow says "click me / fire / good news / engage-with-this-for-info" — nothing else. The explainer underline counts as the "engage" role; a yellow underline on a plain (non-explainer) word would dilute the contract.
 - **Green is the structural quiet.** Nav underline, live pulse, status dots, the "Open Alerts"-style secondary action. Green is not a CTA color.
 - Negative red appears at most once per screen, only when contrasting positive.
 - The gradient applies to `<body>` exclusively — no per-panel gradients, no card gradients.
@@ -154,11 +155,12 @@ Many numbers and concepts in this app (`K_MAD`, `fires/game`, the various detect
 
 **Primitive:** Radix UI `HoverCard` (not `Tooltip` — `Tooltip` auto-dismisses on blur and disallows interactive content; we need the user to be able to move the mouse INTO the card and scroll).
 
-**Trigger discoverability — subtle but visible:**
+**Trigger discoverability — subtle but visible (US-050 update):**
 
-- Any term/number with an attached explainer renders with a 1 px `text-lo` 50%-opacity dashed underline. No icon, no `(?)`, no superscript.
+- Any term/number with an attached explainer renders with a 1 px `accent-yellow` 60%-opacity dashed underline. No icon, no `(?)`, no superscript.
 - Cursor turns to `help` on hover (`cursor: help`).
-- That's it. The underline says "there's more here" without shouting it.
+- Yellow is now the explainer identity end-to-end: see yellow dashed underline → know it's hoverable → see yellow stripe on the card → same affordance showing the answer. This pairs with bet365's "engage-with-this" yellow role and stays scarce — yellow underlines appear ONLY on terms with an attached explainer entry. A non-explainer word that grows a yellow underline would dilute the contract.
+- Previous spec was `text-lo` 50%-opacity dashed; that version landed in US-046 and was replaced by US-050 because the muted-gray underline was effectively invisible against `text-md` body copy and gave the explainer system no recognizable visual identity.
 
 **Card layout (two sections, vertically stacked):**
 
@@ -196,14 +198,19 @@ Many numbers and concepts in this app (`K_MAD`, `fires/game`, the various detect
 - 8 px transparent bridge zone between trigger and card edge so the cursor can cross the gap without dismissal.
 - A click outside dismisses; pressing `Escape` dismisses; tab-focus dismisses sibling cards before opening a new one.
 
-**Styling:**
+**Styling (US-050 canonical spec — supersedes the US-046 single top-edge border):**
 
-- `surface-1` fill, 1 px `accent-green` top-edge border (matches the regular Tooltip pattern), all other edges borderless.
+- **Fill:** `surface-elevated` (`#1A3528`). Materially lighter than the page gradient (`surface-0-from` / `surface-0-to`) and distinct from `surface-1` / `surface-2`, so the card reads as floating above the page rather than embedded in the noise. The fill is the primary depth cue; do NOT add a per-card gradient.
+- **Left-edge stripe:** 3 px `accent-yellow` spanning the full card height (Notion-callout pattern). The stripe is part of the card, not external decoration. Yellow because the explainer system surfaces information the user actively engages with — same engage-with-this identity as the dashed-underline trigger.
+- **Other edges:** 1 px `text-lo` 30%-opacity hairline on top, right, bottom. Gives the card a defined boundary on every side without competing with the yellow stripe.
+- **Backdrop treatment (rendered as a Portal sibling, mounts/unmounts with the card):** the REST of the page receives `backdrop-filter: blur(8px)` AND a black overlay at 40% opacity. The card itself stays crisp. The overlay has `pointer-events: none` so the trigger underneath remains interactive (the user can cross the 8 px bridge into the card without dismissal).
+- **NO drop-shadow, NO box-shadow, NO CSS `filter:` on the card body.** Depth comes from the backdrop blur on the background, not from elevation shadow on the card. `backdrop-filter` is applied to the overlay only.
 - Internal padding 16 px.
 - Section labels ("Plain English" / "Formal") rendered in `text-lo`, `text-xs`, `letter-spacing: 0.08em`, uppercase.
 - Section divider: 1 px `text-lo` 30%-opacity, 24 px vertical margin on each side.
-- Fade in 100 ms, fade out 100 ms.
+- Fade in 100 ms, fade out 100 ms. Backdrop fade-in uses the same 100 ms / ease-out timing as the card itself; backdrop unmount is abrupt by virtue of Portal unmount (acceptable at this duration; if it ever feels jarring, the upgrade path is `forceMount` on the Portal/Content plus a data-state-driven fade-out on the backdrop).
 - Custom scrollbar: 6 px wide, `surface-2` track, `text-lo` thumb.
+- This is the canonical pattern for ALL future popover / dropdown / hover-card surfaces in the app. New floating surfaces should use `surface-elevated` + the backdrop overlay + the yellow stripe (or matching engage-color stripe) + three-edge hairline ring. Do not reintroduce single-edge accent-green borders for popovers; that pattern is reserved for the quick-label Tooltip (terse one-liners only).
 
 **Content source:** all explainer copy lives in `packages/ui/src/explainers.ts` as a typed record keyed by concept id. Each entry has `{ title, eli5, formal }` where `eli5` is markdown (sports-trader voice, prose only) and `formal` is markdown with KaTeX delimiters (`$inline$`, `$$block$$`) for math. The data file is the single source of truth — components reference by id, never inline copy.
 
