@@ -229,15 +229,26 @@ for i in $(seq 1 $MAX_ITERATIONS); do
   # silently exits after the first successful iteration (observed: US-046
   # committed cleanly, then ralph.sh exited because `kill $KILLER_PID` returned
   # non-zero under set -e).
-  ( claude --dangerously-skip-permissions --print < "$SCRIPT_DIR/CLAUDE.md" 2>&1 ) | tee /dev/stderr > "$ITER_OUT_FILE" &
+  # BUG FIX: previous version put claude inside a `(...) | tee ... &` pipeline.
+  # In bash, `$!` after a pipeline returns the LAST process in the pipeline (tee),
+  # NOT the first (claude). So `kill -KILL $CLAUDE_PID` was killing tee, leaving
+  # claude orphaned — observed: US-036 iteration ran 25+ min past the 20-min
+  # timeout because the timeout signaled the wrong process. Fix: don't pipe.
+  # Write claude's output straight to the iter file; live-tail the file to stderr
+  # in a background sidecar process for observation. CLAUDE_PID now IS claude.
+  claude --dangerously-skip-permissions --print < "$SCRIPT_DIR/CLAUDE.md" > "$ITER_OUT_FILE" 2>&1 &
   CLAUDE_PID=$!
+  ( tail -f "$ITER_OUT_FILE" >&2 2>/dev/null ) &
+  TAIL_PID=$!
   ( sleep "$ITERATION_TIMEOUT_SEC" && kill -KILL $CLAUDE_PID 2>/dev/null && touch "$ITER_TIMEOUT_MARKER" ) &
   KILLER_PID=$!
 
   wait $CLAUDE_PID 2>/dev/null || true
   CLAUDE_EXIT=$?
-  # Cancel the killer if claude finished on its own
+  # Tear down sidecars
+  kill $TAIL_PID 2>/dev/null || true
   kill $KILLER_PID 2>/dev/null || true
+  wait $TAIL_PID 2>/dev/null || true
   wait $KILLER_PID 2>/dev/null || true
 
   OUTPUT=$(cat "$ITER_OUT_FILE" 2>/dev/null || echo "")
