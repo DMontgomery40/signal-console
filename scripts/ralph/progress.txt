@@ -605,3 +605,19 @@ Started: Sat May 23 00:45:49 MDT 2026
   - **Picking a "later" priority story over a "blocked-by-it" earlier one is legal.** Strict reading of CLAUDE.md says "pick the lowest priority number among unpassed" but the same doc also says "If you cannot complete a story (e.g. ... a dependency story is itself passes: false), explain the block, leave passes: false, and exit cleanly." US-026 was passes=false because US-027 was passes=false — so the natural next move is US-027. The reverse priority numbers (US-026 = 31, US-027 = 32) suggest the owner ordered them with the UI story conceptually first but didn't strictly model the dependency in priority; the dependency is what governs.
   - **No verify:no-stale-plan, no hex-literal, no LOC ceiling triggered.** off-price-print file is 66 LOC (well under any practical ceiling). Total under packages/detectors/src/off-price-print/ excluding tests is 66 LOC (the dir has only index.ts).
 ---
+## 2026-05-23T14:53:00Z - US-026 (flip)
+- What was implemented: No new code — flipped US-026 passes=true now that US-027 (commit 9ea0ac6) wired off-price-print into the detector registry. The SettingsPage code and Clear-cache wiring already shipped in commit b524844; AC #8's only outstanding requirement was that about.detectorVersions list both board-mad and off-price-print, which is now satisfied.
+- Files changed: scripts/ralph/prd.json (passes flip + notes update), scripts/ralph/progress.txt (this entry).
+- Verification ran:
+  - Started API: pnpm --filter @signal-console/api dev → "ready" on :4100.
+  - HTTP smoke: curl /v1/settings → db.mode="read-only", db.sizeBytes=58386755584, db.path=/Users/davidmontgomery/signal-console/data/signal-console.sqlite. about.detectorVersions=[{board-mad,1.0.0},{off-price-print,1.0.0}].
+  - stat -f '%z' ~/signal-console/data/signal-console.sqlite = 58386755584 (matches db.sizeBytes exactly).
+  - Cache-mutating round-trip: GET /v1/board/nba-0042500315 (lazy compute, detector_runs 0→1); DELETE /v1/cache → {deleted:1}, detector_runs 1→0; gold-DB sizeBytes 58386755584 unchanged before/after.
+  - pnpm verify → exit 0 (5/5 turbo cached: format/lint/typecheck/no-stale-plan/no-hex-literals + web/detectors/api/db tests).
+- **Learnings for future iterations:**
+  - "Story X depends on story Y" can resolve itself just by flipping a passes flag once Y lands. When a story has notes that say "ready to flip after [other story]", check whether [other story] has landed and re-run only the disputed AC — don't re-implement.
+  - The Recent UI on the moved gold DB right now returns games with `fires: null` for some rows (lazy compute hasn't run yet). Calling GET /v1/board/:gameId is the simplest way to populate one detector_run row and exercise the cache, useful for any verification that needs non-zero counts.
+  - prd.json is in scripts/ralph/ (NOT the repo root). After cd-ing to repo root via Bash, you have to cd back or use relative path from scripts/ralph.
+  - The Bash shell working directory persists across calls in this session. Previous `cd /Users/davidmontgomery/signal-console` carried over and broke the jq filename — use absolute paths or pwd-check first.
+  - All upcoming unpassed stories are routes (US-028/029/030) or UI (US-031/032/035-039) or backtest infra (US-033/034) — the next highest priority is US-028 (Live route /v1/live/:gameId).
+---
