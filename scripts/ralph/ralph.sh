@@ -223,24 +223,30 @@ for i in $(seq 1 $MAX_ITERATIONS); do
   ITER_OUT_FILE=$(mktemp -t ralph-iter)
   ITER_TIMEOUT_MARKER="${ITER_OUT_FILE}.timeout"
 
+  # set -e is active at script top; every cleanup command below could return
+  # non-zero on the happy path (killer already exited cleanly, wait reaping an
+  # already-reaped child), so we MUST `|| true`-suffix each one or the loop
+  # silently exits after the first successful iteration (observed: US-046
+  # committed cleanly, then ralph.sh exited because `kill $KILLER_PID` returned
+  # non-zero under set -e).
   ( claude --dangerously-skip-permissions --print < "$SCRIPT_DIR/CLAUDE.md" 2>&1 ) | tee /dev/stderr > "$ITER_OUT_FILE" &
   CLAUDE_PID=$!
   ( sleep "$ITERATION_TIMEOUT_SEC" && kill -KILL $CLAUDE_PID 2>/dev/null && touch "$ITER_TIMEOUT_MARKER" ) &
   KILLER_PID=$!
 
-  wait $CLAUDE_PID 2>/dev/null
+  wait $CLAUDE_PID 2>/dev/null || true
   CLAUDE_EXIT=$?
   # Cancel the killer if claude finished on its own
-  kill $KILLER_PID 2>/dev/null
-  wait $KILLER_PID 2>/dev/null
+  kill $KILLER_PID 2>/dev/null || true
+  wait $KILLER_PID 2>/dev/null || true
 
   OUTPUT=$(cat "$ITER_OUT_FILE" 2>/dev/null || echo "")
   TIMED_OUT=0
   if [ -f "$ITER_TIMEOUT_MARKER" ]; then
     TIMED_OUT=1
-    rm -f "$ITER_TIMEOUT_MARKER"
+    rm -f "$ITER_TIMEOUT_MARKER" || true
   fi
-  rm -f "$ITER_OUT_FILE"
+  rm -f "$ITER_OUT_FILE" || true
 
   if [ $TIMED_OUT -eq 1 ]; then
     echo ""
