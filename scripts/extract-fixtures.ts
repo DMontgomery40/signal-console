@@ -1,8 +1,14 @@
 // pnpm exec tsx scripts/extract-fixtures.ts
 //
 // Extracts board-mad detector canonical contract-test fixtures from the gold DB
-// for the three PBP-anchored games (US-010). One JSON-gz file per game, written
-// to packages/detectors/src/board-mad/__tests__/fixtures/<gameId>.json.gz.
+// for (a) the three PBP-anchored games (US-010, the Hartenstein/Reaves incident
+// fixtures, with fixed 2-hour windows around the anchored event timestamps),
+// and (b) the full PBP-anchored game universe used by the 64-game mean-fires
+// contract assertion (US-011, all distinct game_ids in
+// nba_play_by_play_actions, each in its own per-game PBP MIN/MAX(time_actual)
+// in-play window with a 5-minute pre-buffer to seed the trailing baseline).
+// One JSON-gz file per game, written to
+// packages/detectors/src/board-mad/__tests__/fixtures/<gameId>.json.gz.
 //
 // This script is owner-runnable: it reads the gold-DB path from the GOLD_DB_PATH
 // env var (defaulting to packages/db's GOLD_DB_PATH constant, i.e. the new
@@ -163,6 +169,43 @@ function extractOne(dbPath: string, spec: FixtureSpec, fixturesDir: string): num
   }
 }
 
+const PBP_PRE_BUFFER_MS = 5 * 60 * 1000;
+const PBP_POST_BUFFER_MS = 60 * 1000;
+
+function pbpSpecsExcluding(dbPath: string, excluded: ReadonlySet<string>): readonly FixtureSpec[] {
+  const db = openGoldDb(dbPath);
+  try {
+    const gameRows: readonly unknown[] = db
+      .prepare("SELECT DISTINCT game_id FROM nba_play_by_play_actions ORDER BY game_id")
+      .all();
+    const winStmt = db.prepare(
+      "SELECT MIN(time_actual) AS lo, MAX(time_actual) AS hi FROM nba_play_by_play_actions WHERE game_id = ?",
+    );
+    return gameRows.flatMap((row): readonly FixtureSpec[] => {
+      if (!isRecord(row)) return [];
+      const gameId = fieldString(row, "game_id");
+      if (excluded.has(gameId)) return [];
+      const win = winStmt.get(gameId);
+      if (!isRecord(win)) return [];
+      const lo = win.lo;
+      const hi = win.hi;
+      if (typeof lo !== "string" || typeof hi !== "string") return [];
+      const loMs = Date.parse(lo);
+      const hiMs = Date.parse(hi);
+      if (!Number.isFinite(loMs) || !Number.isFinite(hiMs)) return [];
+      return [
+        {
+          gameId,
+          windowStart: new Date(loMs - PBP_PRE_BUFFER_MS).toISOString(),
+          windowEnd: new Date(hiMs + PBP_POST_BUFFER_MS).toISOString(),
+        },
+      ];
+    });
+  } finally {
+    db.close();
+  }
+}
+
 function main(): number {
   const dbPath = process.env.GOLD_DB_PATH ?? GOLD_DB_PATH;
   const scriptDir = dirname(fileURLToPath(import.meta.url));
@@ -178,7 +221,14 @@ function main(): number {
   );
   mkdirSync(fixturesDir, { recursive: true });
   process.stdout.write(`extract-fixtures: reading ${dbPath}\n`);
+  process.stdout.write("anchored fixtures (US-010):\n");
   for (const spec of FIXTURES) {
+    extractOne(dbPath, spec, fixturesDir);
+  }
+  const anchored = new Set(FIXTURES.map((s) => s.gameId));
+  const pbpSpecs = pbpSpecsExcluding(dbPath, anchored);
+  process.stdout.write(`PBP-set fixtures (US-011, ${String(pbpSpecs.length)} games):\n`);
+  for (const spec of pbpSpecs) {
     extractOne(dbPath, spec, fixturesDir);
   }
   process.stdout.write("extract-fixtures OK\n");
