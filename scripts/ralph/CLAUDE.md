@@ -90,14 +90,17 @@ If a story you pick contains an acceptance criterion that requires owner action,
 **The principle:** real, headed, on-screen browser interaction with real screenshot evidence is mandatory. If one mechanism hangs, **pivot immediately to another mechanism** — DON'T sit there waiting for the dead one, and DON'T give up. You have multiple paths:
 
 **Path A — Playwright MCP (`@playwright/mcp` via `mcp__plugin_testing-suite_playwright-server__*` tools):**
+
 - Try this first. `browser_navigate` with `{ headless: false }` so the window pops up on screen.
 - If a single `browser_*` call has not returned in **90 seconds**, do not continue waiting. Move to Path B.
 
 **Path B — codemode-mcp Deno scripts:**
+
 - `codemode-mcp` (configured at `~/.config/codemode-mcp/codemode-mcp-temp/index.ts`) lets you write small Deno scripts that talk to MCPs differently AND can shell out via `Deno.Command`. Use it when Playwright MCP's wrapper is the thing hanging.
 - Example: a Deno script that drives `playwright` the npm package directly (bypassing the MCP wrapper), launches Chromium headed, navigates, drags, screenshots, exits. Same effect, different layer.
 
 **Path C — macOS native tools via Bash:**
+
 - `open -a "Google Chrome" "http://localhost:5173"` — pops Chrome to the foreground.
 - `screencapture ~/signal-console/apps/web/.ralph-screenshots/<story-id>/<n>-<label>.png` — full-screen rasterized PNG. `-R x,y,w,h` for region; `-l <window-id>` for a specific window.
 - `osascript -e 'tell application "System Events" to click at {x, y}'` — programmatic click. For drag: `osascript -e 'tell application "System Events" to do shell script "..."'` with cliclick (or `osascript` mouse-down/up patterns).
@@ -108,6 +111,7 @@ If a story you pick contains an acceptance criterion that requires owner action,
 **Path E — `mcp__computer-use__*` tools** (call `mcp__computer-use__request_access` first with the apps you need; browsers are tier `"read"` so use for screenshots only, not clicks). Combine with Path C for click/type.
 
 **The flow:**
+
 1. Try Path A. If it hangs (>90s on one tool call), abandon Path A for this story attempt.
 2. Pivot to Path B (codemode Deno script). Give it 90s.
 3. If B fails too, Path C (macOS native). Path C cannot hang on MCP because there is no MCP.
