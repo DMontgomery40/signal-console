@@ -117,17 +117,18 @@ const microstructureSchema = z.object({
   events: z.array(microstructureEventSchema),
 });
 
-// /v1/detectors — PRD §15 + §10: registry entries. Route TBD (US-030).
-// paramsSchema is a JSON Schema object; we keep it as a passthrough record so
-// the consumer can render it without forcing a specific JSON-Schema dialect
-// through Zod.
+// /v1/detectors — PRD §15 + §10: registry entries. apps/api/src/routes/detectors.ts
+// returns the rows wrapped as { detectors: [...] }; paramsSchema is a JSON
+// Schema object produced via zod-to-json-schema and we keep it as a
+// passthrough record so the UI can iterate properties without forcing a
+// specific JSON-Schema dialect through Zod.
 const detectorEntrySchema = z.object({
   id: z.string(),
   version: z.string(),
   displayName: z.string(),
   paramsSchema: z.record(z.unknown()),
 });
-const detectorsSchema = z.array(detectorEntrySchema);
+const detectorsSchema = z.object({ detectors: z.array(detectorEntrySchema) });
 
 // /v1/settings — mirrors apps/api/src/routes/settings.ts.
 const sourceRowSchema = z.object({

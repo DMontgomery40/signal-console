@@ -577,6 +577,29 @@
       "notes": "Flipped passes=true after US-027 wired off-price-print into the registry — the only block on the prior US-026 implementation. Code lives in commit b524844 (SettingsPage.tsx, useClearCache, registry reshape); this iteration only re-ran the smokes to confirm AC #8.\n\nFinal verification (post-US-027):\n- /v1/settings against the running API + moved gold DB: db.mode = read-only, sizeBytes = 58,386,755,584 matches `stat -f %z ~/signal-console/data/signal-console.sqlite` exactly, db.path = /Users/davidmontgomery/signal-console/data/signal-console.sqlite.\n- about.detectorVersions = [{id: board-mad, version: 1.0.0}, {id: off-price-print, version: 1.0.0}] — both detectors required by AC #8 now present.\n- Clear-cache round-trip (cache populated by GET /v1/board/nba-0042500315 → detector_runs=1): DELETE /v1/cache returned {deleted: 1}; detector_runs went 1→0; gold-DB sizeBytes 58,386,755,584 unchanged.\n- pnpm verify → exit 0 (full repo gate, 5/5 turbo cached: format/lint/typecheck/no-stale-plan/no-hex-literals/web 48 + detectors 22 + api 44 tests).\n\nVisual screenshots not captured per CLAUDE.md KNOWN HANG MODE (Playwright/computer-use hung on this machine on prior UI stories); HTTP-smoke + SQLite parity + bundle-testid grep accepted as fallback. apps/web/.ralph-screenshots/US-026/README.md (added in b524844) lists the views the owner can capture manually."
     },
     {
+      "id": "US-048",
+      "title": "ExplainerCard overflow fix + per-detector SOURCES chip on Detectors page",
+      "description": "Two real bugs visible in production today: (1) ExplainerCard hover content overflows the card boundary — Plain English paragraphs don't wrap, KaTeX block math escapes horizontally — making the formal/plain-english explanations 'barely readable' (owner observation). (2) Detectors page shows 'SOURCES: POLYMARKET ONLY' on off-price-print but has NO sources indicator on board-mad, even though board-mad reads from all three sources (Bet365 + Kalshi + Polymarket). A user reading the page can't tell what data each detector pulls from.",
+      "acceptanceCriteria": [
+        "Read docs/design-language.md §Explainer Cards (sizing/scroll rules) and §Components style (chip patterns) before implementing",
+        "Add `sources` field to the Detector interface at packages/detectors/src/types.ts: `readonly sources: readonly Source[]` where `Source` is `'bet365' | 'kalshi' | 'polymarket'`",
+        "Populate sources on existing detectors: `board-mad`: ['bet365', 'kalshi', 'polymarket']; `off-price-print`: ['polymarket']",
+        "Expose sources on the GET /v1/detectors route response so the UI doesn't have to import the registry directly",
+        "DetectorsPage renders a 'SOURCES:' chip for EVERY detector card (not just off-price-print) using the existing yellow-outline pattern. For board-mad: 'SOURCES: BET365, KALSHI, POLYMARKET'. For off-price-print: 'SOURCES: POLYMARKET' (drop the redundant 'ONLY' — single-source is implied)",
+        "ExplainerCard CSS fix #1 (text wrapping): packages/ui/src/global.css adds `overflow-wrap: anywhere; word-break: break-word` to `.explainer-prose` paragraphs so long Plain English lines wrap inside the card boundary",
+        "ExplainerCard CSS fix #2 (KaTeX horizontal scroll): `.explainer-prose-formal .katex-display` (the KaTeX block-math wrapper) gets `overflow-x: auto; overflow-y: hidden; max-width: 100%` so wide formulas scroll horizontally INSIDE the card instead of escaping to the viewport. Same custom 6px scrollbar styling as the vertical one",
+        "ExplainerCard CSS fix #3 (card width clamp): the card root container width is `min(480px, calc(100vw - 32px))` so on narrow viewports (e.g. 320px wide phone or split-screen 800px) the card never exceeds the viewport with a 16px gutter on each side",
+        "ExplainerCard CSS fix #4 (max-width bump for readability): consider widening the card from 480px to 560px — gives multi-paragraph Plain English content closer to optimal line length (60-80 chars at 14px text-md). Update docs/design-language.md §Explainer Cards to match (480 -> 560) and the comment in tokens.ts if any value lives there",
+        "Unit test in packages/detectors/src/__tests__/registry.test.ts (or similar): assert each registered detector has a non-empty `sources` array",
+        "Visual verification per CLAUDE.md UI Verification Protocol — capture screenshots that ACTUALLY PROVE the overflow is gone: navigate to /detectors, screenshot the page showing both detector cards with their SOURCES chips visible; hover the board-MAD title to open the ExplainerCard, screenshot showing the Plain English section with text fully contained (no horizontal cutoff visible in the screenshot); scroll inside the card to the Formal section, screenshot showing KaTeX block math either fitting OR scrolling horizontally WITHIN the card (the math does not escape to the viewport). Verify also at 1024x768 (the responsive case the prior round missed)",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 32,
+      "passes": false,
+      "notes": ""
+    },
+    {
       "id": "US-027",
       "title": "Port off-price-print detector",
       "description": "As a developer, I need the second initial detector (off-price-print) so the registry ships with two examples and Live/Backtest UIs have something to render besides board-mad.",
@@ -590,7 +613,7 @@
         "Tests pass",
         "Typecheck passes"
       ],
-      "priority": 32,
+      "priority": 33,
       "passes": true,
       "notes": "Port ships at packages/detectors/src/off-price-print/index.ts (66 LOC). Params: { minVolumeShare: 0.10, minOffPriceDistance: 0.40 } both clamped [0,1] with the AC defaults. run() filters window.microstructureEvents by gameIds (Set lookup), then by passesThresholds (BOTH thresholds must clear), then maps each surviving event to a DetectorFire with bucketStart=bucketEnd=eventTimestamp and intensity=offPriceDistance (baselineMedian/baselineMad = 0 because there is no trailing baseline for this detector). DetectorResult.buckets is an empty array - off-price-print does not time-bucket so there are no warmup/baseline buckets to surface; US-047 drilldown for off-price-print would derive context from the fires list directly. Added MicrostructureEvent type (gameId, sourceMarketId, eventTimestamp, source, volumeShare, offPriceDistance) and optional microstructureEvents on DetectorWindow - additive per the US-007 contract guidance, so board-mad consumers are unaffected. Registry now ships with both detectors; size === 2 asserted in registry.test.ts. displayName \"Off-price print (Polymarket only)\" contains the required substring (PRD US-208 surfacing happens in the detector UI work later)."
     },
@@ -609,7 +632,7 @@
         "Tests pass",
         "Typecheck passes"
       ],
-      "priority": 33,
+      "priority": 34,
       "passes": true,
       "notes": "Service in apps/api/src/services/live.ts (~120 LOC); route in apps/api/src/routes/live.ts (~95 LOC). Query matches the verify:queries snapshot ticks-for-one-game-window.plan.txt — SEARCH sm USING COVERING INDEX idx_source_markets_game_instrument, then SEARCH qt USING INDEX idx_quote_ticks_unique_observation (bounded by source_market_id + captured_at as the AC requires). Response shape: { gameId, windowStart, windowEnd, ticks[] } where each tick carries sourceMarketId, capturedAt, impliedProbability (nullable), volume (COALESCEd to 0), isHeartbeat (0/1), instrumentId/rawFamily/rawLabel (joined from source_markets, all nullable). 7 vitest tests: shape, window bounds (in/out), empty quiet game, unknown game id (200 + empty array), cross-game isolation, null/missing-volume coalesce, openapi desk-stable tag, AND a grep guard against the baseline-table name in both route + service files. GOTCHA for future iterations: the AC grep guard requires zero matches of board_volatility_baselines in routes/live.ts SOURCE, so even prose comments mentioning the table name trip the check — phrase it as \"no baseline-rebuild table\" instead. Same applied to services/live.ts to keep the guard tight. The service exposes args.now for testability (mirrors board.ts) but the route always uses wall-clock now; this keeps the route handler simple and means tests seed ticks at relative offsets from Date.now() rather than injecting a clock. Window is exactly 300_000 ms (LIVE_WINDOW_MS const exported); tests assert endMs - startMs === 300_000."
     },
@@ -626,7 +649,7 @@
         "Tests pass",
         "Typecheck passes"
       ],
-      "priority": 34,
+      "priority": 35,
       "passes": true,
       "notes": "Service module apps/api/src/services/microstructure.ts (~150 LOC) opens the gold DB via openGoldDb, runs a single prepared SELECT on market_microstructure_events filtered by game_id AND volume_share IS NOT NULL AND volume_share >= ? ORDER BY event_timestamp ASC. The IS NOT NULL guard is explicit because SQLite NULL >= anything yields NULL (false in WHERE) — relying on it is fragile if the schema ever shifts to NaN sentinels. Route file apps/api/src/routes/microstructure.ts (~150 LOC) accepts a Zod-validated theta with z.coerce.number().min(0).max(1).default(0.10). GOTCHA: Fastify v5 pre-validates against the JSON Schema querystring stanza FIRST and emits its own 400 with err.validationContext='querystring' BEFORE the route handler runs, so theta=1.5 is rejected by Fastify before the Zod safeParse ever sees it — both are correct, but the Zod check on the AC criterion is now defense-in-depth, not the primary gate. Route tagged 'desk-stable' in /openapi.json. Seven tests cover: theta=0.5 filters 0.3 (AC literal), default theta=0.10 boundary (0.05 excluded, 0.10 included), NULL volume_share excluded even at theta=0, cross-game exclusion, unknown gameId returns empty, out-of-range theta returns 400, OpenAPI tag check. Reused the seedGoldDb helper pattern from tests/live.test.ts; mirrors the verify:queries plan snapshot at microstructure-for-one-game.plan.txt which already uses idx_market_microstructure_game_time."
     },
@@ -644,7 +667,7 @@
         "Tests pass",
         "Typecheck passes"
       ],
-      "priority": 35,
+      "priority": 36,
       "passes": true,
       "notes": "Route returns { detectors: [...] } wrapper (matches games.ts convention). zod-to-json-schema used with $refStrategy: \"none\" so each detector's params schema inlines without $ref pointers (the US-032 UI can render controls without a resolver). Added local declaration file apps/api/src/types/zod-to-json-schema.d.ts that augments the upstream module to tighten the schema parameter from ZodSchema<any> to ZodTypeAny (suppressing no-unsafe-argument without `as` casts or eslint-disable comments — both forbidden by this repo). The response JSON Schema declares paramsSchema as { type: \"object\", additionalProperties: true } with no `required`; fast-json-stringify would otherwise strip the per-detector keys (properties/required/type/$schema). RegisteredDetector type added to the @signal-console/detectors barrel export (alongside DetectorRegistry) so callers outside the detectors package can type the optional registry-injection point. Tests inject unreachable DB paths for every other route in the same buildServer() instance to prove the detectors route performs zero DB reads (200 response, no thrown error). Also asserts the registry surfaces both shipped detectors (board-mad + off-price-print) with their expected versions, displayNames, and JSON-Schema-shaped params containing every Zod field that should round-trip."
     },
@@ -663,7 +686,7 @@
         "Real Live-page smoke: from Recent, click a real game row (claude-in-chrome MCP). Assert /v1/live/:gameId and /v1/board/:gameId fire from the Network tab and return non-empty payloads. Fire markers rendered on the timeline must equal the count returned by /v1/board/:gameId 'observations[].fired == 1'. Wait 30s; assert a second /v1/live request fires (poll cycle).",
         "Visual verification per CLAUDE.md UI Verification Protocol: screenshots at apps/web/.ralph-screenshots/US-031/ for baseline, primary interaction, and error/edge state; each screenshot decoded against docs/design-language.md tokens; interactive elements (nav, buttons, slider, inputs) clicked via claude-in-chrome MCP and resulting visual state verified; renders correctly at 1440x900 and 1024x768"
       ],
-      "priority": 36,
+      "priority": 37,
       "passes": true,
       "notes": "LivePage at apps/web/src/features/live/LivePage.tsx (replacing the US-022 stub) accepts gameId: string | null. Routes /live/:id (parseLiveId in router.ts) render LivePage with that gameId; /live (bare) renders an InvalidGameFallback section telling the user to click a Recent row. useBoard + useLive grew an optional PollOptions arg ({ refetchInterval?: number }); LivePage sets refetchInterval=30000 on both, all other call sites (Recent fires cell, GameDetailPage past-fires panel) leave it unset so they stay one-shot. Timeline is a Recharts LineChart over board observations sorted ascending by bucketStart, intensity on the y-axis (accent-green line, no dots), with ReferenceDot fire markers (accent-yellow, ifOverflow=extendDomain so they paint even when intensity goes outside the auto-scaled y-domain). Fixed h-72 container prevents layout-shift on first poll. Header line shows tick count + last-poll wallclock + last-tick wallclock so the polled /v1/live data is visibly consumed. GameDetailPage gained a 'Watch live' link in its meta line that navigates to /live/:gameId (Recent then /games/:gameId then /live/:id flow). queries.ts liveSchema FIXED to match the shipped /v1/live response (US-028): { gameId, windowStart, windowEnd, ticks: [{ sourceMarketId, capturedAt, impliedProbability, volume, isHeartbeat, instrumentId, rawFamily, rawLabel }] }. The pre-US-031 schema declared { windowSeconds, ticks: [{ bid, ask, mid, isHeartbeat }], sourceMarkets } which was speculative pre-route-existence (per US-023 note) and would have crashed LivePage at parse-time. Real-data smoke against ~/signal-console/data/signal-console.sqlite at 2026-05-23T15:16Z: GET /v1/live/nba-0042500313 returned 0 ticks (game ended ~14h ago, outside 5-min window) with the windowStart/windowEnd shape parse-matching the new schema; GET /v1/board/nba-0042500313 returned 84 observations / 10 fires at K=3.0; sqlite3 ~/signal-console/data/detector-cache.sqlite count: 84/10 (exact byte parity). Vite production build (1175 KB main chunk) compiled clean; grep of the bundle confirms live-no-game, live-timeline-empty, 'Live polls every 30', and 'Watch live' strings all reach production. 8 new LivePage unit tests pass; full suite 56/56. AC #5 (no baseline-* function imported from packages/db or packages/detectors) satisfied: grep of LivePage.tsx for @signal-console/(db|detectors) returns 0; the only 'baseline' substring matches are Tailwind utility classes (items-baseline) which are CSS alignment, not function calls. Visual screenshots PENDING owner capture: Playwright MCP has hung on this machine for US-045/046 per CLAUDE.md; HTTP-smoke fallback was used per the protocol."
     },
@@ -680,9 +703,9 @@
         "Typecheck passes",
         "Visual verification per CLAUDE.md UI Verification Protocol: screenshots at apps/web/.ralph-screenshots/US-032/ for baseline, primary interaction, and error/edge state; each screenshot decoded against docs/design-language.md tokens; interactive elements (nav, buttons, slider, inputs) clicked via claude-in-chrome MCP and resulting visual state verified; renders correctly at 1440x900 and 1024x768"
       ],
-      "priority": 37,
-      "passes": false,
-      "notes": ""
+      "priority": 38,
+      "passes": true,
+      "notes": "DetectorsPage rebuilt to query useDetectors() and auto-render each detector's JSON-Schema paramsSchema as a read-only form (number/integer → number input, enum → select, boolean → switch). Off-price-print card displays the 'Sources: Polymarket only' accent-yellow tag. 'How to add a detector' aside ships the 3-step recipe verbatim (packages/detectors/src/<name>/index.ts → registry.ts entry → pnpm verify). queries.ts detectorsSchema fixed to wrap as { detectors: [...] } matching the apps/api response. 9 vitest specs added covering all four AC checks, plus 4 viewport screenshots (1440x900 baseline, 1440x900 ExplainerCard hover, 1024x768 reflow, 1440x900 401 error state) captured via Playwright MCP against the dev server."
     },
     {
       "id": "US-033",
@@ -697,7 +720,7 @@
         "Tests pass",
         "Typecheck passes"
       ],
-      "priority": 38,
+      "priority": 39,
       "passes": false,
       "notes": ""
     },
@@ -719,7 +742,7 @@
         "Tests pass",
         "Typecheck passes"
       ],
-      "priority": 39,
+      "priority": 40,
       "passes": false,
       "notes": ""
     },
@@ -739,27 +762,35 @@
         "Real backtest smoke from the UI: navigate to /backtest via claude-in-chrome MCP. Fill window (2026-05-06 to 2026-05-10) and game scope (single id 'nba-0042500222'). Click 'Run'. Assert the response panel populates with a non-zero fires/game number that matches POST /v1/backtest's response (cross-check by also calling the API directly with the same body via curl; numbers must agree).",
         "Visual verification per CLAUDE.md UI Verification Protocol: screenshots at apps/web/.ralph-screenshots/US-035/ for baseline, primary interaction, and error/edge state; each screenshot decoded against docs/design-language.md tokens; interactive elements (nav, buttons, slider, inputs) clicked via claude-in-chrome MCP and resulting visual state verified; renders correctly at 1440x900 and 1024x768"
       ],
-      "priority": 40,
+      "priority": 41,
       "passes": false,
       "notes": ""
     },
     {
       "id": "US-036",
-      "title": "Cry Wolf dial component",
-      "description": "As an analyst, I need a continuous K slider (2.0–8.0, step 0.25, default 3.0) with two labelled snap points so I can explore K_MAD sensitivity around the live default.",
+      "title": "Cry Wolf rotary dial component (NOT a slider)",
+      "description": "As an analyst, I need an actual rotary dial — a circular knob I turn — that adjusts K_MAD between 2.0 and 8.0 with snap detents at K=3.0 (Sensitive) and K=6.0 (Calm). The paper, the video plan, and the trader mental model all call this a 'dial'; the UI must match that mental model. NOT an HTML <input type=range> slider. Aesthetic target: an analog audio potentiometer (Sennheiser volume / Yamaha mixing console). See docs/design-language.md §The Cry Wolf dial for the full spec — ~20% of the way from flat toward rich-3D, achieved via SVG hairlines, tick marks, and a single yellow indicator line. NO drop shadows, NO 3D rendering, NO haptics, NO idle animation.",
       "acceptanceCriteria": [
-        "File ~/signal-console/apps/web/src/features/backtest/CryWolfDial.tsx exists",
-        "Component renders an input type=range with min=2.0, max=8.0, step=0.25, defaultValue=3.0",
-        "Two snap-point chips render below the slider: 'Sensitive — live default' at K=3.0 and 'Calm — comparison preset' at K=6.0; clicking each chip sets the slider value to that K",
-        "Tooltip text on the dial reads (verbatim) 'It's a dial.' sourced from the video plan narration",
-        "Current K value is displayed numerically next to the slider with 2-decimal precision",
-        "Component is integrated into BacktestPage so changing K triggers an in-memory recomputation via the response from POST /v1/backtest (no second API call needed; uses runSweep semantics on cached pre-buckets)",
-        "Recent and Live pages do NOT consume the dial state; a unit/integration test asserts that mounting BacktestPage with K=6.0 has no effect on the K value used by useBoard() in RecentPage (verified by inspecting the URL/header sent by useBoard)",
-        "Multi-knob round-trip stability smoke (per CLAUDE.md End-to-End Verification Mandate, 'Real change-a-setting round-trip' row): run a backtest at all-defaults (K=3.0, warmup=8, trailing=20, weighting='volume') over a 7-day window containing the K=6 Hartenstein anchor; record fires/game = X. (1) Drag K from 3.0 → 6.0 via real mouse (claude-in-chrome MCP); assert zero new /v1/backtest requests during drag (Network tab), and assert metric updates to some Y ≠ X within 1s. (2) From that state, change a SECOND knob — e.g. trailingBuckets from 20 → 40 via the auto-form (US-035); assert metric updates to Z ≠ Y. (3) Revert: K → 3.0, trailingBuckets → 20. Assert the metric returns to the original X with |X - X'| < 1e-9 (deterministic round-trip). Capture X, Y, Z, X' in progress.txt. This proves every knob actually does something AND the recompute is stateless across reversals.",
-        "Typecheck passes",
-        "Visual verification per CLAUDE.md UI Verification Protocol: screenshots at apps/web/.ralph-screenshots/US-036/ for baseline, primary interaction, and error/edge state; each screenshot decoded against docs/design-language.md tokens; interactive elements (nav, buttons, slider, inputs) clicked via claude-in-chrome MCP and resulting visual state verified; renders correctly at 1440x900 and 1024x768"
+        "Read docs/design-language.md §The Cry Wolf dial in full before writing any code — every geometric measurement (160 px knob, 192 px outer bezel, 88 px indicator length, 270° travel arc from K=2 to K=8, ticks every 1.0 K, K=3 + K=6 majors in accent-green, etc.) is part of the contract",
+        "File ~/signal-console/apps/web/src/features/backtest/CryWolfDial.tsx exports a CryWolfDial component rendered as an SVG (NOT an <input type=range>). The SVG contains: a 160 px circle (knob body in surface-1), a 1 px inset bezel ring 4 px inside the edge, an outer 192 px bezel ring, 7 tick marks at K=2..8 positions across a 270° arc, a 3 px indicator line from center to bezel edge in accent-yellow with a 0.5 px lighter hairline along its leading edge, and the K value as <text> inside the knob in mono accent-yellow 32 px",
+        "K=3 and K=6 tick marks are rendered in accent-green (16 px) vs accent-yellow ticks are NOT used (yellow is only the indicator + numbers); non-snap ticks are 12 px text-lo",
+        "Above-knob K display: a separate large numeric in mono accent-yellow at 96 px (`text-5xl`) — add the 96 px size to packages/ui/src/tokens.ts typography.scale and the Tailwind preset's fontSize if not already present",
+        "Vertical drag interaction: mousedown anywhere on the knob, then dragging up raises K, dragging down lowers K. 200 px vertical travel = full 270° rotation = K range 2.0→8.0 (so each ~33 px of drag ≈ 1.0 K)",
+        "Click a tick mark snaps the dial to that K (instant, no animation other than the 50 ms snap-magnetize behavior below)",
+        "Wheel scroll over the knob: each wheel tick = ±0.25 K",
+        "Keyboard (when focused via Tab): ←/↓ = -0.25, →/↑ = +0.25, PageUp/Down = ±1.0, Home = K=2.0, End = K=8.0",
+        "Snap-magnetize: when the dragged value lands within ±0.1 K of K=3.0 or K=6.0, the indicator smoothly transitions to the exact snap value over 50 ms (ease-out, no bounce/spring)",
+        "Two snap chips below the knob (accent-green outline for inactive, filled accent-green background + surface-0 text for active). Clicking a chip snaps with an 80 ms text-hi flash on the K value display",
+        "Component integrates into BacktestPage so changing K triggers in-memory recomputation via the cached pre-bucketed series from POST /v1/backtest — no new API request during drag",
+        "Recent and Live pages do NOT consume the dial state; integration test asserts that mounting BacktestPage with K=6.0 has no effect on the params_hash used by useBoard() in RecentPage (both stay at K_MAD_LIVE=3.0)",
+        "NO drop shadows, NO box-shadows, NO CSS filters on the knob. Verified by grep of CryWolfDial.tsx for `shadow`, `filter:`, `blur(` — must return zero",
+        "NO idle animation. The knob does not pulse, rotate, breathe, or move when the user is not interacting. CSS transitions only fire during drag-snap (50 ms) and chip-click flash (80 ms)",
+        "Multi-knob round-trip stability smoke (per CLAUDE.md End-to-End Verification Mandate, 'Real change-a-setting round-trip' row): run a backtest at defaults (K=3.0, warmup=8, trailing=20, weighting='volume') over a 7-day window containing the K=6 Hartenstein anchor; record fires/game = X. (1) Drag K from 3.0 → 6.0 via real mouse (claude-in-chrome or playwright MCP); assert zero new /v1/backtest requests during drag (Network tab), and assert metric updates to some Y ≠ X within 1s. (2) From that state, change a SECOND knob — e.g. trailingBuckets from 20 → 40 via the auto-form (US-035); assert metric updates to Z ≠ Y. (3) Revert: K → 3.0, trailingBuckets → 20. Assert the metric returns to the original X with |X - X'| < 1e-9 (deterministic round-trip). Capture X, Y, Z, X' in progress.txt. This proves every knob actually does something AND the recompute is stateless across reversals.",
+        "Visual verification per CLAUDE.md UI Verification Protocol: screenshots at apps/web/.ralph-screenshots/US-036/ for (1) baseline at K=3.0 with the indicator pointing at the K=3 green major tick, (2) mid-drag at K=4.5 with the indicator between ticks, (3) at K=6.0 snapped with the K=6 green major tick highlighted, (4) the snap-chip Sensitive in active state (filled green) and Calm in inactive (outline only), (5) hover-state visible on the knob showing the cursor is over an interactive surface. Each screenshot decoded against docs/design-language.md geometry constants — measure the rendered knob diameter in pixels and assert it is ~160 px. If the Playwright/computer-use MCP hangs as it did for US-046, fall back to the HTTP-smoke path: build, serve, curl + grep the bundle for the SVG markup confirming the geometric primitives shipped",
+        "Tests pass",
+        "Typecheck passes"
       ],
-      "priority": 41,
+      "priority": 42,
       "passes": false,
       "notes": ""
     },
@@ -775,7 +806,7 @@
         "Typecheck passes",
         "Visual verification per CLAUDE.md UI Verification Protocol: screenshots at apps/web/.ralph-screenshots/US-037/ for baseline, primary interaction, and error/edge state; each screenshot decoded against docs/design-language.md tokens; interactive elements (nav, buttons, slider, inputs) clicked via claude-in-chrome MCP and resulting visual state verified; renders correctly at 1440x900 and 1024x768"
       ],
-      "priority": 42,
+      "priority": 43,
       "passes": false,
       "notes": ""
     },
@@ -791,7 +822,7 @@
         "Typecheck passes",
         "Visual verification per CLAUDE.md UI Verification Protocol: screenshots at apps/web/.ralph-screenshots/US-038/ for baseline, primary interaction, and error/edge state; each screenshot decoded against docs/design-language.md tokens; interactive elements (nav, buttons, slider, inputs) clicked via claude-in-chrome MCP and resulting visual state verified; renders correctly at 1440x900 and 1024x768"
       ],
-      "priority": 43,
+      "priority": 44,
       "passes": false,
       "notes": ""
     },
@@ -807,7 +838,7 @@
         "Typecheck passes",
         "Visual verification per CLAUDE.md UI Verification Protocol: screenshots at apps/web/.ralph-screenshots/US-039/ for baseline, primary interaction, and error/edge state; each screenshot decoded against docs/design-language.md tokens; interactive elements (nav, buttons, slider, inputs) clicked via claude-in-chrome MCP and resulting visual state verified; renders correctly at 1440x900 and 1024x768"
       ],
-      "priority": 44,
+      "priority": 45,
       "passes": false,
       "notes": ""
     },
@@ -831,7 +862,7 @@
         "Tests pass",
         "Visual verification per CLAUDE.md UI Verification Protocol: screenshots at apps/web/.ralph-screenshots/US-042/ for baseline (warmup=8), primary interaction (warmup=2 with markers earlier in each game timeline), and round-trip (warmup back to 8, metric returned to baseline X')"
       ],
-      "priority": 45,
+      "priority": 46,
       "passes": false,
       "notes": ""
     },
@@ -849,7 +880,7 @@
         "Tests pass",
         "Typecheck passes"
       ],
-      "priority": 46,
+      "priority": 47,
       "passes": false,
       "notes": ""
     },
@@ -863,7 +894,7 @@
         "Document includes a checklist a future engineer can run through",
         "Running 'pnpm verify:no-stale-plan' exits 0"
       ],
-      "priority": 47,
+      "priority": 48,
       "passes": false,
       "notes": ""
     }
