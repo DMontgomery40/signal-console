@@ -14,18 +14,18 @@ The reference triangle: **bet365** (palette, type), **Linear** (typography craft
 
 All values declared once in `packages/ui/src/tokens.ts`, re-exported via a Tailwind preset, consumed everywhere. **No hex literals outside this file.**
 
-| Token            | Hex       | Role                                                                                            |
-| ---------------- | --------- | ----------------------------------------------------------------------------------------------- |
-| `surface-0-from` | `#06140E` | App background, top of gradient                                                                 |
-| `surface-0-to`   | `#0E2A1F` | App background, bottom of gradient (subtle vertical gradient on `<body>` only)                  |
-| `surface-1`      | `#0F2419` | Cards, panels, dial track                                                                       |
-| `surface-2`      | `#163020` | Row hover, focused list item                                                                    |
-| `accent-green`   | `#14EB6F` | Brand/structural — nav underline, live pulse, status dots, "ok" state, secondary actions ("Open Alerts" pattern) |
+| Token            | Hex       | Role                                                                                                                                                                                                       |
+| ---------------- | --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `surface-0-from` | `#06140E` | App background, top of gradient                                                                                                                                                                            |
+| `surface-0-to`   | `#0E2A1F` | App background, bottom of gradient (subtle vertical gradient on `<body>` only)                                                                                                                             |
+| `surface-1`      | `#0F2419` | Cards, panels, dial track                                                                                                                                                                                  |
+| `surface-2`      | `#163020` | Row hover, focused list item                                                                                                                                                                               |
+| `accent-green`   | `#14EB6F` | Brand/structural — nav underline, live pulse, status dots, "ok" state, secondary actions ("Open Alerts" pattern)                                                                                           |
 | `accent-yellow`  | `#FFD000` | **Action + positive + anomaly.** Primary CTAs (buttons you want clicked), fires/anomaly markers, active K value on the dial, positive deltas, suspend warnings. The bet365 "Join button + plus-odds" role. |
-| `negative`       | `#FF5757` | Used sparingly — error banners, negative deltas in dense tables                                 |
-| `text-hi`        | `#FFFFFF` | Headings, primary numerics                                                                      |
-| `text-md`        | `#B4C4BD` | Body, secondary metadata                                                                        |
-| `text-lo`        | `#6E7E77` | Labels, axis ticks, helper text                                                                 |
+| `negative`       | `#FF5757` | Used sparingly — error banners, negative deltas in dense tables                                                                                                                                            |
+| `text-hi`        | `#FFFFFF` | Headings, primary numerics                                                                                                                                                                                 |
+| `text-md`        | `#B4C4BD` | Body, secondary metadata                                                                                                                                                                                   |
+| `text-lo`        | `#6E7E77` | Labels, axis ticks, helper text                                                                                                                                                                            |
 
 **Rules:**
 
@@ -121,6 +121,7 @@ Many numbers and concepts in this app (`K_MAD`, `fires/game`, the various detect
 **Primitive:** Radix UI `HoverCard` (not `Tooltip` — `Tooltip` auto-dismisses on blur and disallows interactive content; we need the user to be able to move the mouse INTO the card and scroll).
 
 **Trigger discoverability — subtle but visible:**
+
 - Any term/number with an attached explainer renders with a 1 px `text-lo` 50%-opacity dashed underline. No icon, no `(?)`, no superscript.
 - Cursor turns to `help` on hover (`cursor: help`).
 - That's it. The underline says "there's more here" without shouting it.
@@ -156,11 +157,13 @@ Many numbers and concepts in this app (`K_MAD`, `fires/game`, the various detect
 **Sizing:** `max-width: 480 px`, `max-height: 60vh`, **internal scroll** (overflow-y: auto). The card persists while the cursor is over it OR over the trigger, so users can scroll without it closing.
 
 **Hover bridge & persistence:**
+
 - Radix HoverCard config: `openDelay: 150 ms`, `closeDelay: 200 ms`, `disableHoverableContent: false`.
 - 8 px transparent bridge zone between trigger and card edge so the cursor can cross the gap without dismissal.
 - A click outside dismisses; pressing `Escape` dismisses; tab-focus dismisses sibling cards before opening a new one.
 
 **Styling:**
+
 - `surface-1` fill, 1 px `accent-green` top-edge border (matches the regular Tooltip pattern), all other edges borderless.
 - Internal padding 16 px.
 - Section labels ("Plain English" / "Formal") rendered in `text-lo`, `text-xs`, `letter-spacing: 0.08em`, uppercase.
@@ -173,10 +176,12 @@ Many numbers and concepts in this app (`K_MAD`, `fires/game`, the various detect
 **Rendering:** the card body is `react-markdown` + `rehype-katex` + `remark-math`. KaTeX CSS imported once in `packages/ui/src/global.css`. No MathJax (slower, larger).
 
 **Voice guidelines (enforced by review):**
-- ELI5: second person OK, conversational, no jargon. "We watch how much every market on a game wiggles relative to its own recent calm" not "Robust dispersion of intra-game implied-probability deltas." Two or three short paragraphs. Tell them what the number means for *their job* (deciding whether to suspend a market), not for the algorithm's job.
+
+- ELI5: second person OK, conversational, no jargon. "We watch how much every market on a game wiggles relative to its own recent calm" not "Robust dispersion of intra-game implied-probability deltas." Two or three short paragraphs. Tell them what the number means for _their job_ (deciding whether to suspend a market), not for the algorithm's job.
 - Formal: technical but not IMO-only. Define notation the first time it's used. Always say WHY this estimator vs the obvious alternative ("MAD over std because a single outlier from a vacated-position blip would otherwise dominate"). Cite the canonical source (e.g. `scripts/board_signal_v2.py:33`).
 
 **Don't:**
+
 - Don't put an `(?)` icon next to the term. The dashed underline is enough.
 - Don't write the same explainer twice — one entry per concept, referenced everywhere.
 - Don't render LaTeX in the ELI5 section. If you need a formula, you're in the wrong section.

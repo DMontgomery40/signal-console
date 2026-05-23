@@ -102,7 +102,7 @@ $$\overline{F/G}\bigg|_{K=6,\,\text{eq}} = 9.3 \pm 1.0, \qquad \overline{F/G}\bi
 Contract tests pin two specific event-level outcomes at $K=6$: (1) Hartenstein (event \`2026-05-08T03:12:36.8Z\`, game \`nba-0042500222\`) fires with bucket-start \`03:12:00Z\` and watcher-confirmation bucket-end \`03:13:00Z\` ($\approx$ T+23 s after the event); and (2) Reaves (event \`2026-05-12T04:51:40.2Z\`, games \`nba-0042500223/224\`) does **not** fire on either game — the report's honest null case for the board lane. These outcomes are locked in \`packages/detectors/src/board-mad/__tests__/canonical.test.ts\` against committed JSON fixtures; any drift is a review event.`,
   },
 
-  "mad": {
+  mad: {
     title: "MAD — Median Absolute Deviation",
     eli5: String.raw`MAD is a way to measure how spread-out a list of numbers is, without letting one weird value mess up the measurement. Think of it as the "typical wiggle" — most numbers stay within one MAD of the median; a number more than several MADs out is genuinely unusual.
 
@@ -202,7 +202,7 @@ $$\Delta p_{m,i} = \begin{cases} \left| p_{m,i} - p_{m,i-1} \right| & \text{if }
 The cap exists because the implied-probability delta is only a meaningful signal of repricing when the prior tick reflects the book's view at a comparable point in the game state. A 300-second gap routinely spans suspensions, feed dropouts, and TV-timeout quiets during which the underlying truth has moved without the market quoting; the first post-gap tick is a re-anchor, not an update. $\tau_{\max} = 300$ s is the live default in \`scripts/board_signal_v2.py\`, chosen as the upper edge of the empirical inter-tick distribution for active markets in-play — gaps below this are predominantly genuine quiet, gaps above are predominantly suspension artifacts.`,
   },
 
-  "weighting": {
+  weighting: {
     title: "Delta weighting",
     eli5: String.raw`When two markets each move one cent, are they telling us the same thing? Not really. A penny move on a market that just took six figures of action is a much louder signal than a penny move on a market nobody is touching. Volume weighting bakes that intuition into the math: every delta gets multiplied by how much money was actually trading on it.
 

@@ -91,7 +91,10 @@ export function App(): JSX.Element {
     <div className="mx-auto max-w-[1440px] px-12 py-10 text-text-md">
       <header className="flex items-baseline justify-between">
         <h1 className="font-sans text-2xl font-semibold text-text-hi">Signal Console</h1>
-        <span className="tabular font-mono text-xs text-text-lo">v2 · scaffold</span>
+        <span className="tabular font-mono text-xs">
+          <span className="text-accent-yellow">v2</span>
+          <span className="text-text-lo"> · scaffold</span>
+        </span>
       </header>
 
       <nav aria-label="Primary" className="mt-8 border-b border-surface-1">

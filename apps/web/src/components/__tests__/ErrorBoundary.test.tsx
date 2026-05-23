@@ -25,6 +25,22 @@ describe("ErrorBoundary", () => {
     errorSpy.mockRestore();
   });
 
+  it("renders the Reload button with the primary-CTA accent-yellow outline (derived from --accent-yellow)", () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {
+      return;
+    });
+    render(
+      <ErrorBoundary>
+        <Boom />
+      </ErrorBoundary>,
+    );
+    const reload = screen.getByRole("button", { name: "Reload" });
+    expect(reload.className).toContain("border-accent-yellow");
+    expect(reload.className).toContain("hover:bg-accent-yellow");
+    expect(reload.className).not.toContain("border-accent-green");
+    errorSpy.mockRestore();
+  });
+
   it("renders children normally when no error is thrown", () => {
     render(
       <ErrorBoundary>

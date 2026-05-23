@@ -27,7 +27,7 @@ function FallbackPanel({ error }: FallbackProps): JSX.Element {
       <button
         type="button"
         onClick={handleReload}
-        className="mt-6 inline-block border border-accent-green px-4 py-2 text-sm font-medium text-text-hi transition-colors duration-fast ease-out hover:bg-accent-green hover:text-surface-1"
+        className="mt-6 inline-block border border-accent-yellow px-4 py-2 text-sm font-medium text-text-hi transition-colors duration-fast ease-out hover:bg-accent-yellow hover:text-surface-0-from"
       >
         Reload
       </button>

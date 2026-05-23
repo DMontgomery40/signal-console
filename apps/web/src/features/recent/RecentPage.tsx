@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { JSX } from "react";
 
 import { ApiUnreachableBanner } from "../../components/ApiUnreachableBanner";
@@ -15,25 +15,39 @@ type HealthState =
 
 export function RecentPage(): JSX.Element {
   const [health, setHealth] = useState<HealthState>({ kind: "loading" });
+  const controllerRef = useRef<AbortController | null>(null);
 
-  useEffect(() => {
+  function runHealthCheck(): void {
+    if (controllerRef.current !== null) {
+      controllerRef.current.abort();
+    }
     const controller = new AbortController();
+    controllerRef.current = controller;
+    setHealth({ kind: "loading" });
     void (async () => {
       try {
         const res = await fetch(`${API_BASE_URL}/v1/health/live`, {
           signal: controller.signal,
         });
+        if (controller.signal.aborted) return;
         setHealth(
           res.ok
             ? { kind: "ok" }
             : { kind: "error", error: new Error(`HTTP ${String(res.status)}`) },
         );
       } catch (err: unknown) {
+        if (controller.signal.aborted) return;
         setHealth({ kind: "error", error: err });
       }
     })();
+  }
+
+  useEffect(() => {
+    runHealthCheck();
     return () => {
-      controller.abort();
+      if (controllerRef.current !== null) {
+        controllerRef.current.abort();
+      }
     };
   }, []);
 
@@ -42,9 +56,19 @@ export function RecentPage(): JSX.Element {
       {health.kind === "error" ? <ApiUnreachableBanner error={health.error} /> : null}
       <h2 className="text-text-hi text-lg font-semibold">Recent</h2>
       <p className="mt-3 text-text-md text-sm">Last 24 h of games (list lands in US-024).</p>
-      <p className="mt-6 tabular font-mono text-sm" data-testid="health-status">
-        <span className="text-text-lo">API status:</span> {renderHealth(health)}
-      </p>
+      <div className="mt-6 flex items-center gap-6">
+        <p className="tabular font-mono text-sm" data-testid="health-status">
+          <span className="text-text-lo">API status:</span> {renderHealth(health)}
+        </p>
+        <button
+          type="button"
+          onClick={runHealthCheck}
+          data-testid="refresh-button"
+          className="inline-block border border-accent-yellow px-3 py-1.5 text-sm font-medium text-text-hi transition-colors duration-fast ease-out hover:bg-accent-yellow hover:text-surface-0-from"
+        >
+          Refresh
+        </button>
+      </div>
     </section>
   );
 }
