@@ -43,6 +43,11 @@ import { WarmupDial } from "./WarmupDial";
 import { K_MAD_LIVE } from "@signal-console/detectors/board-mad/config";
 
 const KMAD_PARAM_NAME = "kMad";
+
+function readKMad(params: Readonly<Record<string, unknown>>): number {
+  const raw = params[KMAD_PARAM_NAME];
+  return typeof raw === "number" && Number.isFinite(raw) ? raw : 3.0;
+}
 const TRAILING_PARAM_NAME = "trailingBuckets";
 const WARMUP_PARAM_NAME = "warmupBuckets";
 const TRAILING_DEFAULT = 20;
@@ -743,6 +748,7 @@ export function BacktestPage(): JSX.Element {
         pending={runMutation.isPending}
         startDate={form.startDate}
         endDate={form.endDate}
+        kMad={readKMad(form.params)}
       />
     </section>
   );
@@ -755,6 +761,7 @@ function ResultsPanel({
   pending,
   startDate,
   endDate,
+  kMad,
 }: {
   readonly snapshot: RunSnapshot | null;
   readonly recompute: RecomputeView | null;
@@ -762,6 +769,7 @@ function ResultsPanel({
   readonly pending: boolean;
   readonly startDate: string;
   readonly endDate: string;
+  readonly kMad: number;
 }): JSX.Element {
   return (
     <section
@@ -790,6 +798,7 @@ function ResultsPanel({
             snapshotObservations={snapshot.response.observations}
             recomputedObservations={recompute?.observations ?? snapshot.response.observations}
             fromRecompute={recompute?.fromRecompute ?? false}
+            k={kMad}
           />
         </>
       )}
