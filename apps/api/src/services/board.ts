@@ -92,14 +92,18 @@ export function getOrComputeBoard(args: GetOrComputeBoardArgs): BoardResult {
         RESOLVED_PARAMS,
       );
       const computeMs = Number((process.hrtime.bigint() - startNs) / 1_000_000n);
-      const observations: readonly BoardObservation[] = result.fires.map(
-        (f): BoardObservation => ({
-          bucketStart: f.bucketStart.toISOString(),
-          bucketEnd: f.bucketEnd.toISOString(),
-          fired: 1,
-          intensity: f.intensity,
-          baselineMedian: f.baselineMedian,
-          baselineMad: f.baselineMad,
+      // Persist ALL bucket observations (fired + non-fired) so US-047's
+      // past-alerts drilldown can render the surrounding context of any fire.
+      // Pre-US-047 cached runs only stored fired=1; clearing the cache once
+      // (DELETE /v1/cache) recomputes from the same gold-DB state.
+      const observations: readonly BoardObservation[] = result.buckets.map(
+        (b): BoardObservation => ({
+          bucketStart: b.bucketStart.toISOString(),
+          bucketEnd: b.bucketEnd.toISOString(),
+          fired: b.fired ? 1 : 0,
+          intensity: b.intensity,
+          baselineMedian: b.baselineMedian,
+          baselineMad: b.baselineMad,
         }),
       );
       const runId = persistRun(cacheDb, {

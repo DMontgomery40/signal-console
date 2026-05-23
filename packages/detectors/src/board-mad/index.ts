@@ -10,6 +10,7 @@ import { z } from "zod";
 
 import type {
   Detector,
+  DetectorBucket,
   DetectorFire,
   DetectorResult,
   DetectorStats,
@@ -30,11 +31,12 @@ export const Params = z.object({
 type ParamsResolved = z.infer<typeof Params>;
 type Weighting = ParamsResolved["weighting"];
 type Contribution = { readonly bucket: number; readonly weighted: number };
-type RawFire = {
+type RawBucket = {
   readonly bucket: number;
   readonly intensity: number;
   readonly median: number;
   readonly mad: number;
+  readonly fired: boolean;
 };
 
 const median = (xs: readonly number[]): number => {
@@ -114,47 +116,65 @@ const sumByBucket = (contribs: readonly Contribution[]): ReadonlyMap<number, num
   );
 };
 
-const detectFires = (
+const computeBuckets = (
   buckets: ReadonlyMap<number, number>,
   params: ParamsResolved,
-): readonly RawFire[] => {
+): readonly RawBucket[] => {
   const sortedKeys = [...buckets.keys()].toSorted((a, b) => a - b);
-  if (sortedKeys.length < params.warmupBuckets + 1) return [];
-  return sortedKeys.flatMap((bucket, i): readonly RawFire[] => {
-    if (i < params.warmupBuckets) return [];
+  return sortedKeys.map((bucket, i): RawBucket => {
+    const intensity = buckets.get(bucket) ?? 0;
+    if (i < params.warmupBuckets) {
+      return { bucket, intensity, median: 0, mad: 0, fired: false };
+    }
     const trailStart = Math.max(0, i - params.trailingBuckets);
     const priorValues = sortedKeys.slice(trailStart, i).map((k) => buckets.get(k) ?? 0);
     const med = median(priorValues);
     const madRaw = medianAbsDev(priorValues);
     const mad = madRaw === 0 ? 1e-9 : madRaw;
     const threshold = med + params.kMad * mad;
-    const intensity = buckets.get(bucket) ?? 0;
-    if (intensity >= threshold && intensity > 0) {
-      return [{ bucket, intensity, median: med, mad }];
-    }
-    return [];
+    const fired = intensity >= threshold && intensity > 0;
+    return { bucket, intensity, median: med, mad, fired };
   });
 };
+
+const toDetectorBucket = (
+  gameId: string,
+  raw: RawBucket,
+  bucketSeconds: number,
+): DetectorBucket => ({
+  gameId,
+  bucketStart: new Date(raw.bucket * 1000),
+  bucketEnd: new Date((raw.bucket + bucketSeconds) * 1000),
+  intensity: raw.intensity,
+  baselineMedian: raw.median,
+  baselineMad: raw.mad,
+  fired: raw.fired,
+});
 
 const runForGame = (
   gameId: string,
   ticks: readonly Tick[],
   params: ParamsResolved,
-): readonly DetectorFire[] => {
+): { readonly fires: readonly DetectorFire[]; readonly buckets: readonly DetectorBucket[] } => {
   const sortedTicks = sortByMarketAndTime(sanitize(ticks));
-  if (sortedTicks.length === 0) return [];
+  if (sortedTicks.length === 0) return { fires: [], buckets: [] };
   const contribs = contributionsFromSortedTicks(sortedTicks, params);
-  const buckets = sumByBucket(contribs);
-  return detectFires(buckets, params).map(
-    (f): DetectorFire => ({
-      gameId,
-      bucketStart: new Date(f.bucket * 1000),
-      bucketEnd: new Date((f.bucket + params.bucketSeconds) * 1000),
-      intensity: f.intensity,
-      baselineMedian: f.median,
-      baselineMad: f.mad,
-    }),
-  );
+  const bucketSums = sumByBucket(contribs);
+  const rawBuckets = computeBuckets(bucketSums, params);
+  const buckets = rawBuckets.map((b) => toDetectorBucket(gameId, b, params.bucketSeconds));
+  const fires = buckets
+    .filter((b) => b.fired)
+    .map(
+      (b): DetectorFire => ({
+        gameId: b.gameId,
+        bucketStart: b.bucketStart,
+        bucketEnd: b.bucketEnd,
+        intensity: b.intensity,
+        baselineMedian: b.baselineMedian,
+        baselineMad: b.baselineMad,
+      }),
+    );
+  return { fires, buckets };
 };
 
 const ticksForGame = (allTicks: readonly Tick[], gameId: string): readonly Tick[] =>
@@ -167,15 +187,17 @@ export const detector: Detector<typeof Params> = {
   paramsSchema: Params,
   run(window: DetectorWindow, params: ParamsResolved): DetectorResult {
     const allTicks = window.ticks ?? [];
-    const fires: readonly DetectorFire[] = window.gameIds.flatMap((gameId) =>
+    const perGame = window.gameIds.map((gameId) =>
       runForGame(gameId, ticksForGame(allTicks, gameId), params),
     );
+    const fires: readonly DetectorFire[] = perGame.flatMap((r) => r.fires);
+    const buckets: readonly DetectorBucket[] = perGame.flatMap((r) => r.buckets);
     const games = window.gameIds.length;
     const stats: DetectorStats = {
       firesPerGame: games === 0 ? 0 : fires.length / games,
       totalFires: fires.length,
       gamesInWindow: games,
     };
-    return { fires, stats };
+    return { fires, stats, buckets };
   },
 };

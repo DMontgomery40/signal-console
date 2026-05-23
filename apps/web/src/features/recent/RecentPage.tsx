@@ -3,6 +3,7 @@ import type { JSX } from "react";
 import { ApiUnreachableBanner, isNetworkError } from "../../components/ApiUnreachableBanner";
 import { QueryErrorBanner } from "../../components/QueryErrorBanner";
 import { useBoard, useGames, type Game } from "../../data/queries";
+import { navigateTo } from "../../router";
 
 // Cap concurrent /v1/board/:gameId fetches per AC #5 ("page does not exceed 20
 // in-flight requests simultaneously"). Rows past the cap render the plain "—"
@@ -127,49 +128,71 @@ export function RecentPage(): JSX.Element {
             No games scheduled in the last 24 h.
           </p>
         ) : (
-          <table className="w-full text-left text-sm">
-            <thead>
-              <tr className="text-text-lo">
-                <th className="pb-3 pr-6 font-medium">Scheduled</th>
-                <th className="pb-3 pr-6 font-medium">Sport</th>
-                <th className="pb-3 pr-6 font-medium">League</th>
-                <th className="pb-3 pr-6 font-medium">Home</th>
-                <th className="pb-3 pr-6 font-medium">Away</th>
-                <th className="pb-3 pr-6 font-medium">Status</th>
-                <th className="pb-3 font-medium">Fires</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((g, idx) => (
-                <tr
-                  key={g.id}
-                  data-testid="recent-row"
-                  data-game-id={g.id}
-                  className="border-t border-surface-1"
-                >
-                  <td className="py-3 pr-6 tabular font-mono text-text-md">
-                    {formatScheduledStart(g.scheduledStart)}
-                  </td>
-                  <td className="py-3 pr-6 text-text-md">{g.sport}</td>
-                  <td className="py-3 pr-6 text-text-md">{g.league}</td>
-                  <td className="py-3 pr-6 tabular font-mono text-text-hi">
-                    {participantLabel(g.homeParticipantJson)}
-                  </td>
-                  <td className="py-3 pr-6 tabular font-mono text-text-hi">
-                    {participantLabel(g.awayParticipantJson)}
-                  </td>
-                  <td className="py-3 pr-6">{renderStatus(g.status)}</td>
-                  <td className="py-3 tabular font-mono" data-testid="fires-cell">
-                    {idx < FIRES_CELL_BUDGET ? (
-                      <FiresCell gameId={g.id} />
-                    ) : (
-                      <span className="text-text-lo">—</span>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div role="table" aria-label="Recent games" className="text-sm">
+            <div
+              role="row"
+              className="grid grid-cols-[1fr_1fr_1fr_1fr_1fr_1fr_0.6fr] gap-x-6 pb-3 text-text-lo"
+            >
+              <span role="columnheader" className="font-medium">
+                Scheduled
+              </span>
+              <span role="columnheader" className="font-medium">
+                Sport
+              </span>
+              <span role="columnheader" className="font-medium">
+                League
+              </span>
+              <span role="columnheader" className="font-medium">
+                Home
+              </span>
+              <span role="columnheader" className="font-medium">
+                Away
+              </span>
+              <span role="columnheader" className="font-medium">
+                Status
+              </span>
+              <span role="columnheader" className="font-medium">
+                Fires
+              </span>
+            </div>
+            {rows.map((g, idx) => (
+              <a
+                key={g.id}
+                role="row"
+                href={`/games/${encodeURIComponent(g.id)}`}
+                data-testid="recent-row"
+                data-game-id={g.id}
+                onClick={(e) => {
+                  navigateTo(e, `/games/${encodeURIComponent(g.id)}`);
+                }}
+                className="grid grid-cols-[1fr_1fr_1fr_1fr_1fr_1fr_0.6fr] gap-x-6 border-t border-surface-1 py-3 transition-colors duration-fast ease-out hover:bg-surface-2 focus-visible:bg-surface-2 focus:outline-none focus-visible:ring-1 focus-visible:ring-accent-green"
+              >
+                <span role="cell" className="tabular font-mono text-text-md">
+                  {formatScheduledStart(g.scheduledStart)}
+                </span>
+                <span role="cell" className="text-text-md">
+                  {g.sport}
+                </span>
+                <span role="cell" className="text-text-md">
+                  {g.league}
+                </span>
+                <span role="cell" className="tabular font-mono text-text-hi">
+                  {participantLabel(g.homeParticipantJson)}
+                </span>
+                <span role="cell" className="tabular font-mono text-text-hi">
+                  {participantLabel(g.awayParticipantJson)}
+                </span>
+                <span role="cell">{renderStatus(g.status)}</span>
+                <span role="cell" data-testid="fires-cell" className="tabular font-mono">
+                  {idx < FIRES_CELL_BUDGET ? (
+                    <FiresCell gameId={g.id} />
+                  ) : (
+                    <span className="text-text-lo">—</span>
+                  )}
+                </span>
+              </a>
+            ))}
+          </div>
         )}
       </div>
     </section>

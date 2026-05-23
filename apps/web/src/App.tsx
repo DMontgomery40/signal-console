@@ -3,10 +3,12 @@ import type { JSX } from "react";
 
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { RecentPage } from "./features/recent/RecentPage";
+import { GameDetailPage } from "./features/games/GameDetailPage";
 import { LivePage } from "./features/live/LivePage";
 import { BacktestPage } from "./features/backtest/BacktestPage";
 import { DetectorsPage } from "./features/detectors/DetectorsPage";
 import { SettingsPage } from "./features/settings/SettingsPage";
+import { navigateTo, parseGameId } from "./router";
 
 interface NavLink {
   readonly label: string;
@@ -31,7 +33,7 @@ function readPath(): string {
 }
 
 function activeLabelFor(path: string): string {
-  if (path === "/" || path.startsWith("/recent")) return "Recent";
+  if (path === "/" || path.startsWith("/recent") || path.startsWith("/games")) return "Recent";
   if (path.startsWith("/live")) return "Live";
   if (path.startsWith("/backtest")) return "Backtest";
   if (path.startsWith("/detectors")) return "Detectors";
@@ -41,6 +43,7 @@ function activeLabelFor(path: string): string {
 
 function routeKey(path: string): string {
   if (path.startsWith("/__crash")) return "crash";
+  if (path.startsWith("/games/")) return `game:${path}`;
   if (path.startsWith("/live")) return "live";
   if (path.startsWith("/backtest")) return "backtest";
   if (path.startsWith("/detectors")) return "detectors";
@@ -48,10 +51,14 @@ function routeKey(path: string): string {
   return "recent";
 }
 
-function routeContent(key: string): JSX.Element {
+function routeContent(path: string): JSX.Element {
+  const key = routeKey(path);
+  if (key === "crash") return <CrashOnRender />;
+  if (key.startsWith("game:")) {
+    const gameId = parseGameId(path);
+    return <GameDetailPage gameId={gameId} />;
+  }
   switch (key) {
-    case "crash":
-      return <CrashOnRender />;
     case "live":
       return <LivePage />;
     case "backtest":
@@ -79,10 +86,7 @@ export function App(): JSX.Element {
   }, []);
 
   function navigate(event: React.MouseEvent<HTMLAnchorElement>, href: string): void {
-    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-    event.preventDefault();
-    window.history.pushState({}, "", href);
-    setPath(href);
+    navigateTo(event, href);
   }
 
   const active = activeLabelFor(path);
@@ -124,7 +128,7 @@ export function App(): JSX.Element {
       </nav>
 
       <main className="mt-12">
-        <ErrorBoundary key={routeKey(path)}>{routeContent(routeKey(path))}</ErrorBoundary>
+        <ErrorBoundary key={routeKey(path)}>{routeContent(path)}</ErrorBoundary>
       </main>
     </div>
   );

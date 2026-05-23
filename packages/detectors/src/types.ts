@@ -52,9 +52,24 @@ export type DetectorStats = {
   readonly gamesInWindow: number;
 };
 
+// Per-bucket observation, fired or not. US-047 needs the surrounding context
+// (prior buckets + the firing bucket) to render the drilldown timeline, so
+// the detector now exposes every bucket alongside the fires-only slice.
+// baselineMedian/baselineMad are 0 during warmup (no trailing window yet).
+export type DetectorBucket = {
+  readonly gameId: string;
+  readonly bucketStart: Date;
+  readonly bucketEnd: Date;
+  readonly intensity: number;
+  readonly baselineMedian: number;
+  readonly baselineMad: number;
+  readonly fired: boolean;
+};
+
 export type DetectorResult = {
   readonly fires: readonly DetectorFire[];
   readonly stats: DetectorStats;
+  readonly buckets: readonly DetectorBucket[];
 };
 
 // PRD §10:
