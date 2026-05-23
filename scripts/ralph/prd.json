@@ -495,8 +495,8 @@
         "Typecheck passes"
       ],
       "priority": 27,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Zod schemas in apps/web/src/data/queries.ts are the de facto contract for the three routes that don't exist yet (live US-028, microstructure US-029, detectors US-030); the existing routes (games, board, settings) had only Fastify JSON Schema for responses, so the Zod schemas mirror those JSON schemas. When the missing routes land, their server response shape must match what the hooks parse or the parse will fail loudly. Used vi.stubGlobal+vi.fn<typeof fetch>() to type the mock; un-typed vi.fn().mock.calls produces any[] which violates no-unsafe-assignment. QueryClient is module-scoped in main.tsx so StrictMode's double-mount doesn't construct two clients. SIGNAL_TOKEN reads import.meta.env.VITE_SIGNAL_TOKEN via the same typeof-narrow pattern RecentPage uses for VITE_API_URL. UI Verification Protocol N/A: US-023 adds no rendered UI (QueryClientProvider wrap is invisible; hooks aren't consumed by any page until US-024+); the protocol's small-change exception applies — no screenshots needed."
     },
     {
       "id": "US-024",
