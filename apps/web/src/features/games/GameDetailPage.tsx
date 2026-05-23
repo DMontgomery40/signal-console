@@ -274,15 +274,27 @@ export function GameDetailPage({ gameId }: GameDetailPageProps): JSX.Element {
         <h2 className="text-lg font-semibold text-text-hi" data-testid="game-detail-title">
           {gameId}
         </h2>
-        <p className="tabular font-mono text-xs text-text-lo" data-testid="game-detail-meta">
-          {game.isLoading
-            ? "loading…"
-            : game.data !== undefined
-              ? `${game.data.sport} · ${game.data.league} · ${formatScheduledStart(
-                  game.data.scheduledStart,
-                )}${game.data.status !== null ? ` · ${game.data.status}` : ""}`
-              : "—"}
-        </p>
+        <div className="flex items-baseline gap-4">
+          <p className="tabular font-mono text-xs text-text-lo" data-testid="game-detail-meta">
+            {game.isLoading
+              ? "loading…"
+              : game.data !== undefined
+                ? `${game.data.sport} · ${game.data.league} · ${formatScheduledStart(
+                    game.data.scheduledStart,
+                  )}${game.data.status !== null ? ` · ${game.data.status}` : ""}`
+                : "—"}
+          </p>
+          <a
+            href={`/live/${encodeURIComponent(gameId)}`}
+            data-testid="watch-live-link"
+            onClick={(e) => {
+              navigateTo(e, `/live/${encodeURIComponent(gameId)}`);
+            }}
+            className="text-xs font-medium text-accent-green underline-offset-2 hover:underline focus:underline transition-colors duration-fast ease-out"
+          >
+            Watch live →
+          </a>
+        </div>
       </div>
 
       {game.data !== undefined ? (

@@ -32,3 +32,18 @@ export function parseGameId(path: string): string | null {
     return raw;
   }
 }
+
+// Extract :id from /live/:id (US-031). Returns null for the bare /live path so
+// the caller renders the "click a Recent row to open Live" placeholder rather
+// than firing an unbounded query.
+export function parseLiveId(path: string): string | null {
+  const m = /^\/live\/([^/?#]+)/.exec(path);
+  if (m === null) return null;
+  const raw = m[1];
+  if (raw === undefined || raw.length === 0) return null;
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
+}

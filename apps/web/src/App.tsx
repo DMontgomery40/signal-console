@@ -8,7 +8,7 @@ import { LivePage } from "./features/live/LivePage";
 import { BacktestPage } from "./features/backtest/BacktestPage";
 import { DetectorsPage } from "./features/detectors/DetectorsPage";
 import { SettingsPage } from "./features/settings/SettingsPage";
-import { navigateTo, parseGameId } from "./router";
+import { navigateTo, parseGameId, parseLiveId } from "./router";
 
 interface NavLink {
   readonly label: string;
@@ -44,7 +44,8 @@ function activeLabelFor(path: string): string {
 function routeKey(path: string): string {
   if (path.startsWith("/__crash")) return "crash";
   if (path.startsWith("/games/")) return `game:${path}`;
-  if (path.startsWith("/live")) return "live";
+  if (path.startsWith("/live/")) return `live:${path}`;
+  if (path === "/live") return "live";
   if (path.startsWith("/backtest")) return "backtest";
   if (path.startsWith("/detectors")) return "detectors";
   if (path.startsWith("/settings")) return "settings";
@@ -58,9 +59,13 @@ function routeContent(path: string): JSX.Element {
     const gameId = parseGameId(path);
     return <GameDetailPage gameId={gameId} />;
   }
+  if (key.startsWith("live:")) {
+    const gameId = parseLiveId(path);
+    return <LivePage gameId={gameId} />;
+  }
   switch (key) {
     case "live":
-      return <LivePage />;
+      return <LivePage gameId={null} />;
     case "backtest":
       return <BacktestPage />;
     case "detectors":

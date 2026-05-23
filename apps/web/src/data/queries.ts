@@ -77,26 +77,26 @@ const boardSchema = z.object({
   observations: z.array(boardObservationSchema),
 });
 
-// /v1/live/:gameId — PRD §15: last 5 min of quote_ticks + source_markets.
-// Route TBD (US-028); shape from PRD definition.
+// /v1/live/:gameId — PRD §15: last 5 min of quote_ticks joined to
+// source_markets for instrument metadata. Schema matches the shipped route
+// (US-028 services/live.ts): { gameId, windowStart, windowEnd, ticks } with
+// each tick carrying impliedProbability/volume/heartbeat plus the joined
+// instrumentId/rawFamily/rawLabel (no separate sourceMarkets array).
 const quoteTickSchema = z.object({
   sourceMarketId: z.string(),
   capturedAt: z.string(),
-  bid: z.number().nullable(),
-  ask: z.number().nullable(),
-  mid: z.number().nullable(),
-  isHeartbeat: z.boolean(),
-});
-const sourceMarketSchema = z.object({
-  id: z.string(),
-  source: z.string(),
-  outcome: z.string(),
+  impliedProbability: z.number().nullable(),
+  volume: z.number(),
+  isHeartbeat: z.number().int(),
+  instrumentId: z.string().nullable(),
+  rawFamily: z.string().nullable(),
+  rawLabel: z.string().nullable(),
 });
 const liveSchema = z.object({
   gameId: z.string(),
-  windowSeconds: z.number().int(),
+  windowStart: z.string(),
+  windowEnd: z.string(),
   ticks: z.array(quoteTickSchema),
-  sourceMarkets: z.array(sourceMarketSchema),
 });
 
 // /v1/microstructure/:gameId — PRD §15: market_microstructure_events filtered
@@ -185,7 +185,6 @@ export type GamesList = z.infer<typeof gamesListSchema>;
 export type BoardObservation = z.infer<typeof boardObservationSchema>;
 export type Board = z.infer<typeof boardSchema>;
 export type QuoteTick = z.infer<typeof quoteTickSchema>;
-export type SourceMarket = z.infer<typeof sourceMarketSchema>;
 export type Live = z.infer<typeof liveSchema>;
 export type MicrostructureEvent = z.infer<typeof microstructureEventSchema>;
 export type Microstructure = z.infer<typeof microstructureSchema>;
@@ -216,21 +215,29 @@ export function useGame(gameId: string): UseQueryResult<Game, Error> {
   });
 }
 
-export function useLive(gameId: string): UseQueryResult<Live, Error> {
+// `refetchInterval` is opt-in (US-031 Live page sets 30_000 ms; Recent leaves
+// it unset so the fires cell stays one-shot per visit).
+export interface PollOptions {
+  readonly refetchInterval?: number;
+}
+
+export function useLive(gameId: string, opts?: PollOptions): UseQueryResult<Live, Error> {
   return useQuery({
     queryKey: ["live", gameId],
     queryFn: ({ signal }) =>
       fetchJson(`/v1/live/${encodeURIComponent(gameId)}`, liveSchema, signal),
     enabled: gameId.length > 0,
+    ...(opts?.refetchInterval !== undefined ? { refetchInterval: opts.refetchInterval } : {}),
   });
 }
 
-export function useBoard(gameId: string): UseQueryResult<Board, Error> {
+export function useBoard(gameId: string, opts?: PollOptions): UseQueryResult<Board, Error> {
   return useQuery({
     queryKey: ["board", gameId],
     queryFn: ({ signal }) =>
       fetchJson(`/v1/board/${encodeURIComponent(gameId)}`, boardSchema, signal),
     enabled: gameId.length > 0,
+    ...(opts?.refetchInterval !== undefined ? { refetchInterval: opts.refetchInterval } : {}),
   });
 }
 
