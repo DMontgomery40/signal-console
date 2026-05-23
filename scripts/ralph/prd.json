@@ -72,8 +72,8 @@
         "Running 'pnpm verify:no-stale-plan' exits 0"
       ],
       "priority": 4,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "better-sqlite3 does not enable `file:` URI parsing by default; the PRD §11.1 example code is incomplete. open.ts sets `process.env.SQLITE_USE_URI = '1'` at module load to make guard #1 (the `?mode=ro` URI) actually effective. The native addon loads lazily on first `new Database()` call and calls `sqlite3_config(SQLITE_CONFIG_URI, 1)` once based on this env var. Guard #2 (`readonly: true`) is independent of this and continues to enforce SQLITE_OPEN_READONLY. Future db-package modules (US-005+) that import better-sqlite3 must import this module first or replicate the env-var setting before their own `new Database()` calls, since `std::call_once` makes the URI config a one-shot per process."
     },
     {
       "id": "US-005",
