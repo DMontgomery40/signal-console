@@ -870,3 +870,28 @@ Started: Sat May 23 00:45:49 MDT 2026
   - **Web test fetch mocks need a fall-through for /v1/board/...** When you add a child component that fires a new query, existing tests that pattern-match on URL prefix will route the new request to whichever branch matches first. GameDetailPage.test still passes here because `mockGameAndBoard` returns the same `/v1/board/...` response for any path starting with that prefix, and the FanoutPanel's error state just renders (testid `fanout-panel-error`) without failing the existing assertions. If a future story needs different mocking for /v1/board vs /v1/board/.../fanout, the helper will need to discriminate.
   - **`@typescript-eslint/consistent-type-assertions` blocks `as` even inside narrow type guards.** Use a typed `isRecord` guard returning `Record<string, unknown>` (like the rest of the codebase does) instead of `as` to extract typed payloads from generic Recharts tooltip arguments.
 ---
+
+## 2026-05-23T18:05Z - US-033
+- What was implemented: Split board-mad into prebucket.ts (raw ticks → per-game per-bucket intensity series, K-independent) + sweep.ts (runSweep iterates K-values against precomputed baselines, K-dependent) + params.ts (Zod schema extracted so sweep.ts can reference Omit<Params,'kMad'> without circular import). index.ts now glues both halves via a runForK helper in sweep.ts that also returns DetectorBucket[]. Canonical contract tests pass unchanged.
+- Files changed:
+  - packages/detectors/src/board-mad/params.ts (new, ~20 LOC — Params Zod schema + ParamsResolved/Weighting types)
+  - packages/detectors/src/board-mad/prebucket.ts (new, ~135 LOC — prebucket(ticks, bucketSeconds, options?) builds BucketSeries.perGame with sparse {bucket, intensity} entries)
+  - packages/detectors/src/board-mad/sweep.ts (new, ~165 LOC — runSweep + runForK; both share computeAllBaselines which precomputes per-bucket median+MAD+Dates once per call)
+  - packages/detectors/src/board-mad/index.ts (rewrote from ~205 LOC to ~55 LOC; now imports prebucket + runForK and re-exports Params from params.ts)
+  - packages/detectors/src/board-mad/__tests__/prebucket.test.ts (new, 6 tests — empty input, group-by-gameId, equal weighting, freshCap drop, sanitisation, explicit gameIds with zero ticks)
+  - packages/detectors/src/board-mad/__tests__/sweep.test.ts (new, 4 tests — entry count + K order, monotonic non-increasing fire counts on [3,4,5,6], runSweep[k]/runForK(k) parity, 28-day-equivalent perf < 200 ms)
+  - scripts/ralph/prd.json (US-033 passes=true + notes)
+- Verification ran:
+  - `pnpm --filter @signal-console/detectors typecheck` → clean
+  - `pnpm --filter @signal-console/detectors test` → 42/42 (canonical 6/6 unchanged, prebucket 6/6, sweep 4/4)
+  - `pnpm format:write && pnpm verify` → 5/5 turbo tasks green; api 76/76, detectors 42/42, web ~all green
+  - Perf assertion measured: runSweep over 100 K-values on a 40320-bucket synthetic series finishes well under 200 ms (test passes consistently — see sweep.test.ts:84)
+- **Learnings for future iterations:**
+  - `packages/detectors/` has `functional/no-let` + `functional/immutable-data` lint rules. You CANNOT use `let` or `Map.set()` / `array.push()` inside that package. Build accumulators with `.map`/`.flatMap`/`.filter`/`.reduce`/`Array.from`/`toSorted` etc. The existing `sumByBucket` uses Array.from(new Set(...)) + reduce-per-bucket (O(B·C)) to avoid Map mutation — preserve that pattern.
+  - For sweep perf on a 40k-bucket series, the dominant cost in a naive flatMap-per-K is the empty `[]` returned for every non-fire bucket (40k × 100 K = 4M empty-array allocs). Replacing with `.filter(...).map(...)` was the single biggest win (~30% off). Pre-allocating per-bucket Date objects inside Baseline (instead of recomputing inside firesFromBaselines per K) saved another ~15%. Pre-extracting `intensities = entries.map(e => e.intensity)` once also saved a small amount on the slice path.
+  - Circular import risk: index.ts → sweep.ts → if sweep.ts imports the Params Zod *value* from index.ts you get a runtime cycle. Solved by extracting the Zod schema into a sibling params.ts that neither index.ts nor sweep.ts depends transitively on. Both then import from params.ts cleanly; index.ts re-exports `Params` for backward compat with `apps/api/src/services/board.ts` and tests.
+  - The AC text says "prebucket + runSweep" but the detector's public run() needs DetectorBucket[] too (not just fires). I added a runForK(buckets, k, params) sibling in sweep.ts that returns {fires, buckets}; runSweep iterates it conceptually (in practice both share computeAllBaselines so baselines aren't recomputed). That keeps runSweep's signature literal-to-AC ({ k, fires }[]) while letting index.ts get full DetectorBucket info.
+  - prebucket signature ended up as `prebucket(ticks, bucketSeconds, options?)` — the literal 2-arg form still works (defaults: weighting='volume', freshCapSeconds=300, gameIds derived from ticks). When run from index.ts we explicitly pass `gameIds: window.gameIds` so empty-tick games still appear in BucketSeries.perGame (preserves the existing per-game contract: stats.gamesInWindow uses window.gameIds.length).
+  - Test gotcha: `tick(...).impliedProbability === 0.5` is dropped by sanitisation (the 0.500 opening-anchor filter). Use 0.4 → 0.6 (not 0.4 → 0.5) when constructing synthetic 1-pair fixtures.
+  - `noUncheckedIndexedAccess: true` means `arr[i]` is `T | undefined` everywhere. Tests use `arr[0]?.field` or guard with `if (x !== undefined)`. Non-null assertion `!` is allowed (consistent-type-assertions bans `as` but not `!`).
+---

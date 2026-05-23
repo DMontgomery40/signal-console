@@ -791,8 +791,8 @@
         "Typecheck passes"
       ],
       "priority": 42,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Refactored board-mad into prebucket.ts + sweep.ts + params.ts; index.ts now glues them via the runForK helper (sweep.ts internal single-K sibling of runSweep that also returns DetectorBucket[]). runSweep matches the AC signature exactly (Omit<Params,'kMad'> → { k, fires }[]); prebucket(ticks, bucketSeconds, options?) keeps the literal 2-arg form (with default weighting='volume' / freshCapSeconds=300) and adds optional weighting/freshCapSeconds/gameIds. Canonical contract tests (US-011 K=6 Hartenstein + Reaves no-fire, US-012 K=3 snapshots) pass unchanged. Sweep perf test: 100 K-values over a 40320-bucket (28-day-equivalent) synthetic series completes well under 200 ms after filter+map and pre-allocated bucketStart/End Dates inside Baseline."
     },
     {
       "id": "US-034",
