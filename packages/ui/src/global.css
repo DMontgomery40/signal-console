@@ -71,6 +71,13 @@ body {
 
 .explainer-prose p {
   margin: 0 0 0.75em 0;
+  /* US-048: long URLs, long-tokens, and unbroken identifiers in the Plain
+   * English copy were escaping the card horizontally. anywhere is the
+   * permissive rule that wraps at any character when no normal break point
+   * exists; word-break is the legacy fallback for engines that ignore
+   * overflow-wrap on individual words. */
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .explainer-prose p:last-child {
@@ -106,6 +113,25 @@ body {
 
 .explainer-prose-formal .katex-display {
   margin: 0.75em 0;
+  /* US-048: KaTeX block-math wrappers ignore their parent's max-width and
+   * push the card sideways when a formula is wider than the body. Clamping
+   * max-width to 100% + horizontal scroll keeps the math inside the card. */
+  max-width: 100%;
   overflow-x: auto;
   overflow-y: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: var(--text-lo) var(--surface-2);
+}
+
+.explainer-prose-formal .katex-display::-webkit-scrollbar {
+  height: 6px;
+}
+
+.explainer-prose-formal .katex-display::-webkit-scrollbar-track {
+  background: var(--surface-2);
+}
+
+.explainer-prose-formal .katex-display::-webkit-scrollbar-thumb {
+  background: var(--text-lo);
+  border-radius: 3px;
 }

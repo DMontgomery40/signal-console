@@ -111,7 +111,7 @@ describe("detectors route (US-030)", () => {
     expect(ids).toContain("off-price-print");
   });
 
-  it("each detector row includes id, version, displayName, paramsSchema", async () => {
+  it("each detector row includes id, version, displayName, sources, paramsSchema", async () => {
     const app = await startApp();
     const res = await app.inject({
       method: "GET",
@@ -125,7 +125,51 @@ describe("detectors route (US-030)", () => {
       expect(typeof row["version"]).toBe("string");
       expect(typeof row["displayName"]).toBe("string");
       expect(isRecord(row["paramsSchema"])).toBe(true);
+      // US-048: each row carries a non-empty `sources` array drawn from the
+      // closed set {bet365, kalshi, polymarket}. The UI uses this to render
+      // the per-detector SOURCES chip without importing the registry.
+      const sources = row["sources"];
+      expect(isUnknownArray(sources)).toBe(true);
+      if (!isUnknownArray(sources)) return;
+      expect(sources.length).toBeGreaterThan(0);
+      for (const src of sources) {
+        expect(["bet365", "kalshi", "polymarket"]).toContain(src);
+      }
     }
+  });
+
+  it("board-mad declares sources: bet365 + kalshi + polymarket (US-048)", async () => {
+    const app = await startApp();
+    const res = await app.inject({
+      method: "GET",
+      url: "/v1/detectors",
+      headers: authHeaders(),
+    });
+    const rows = fetchDetectorRows(res.json());
+    const boardMad = findById(rows, "board-mad");
+    expect(boardMad).toBeDefined();
+    if (boardMad === undefined) return;
+    const sources = boardMad["sources"];
+    expect(isUnknownArray(sources)).toBe(true);
+    if (!isUnknownArray(sources)) return;
+    expect([...sources].sort()).toEqual(["bet365", "kalshi", "polymarket"]);
+  });
+
+  it("off-price-print declares sources: polymarket only (US-048)", async () => {
+    const app = await startApp();
+    const res = await app.inject({
+      method: "GET",
+      url: "/v1/detectors",
+      headers: authHeaders(),
+    });
+    const rows = fetchDetectorRows(res.json());
+    const opp = findById(rows, "off-price-print");
+    expect(opp).toBeDefined();
+    if (opp === undefined) return;
+    const sources = opp["sources"];
+    expect(isUnknownArray(sources)).toBe(true);
+    if (!isUnknownArray(sources)) return;
+    expect([...sources]).toEqual(["polymarket"]);
   });
 
   it("board-mad row exposes expected version and a JSON-Schema params object", async () => {

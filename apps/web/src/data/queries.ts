@@ -121,11 +121,14 @@ const microstructureSchema = z.object({
 // returns the rows wrapped as { detectors: [...] }; paramsSchema is a JSON
 // Schema object produced via zod-to-json-schema and we keep it as a
 // passthrough record so the UI can iterate properties without forcing a
-// specific JSON-Schema dialect through Zod.
+// specific JSON-Schema dialect through Zod. `sources` is the closed set the
+// detector declares (US-048) — the UI renders the SOURCES chip from it.
+const detectorSourceSchema = z.enum(["bet365", "kalshi", "polymarket"]);
 const detectorEntrySchema = z.object({
   id: z.string(),
   version: z.string(),
   displayName: z.string(),
+  sources: z.array(detectorSourceSchema),
   paramsSchema: z.record(z.unknown()),
 });
 const detectorsSchema = z.object({ detectors: z.array(detectorEntrySchema) });

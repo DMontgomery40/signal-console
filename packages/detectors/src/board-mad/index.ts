@@ -184,6 +184,7 @@ export const detector: Detector<typeof Params> = {
   id: "board-mad",
   version: "1.0.0",
   displayName: "Board MAD (whole-board volatility)",
+  sources: ["bet365", "kalshi", "polymarket"],
   paramsSchema: Params,
   run(window: DetectorWindow, params: ParamsResolved): DetectorResult {
     const allTicks = window.ticks ?? [];

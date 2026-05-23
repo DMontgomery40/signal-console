@@ -318,10 +318,11 @@ function ParamRow({
   );
 }
 
-function isPolymarketOnly(detector: DetectorEntry): boolean {
-  // PRD §US-208: off-price-print is a Polymarket-only detector. The id is the
-  // stable identifier; the displayName carries the human caveat too.
-  return detector.id === "off-price-print";
+// US-048: render the SOURCES chip for every detector card using the closed
+// set the detector declares in its registry entry. Off-price-print drops the
+// redundant "ONLY" (single-source is implied by the one-element list).
+function formatSources(sources: readonly DetectorEntry["sources"][number][]): string {
+  return sources.map((s) => s.toUpperCase()).join(", ");
 }
 
 function DetectorCard({ detector }: { detector: DetectorEntry }): JSX.Element {
@@ -343,12 +344,12 @@ function DetectorCard({ detector }: { detector: DetectorEntry }): JSX.Element {
         </span>
       </header>
       <p className="mt-1 tabular font-mono text-xs text-text-lo">{detector.id}</p>
-      {isPolymarketOnly(detector) ? (
+      {detector.sources.length > 0 ? (
         <p
           data-testid="detector-sources-tag"
           className="mt-3 inline-block border border-accent-yellow px-2 py-0.5 text-xs font-mono uppercase tracking-wider text-accent-yellow"
         >
-          Sources: Polymarket only
+          SOURCES: {formatSources(detector.sources)}
         </p>
       ) : null}
       {props.length === 0 ? (

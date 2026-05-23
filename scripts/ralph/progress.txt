@@ -721,3 +721,49 @@ Started: Sat May 23 00:45:49 MDT 2026
   - **The MaybeExplain pattern is the canonical typeguard for the explainer registry.** `isExplainerId = (id: string): id is ExplainerId => Object.prototype.hasOwnProperty.call(explainers, id);` lets us pass any string (detector ids, param names) into MaybeExplain and have it short-circuit to bare children when there's no registered explainer. This is the pattern future stories should adopt rather than maintaining a parallel "do we have an explainer?" lookup table — the explainers barrel is the single source of truth.
   - **Visual verification: 4 screenshots captured under apps/web/.ralph-screenshots/US-032/ by a PRIOR Ralph iteration.** This iteration only re-ran the smokes (web tests + verify) to confirm the dirty state passed; the actual implementation and screenshots are from the iteration that hung before committing. Screenshots: 1-baseline-1440x900.png, 2-explainer-hover-1440x900.png, 3-baseline-1024x768.png, 4-error-401-1440x900.png.
 ---
+
+## 2026-05-23T16:08Z - US-048
+- What was implemented: Two bug fixes flagged by the owner. (1) ExplainerCard hover content was overflowing horizontally (paragraphs not wrapping, KaTeX block math escaping to the viewport, card width never actually constrained). (2) DetectorsPage's "Sources: Polymarket only" tag only appeared on off-price-print, leaving the desk no way to see that board-mad reads from Bet365 + Kalshi + Polymarket. Added a closed `Source` type to the detector contract, populated it on both registered detectors, exposed it via the API, and generalized the per-card chip. Fixed the explainer card with width clamp (560 px or `100vw - 32px`, whichever is smaller), text wrap rule, and KaTeX horizontal-scroll inside the card.
+- Files changed:
+  - packages/detectors/src/types.ts (new Source union; sources field on Detector<T>)
+  - packages/detectors/src/board-mad/index.ts (declare sources: bet365/kalshi/polymarket)
+  - packages/detectors/src/off-price-print/index.ts (declare sources: polymarket)
+  - packages/detectors/src/registry.ts (RegisteredDetector + meta propagate sources)
+  - packages/detectors/src/index.ts (re-export Source)
+  - packages/detectors/src/__tests__/registry.test.ts (3 new sources assertions)
+  - apps/api/src/routes/detectors.ts (sources in response interface, JSON Schema enum, buildRows)
+  - apps/api/tests/detectors.test.ts (sources in shape test + 2 contract tests for board-mad/off-price-print)
+  - apps/web/src/data/queries.ts (detectorSourceSchema + sources on detectorEntrySchema)
+  - apps/web/src/features/detectors/DetectorsPage.tsx (formatSources + chip on every card; legacy isPolymarketOnly removed)
+  - apps/web/src/features/detectors/__tests__/DetectorsPage.test.tsx (fixture adds sources; legacy "Polymarket only" test replaced with chip-per-card assertions)
+  - apps/web/tailwind.config.ts (added `../../packages/ui/src/**/*.{ts,tsx}` to content paths so ExplainerCard's arbitrary classes are JIT-generated)
+  - packages/ui/src/components/ExplainerCard.tsx (width: w-[min(560px,calc(100vw-32px))] replaces never-applied max-w-[480px])
+  - packages/ui/src/global.css (.explainer-prose p overflow-wrap+word-break; .explainer-prose-formal .katex-display max-width:100% + horizontal 6 px scrollbar)
+  - docs/design-language.md (§Explainer Cards documents the 560 px clamp, the wrap rule, and the KaTeX horizontal scroll)
+- Verification ran:
+  - `pnpm format:check` → 0 issues after format:write reflowed apps/web/tailwind.config.ts
+  - `pnpm lint` → 0 warnings
+  - `pnpm typecheck` → 5/5 packages green
+  - `pnpm verify:no-stale-plan` → 0 forbidden hits
+  - `pnpm verify:no-hex-literals` → 0 hex literals outside tokens.ts/global.css/tailwind-preset/etc.
+  - `pnpm verify` → 5/5 turbo tasks pass
+  - `pnpm --filter @signal-console/detectors test` → 32/32 (registry now asserts every detector has a non-empty sources array drawn from the closed set; board-mad has all three sources; off-price-print is polymarket only)
+  - `pnpm --filter @signal-console/api test` → 68/68 (each row exposes sources field; board-mad and off-price-print sources contract tests pass; perf flake on US-021 also passed at 2.4 s)
+  - `pnpm --filter @signal-console/web test` → 65/65 (DetectorsPage SOURCES chip rendered on both cards with the exact uppercase format)
+  - Live API smoke: `curl -H "X-Signal-Token: $(cat ~/.signal-console/token)" http://localhost:4100/v1/detectors | jq` returned `{board-mad: [bet365, kalshi, polymarket], off-price-print: [polymarket]}` — exact AC parity.
+  - Build smoke: `pnpm --filter @signal-console/web build` produces a CSS bundle containing `.w-\[min\(560px\,calc\(100vw-32px\)\)\]{width:min(560px,calc(100vw - 32px))}` (was MISSING before adding packages/ui to the content paths).
+  - Visual verification (Playwright MCP at 1440x900 and 1024x768 against `pnpm --filter @signal-console/web dev` with VITE_SIGNAL_TOKEN injected):
+    - apps/web/.ralph-screenshots/US-048/1-detectors-baseline-1440x900.png — full page at 1440x900 showing both detector cards with their SOURCES chips visible. board-mad chip reads "SOURCES: BET365, KALSHI, POLYMARKET"; off-price-print chip reads "SOURCES: POLYMARKET". Both in accent-yellow outline + uppercase mono.
+    - apps/web/.ralph-screenshots/US-048/2-explainer-board-mad-1440x900.png — board-MAD title hovered, ExplainerCard open with Plain English section visible. Card rect: x=16, y=329, w=560, h=540 (60vh). Card properly contained within viewport (right edge 576 < 1440).
+    - apps/web/.ralph-screenshots/US-048/3-explainer-formal-scrolled-1440x900.png — same card scrolled to Formal section. scrollTop=317 (of scrollHeight=856, clientHeight=540 — i.e., scrolled to the bottom of the scrollable region). 615 child elements counted inside the card; max child right edge = 549, card right edge = 576 → -27 px slack, ZERO escaping elements.
+    - apps/web/.ralph-screenshots/US-048/4-detectors-baseline-1024x768.png — same /detectors page reflowed at 1024x768. Both SOURCES chips still visible; no horizontal scroll.
+    - apps/web/.ralph-screenshots/US-048/5-explainer-board-mad-1024x768.png — ExplainerCard hover at 1024x768 viewport. Card rect: x=16, y=329, w=560 — clamp formula `min(560, 1024-32=992) = 560` so width stays at 560 with 16 px gutter, well within the narrower viewport (right edge 576 < 1024).
+  - The "overflow is gone" assertion is anchored by the programmatic `page.evaluate()` check inside iteration: 615 children inspected, 0 escape the card horizontally. The fix is correct.
+- **Learnings for future iterations:**
+  - **packages/ui was NOT in apps/web's Tailwind content paths.** This was the root cause of the ExplainerCard "overflow" — the `max-w-[480px]` arbitrary class on the card's content wrapper was never being JIT-generated because Tailwind only scanned `./index.html` and `./src/**/*.{ts,tsx}` under apps/web. Token classes like `bg-surface-1` were rendering only because they happened to be referenced from apps/web/src too. Any UI story that adds arbitrary Tailwind values inside packages/ui needs this content path. Fixed permanently by appending `../../packages/ui/src/**/*.{ts,tsx}` to apps/web/tailwind.config.ts. Future-iteration smell test: if you add an arbitrary Tailwind value (anything with `[...]`) and it doesn't apply, grep the generated CSS bundle for the class name; if missing, the file the class lives in is outside Tailwind's content scope.
+  - **Vite dev server must be restarted to pick up tailwind.config.ts changes.** Vite's HMR doesn't re-evaluate the Tailwind config — it picks up CSS edits and TSX edits, but adding a new content path requires a full restart. Symptom: after editing the config and seeing the production build emit the rule, the running dev server still doesn't render the new class. Restart with `kill <pid> && pnpm --filter @signal-console/web dev`.
+  - **Radix HoverCard's `closeDelay: 200ms` shrinks the window for inspect-then-screenshot.** When verifying via Playwright, the sequence "hover → wait_for content → evaluate() → screenshot" can race because evaluate() takes long enough for the cursor to be considered "moved off the trigger" by Radix's internal accounting (especially since evaluate() is run from outside the browser). Workaround: hover, immediately evaluate, hover again, immediately screenshot. Or use `browser_run_code_unsafe` to do `page.mouse.move(x, y)` + `page.waitForTimeout(500)` in the same call.
+  - **`$$ block-math $$` in the explainers does NOT produce `.katex-display` blocks in this setup.** remark-math + rehype-katex render them as inline `.katex` spans, not display-mode `.katex-display`. The US-048 AC for "KaTeX block math fits OR scrolls horizontally inside the card" was satisfied empirically (no escapes), but the specific `.katex-display` overflow-x rule we added will only kick in if a future story switches the markdown renderer to true display mode (e.g., by using `\[ ... \]` instead of `$$ ... $$`, or by switching to a different markdown processor). The rule is harmless until then.
+  - **The legacy `isPolymarketOnly` helper is gone.** US-048 generalized the SOURCES chip to render per-detector from the `sources` field, so the off-price-print-id-coupled branch is removed. If a future story wants to special-case a detector visually, key off some new field (e.g., a `deprecated: true` flag) rather than reintroducing id-equality checks; the registry is the source of truth and shouldn't have UI knowing about detector ids.
+  - **z.enum vs z.string + refine for closed sets coming over the wire.** queries.ts uses `z.enum(["bet365", "kalshi", "polymarket"])` for the sources field. This both narrows the parsed type AND rejects unknown sources at the runtime boundary — if the API ever ships a new source the UI hasn't been updated for, the Zod parse will fail loudly instead of silently mis-rendering. Reuse this pattern for any future closed-set field.
+---

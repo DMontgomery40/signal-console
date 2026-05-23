@@ -1,5 +1,6 @@
 // US-026 wired board-mad. US-027 added off-price-print so the registry now
-// ships with two detectors as required by PRD §10.
+// ships with two detectors as required by PRD §10. US-048 adds the `sources`
+// closed-set field so the UI can surface a SOURCES chip per detector.
 
 import { describe, expect, it } from "vitest";
 
@@ -28,5 +29,29 @@ describe("detector registry", () => {
 
   it("ships with two detectors", () => {
     expect(registry.size).toBe(2);
+  });
+
+  it("every registered detector declares a non-empty sources array (US-048)", () => {
+    for (const entry of registry.values()) {
+      expect(entry.sources.length).toBeGreaterThan(0);
+      // Closed set; eslint blocks `as` casts, so use a runtime guard.
+      for (const src of entry.sources) {
+        expect(["bet365", "kalshi", "polymarket"]).toContain(src);
+      }
+    }
+  });
+
+  it("board-mad reads from all three sources (Bet365 + Kalshi + Polymarket)", () => {
+    const entry = registry.get("board-mad");
+    expect(entry).toBeDefined();
+    if (entry === undefined) return;
+    expect([...entry.sources].sort()).toEqual(["bet365", "kalshi", "polymarket"]);
+  });
+
+  it("off-price-print reads from Polymarket only", () => {
+    const entry = registry.get("off-price-print");
+    expect(entry).toBeDefined();
+    if (entry === undefined) return;
+    expect([...entry.sources]).toEqual(["polymarket"]);
   });
 });

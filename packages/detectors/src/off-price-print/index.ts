@@ -44,6 +44,7 @@ export const detector: Detector<typeof Params> = {
   id: "off-price-print",
   version: "1.0.0",
   displayName: "Off-price print (Polymarket only)",
+  sources: ["polymarket"],
   paramsSchema: Params,
   run(window: DetectorWindow, params: ParamsResolved): DetectorResult {
     const events = window.microstructureEvents ?? [];

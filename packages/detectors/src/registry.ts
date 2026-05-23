@@ -19,12 +19,13 @@ import type { z } from "zod";
 
 import { detector as boardMad } from "./board-mad";
 import { detector as offPricePrint } from "./off-price-print";
-import type { Detector } from "./types";
+import type { Detector, Source } from "./types";
 
 export interface RegisteredDetector {
   readonly id: string;
   readonly version: string;
   readonly displayName: string;
+  readonly sources: readonly Source[];
   readonly paramsSchema: z.ZodTypeAny;
 }
 
@@ -33,6 +34,7 @@ function meta<T extends z.ZodTypeAny>(d: Detector<T>): RegisteredDetector {
     id: d.id,
     version: d.version,
     displayName: d.displayName,
+    sources: d.sources,
     paramsSchema: d.paramsSchema,
   };
 }

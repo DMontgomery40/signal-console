@@ -20,16 +20,23 @@ interface DetectorRow {
   readonly id: string;
   readonly version: string;
   readonly displayName: string;
+  readonly sources: readonly string[];
   readonly paramsSchema: Record<string, unknown>;
 }
 
 const detectorRowJsonSchema = {
   type: "object",
-  required: ["id", "version", "displayName", "paramsSchema"],
+  required: ["id", "version", "displayName", "sources", "paramsSchema"],
   properties: {
     id: { type: "string" },
     version: { type: "string" },
     displayName: { type: "string" },
+    // US-048: closed-set upstream sources the detector reads from. The UI
+    // renders a SOURCES chip on every detector card from this field.
+    sources: {
+      type: "array",
+      items: { type: "string", enum: ["bet365", "kalshi", "polymarket"] },
+    },
     // paramsSchema is a generic JSON Schema document; leaving it open
     // (additionalProperties: true, no required) so fast-json-stringify
     // does not strip the per-detector keys (e.g. "properties", "type",
@@ -64,6 +71,7 @@ function buildRows(reg: ReadonlyMap<string, RegisteredDetector>): readonly Detec
     id: d.id,
     version: d.version,
     displayName: d.displayName,
+    sources: d.sources,
     paramsSchema: toJsonSchemaObject(d),
   }));
 }

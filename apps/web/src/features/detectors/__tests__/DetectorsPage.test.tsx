@@ -62,12 +62,14 @@ function urlOf(input: Parameters<FetchFn>[0]): string {
 
 // Live-shape fixture: derived from running zod-to-json-schema on each
 // detector's Params zod schema (see packages/detectors/src/*/index.ts).
+// US-048 adds the `sources` closed-set field per detector.
 const DETECTORS_RESPONSE = {
   detectors: [
     {
       id: "board-mad",
       version: "1.0.0",
       displayName: "Board MAD (whole-board volatility)",
+      sources: ["bet365", "kalshi", "polymarket"],
       paramsSchema: {
         type: "object",
         properties: {
@@ -84,6 +86,7 @@ const DETECTORS_RESPONSE = {
       id: "off-price-print",
       version: "1.0.0",
       displayName: "Off-price print (Polymarket only)",
+      sources: ["polymarket"],
       paramsSchema: {
         type: "object",
         properties: {
@@ -184,6 +187,7 @@ describe("DetectorsPage", () => {
           id: "synthetic-bool",
           version: "0.1.0",
           displayName: "Synthetic Boolean Detector",
+          sources: ["polymarket"],
           paramsSchema: {
             type: "object",
             properties: {
@@ -205,7 +209,7 @@ describe("DetectorsPage", () => {
     expect(box.disabled).toBe(true);
   });
 
-  it("renders the 'Sources: Polymarket only' tag only on off-price-print", async () => {
+  it("renders a SOURCES chip on EVERY detector card (US-048)", async () => {
     mockDetectors();
     render(<DetectorsPage />, { wrapper: makeWrapper() });
 
@@ -222,9 +226,15 @@ describe("DetectorsPage", () => {
     expect(opp).toBeDefined();
     expect(boardMad).toBeDefined();
     if (opp === undefined || boardMad === undefined) return;
-    const tag = within(opp).getByTestId("detector-sources-tag");
-    expect(tag.textContent).toBe("Sources: Polymarket only");
-    expect(within(boardMad).queryByTestId("detector-sources-tag")).toBeNull();
+
+    // board-mad reads from all three sources — uppercase, comma-separated.
+    const boardMadChip = within(boardMad).getByTestId("detector-sources-tag");
+    expect(boardMadChip.textContent).toBe("SOURCES: BET365, KALSHI, POLYMARKET");
+
+    // off-price-print is single-source — drop the redundant "ONLY"; the
+    // single entry implies it.
+    const oppChip = within(opp).getByTestId("detector-sources-tag");
+    expect(oppChip.textContent).toBe("SOURCES: POLYMARKET");
   });
 
   it("renders the 'How to add a detector' panel with the 3-step recipe", async () => {

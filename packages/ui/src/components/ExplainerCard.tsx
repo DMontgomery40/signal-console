@@ -22,11 +22,14 @@ const EXPLAINER_LOOKUP: Record<string, Explainer | undefined> = explainers;
 const TRIGGER_CLASS =
   "border-b border-dashed border-text-lo/50 cursor-help underline-offset-2 decoration-from-font";
 
+// US-048: width widens 480 -> 560 (closer to 60-80 chars at text-md for the
+// multi-paragraph Plain English copy) and clamps to the viewport with a 16 px
+// gutter on each side so narrow viewports never push the card off-screen.
 const CONTENT_CLASS = [
   "bg-surface-1 text-text-md",
   "border-t border-accent-green",
   "p-4",
-  "max-w-[480px] max-h-[60vh]",
+  "w-[min(560px,calc(100vw-32px))] max-h-[60vh]",
   "overflow-y-auto",
   "explainer-card-content",
   "data-[state=open]:animate-in data-[state=closed]:animate-out",

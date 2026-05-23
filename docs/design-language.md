@@ -188,7 +188,7 @@ Many numbers and concepts in this app (`K_MAD`, `fires/game`, the various detect
 └──────────────────────────────────────────────────────────┘
 ```
 
-**Sizing:** `max-width: 480 px`, `max-height: 60vh`, **internal scroll** (overflow-y: auto). The card persists while the cursor is over it OR over the trigger, so users can scroll without it closing.
+**Sizing:** `width: min(560 px, calc(100vw - 32 px))`, `max-height: 60vh`, **internal scroll** (overflow-y: auto). The 560 px width keeps multi-paragraph Plain English copy close to the 60-80-character optimal line length at the body text-md scale; the `min(...)` clamp guarantees a 16 px gutter on each side when the viewport is narrower than 592 px (e.g. portrait phone, split-screen browser pane). The card persists while the cursor is over it OR over the trigger, so users can scroll without it closing. Body paragraphs use `overflow-wrap: anywhere; word-break: break-word;` so long URLs or unbreakable identifiers wrap inside the card; KaTeX `.katex-display` blocks get `max-width: 100%; overflow-x: auto` with the same 6 px custom scrollbar so wide formulas scroll horizontally _inside_ the card rather than escaping to the viewport.
 
 **Hover bridge & persistence:**
 

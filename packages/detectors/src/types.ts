@@ -5,6 +5,12 @@
 
 import type { z } from "zod";
 
+// Upstream data sources a detector reads from. Surfaced via /v1/detectors so
+// the Detectors UI can render a "SOURCES:" chip per detector (US-048). The
+// literal union is closed on purpose — a detector that wants to declare a new
+// source has to extend the union here, which forces a single source of truth.
+export type Source = "bet365" | "kalshi" | "polymarket";
+
 // Quote tick shape consumed by board-mad (US-009). Mirrors the gold-DB
 // quote_ticks columns the route would SELECT for one game; the caller joins
 // source_markets to project `gameId` onto each row before handing the batch
@@ -99,6 +105,7 @@ export interface Detector<TParams extends z.ZodTypeAny> {
   readonly id: string;
   readonly version: string;
   readonly displayName: string;
+  readonly sources: readonly Source[];
   readonly paramsSchema: TParams;
   readonly run: (window: DetectorWindow, params: z.infer<TParams>) => DetectorResult;
 }
