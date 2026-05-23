@@ -67,7 +67,7 @@ If a story you pick contains an acceptance criterion that requires owner action,
 
 ## Hard Constraints (will fail review if violated)
 
-- **LOC ceilings:** route handlers ≤ 80, service modules ≤ 150, query modules ≤ 80, detector modules ≤ 250.
+- **LOC: keep it focused, don't bean-count.** The old repo was 73k LOC of bloat (e.g. a 1,246 LOC SettingsPage, a 3,300 LOC live-repository.ts). The new repo should be small by intent — if a file is doing one thing well and lands at 300 or 500 LOC, that's fine. There is no hard LOC gate. The anti-pattern to avoid is conflated mega-files, not focused modules that happen to be long.
 - **No `as` casts at API boundaries.** Validate with Zod.
 - **No `any`.** Eslint blocks it; do not work around.
 - **`pnpm verify:no-stale-plan` must stay green.** Forbidden strings: `nba-predict/data/signal-console.sqlite`, `K = 6.0 only`, `source_data_version`, `\bdata_version\b`, `shadow mode`, `old worker keeps writing`. Allowed only in `docs/gold-db-relocation.md`, `docs/PRD.md` (or the root `PRD.md`), `docs/relocation/**`, and lines containing `(historical, do not use)`.
