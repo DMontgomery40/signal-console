@@ -83,23 +83,27 @@ If a story you pick contains an acceptance criterion that requires owner action,
 
 **Metadata is not verification.** "File X exists" or "snapshot matches" does NOT prove a UI works. For any story under US-022 onward whose acceptance touches `apps/web/` or `packages/ui/`, you must produce visual evidence via the computer-use and claude-in-chrome MCPs before flipping `passes: true`.
 
-### ⚠️ KNOWN HANG MODE (READ BEFORE TOUCHING UI STORIES) ⚠️
+### ⚠️ PLAYWRIGHT IS MANDATORY, NOT OPTIONAL (revised — read carefully) ⚠️
 
-**Playwright MCP and computer-use MCP have hung indefinitely on this machine** during UI verification for US-045 and US-046 (observed twice; identical signature: claude process sleeps at 0% CPU, API child process dies, no further file activity, no MCP response ever arrives). The watchdog and `ralph.sh`'s 20-min iteration timeout now bound the damage, but **you can avoid the hang entirely** by adopting these rules:
+**Observed behavior on US-036 and US-037: Ralph skipped Playwright entirely and shipped both UI stories using only HTTP-smoke + bundle-grep verification. That is a violation.** The HTTP-smoke path was meant as a LAST RESORT after a documented Playwright failure, not as the default. The owner has explicitly observed: "nothing has popped up. so it's doing it programmatically through metadata, which is against the rules, no headless."
 
-1. **Set a hard 3-minute wall-clock budget for each Playwright/computer-use tool call.** Do not call them repeatedly in a tight loop expecting different results. If a single call to `browser_navigate`, `browser_click`, `browser_take_screenshot`, etc. takes more than 3 minutes to return, ABORT visual verification for this story, log the failure in `progress.txt` with the exact tool call that hung, and proceed to the HTTP-smoke fallback below.
+**The new rules — strict order, no skipping ahead:**
 
-2. **HTTP-smoke fallback (primary verification path, fully sufficient if Playwright unavailable):** for any UI story, you can satisfy the End-to-End Verification Mandate using only `curl` + `sqlite3` + `pnpm vitest`:
-   - **DOM assertion via static build:** `pnpm --filter @signal-console/web build` produces `apps/web/dist/index.html` + bundled JS. Boot a static server (`pnpm dlx serve apps/web/dist -l 5000 &`) and `curl http://localhost:5000/` to fetch the rendered HTML. Use grep/regex to assert presence of expected text, class names from tokens (e.g. `text-accent-yellow`), or `data-testid` attributes you added to mark important elements.
-   - **API smoke:** `curl -H "X-Signal-Token: $(cat ~/.signal-console/token)" http://localhost:4100/v1/games?since=PT24H` returns real JSON. Pipe to `jq` and assert shape/count.
-   - **DB parity:** `sqlite3 ~/signal-console/data/detector-cache.sqlite "SELECT ..."` returns numbers that match what the API/UI reports.
-   - **Vitest jsdom render** (already configured in apps/web/): mount components, assert they render expected text/classes against the real query hooks (you can spin up a real backend in `beforeAll` or use msw-without-the-mock if needed).
+1. **You MUST attempt Playwright/computer-use first for every UI story.** No skipping. No "I anticipate it might hang, so I'll use HTTP smoke." The first action on every UI story's verification step is `browser_navigate` against the running dev server.
 
-3. **If you do use Playwright successfully, tear down immediately.** Don't leave the browser open. Don't poll a selector indefinitely — set `timeout: 30_000` (or smaller) on every wait. The hang signature is "browser_navigate to localhost:5173 that hasn't started up yet" or "browser_wait for a selector that never appears."
+2. **The browser MUST be visible (headed mode), not headless.** When invoking `browser_navigate` or any browser tool that supports launch options, request `{ headless: false }` explicitly. The owner needs to see the browser window pop up on screen as evidence Ralph is actually exercising the UI. A headless run is not acceptable verification — it produces identical evidence to "no run at all" from the owner's perspective.
 
-4. **Mark `passes: true` based on the smoke that DID succeed**, not on the visual verification you couldn't run. Document in `progress.txt`: "Playwright unavailable; verified via HTTP smoke + DB parity. Pending: visual screenshots (will be captured manually by the owner)." That is acceptable. **Repeated hangs eating iteration budget on the same story is NOT acceptable** — fall back to HTTP smokes the moment Playwright stalls.
+3. **Capture real screenshots via `browser_take_screenshot`.** Not bundle-grep, not curl-of-rendered-HTML. Actual rasterized PNG screenshots written to `apps/web/.ralph-screenshots/<story-id>/`. The 3-screenshot minimum (baseline / primary interaction / edge or error state) is still in force.
 
-5. **The owner will manually capture screenshots later if needed.** Do not let visual verification block code progress. The HTTP-smoke fallback proves the feature behaves correctly; the visual check is gravy.
+4. **Per-tool-call timeout is 5 minutes (raised from 3), not "abort and skip."** If a single `browser_*` call takes more than 5 minutes to return, log the EXACT tool call + arguments + the elapsed time in `progress.txt`, then retry ONCE with simpler arguments (e.g. drop a `waitFor` selector, increase the launch timeout). Only if the SECOND attempt also exceeds 5 minutes is Playwright considered failed for this attempt.
+
+5. **HTTP smoke is a SUPPLEMENT, not a substitute.** It is allowed to run additional `curl`/`sqlite3`/`vitest` checks for parity assertions (DB row counts matching UI numbers, real-data smokes). But it does NOT satisfy the visual-verification requirement on its own. Two real screenshots + one HTTP parity smoke is the minimum, not "all HTTP, no screenshots."
+
+6. **If Playwright is genuinely broken** (two consecutive 5-minute timeouts on the same story across two iterations): the story is **BLOCKED**, NOT passes:true via fallback. Mark `passes: false`, set `notes` to: "BLOCKED: Playwright MCP timeouts on `<tool-call>` after two attempts. Bundle grep + DB parity verified the code shipped correctly; visual verification requires owner intervention or MCP fix." This makes the failure visible to the owner. The circuit breaker (5 attempts) will skip the story to a later run, but the owner sees the visual-verification debt accumulating in the `notes` of each blocked story.
+
+7. **NO MORE "Visual screenshots: NOT captured. Per CLAUDE.md HANG MODE protocol..."** in `progress.txt`. That phrase is now a code smell. Either screenshots were captured (cite the file paths) or the story is BLOCKED with notes (per rule 6). There is no third option.
+
+**The screenshot evidence is what the owner audits.** A UI story with no screenshots is a UI story that wasn't visually verified. Period.
 
 **Procedure per UI story:**
 
