@@ -68,6 +68,46 @@ describe("runSweep", () => {
     );
   });
 
+  // US-042 AC #10: runSweep over (kMad, warmupBuckets) pairs must respond to
+  // warmupBuckets — specifically a lower warmup gate must produce >= fires
+  // than a higher one on the same bucket series, and on a series with spikes
+  // inside the [low_warmup, high_warmup) eligibility-gap window the counts
+  // must strictly differ. An eligible bucket can only ADD to the fire count
+  // (never remove from it), so monotonicity holds globally; the strictly-
+  // greater leg proves warmupBuckets is a real sweep axis, not silently
+  // ignored when only kMad varies.
+  it("warmupBuckets=2 produces > fires than warmupBuckets=8 when spikes land in the warmup gap", () => {
+    // Single-game series of 40 buckets. Calm baseline near 0.05, with spikes
+    // of magnitude 1.0 at indices 3, 5, 7 — all inside the [2, 8) window where
+    // a warmup=2 detector treats them as eligible but a warmup=8 detector
+    // suppresses them. A further spike at index 25 fires under both warmups
+    // (so neither count is zero, which would make >= trivially true).
+    const spikeIndices = new Set([3, 5, 7, 25]);
+    const targetedSeries: BucketSeries = {
+      bucketSeconds: 60,
+      weighting: "volume",
+      freshCapSeconds: 300,
+      perGame: [
+        {
+          gameId: "synth-warmup",
+          buckets: Array.from({ length: 40 }, (_, i) => ({
+            bucket: i * 60,
+            intensity: spikeIndices.has(i) ? 1.0 : 0.05,
+          })),
+        },
+      ],
+    };
+    const lowWarmup = runSweep(targetedSeries, [3.0], { ...DEFAULT_PARAMS, warmupBuckets: 2 });
+    const highWarmup = runSweep(targetedSeries, [3.0], { ...DEFAULT_PARAMS, warmupBuckets: 8 });
+    const lowCount = lowWarmup[0]?.fires.length ?? 0;
+    const highCount = highWarmup[0]?.fires.length ?? 0;
+    // Lower warmup must produce at least as many fires (global monotonicity).
+    expect(lowCount).toBeGreaterThanOrEqual(highCount);
+    // On this targeted series the two counts must strictly differ — proves
+    // warmupBuckets is a real sweep axis the runSweep code reads.
+    expect(lowCount).toBeGreaterThan(highCount);
+  });
+
   it("over 100 K-values on a 28-day-equivalent bucket series completes in < 200 ms", () => {
     // 28 days × 24 h × 60 min = 40320 one-minute buckets — the conservative
     // upper bound on a single-game bucket count for the Cry Wolf dial. This

@@ -975,7 +975,7 @@
       ],
       "priority": 51,
       "passes": false,
-      "notes": ""
+      "notes": "AC #3, AC #4, AC #6 SUPERSEDED by US-053 AC #8 (already passed): WarmupDial demoted to auto-form, replaced as the right-hand rotary slot by MemoryDial. Verified work for the remaining ACs: AC #1/#2/#5/#7 (WarmupDial.tsx still exists, WarmupDial.test.tsx 8/8 pass, warmupBuckets recomputes in-memory via clientRecompute.ts), AC #8 (per-game timelines + Reaves/Hartenstein update — they read from recomputeView.observations), AC #9 (Recent/Live unaffected — fundamental separation), AC #10 (new sweep.test.ts case proves runSweep responds to warmupBuckets axis with strict-greater fire count under warmup=2 vs warmup=8 on targeted spike series), AC #11 (REAL round-trip stability smoke against gold DB: X=21.50 at warmup=8, Y=23.50 at warmup=2, X prime=21.50 after revert, |X - X prime|=0.0 exact, ZERO new POST /v1/backtest during warmup changes), AC #12/#13 (typecheck + 43/43 detector tests + 46/46 backtest UI tests all pass), AC #14 (6 real headed-Playwright PNGs in apps/web/.ralph-screenshots/US-042/). Left passes:false because AC #3 (horizontally adjacent to CryWolfDial) is mechanically false today and is directly contradicted by US-053 AC #8. Owner: please flip passes:true if the US-053 supersession is the final desired end-state, OR direct path (b) from progress.txt to wire WarmupDial into the auto-form for warmupBuckets to satisfy AC #4/#6 strictly while leaving AC #3 as the lone superseded item."
     },
     {
       "id": "US-040",
