@@ -1,0 +1,724 @@
+{
+  "project": "Signal Console v2",
+  "branchName": "ralph/signal-console-v2",
+  "description": "Rebuild of the NBA-predict 'Signal Console' as a small, dead-reliable read-only API + 3-view UI (Recent / Live / Backtest) in a new sibling repo at ~/signal-console/. Headline feature: the Cry Wolf dial (K_MAD slider on Backtest). Gold SQLite (54 GB) is moved once at Phase 0 and opened read-only thereafter; the new repo's API/UI/cache never writes to it. Story scope is the Ralph-executable subset of PRD.md; manual operational steps (DB relocation execution, Cloudflare tunnel repoint, Phase 0.5 ingest writer, Phase 5 archive of nba-predict) are gated between Ralph runs and not represented here.",
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "Initialize monorepo scaffold",
+      "description": "As a developer, I need a pnpm + Turbo monorepo with strict TypeScript so all subsequent work runs under correct guardrails.",
+      "acceptanceCriteria": [
+        "File ~/signal-console/package.json exists with packageManager set to a pnpm version",
+        "File ~/signal-console/pnpm-workspace.yaml exists and lists 'apps/*' and 'packages/*'",
+        "File ~/signal-console/turbo.json exists and defines 'verify', 'build', and 'dev' pipelines",
+        "File ~/signal-console/tsconfig.base.json exists with strict=true, noUncheckedIndexedAccess=true, exactOptionalPropertyTypes=true, noImplicitOverride=true, noFallthroughCasesInSwitch=true",
+        "Directory ~/signal-console/.git exists (git init was run)",
+        "Running 'pnpm install' from the repo root exits 0",
+        "Running 'pnpm verify' exits 0 (no-op stubs are acceptable)",
+        "Typecheck passes"
+      ],
+      "priority": 1,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-002",
+      "title": "Add pedantic eslint ruleset",
+      "description": "As a developer, I need the eslint config to enforce logic-bug-catching rules so floating promises, unsafe assignments, and missing exhaustiveness checks fail CI.",
+      "acceptanceCriteria": [
+        "File ~/signal-console/eslint.config.js exists",
+        "eslint config sets the following rules at 'error': @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/strict-boolean-expressions, @typescript-eslint/switch-exhaustiveness-check, @typescript-eslint/no-unnecessary-condition, @typescript-eslint/require-await, @typescript-eslint/no-confusing-void-expression, @typescript-eslint/return-await ['error','always'], @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-argument, @typescript-eslint/consistent-type-assertions with assertionStyle 'never', react-hooks/exhaustive-deps, react-hooks/rules-of-hooks",
+        "Config applies eslint-plugin-functional rules no-let and no-mutation to files under packages/detectors/",
+        "Running 'pnpm lint' exits 0 on the empty scaffold",
+        "Running 'pnpm format:check' exits 0 (prettier configured for whitespace only)",
+        "Typecheck passes"
+      ],
+      "priority": 2,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-003",
+      "title": "Port .codex hooks, PR template, and verify:no-stale-plan script",
+      "description": "As a developer, I need the bug-fix-regression Codex hooks, the WHERE-clause PR checklist, and the verify:no-stale-plan ripgrep guard so forbidden strings and missing query bounds are caught.",
+      "acceptanceCriteria": [
+        "File ~/signal-console/.codex/hooks.json exists and matches the structure of ~/nba-predict/.codex/hooks.json (bug-fix-regression guard)",
+        "File ~/signal-console/.github/PULL_REQUEST_TEMPLATE.md exists and contains the checklist item: 'Every new file under packages/db/src/queries/ has a WHERE clause naming game_id or a time column'",
+        "File ~/signal-console/scripts/verify-no-stale-plan.ts exists",
+        "Script ripgreps the repo for forbidden strings: 'nba-predict/data/signal-console.sqlite', 'K = 6.0 only', 'source_data_version', '\\bdata_version\\b', 'shadow mode', 'old worker keeps writing'",
+        "Script's allow-list permits: docs/gold-db-relocation.md, docs/PRD.md, files under docs/relocation/**, and lines containing '(historical, do not use)'",
+        "package.json defines 'verify:no-stale-plan' script invoking this file",
+        "Running 'pnpm verify:no-stale-plan' exits 0 on the empty scaffold (zero forbidden hits)",
+        "Typecheck passes"
+      ],
+      "priority": 3,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-004",
+      "title": "Implement read-only gold-DB open path",
+      "description": "As a developer, I need an openGoldDb() function that applies four independent read-only guards and throws at startup if PRAGMA query_only is not 1, so the 54 GB gold DB cannot be mutated by the API/UI/cache.",
+      "acceptanceCriteria": [
+        "File ~/signal-console/packages/db/src/open.ts exists",
+        "Exports function openGoldDb(path: string) using better-sqlite3",
+        "Implementation passes URI 'file:${path}?mode=ro' AND options { readonly: true, fileMustExist: true } to the Database constructor",
+        "Implementation runs PRAGMA busy_timeout = 5000 and PRAGMA query_only = ON, then reads PRAGMA query_only back; throws Error('gold DB connection is not query_only') if the returned value is not 1",
+        "Default GOLD_DB_PATH constant points to a path matching ~/signal-console/data/signal-console.sqlite (NOT ~/nba-predict/data/...)",
+        "Grep across the repo shows zero occurrences of the string 'nba-predict/data/signal-console.sqlite' outside the allow-listed docs",
+        "Unit test asserts that INSERT, UPDATE, DELETE, and CREATE TEMP VIEW statements against the returned handle each throw an error",
+        "Tests pass",
+        "Typecheck passes",
+        "Running 'pnpm verify:no-stale-plan' exits 0"
+      ],
+      "priority": 4,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-005",
+      "title": "Implement detector cache DB schema and reset script",
+      "description": "As a developer, I need the writable detector-cache DB schema applied and a pnpm cache:reset script so detector outputs can be persisted without touching the gold DB.",
+      "acceptanceCriteria": [
+        "File ~/signal-console/packages/db/src/cache-migrations/0001-init.sql exists and creates detector_runs (id PK, detector_id, detector_version, params_hash, params_json, source_db_path, source_watermark_hash, scope CHECK IN ('game','window'), game_id, window_start, window_end, computed_at, compute_ms, UNIQUE constraint) and detector_observations (id PK, run_id FK ON DELETE CASCADE, game_id, bucket_start, bucket_end, fired, intensity, baseline_median, baseline_mad, detail_json) plus indexes idx_detector_obs_run_game and idx_detector_obs_fired",
+        "File ~/signal-console/packages/db/src/cache-migrations/runner.ts exists and is idempotent (re-running adds no rows, raises no error)",
+        "Default cache DB path is ~/signal-console/data/detector-cache.sqlite",
+        "File ~/signal-console/scripts/cache-reset.ts exists",
+        "package.json defines 'cache:reset' script that deletes detector-cache.sqlite and re-runs migrations",
+        "Unit test against an in-memory better-sqlite3 instance asserts the schema, both indexes, and the UNIQUE constraint exist after running the migration",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 5,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-006",
+      "title": "Define sport-view CTE template strings",
+      "description": "As a developer, I need shared CTE fragments (v_games, v_events) as TypeScript template strings so query modules are sport-agnostic without depending on CREATE TEMP VIEW.",
+      "acceptanceCriteria": [
+        "File ~/signal-console/packages/db/src/sport-views.ts exists",
+        "Exports a named TypeScript template string 'v_games' that projects from games + a correlated subquery against the latest game_states row, including columns: game id, sport, league, scheduled_start, home_participant_json, away_participant_json, and current status",
+        "Exports a named TypeScript template string 'v_events' that projects from nba_play_by_play_actions and injects the literal 'NBA' as the sport column",
+        "File contains a comment noting that exact column names are verified by the Phase-0 query-plan smoke",
+        "File contains zero CREATE TEMP VIEW statements (grep confirms)",
+        "Typecheck passes"
+      ],
+      "priority": 6,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-007",
+      "title": "Define Detector interface and registry module",
+      "description": "As a developer, I need the Detector<TParams> interface and a typed registry map so detectors can be added with one file + one line.",
+      "acceptanceCriteria": [
+        "File ~/signal-console/packages/detectors/src/types.ts exists and exports a Detector<TParams extends z.ZodTypeAny> interface with fields: id (string), version (string), displayName (string), paramsSchema (Zod), run(window, params) function",
+        "File ~/signal-console/packages/detectors/src/registry.ts exists and exports a typed map keyed by detector id",
+        "Registry initially exports an empty map (detectors added in later stories)",
+        "Typecheck passes"
+      ],
+      "priority": 7,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-008",
+      "title": "Declare K_MAD_LIVE and K_MAD_CALM in config.ts",
+      "description": "As a developer, I need K_MAD_LIVE = 3.0 and K_MAD_CALM = 6.0 declared in exactly one file so neither value is hardcoded elsewhere.",
+      "acceptanceCriteria": [
+        "File ~/signal-console/packages/detectors/src/board-mad/config.ts exists and exports K_MAD_LIVE = 3.0 and K_MAD_CALM = 6.0",
+        "File contains comments tying K=3.0 to 'live default / sensitive ~18 fires/game' and K=6.0 to 'Backtest calm comparison preset ~9 fires/game'",
+        "Grep across the repo (excluding docs/ and node_modules/) shows the literal '3.0' for K only inside config.ts and any Zod schema defaults sourced from it, and the literal '6.0' for K only inside config.ts",
+        "Running 'pnpm verify:no-stale-plan' exits 0",
+        "Typecheck passes"
+      ],
+      "priority": 8,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-009",
+      "title": "Port board-mad detector from board_signal_v2.py",
+      "description": "As a developer, I need a TypeScript port of scripts/board_signal_v2.py exposing the canonical board-MAD detector via the Detector interface.",
+      "acceptanceCriteria": [
+        "File ~/signal-console/packages/detectors/src/board-mad/index.ts exists and exports detector: Detector<typeof Params>",
+        "Detector id is 'board-mad', version is '1.0.0', displayName is 'Board MAD (whole-board volatility)'",
+        "Zod Params schema includes: bucketSeconds (int, min 10, max 300, default 60), kMad (number, min 1, max 12, default 3.0 from K_MAD_LIVE), weighting (enum 'volume'|'equal', default 'volume'), trailingBuckets (int, min 5, max 60, default 20), warmupBuckets (int, min 2, max 20, default 8), freshCapSeconds (int, min 30, max 3600, default 300)",
+        "run() iterates tick batches in time order, buckets by bucketSeconds, computes trailing causal baseline median(prior trailingBuckets) + kMad * MAD(prior trailingBuckets), fires when current bucket intensity exceeds threshold AFTER warmupBuckets warmup, applies freshCapSeconds per-market delta cap, applies is_heartbeat and 0.500 opening-anchor sanitations",
+        "Total LOC under packages/detectors/src/board-mad/ (excluding tests) is at most 250",
+        "Detector module imports K_MAD_LIVE from config.ts; no other K constant declared in the file",
+        "Running 'pnpm lint' inside packages/detectors/ passes with eslint-plugin-functional rules no-let and no-mutation",
+        "Unit test asserts detector(emptyTicks, defaultParams) returns { fires: [], stats: { firesPerGame: 0, ... } }",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 9,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-010",
+      "title": "Commit canonical detector contract test fixtures",
+      "description": "As a developer, I need committed JSON fixture extracts for Hartenstein and Reaves anchor games so detector contract tests run without the gold DB.",
+      "acceptanceCriteria": [
+        "Directory ~/signal-console/packages/detectors/src/board-mad/__tests__/fixtures/ exists",
+        "Files exist (gzipped if >100 KB raw) for game ids: nba-0042500222, nba-0042500223, nba-0042500224",
+        "Each fixture contains quote_ticks slices covering the anchored incident in-play window (Hartenstein 2026-05-08T03:12:36.8Z, Reaves 2026-05-12T04:51:40.2Z)",
+        "Total fixture size under the fixtures/ directory is at most 5 MB",
+        "File ~/signal-console/scripts/extract-fixtures.ts exists and documents the extraction procedure (script can be inspected; no requirement that it run in CI)",
+        "Test helper file loads fixtures and transparently decompresses gzipped variants",
+        "Typecheck passes"
+      ],
+      "priority": 10,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-011",
+      "title": "Board-MAD contract tests at K=6.0",
+      "description": "As a developer, I need contract tests locking in the research report's K=6.0 outcomes so future drift is immediately caught.",
+      "acceptanceCriteria": [
+        "File ~/signal-console/packages/detectors/src/board-mad/__tests__/canonical.test.ts exists",
+        "Test 'hartenstein fires at K=6': running board-mad on the nba-0042500222 fixture with kMad=6.0 produces a fire whose bucket_start equals 2026-05-08T03:12:00Z and whose bucket_end equals 2026-05-08T03:13:00Z (watcher confirmation ≈ T+23 s after event 03:12:36.8Z)",
+        "Test 'reaves no-fire at K=6': running board-mad on both nba-0042500223 and nba-0042500224 fixtures with kMad=6.0 produces zero fires within ±5 min of event 2026-05-12T04:51:40.2Z",
+        "Test '64-game mean fires at K=6': running board-mad across the 64-game PBP fixture set with kMad=6.0 and weighting='equal' produces mean fires per game in [8.3, 10.3]; with weighting='volume' produces mean in [7.6, 9.6]",
+        "Test names cite event timestamp and bucket timestamp explicitly so future readers cannot conflate detector output (bucket-start) with watcher confirmation (bucket-end)",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 11,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-012",
+      "title": "Board-MAD contract tests at K=3.0",
+      "description": "As a developer, I need contract tests at K=3.0 snapshotting the canonical implementation's outputs so any future drift on the live default is a deliberate review event.",
+      "acceptanceCriteria": [
+        "canonical.test.ts adds tests at kMad=3.0",
+        "Test 'hartenstein fires at K=3 (live default)': running board-mad on nba-0042500222 fixture with kMad=3.0 produces at least one fire inside the in-play window (K=3 is strictly more sensitive than K=6)",
+        "Test 'reaves snapshot at K=3': fires for nba-0042500223 and nba-0042500224 at kMad=3.0 are snapshotted to __snapshots__/canonical.test.ts.snap; test fails if observed fires diverge from the committed snapshot",
+        "Test '64-game mean fires at K=3 snapshot': mean fires per game at kMad=3.0 (volume-weighted) is snapshotted; test fails if observed mean diverges from snapshot",
+        "Snapshot file at ~/signal-console/packages/detectors/src/board-mad/__tests__/__snapshots__/canonical.test.ts.snap is committed",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 12,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-013",
+      "title": "Write gold-DB relocation runbook",
+      "description": "As the owner, I need ~/signal-console/docs/gold-db-relocation.md documenting the verbatim 8-step Phase-0 procedure so the manual cutover is reviewable and reproducible.",
+      "acceptanceCriteria": [
+        "File ~/signal-console/docs/gold-db-relocation.md exists",
+        "Document contains 8 labeled steps (a through h) matching PRD §11.3: stop old processes (with ps aux + lsof verification), park Cloudflare tunnel (with curl --fail verification), confirm no DB-file holders via lsof, optional sqlite3 .backup, mv main+wal+shm, sqlite3 PRAGMA integrity_check, sentinel files (MOVED.txt + .DEPRECATED), Phase-1 tunnel repoint placeholder",
+        "Document explicitly states 'do not wrap in a single script; each Bash invocation is reviewed and approved individually; no bypass-permissions'",
+        "Allow-list in scripts/verify-no-stale-plan.ts already permits this file (verified in US-003)",
+        "Running 'pnpm verify:no-stale-plan' exits 0"
+      ],
+      "priority": 13,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-014",
+      "title": "Query-plan smoke script (verify:queries)",
+      "description": "As a developer, I need a verify:queries script that runs EXPLAIN QUERY PLAN on the 5 hottest queries against the moved gold DB and snapshots them so index regressions fail loudly.",
+      "acceptanceCriteria": [
+        "File ~/signal-console/scripts/verify-queries.ts exists",
+        "package.json defines 'verify:queries' script invoking this file",
+        "Script opens the gold DB via openGoldDb() (read-only, query_only=1 assertion holds)",
+        "Script runs EXPLAIN QUERY PLAN for 5 queries: games-last-24h, ticks-for-one-game-window, microstructure-for-one-game, board-buckets-for-one-game, pbp-for-one-game",
+        "Plans are written to ~/signal-console/packages/db/src/queries/__tests__/__snapshots__/<query-name>.plan.txt and committed",
+        "Script exits non-zero when any plan contains the substring 'SCAN' on a non-trivial table (e.g. quote_ticks, market_microstructure_events, source_markets) without an associated USING INDEX",
+        "Running 'pnpm verify:queries -u' regenerates snapshots; running 'pnpm verify:queries' against unchanged plans exits 0",
+        "Typecheck passes"
+      ],
+      "priority": 14,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-015",
+      "title": "Fastify server scaffold with @fastify/swagger",
+      "description": "As a developer, I need a Fastify API listening on localhost:4100 with @fastify/swagger emitting /openapi.json so all subsequent routes can register against it.",
+      "acceptanceCriteria": [
+        "Directory ~/signal-console/apps/api/ exists with src/ and tests/",
+        "File ~/signal-console/apps/api/src/server.ts exists and starts Fastify on host 'localhost' port 4100 (port configurable via env)",
+        "Server registers @fastify/swagger and @fastify/swagger-ui",
+        "GET /openapi.json returns a valid OpenAPI 3.x document",
+        "package.json defines 'pnpm --filter @signal-console/api dev' script that runs the server",
+        "Cold start (server boots and accepts a request) completes in under 2 seconds on the owner's laptop (measured manually; acceptance criterion: server logs a 'ready' line)",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 15,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-016",
+      "title": "X-Signal-Token auth middleware",
+      "description": "As an operator, I need a Fastify plugin that validates the X-Signal-Token header against the contents of ~/.signal-console/token on each request, so the public tunnel cannot be hit anonymously and token rotation does not require restarts.",
+      "acceptanceCriteria": [
+        "File ~/signal-console/apps/api/src/plugins/auth.ts exists and exports a Fastify plugin",
+        "Plugin reads the current token from ~/.signal-console/token on each request (or with at most a 1-second TTL cache); editing the file takes effect without restart",
+        "Requests missing X-Signal-Token or with a wrong token return 401 with body { error: 'unauthorized' }",
+        "Requests to /v1/health/live are exempt from the token check",
+        "Unit test asserts 401 on missing header, 401 on wrong token, 200 on correct token; test mutates a temp token file mid-test and asserts the new token takes effect without server restart",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 16,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-017",
+      "title": "Health routes (/v1/health/live, /v1/health/ready)",
+      "description": "As an operator, I need liveness and readiness endpoints so the Cloudflare tunnel and external monitors can health-check the API.",
+      "acceptanceCriteria": [
+        "File ~/signal-console/apps/api/src/routes/health.ts exists",
+        "GET /v1/health/live returns 200 with body { ok: true } and performs no DB access",
+        "GET /v1/health/ready opens the gold DB via openGoldDb(), runs SELECT 1, returns 200 { ok: true } on success or 503 { ok: false, reason: '<error message>' } on failure",
+        "Both routes are exposed in /openapi.json with the 'internal' tag",
+        "Unit tests assert: live returns 200 unconditionally; ready returns 503 when GOLD_DB_PATH points at a missing file",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 17,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-018",
+      "title": "Games routes (/v1/games, /v1/games/:gameId)",
+      "description": "As an API integrator, I need GET /v1/games (last 24 h list) and GET /v1/games/:gameId (single game metadata) backed by the v_games CTE.",
+      "acceptanceCriteria": [
+        "File ~/signal-console/apps/api/src/routes/games.ts exists",
+        "GET /v1/games accepts Zod-validated query: since (ISO duration, default 'PT24H'), sport (optional string)",
+        "GET /v1/games/:gameId returns 404 with body { error: 'game not found' } when the id has no row",
+        "Both routes read via the v_games CTE from packages/db/src/sport-views.ts",
+        "Service module under apps/api/src/services/games.ts is at most 150 LOC",
+        "Route handler file games.ts is at most 80 LOC",
+        "Routes appear in /openapi.json tagged 'desk-stable'",
+        "Unit tests against a fixture-backed sqlite assert: list returns expected rows; missing id returns 404; sport= filter applies",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 18,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-019",
+      "title": "Settings route (/v1/settings)",
+      "description": "As a developer, I need GET /v1/settings returning DB diagnostics + log tail so the Settings UI has everything in one call.",
+      "acceptanceCriteria": [
+        "File ~/signal-console/apps/api/src/routes/settings.ts exists",
+        "GET /v1/settings returns a Zod-typed body containing: db (path, sizeBytes, walBytes, pageCount, pageSize, lastModified, mode), cacheDb (path, sizeBytes, pageCount), sources (object keyed by source name with lastSyncAt, lastError, rateLimitCooldown) OR { ingestPaused: true, lastKnown: {...} } when no heartbeat file exists, errors (array of up to 200 most-recent structured log entries with level and message), about (appVersion, detectorVersions, dbSchemaVersion)",
+        "Route tagged 'internal' in /openapi.json",
+        "Route response time is under 100 ms when measured against the moved gold DB (no full scans; only PRAGMA reads)",
+        "Unit tests assert: mode reports 'read-only'; missing heartbeat file produces ingestPaused: true",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 19,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-020",
+      "title": "DELETE /v1/cache route",
+      "description": "As an operator, I need DELETE /v1/cache to clear detector_runs (and cascade detector_observations) without touching the gold DB.",
+      "acceptanceCriteria": [
+        "File ~/signal-console/apps/api/src/routes/cache.ts exists",
+        "DELETE /v1/cache accepts optional Zod-validated query: detector_id (string), before (ISO timestamp)",
+        "Route deletes matching rows from detector_runs (cascading detector_observations)",
+        "Response body is { deleted: <number of run rows deleted> }",
+        "Route tagged 'internal' in /openapi.json",
+        "Unit test asserts: gold DB file size in bytes is identical before and after the request",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 20,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-021",
+      "title": "Board route (/v1/board/:gameId) with detector cache",
+      "description": "As an API integrator (and Recent's lazy fire count), I need GET /v1/board/:gameId returning board-mad fires for one game at K_MAD_LIVE, with detector-cache hit-or-compute-and-persist semantics.",
+      "acceptanceCriteria": [
+        "File ~/signal-console/apps/api/src/routes/board.ts exists",
+        "GET /v1/board/:gameId reads board-mad observations at kMad=K_MAD_LIVE; the route does not accept any K override query param",
+        "Route looks up detector_runs by (detector_id='board-mad', detector_version='1.0.0', params_hash=hash(K_MAD_LIVE defaults), source_watermark_hash=watermark(game_id), scope='game', game_id=:gameId)",
+        "Cache miss path: computes per-game watermark (counts and max ids/timestamps over quote_ticks, market_microstructure_events, PBP, game_states), runs board-mad on the in-play window, inserts detector_runs row + detector_observations rows in one transaction, returns the observations",
+        "Cache hit path: returns detector_observations for the matched run",
+        "Response body shape (Zod-typed): { gameId, runId, k, observations: [{ bucketStart, bucketEnd, fired, intensity, baselineMedian, baselineMad }] }",
+        "Route tagged 'desk-stable' in /openapi.json",
+        "Unit tests assert: cache hit returns identical observations on a second call; second call's response time is at least 5x faster than the first (proxy for warm vs cold)",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 21,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-022",
+      "title": "Web app scaffold (Vite + React 19 + Tailwind)",
+      "description": "As a developer, I need the apps/web/ Vite + React 19 + Tailwind scaffold so subsequent UI stories have a place to live.",
+      "acceptanceCriteria": [
+        "Directory ~/signal-console/apps/web/ exists with src/, public/, e2e/",
+        "File apps/web/vite.config.ts exists configured for React 19",
+        "File apps/web/tailwind.config.ts exists with the new repo's tokens",
+        "File apps/web/src/main.tsx mounts a placeholder app at root",
+        "File apps/web/index.html includes the React root div",
+        "package.json defines 'pnpm --filter @signal-console/web dev' (Vite dev) and 'pnpm --filter @signal-console/web preview' scripts",
+        "Running 'pnpm --filter @signal-console/web dev' starts Vite and prints a local URL on stdout within 5 seconds",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill: placeholder page renders at the dev URL"
+      ],
+      "priority": 22,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-023",
+      "title": "Tanstack Query setup and base query hooks",
+      "description": "As a UI developer, I need Tanstack Query configured and typed hooks for every API route so pages can fetch typed data without ad-hoc fetch calls.",
+      "acceptanceCriteria": [
+        "apps/web/src/main.tsx wraps the app in QueryClientProvider",
+        "File apps/web/src/data/queries.ts exports typed hooks: useGames(since?), useGame(gameId), useLive(gameId), useBoard(gameId), useMicrostructure(gameId), useDetectors(), useSettings()",
+        "All hooks pass X-Signal-Token header sourced from import.meta.env.VITE_SIGNAL_TOKEN (or a default 'dev' value for local development)",
+        "Each hook's return type is inferred from the route's Zod response schema; zero 'any' or 'as' casts in this file",
+        "Unit test mocks the fetch layer and asserts useGames returns the typed array shape",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 23,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-024",
+      "title": "Recent UI page (default route, list only)",
+      "description": "As a desk operator, I need a default '/' page listing the last 24 h of games with status, with a 'fires: -' placeholder for now and a manual refresh button.",
+      "acceptanceCriteria": [
+        "File ~/signal-console/apps/web/src/features/recent/RecentPage.tsx exists",
+        "Route '/' renders a list of games returned by useGames({ since: 'PT24H' })",
+        "Each row shows: scheduled_start (formatted local), sport, league, home team identifier, away team identifier, current status, and a 'fires: —' cell (filled by US-025)",
+        "Page does not auto-refresh on mount; a 'Refresh' button re-runs the query",
+        "API errors render as a top-of-page banner; the rest of the page remains usable",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill: page renders with a list of rows when the API is up, and a banner when the API is unreachable"
+      ],
+      "priority": 24,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-025",
+      "title": "Recent page lazy fire counts",
+      "description": "As a desk operator, I need each row in Recent to fill its 'fires' cell by querying /v1/board/:gameId so I see how many board-mad fires occurred per game today.",
+      "acceptanceCriteria": [
+        "Each RecentPage row triggers useBoard(gameId) on render",
+        "Cell content while pending: spinner",
+        "Cell content on success: count of observations where fired=1",
+        "Cell content on error: small inline 'error' chip with hover tooltip showing the error",
+        "Hooks are bounded so the page does not exceed 20 in-flight requests simultaneously (use Tanstack Query's enabled or a queue)",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill: refreshing the page after a warm cache renders fire counts in under 500 ms across visible rows (manual stopwatch acceptable)"
+      ],
+      "priority": 25,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-026",
+      "title": "Settings UI page",
+      "description": "As an operator, I need a /settings page showing Database, Sources, Errors, and About sections with no mutating buttons except 'Clear cache'.",
+      "acceptanceCriteria": [
+        "File ~/signal-console/apps/web/src/features/settings/SettingsPage.tsx exists",
+        "Route '/settings' renders four sections backed by useSettings()",
+        "Database section: path, size (bytes + human), WAL bytes, pageCount, pageSize, lastModified, mode (renders a red banner if mode !== 'read-only')",
+        "Sources section: when heartbeat exists, shows per-source rows (nba-sidecar, bet365, kalshi, polymarket) with lastSync, lastError, rateLimitCooldown; when ingestPaused=true, shows an 'Ingest paused' notice with last-known values",
+        "Errors section: tail of last 200 log entries with a level filter (info/warn/error/debug)",
+        "About section: appVersion, detectorVersions (one row per registered detector), dbSchemaVersion",
+        "'Clear cache' button calls DELETE /v1/cache, shows a confirmation dialog before firing, then refreshes the settings query; after the call, Database section's size value is unchanged from before the click",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill: Database section renders 'read-only' badge; clicking 'Clear cache' shows confirmation then completes"
+      ],
+      "priority": 26,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-027",
+      "title": "Port off-price-print detector",
+      "description": "As a developer, I need the second initial detector (off-price-print) so the registry ships with two examples and Live/Backtest UIs have something to render besides board-mad.",
+      "acceptanceCriteria": [
+        "File ~/signal-console/packages/detectors/src/off-price-print/index.ts exists and exports detector: Detector<typeof Params>",
+        "Detector id is 'off-price-print', version is '1.0.0', displayName contains 'Polymarket only'",
+        "Zod Params: minVolumeShare (number, default 0.10), minOffPriceDistance (number, default 0.40)",
+        "run() reads market_microstructure_events rows filtered by game_id and emits fires where volume_share >= minVolumeShare AND off_price_distance >= minOffPriceDistance",
+        "packages/detectors/src/registry.ts exports both detectors keyed by id",
+        "Unit test asserts detector(emptyEvents, defaultParams) returns { fires: [] }",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 27,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-028",
+      "title": "Live route (/v1/live/:gameId)",
+      "description": "As an API integrator, I need GET /v1/live/:gameId returning the last 5 minutes of quote_ticks + source_markets for one game.",
+      "acceptanceCriteria": [
+        "File ~/signal-console/apps/api/src/routes/live.ts exists",
+        "Route reads quote_ticks bounded by the index (source_market_id, captured_at) for the last 5 minutes",
+        "Joins source_markets for instrument metadata",
+        "Response time is under 300 ms for a typical game on the moved gold DB (manual measure; acceptance: route returns within budget on a smoke run)",
+        "Route does not read board_volatility_baselines (verified by grep of routes/live.ts for that table name returning zero matches)",
+        "Route tagged 'desk-stable' in /openapi.json",
+        "Unit test against fixture data asserts the response shape and that returned ticks fall within the last-5-min window",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 28,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-029",
+      "title": "Microstructure route (/v1/microstructure/:gameId)",
+      "description": "As an API integrator, I need GET /v1/microstructure/:gameId returning microstructure events filtered by game_id and a volume_share threshold.",
+      "acceptanceCriteria": [
+        "File ~/signal-console/apps/api/src/routes/microstructure.ts exists",
+        "Route accepts Zod-validated query: theta (number, default 0.10, min 0, max 1)",
+        "Reads market_microstructure_events filtered by game_id and volume_share >= theta",
+        "Route tagged 'desk-stable' in /openapi.json",
+        "Unit test asserts theta=0.5 filters out events with volume_share=0.3",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 29,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-030",
+      "title": "Detectors route (/v1/detectors)",
+      "description": "As an integrator, I need GET /v1/detectors returning the registry (id, version, displayName, paramsSchema as JSON Schema).",
+      "acceptanceCriteria": [
+        "File ~/signal-console/apps/api/src/routes/detectors.ts exists",
+        "Route returns an array of { id, version, displayName, paramsSchema } from the detector registry",
+        "paramsSchema is a JSON-Schema-compatible object derived from each detector's Zod paramsSchema (use zod-to-json-schema or equivalent)",
+        "Route performs zero DB reads",
+        "Route tagged 'desk-stable' in /openapi.json",
+        "Unit test asserts both 'board-mad' and 'off-price-print' appear with the expected ids and versions",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 30,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-031",
+      "title": "Live UI page (/live/:id)",
+      "description": "As a desk operator, I need an opt-in /live/:id page that polls /v1/live and /v1/board every 30 s and renders fires on a timeline.",
+      "acceptanceCriteria": [
+        "File ~/signal-console/apps/web/src/features/live/LivePage.tsx exists and is registered at route /live/:id",
+        "User must click a Recent row to reach this view; there is no auto-redirect or prefetch from /",
+        "Page polls useLive(gameId) and useBoard(gameId) at refetchInterval=30000",
+        "Renders a Recharts timeline of intensity with fire markers from /v1/board observations",
+        "Page does not import or call any function whose name contains 'baseline' from packages/db or packages/detectors (verified by grep of LivePage.tsx)",
+        "Initial render completes within 300 ms after data arrives (manual measure; acceptance: data renders without a layout-shift flash)",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill: navigate to /live/<a-known-game-id>, confirm the timeline renders and updates after 30 s"
+      ],
+      "priority": 31,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-032",
+      "title": "Detectors UI page (/detectors)",
+      "description": "As a data engineer, I need a /detectors page listing the registry with each detector's params schema and a 'how to add a detector' link.",
+      "acceptanceCriteria": [
+        "File ~/signal-console/apps/web/src/features/detectors/DetectorsPage.tsx exists and is registered at route /detectors",
+        "Page lists detectors from useDetectors()",
+        "Each detector card renders its paramsSchema as a read-only form (number -> number field, enum -> select, boolean -> switch)",
+        "The off-price-print card displays a 'Sources: Polymarket only' tag",
+        "Page shows a 'How to add a detector' panel with the 3-step recipe: 1) create packages/detectors/src/<name>/index.ts, 2) add one line to packages/detectors/src/registry.ts, 3) run pnpm verify",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill: navigate to /detectors, confirm both 'board-mad' and 'off-price-print' cards render and the Polymarket tag appears on the second card"
+      ],
+      "priority": 32,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-033",
+      "title": "Board-MAD prebucket and runSweep helpers",
+      "description": "As a backtest developer, I need prebucket(ticks, bucketSeconds) and runSweep(buckets, kValues, params) helpers so Backtest can pre-bucket once and re-sweep K in memory in sub-second time.",
+      "acceptanceCriteria": [
+        "File ~/signal-console/packages/detectors/src/board-mad/prebucket.ts exports prebucket(ticks: Tick[], bucketSeconds: number): BucketSeries",
+        "File ~/signal-console/packages/detectors/src/board-mad/sweep.ts exports runSweep(buckets: BucketSeries, kValues: number[], params: Omit<Params,'kMad'>): { k: number, fires: Fire[] }[]",
+        "board-mad/index.ts is refactored to use prebucket + runSweep internally so its public behavior is unchanged (canonical.test.ts at US-011 and US-012 still pass without modification)",
+        "Unit test asserts runSweep over [3.0, 4.0, 5.0, 6.0] returns four results with monotonically non-increasing fire counts on a representative bucket series",
+        "Unit test asserts runSweep over 100 K-values on a 28-day-equivalent bucket series completes in under 200 ms (proxy for sub-second dial response)",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 33,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-034",
+      "title": "POST /v1/backtest route with window-scope caching",
+      "description": "As an analyst, I need POST /v1/backtest that runs a detector over a chosen window + games + params, with cache lookup by params_hash and a 28-day / 20-game upper bound.",
+      "acceptanceCriteria": [
+        "File ~/signal-console/apps/api/src/routes/backtest.ts exists",
+        "POST /v1/backtest accepts a Zod-validated body: detector_id (string), params (object matching that detector's Zod paramsSchema), window ({ start: ISO, end: ISO }), game_ids (optional string array)",
+        "Returns 400 with body { error: 'window exceeds 28 days' } when end-start > 28 days",
+        "Returns 400 with body { error: 'too many games' } when game_ids.length > 20",
+        "Looks up detector_runs by (detector_id, detector_version, params_hash, source_watermark_hash for window scope, scope='window', window_start, window_end); on hit returns cached observations",
+        "On miss: runs one bounded read of quote_ticks (and market_microstructure_events as detector requires), calls prebucket once, then runSweep at the requested K, inserts a detector_runs row + detector_observations rows in one transaction",
+        "Response body (Zod-typed): { runId, stats: { firesPerGame, totalFires, gamesInWindow }, observations: [...] }",
+        "Route tagged 'internal' in /openapi.json (request shape may evolve)",
+        "Unit test asserts: same body called twice returns cache hit on the second call; first response's runId equals second response's runId",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 34,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-035",
+      "title": "Backtest UI scaffold (form + detector selector + empty results panel)",
+      "description": "As an analyst, I need a /backtest page with date range picker, game scope picker, detector selector, and an empty results panel so subsequent stories can wire the dial and visualisations.",
+      "acceptanceCriteria": [
+        "File ~/signal-console/apps/web/src/features/backtest/BacktestPage.tsx exists and is registered at route /backtest",
+        "Date range picker: two date inputs (start, end); UI blocks selection where end - start > 28 days",
+        "Game scope picker: radio between 'All games in window' and 'Specific games', with a multi-select capped at 20 game ids when 'Specific games' is chosen",
+        "Detector selector: dropdown populated from useDetectors(); selecting a detector reveals its paramsSchema as a form (read-only for now; dial wiring lands in US-036)",
+        "Results panel below: shows an empty placeholder when no run has executed",
+        "'Run' button calls POST /v1/backtest with the current form values and stores the response in component state",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill: navigate to /backtest, fill in a 7-day window, choose 'board-mad', click Run, confirm an observations payload populates state (results panel shows a placeholder count)"
+      ],
+      "priority": 35,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-036",
+      "title": "Cry Wolf dial component",
+      "description": "As an analyst, I need a continuous K slider (2.0–8.0, step 0.25, default 3.0) with two labelled snap points so I can explore K_MAD sensitivity around the live default.",
+      "acceptanceCriteria": [
+        "File ~/signal-console/apps/web/src/features/backtest/CryWolfDial.tsx exists",
+        "Component renders an input type=range with min=2.0, max=8.0, step=0.25, defaultValue=3.0",
+        "Two snap-point chips render below the slider: 'Sensitive — live default' at K=3.0 and 'Calm — comparison preset' at K=6.0; clicking each chip sets the slider value to that K",
+        "Tooltip text on the dial reads (verbatim) 'It's a dial.' sourced from the video plan narration",
+        "Current K value is displayed numerically next to the slider with 2-decimal precision",
+        "Component is integrated into BacktestPage so changing K triggers an in-memory recomputation via the response from POST /v1/backtest (no second API call needed; uses runSweep semantics on cached pre-buckets)",
+        "Recent and Live pages do NOT consume the dial state; a unit/integration test asserts that mounting BacktestPage with K=6.0 has no effect on the K value used by useBoard() in RecentPage (verified by inspecting the URL/header sent by useBoard)",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill: navigate to /backtest, run a backtest, drag the dial; current-K display updates and the displayed fires/game number changes within 1 second"
+      ],
+      "priority": 36,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-037",
+      "title": "Backtest live preview metric (fires/game)",
+      "description": "As an analyst, I want the fires/game metric to update live as I move the dial, recomputed in memory with no DB scan.",
+      "acceptanceCriteria": [
+        "BacktestPage renders a prominent 'Estimated fires/game: <value>' metric that updates as the dial changes",
+        "On first run, the page caches the pre-bucketed series in component state (or via Tanstack Query) so dial moves do not trigger another POST /v1/backtest call",
+        "Dial moves recompute the metric using runSweep on the cached buckets",
+        "Manual measurement: dragging the slider produces visible metric updates within 1 second on a 28-day / 20-game window after the initial sweep",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill: run a backtest, drag dial from K=3.0 to K=8.0, confirm fires/game decreases monotonically and updates without a network call (Network tab shows no /v1/backtest request during dial movement)"
+      ],
+      "priority": 37,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-038",
+      "title": "Backtest per-game timeline with fire markers",
+      "description": "As an analyst, I want a small timeline per game in the backtest window with fire markers at the current K so I can see how K affects each game's fires.",
+      "acceptanceCriteria": [
+        "BacktestPage renders a list of small Recharts timelines, one per game in the executed window (capped at 20)",
+        "Each timeline plots bucket intensity over game time and overlays a fire marker at each bucket where the current K fires",
+        "Markers update in place as the dial moves (no chart remount; uses the same in-memory sweep)",
+        "Each row labels the game with sport, scheduled_start, and an opaque game-id chip",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill: run a 7-day backtest with ~5 games visible; drag dial; confirm fire markers appear/disappear on each timeline as K changes"
+      ],
+      "priority": 38,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-039",
+      "title": "Backtest Reaves and Hartenstein lead-time display",
+      "description": "As an analyst, I want a focused widget showing lead time for the Reaves and Hartenstein anchored incidents at the current K (or 'no fire') when they fall inside the window.",
+      "acceptanceCriteria": [
+        "BacktestPage renders a 'PBP-anchored incidents' subsection visible only when the backtest window contains the dates 2026-05-08 and/or 2026-05-12",
+        "For Hartenstein (event 2026-05-08T03:12:36.8Z, game nba-0042500222), shows the first fire's bucket_end timestamp at the current K and the delta in seconds vs the event timestamp; or 'no fire' if K does not fire in the in-play window",
+        "For Reaves (event 2026-05-12T04:51:40.2Z, games nba-0042500223 and nba-0042500224), shows the same per game; or 'no fire' per game",
+        "Values update in place as the dial moves",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill: pick a window containing both dates, run, then move the dial from K=3.0 to K=6.0 and confirm Reaves transitions from 'fire at +Xs' to 'no fire' (or matches what the contract test snapshots predict)"
+      ],
+      "priority": 39,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-040",
+      "title": "Add sport= filter to /v1/games",
+      "description": "As an integrator, I need /v1/games?sport= so future NFL/NCAA football consumers can filter without breaking NBA callers.",
+      "acceptanceCriteria": [
+        "GET /v1/games accepts an optional sport query param (string, validated by Zod)",
+        "When sport is provided, the v_games CTE filter applies WHERE sport = :sport",
+        "When sport is omitted, all sports are returned (NBA today)",
+        "GET /v1/games?sport=NFL returns 200 with an empty array (not 404)",
+        "OpenAPI doc updates to reflect the new query param",
+        "Unit tests assert: sport=NBA returns NBA rows; sport=NFL returns []; missing sport returns all rows",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 40,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-041",
+      "title": "Sport onboarding runbook (docs/sport-onboarding.md)",
+      "description": "As a future data engineer, I need a runbook describing exactly how to add a new sport's PBP table to v_events and extend v_games for new participant JSON shapes.",
+      "acceptanceCriteria": [
+        "File ~/signal-console/docs/sport-onboarding.md exists",
+        "Document covers: 1) where to add the UNION ALL in packages/db/src/sport-views.ts, 2) how to extend v_games when a new sport's participant JSON differs from NBA's shape, 3) what tests to add (query plan snapshot, contract test for any sport-specific detector), 4) a worked NFL example showing the SQL diff and the new fixture file shape",
+        "Document includes a checklist a future engineer can run through",
+        "Running 'pnpm verify:no-stale-plan' exits 0"
+      ],
+      "priority": 41,
+      "passes": false,
+      "notes": ""
+    }
+  ]
+}
