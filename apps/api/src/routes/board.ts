@@ -12,6 +12,7 @@ import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 
 import { getOrComputeBoard } from "../services/board";
+import { getFanout } from "../services/fanout";
 
 export interface BoardRoutesOptions {
   readonly goldDbPath?: string;
@@ -85,6 +86,96 @@ const boardRoutes: FastifyPluginAsync<BoardRoutesOptions> = (app, opts) => {
         goldDbPath,
         cacheDbPath,
         gameId: parsed.data.gameId,
+      });
+      reply.send(result);
+    },
+  );
+
+  const fanoutQuerySchema = z.object({ bucket_start: z.string().min(1) });
+  const fanoutQueryJsonSchema = {
+    type: "object",
+    required: ["bucket_start"],
+    properties: { bucket_start: { type: "string", minLength: 1 } },
+  } as const;
+  const fanoutPbpJsonSchema = {
+    type: "object",
+    required: ["timeActual", "actionType", "playerName", "description", "deltaSecondsFromFire"],
+    properties: {
+      timeActual: { type: "string" },
+      actionType: { type: ["string", "null"] },
+      playerName: { type: ["string", "null"] },
+      description: { type: ["string", "null"] },
+      deltaSecondsFromFire: { type: "number" },
+    },
+  } as const;
+  const fanoutMoverJsonSchema = {
+    type: "object",
+    required: [
+      "sourceMarketId",
+      "instrument",
+      "ipBefore",
+      "ipAfter",
+      "ipDelta",
+      "contributionPct",
+      "deltaSecondsFromFire",
+    ],
+    properties: {
+      sourceMarketId: { type: "string" },
+      instrument: { type: "string" },
+      ipBefore: { type: ["number", "null"] },
+      ipAfter: { type: ["number", "null"] },
+      ipDelta: { type: ["number", "null"] },
+      contributionPct: { type: "number" },
+      deltaSecondsFromFire: { type: "number" },
+    },
+  } as const;
+  const fanoutResponseSchema = {
+    type: "object",
+    required: ["bucketStart", "bucketEnd", "pbp", "movers", "narrative"],
+    properties: {
+      bucketStart: { type: "string" },
+      bucketEnd: { type: "string" },
+      pbp: { type: "array", items: fanoutPbpJsonSchema },
+      movers: { type: "array", items: fanoutMoverJsonSchema },
+      narrative: { type: "string" },
+    },
+  } as const;
+
+  app.get(
+    "/v1/board/:gameId/fanout",
+    {
+      schema: {
+        tags: ["desk-stable"],
+        summary: "PBP + top market movers within ±5 min of one fired bucket",
+        description:
+          "Strict ±5 min PBP window (the owner's research cap; >5 min is worthless) plus top movers ranked by the detector's intensity decomposition (Σ log(1+v)·|Δp| with freshCapSeconds=300 sanitation) over the 60-second bucket window. Returns a templated one-line narrative tying anchor event to top mover.",
+        params: paramsJsonSchema,
+        querystring: fanoutQueryJsonSchema,
+        response: {
+          200: fanoutResponseSchema,
+          400: errorResponseSchema,
+        },
+      },
+    },
+    (request: FastifyRequest, reply: FastifyReply) => {
+      const parsedParams = paramSchema.safeParse(request.params);
+      if (!parsedParams.success) {
+        reply.code(400).send({ error: "invalid params" });
+        return;
+      }
+      const parsedQuery = fanoutQuerySchema.safeParse(request.query);
+      if (!parsedQuery.success) {
+        reply.code(400).send({ error: "invalid query" });
+        return;
+      }
+      if (!Number.isFinite(Date.parse(parsedQuery.data.bucket_start))) {
+        reply.code(400).send({ error: "invalid bucket_start" });
+        return;
+      }
+      const result = getFanout({
+        goldDbPath,
+        gameId: parsedParams.data.gameId,
+        bucketStart: parsedQuery.data.bucket_start,
       });
       reply.send(result);
     },

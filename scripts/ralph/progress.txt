@@ -831,3 +831,42 @@ Started: Sat May 23 00:45:49 MDT 2026
   - **The verify:no-hex-literals script does NOT scan docs/ or scripts/.** Only `packages/` and `apps/` are in SEARCH_ROOTS. Adding a new hex literal in docs/design-language.md or in scripts/ won't fail the check; the doc allow-list is defensive against future relocations. Still worth keeping doc hex values consistent with tokens.ts so the doc doesn't drift.
   - **Yellow is now the canonical "engage-with-this" identity, NOT just "click me / fire."** The design-language doc rule expanded from "Yellow says 'click me / fire / good news'" to "Yellow says 'click me / fire / good news / engage-with-this-for-info'." The explainer-trigger underline is now part of the yellow contract. Any future popover/dropdown/hover-card surface should reuse the same pattern: surface-elevated fill + accent-yellow left stripe + three-edge hairline + backdrop overlay. Documented as canonical in §Explainer Cards "Styling" section. Don't reintroduce single-edge accent-green borders for popovers — that pattern is reserved for the quick-label Tooltip (terse one-liners only).
 ---
+
+## 2026-05-23T10:50:00Z - US-051
+- What was implemented: Fanout view (PBP context + top market movers ±5 min around each fire). Added `GET /v1/board/:gameId/fanout?bucket_start=<ISO>` route + `apps/api/src/services/fanout.ts` + `apps/api/src/services/fanout-narrative.ts`. Added `useFanout` hook with Zod schema in `apps/web/src/data/queries.ts`. New `apps/web/src/features/games/FanoutPanel.tsx` mounted in expanded `FiredBucketRow` (below ContextTimeline) renders narrative + ±5 min PBP scatter timeline + movers table; PBP dots and movers-row time chips are colored by recency tier (yellow <60s, text-hi <180s, text-md <300s, beyond 300s not rendered). New `fanout-window` explainer entry wraps the narrative one-liner.
+- Files changed:
+  - apps/api/src/services/fanout.ts (new)
+  - apps/api/src/services/fanout-narrative.ts (new)
+  - apps/api/src/routes/board.ts (added /v1/board/:gameId/fanout endpoint)
+  - apps/api/tests/fanout.test.ts (new, 7 tests)
+  - apps/web/src/data/queries.ts (Zod schemas + useFanout hook + Fanout types)
+  - apps/web/src/features/games/FanoutPanel.tsx (new)
+  - apps/web/src/features/games/GameDetailPage.tsx (mount FanoutPanel inside expanded row; threaded gameId prop into FiredBucketRow)
+  - apps/web/src/features/games/__tests__/FanoutPanel.test.tsx (new, 4 tests)
+  - packages/ui/src/explainers.ts (added "fanout-window" entry with eli5 + formal/KaTeX)
+  - apps/web/.ralph-screenshots/US-051/README.md (HTTP-smoke fallback notes; Playwright skipped per hang-mode warning)
+- Verification ran:
+  - `pnpm verify` (5/5 turbo tasks pass; format + lint + typecheck + verify:no-stale-plan + verify:no-hex-literals + cached package tests)
+  - `pnpm --filter @signal-console/api test -- fanout.test` (7/7 fanout tests; 76/76 API total)
+  - `pnpm --filter @signal-console/web test -- FanoutPanel.test` (4/4; 70/70 web total)
+  - Real-data smoke (dev API booted against gold DB at ~/signal-console/data/signal-console.sqlite):
+    - `curl /v1/board/nba-0042500222/fanout?bucket_start=2026-05-08T03:12:00Z` returns 25 PBP events, 10 movers, narrative cites top mover.
+    - jq assertion: the response includes a PBP event with `timeActual === "2026-05-08T03:12:36.8Z"`, `actionType="rebound"`, `playerName="I. Hartenstein"`, `deltaSecondsFromFire=36.8` (tier yellow, |Δt|<60s — AC criterion 7 ✓).
+    - jq assertion: no event with |Δt|>300s appears (strict ±5 min enforcement ✓).
+    - jq assertion on movers: top-10 contributionPct sum = 96.2% (AC criterion 8 requires ≥50% ✓), 5 markets above 5% contribution (≥3 ✓), instrument strings include "rebounds" and "points" raw_family labels (player-prop fanout ✓).
+    - sqlite3 -readonly cross-check: `SELECT time_actual, description FROM nba_play_by_play_actions WHERE game_id='nba-0042500222' AND time_actual LIKE '2026-05-08T03:12:36.8%'` returns identical row to API.
+    - 400-error path: `curl /v1/board/.../fanout` (no query) → 400; `bucket_start=not-a-date` → 400 "invalid bucket_start".
+  - Static-build DOM smoke: `pnpm --filter @signal-console/web build` produces dist; grep of bundled JS confirms `fanout-panel`, `fanout-narrative`, `fanout-pbp-timeline`, `fanout-mover-row`, `fanout-pbp-empty`, `fanout-window`, "Fanout window (±5 min PBP cap)", "No play-by-play within ±5 min of this fire" all present.
+  - Visual screenshots: SKIPPED per CLAUDE.md hang-mode warning (Playwright/computer-use MCPs have hung indefinitely on this machine; HTTP-smoke + DB-parity is the sanctioned fallback). README at apps/web/.ralph-screenshots/US-051/README.md documents the evidence.
+- **Learnings for future iterations:**
+  - **Real PBP data is messier than the AC prose.** The AC called the +36.8s event a "Hartenstein dunk"; the actual gold-DB row at that timestamp is `I. Hartenstein REBOUND (Off:4 Def:4)`. The closest *actual* dunk is C. Holmgren at +41s. Don't assert against AC prose ("dunk"); assert against the DB. The AC's only string assertions for that event are `timeActual` and `deltaSecondsFromFire` — both match. The narrative correctly says "I. Hartenstein REBOUND" because that's what `description` is.
+  - **Two windows, not one.** PBP context window is ±5 min (10 min span). Movers window is the 60-second bucket itself. Conflating them yields wrong contributionPct.
+  - **Bucket-aligned end is exclusive.** When querying ticks for movers, `qt.captured_at < bucket_end_iso` (NOT `<=`) so a tick at `2026-05-08T03:13:00.0Z` belongs to the NEXT bucket, not this one. The detector follows the same convention.
+  - **Mover contribution = the detector's intensity decomposition.** Per-market `Σ log(1+v) · |Δp|` over consecutive in-bucket ticks with the `freshCapSeconds=300` gap filter applied — same sanitation board-mad uses. This means the contribution numbers reported by /fanout are exactly the per-market terms summed into the bucket's `intensity` field in the board cache. The owner explicitly asked for this so the analyst's "where did this fire come from" answer is the literal decomposition, not a re-implemented heuristic.
+  - **Player-name regex must reject ALL-CAPS action tokens.** PBP descriptions like "I. Hartenstein REBOUND" need to extract "I. Hartenstein", not "I. Hartenstein REBOUND". Pattern `^(?:MISS\s)?([A-Z]\.\s[A-Z][a-z][A-Za-z'-]*(?:\s[A-Z][a-z][A-Za-z'-]*)*)` requires each name token to have at least one lowercase letter, so REBOUND/DUNK/STEAL/etc are not absorbed. There's no `player_name` column in the schema — must extract from `description`.
+  - **`new Date(ISO).toISOString()` always emits `.000Z` form.** If you accept `?bucket_start=2026-05-08T03:12:00Z` but normalize internally, your response's bucketStart will be `2026-05-08T03:12:00.000Z`. Tests against the input string need to expect the normalized form (or test should round-trip through `new Date().toISOString()` before comparing).
+  - **Anchor selection rule for the narrative.** Closest non-substitution/non-timeout PBP event by |Δt|. Fall back to absolute-closest if window is sub/timeout-only. The honest "no PBP within ±5 min" sentence is the empty-window form — the owner specifically wants this rather than hallucinated causality.
+  - **Fastify `querystring: { required: ['bucket_start'] }` JSON-schema returns a generic `{"error":"Bad Request"}` 400 on missing param** rather than the Zod `safeParse` 400 you'd get from a custom check. Both are acceptable per the AC ("400 on missing or invalid bucket_start"), but tests that assert the error body shape have to allow either form.
+  - **Web test fetch mocks need a fall-through for /v1/board/...** When you add a child component that fires a new query, existing tests that pattern-match on URL prefix will route the new request to whichever branch matches first. GameDetailPage.test still passes here because `mockGameAndBoard` returns the same `/v1/board/...` response for any path starting with that prefix, and the FanoutPanel's error state just renders (testid `fanout-panel-error`) without failing the existing assertions. If a future story needs different mocking for /v1/board vs /v1/board/.../fanout, the helper will need to discriminate.
+  - **`@typescript-eslint/consistent-type-assertions` blocks `as` even inside narrow type guards.** Use a typed `isRecord` guard returning `Record<string, unknown>` (like the rest of the codebase does) instead of `as` to extract typed payloads from generic Recharts tooltip arguments.
+---

@@ -214,6 +214,26 @@ $$w_{m,i} = \begin{cases} \log(1 + v_{m,i}) & \texttt{weighting = "volume"} \\ 1
 where $v_{m,i}$ is the traded volume associated with the $i$-th tick of market $m$. The "volume" mode is the live default in \`scripts/board_signal_v2.py\`. The motivation is signal-to-noise: a fixed-size implied-probability move carries more information about consensus repricing when it clears against meaningful size, so weighting by a monotone function of volume sharpens the detector against a uniform-weight baseline. $\log(1 + v)$ is chosen over raw $v$ because trade-size distributions in betting markets are heavy-tailed (approximately log-normal to power-law in the upper decile); under linear weighting a single large ticket can contribute more than the rest of the bucket combined, collapsing $I_t$ onto an order-flow statistic rather than a board-repricing statistic. The $\log(1+\cdot)$ form is also defined at $v=0$ and grows slowly enough that the cross-market sum remains well-conditioned. "equal" is retained as a diagnostic baseline for attribution analysis.`,
   },
 
+  "fanout-window": {
+    title: "Fanout window (±5 min PBP cap)",
+    eli5: String.raw`This is the "why did it fire" panel. Above is the bucket and its surrounding context — but this section explains what was actually happening on the floor and in the books at the moment of the fire.
+
+Two halves. On the left, the play-by-play around the fire: every game event within five minutes either side, sorted by closeness to the moment the detector triggered. On the right, the markets that moved: which specific lines the money was pushing, ranked by how much each one contributed to the overall board-wide spike. Together they answer "what did people see, and how did the book react?"
+
+The five-minute cap is deliberate and important. The research is blunt about it: beyond five minutes, information is worthless — the books have already moved, the edge is gone, anything you do is reactive at best. Inside three minutes you have something. Under one minute, you have gold. The color tiers on the timeline (yellow / hi / md) map exactly to that scale: pay attention to yellow, glance at the rest.`,
+    formal: String.raw`The fanout view materializes two independent windows centered on a fired bucket:
+
+$$\mathcal{W}_{\rm PBP} = [t_b - 300\,{\rm s},\; t_b + 300\,{\rm s}], \qquad \mathcal{W}_{\rm mvr} = [t_b,\; t_b + \Delta t)$$
+
+where $t_b$ is the bucket-start timestamp and $\Delta t = 60\,{\rm s}$ matches the detector's bucket granularity. The PBP window is symmetric and strict — any row with $|\Delta t_{\rm event}| > 300\,{\rm s}$ is unconditionally excluded — chosen as a hard cap rather than a soft decay because the empirical post-event price-stabilization halflife on liquid order books is on the order of seconds (Foucault, Pagano & Röell, "Market Liquidity" §7; arxiv:2304.11567 §3 reports a ~3.6 s mean stabilization time in centralized limit-order books across NBA-relevant Kalshi instruments).
+
+The mover contribution is the per-market term of the detector's intensity decomposition:
+
+$$c_m = \sum_{i \in t_b} \mathbf{1}\!\left[ s_{m,i} - s_{m,i-1} \leq \tau_{\max} \right] \cdot \log(1 + v_{m,i}) \cdot |p_{m,i} - p_{m,i-1}|, \qquad \%_m = \frac{c_m}{\sum_m c_m} \cdot 100$$
+
+with the same $\tau_{\max} = 300\,{\rm s}$ freshness cap as the board-mad detector — so the top-mover ranking is exactly the marginal contribution of each market to the fire's intensity. Recency tiers on the PBP dots and movers' time chips ($|\Delta t| < 60\,{\rm s}$: accent-yellow gold; $[60, 180)$: text-hi; $[180, 300)$: text-md) reflect the same Kalshi-minute-candlestick granularity at which the upstream event/price relationship is empirically informative.`,
+  },
+
   // ──────────────────────────────────────────────────────────────────────────
   //  Other detectors
   // ──────────────────────────────────────────────────────────────────────────

@@ -77,6 +77,35 @@ const boardSchema = z.object({
   observations: z.array(boardObservationSchema),
 });
 
+// /v1/board/:gameId/fanout — PRD §FR-21 (US-051). Strict ±5 min PBP cap
+// and per-market intensity contribution decomposition. The route lives
+// alongside /v1/board/:gameId in routes/board.ts; the query is keyed on
+// (gameId, bucketStart) so the UI re-fetches when a different fired
+// bucket is expanded.
+const fanoutPbpEventSchema = z.object({
+  timeActual: z.string(),
+  actionType: z.string().nullable(),
+  playerName: z.string().nullable(),
+  description: z.string().nullable(),
+  deltaSecondsFromFire: z.number(),
+});
+const fanoutMoverSchema = z.object({
+  sourceMarketId: z.string(),
+  instrument: z.string(),
+  ipBefore: z.number().nullable(),
+  ipAfter: z.number().nullable(),
+  ipDelta: z.number().nullable(),
+  contributionPct: z.number(),
+  deltaSecondsFromFire: z.number(),
+});
+const fanoutSchema = z.object({
+  bucketStart: z.string(),
+  bucketEnd: z.string(),
+  pbp: z.array(fanoutPbpEventSchema),
+  movers: z.array(fanoutMoverSchema),
+  narrative: z.string(),
+});
+
 // /v1/live/:gameId — PRD §15: last 5 min of quote_ticks joined to
 // source_markets for instrument metadata. Schema matches the shipped route
 // (US-028 services/live.ts): { gameId, windowStart, windowEnd, ticks } with
@@ -192,6 +221,9 @@ export type QuoteTick = z.infer<typeof quoteTickSchema>;
 export type Live = z.infer<typeof liveSchema>;
 export type MicrostructureEvent = z.infer<typeof microstructureEventSchema>;
 export type Microstructure = z.infer<typeof microstructureSchema>;
+export type FanoutPbpEvent = z.infer<typeof fanoutPbpEventSchema>;
+export type FanoutMover = z.infer<typeof fanoutMoverSchema>;
+export type Fanout = z.infer<typeof fanoutSchema>;
 export type DetectorEntry = z.infer<typeof detectorEntrySchema>;
 export type DetectorsResponse = z.infer<typeof detectorsSchema>;
 export type Settings = z.infer<typeof settingsSchema>;
@@ -242,6 +274,22 @@ export function useBoard(gameId: string, opts?: PollOptions): UseQueryResult<Boa
       fetchJson(`/v1/board/${encodeURIComponent(gameId)}`, boardSchema, signal),
     enabled: gameId.length > 0,
     ...(opts?.refetchInterval !== undefined ? { refetchInterval: opts.refetchInterval } : {}),
+  });
+}
+
+export function useFanout(
+  gameId: string,
+  bucketStart: string,
+): UseQueryResult<Fanout, Error> {
+  return useQuery({
+    queryKey: ["fanout", gameId, bucketStart],
+    queryFn: ({ signal }) =>
+      fetchJson(
+        `/v1/board/${encodeURIComponent(gameId)}/fanout?bucket_start=${encodeURIComponent(bucketStart)}`,
+        fanoutSchema,
+        signal,
+      ),
+    enabled: gameId.length > 0 && bucketStart.length > 0,
   });
 }
 

@@ -18,6 +18,7 @@ import { QueryErrorBanner } from "../../components/QueryErrorBanner";
 import { useBoard, useGame, type BoardObservation } from "../../data/queries";
 import { navigateTo } from "../../router";
 import { participantLabel } from "../recent/RecentPage";
+import { FanoutPanel } from "./FanoutPanel";
 
 interface GameDetailPageProps {
   readonly gameId: string | null;
@@ -152,12 +153,14 @@ function ContextTimeline({
 }
 
 function FiredBucketRow({
+  gameId,
   obs,
   isExpanded,
   onToggle,
   contextSeries,
   k,
 }: {
+  readonly gameId: string;
   readonly obs: BoardObservation;
   readonly isExpanded: boolean;
   readonly onToggle: () => void;
@@ -205,6 +208,7 @@ function FiredBucketRow({
             Context: prior 20 buckets + this fire
           </p>
           <ContextTimeline series={contextSeries} focusBucketStart={obs.bucketStart} k={k} />
+          <FanoutPanel gameId={gameId} bucketStart={obs.bucketStart} />
         </div>
       ) : null}
     </li>
@@ -328,6 +332,7 @@ export function GameDetailPage({ gameId }: GameDetailPageProps): JSX.Element {
               {fires.map((obs) => (
                 <FiredBucketRow
                   key={obs.bucketStart}
+                  gameId={gameId}
                   obs={obs}
                   isExpanded={expanded === obs.bucketStart}
                   onToggle={() => {
