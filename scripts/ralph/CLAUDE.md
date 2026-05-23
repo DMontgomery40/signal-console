@@ -77,9 +77,46 @@ If a story you pick contains an acceptance criterion that requires owner action,
 
 ---
 
+---
+
+## UI Verification Protocol (REQUIRED for every UI story)
+
+**Metadata is not verification.** "File X exists" or "snapshot matches" does NOT prove a UI works. For any story under US-022 onward whose acceptance touches `apps/web/` or `packages/ui/`, you must produce visual evidence via the computer-use and claude-in-chrome MCPs before flipping `passes: true`.
+
+**Procedure per UI story:**
+
+1. **Start the dev server** in the background: `pnpm --filter @signal-console/web dev`. Wait for the local URL to print.
+2. **Navigate via claude-in-chrome MCP** (browsers are tier "read" for computer-use — clicks are blocked there; use claude-in-chrome for navigation, clicks, form fills, drag). If claude-in-chrome is unavailable, fall back to computer-use screenshots only and explicitly say in `progress.txt` that interactive verification was blocked.
+3. **Capture at least 3 screenshots** per story to `apps/web/.ralph-screenshots/<story-id>/<n>-<label>.png`:
+   - **Baseline:** the page in its default state.
+   - **Primary interaction:** after clicking/dragging/typing the main affordance (e.g. moving the dial, opening a game from Recent, toggling a filter).
+   - **Edge or error state:** intentionally trigger a failure mode (unreachable API, empty data window, invalid input) and screenshot the result.
+4. **Visually decode each screenshot** against `docs/design-language.md`:
+   - Colors visible match tokens (no hex literals outside `tokens.ts`; nav underline is `accent-green`; yellow appears ONLY where a fire / active K / suspend warning is shown; body has the subtle `surface-0` gradient).
+   - Typography uses Inter sans + JetBrains Mono with tabular figures for numerics.
+   - Layout matches the §"Layout & density" rules — no card borders, ≥ 32 px section whitespace, max width 1440 px centered.
+   - No icons, no drop shadows, no light-mode artifacts.
+   - Hover/focus states are visible where applicable.
+5. **Click through every interactive element** in the route (nav links, buttons, slider, inputs). Each interaction's resulting state is verified visually, not via console logs.
+6. **Reference screenshots in `progress.txt`** under "Verification ran" — list every screenshot file path. The commit message body should also list them.
+
+**A UI story is not `passes: true` until:**
+
+- Screenshots exist at the paths above.
+- `progress.txt` cites each screenshot and what it proves.
+- Interactive elements have been clicked/dragged and the resulting visual state matches expectations.
+- The page renders correctly at 1440 × 900 baseline AND at 1024 × 768 (resize the chrome viewport).
+- Error states have been verified by intentionally breaking something (e.g. setting `VITE_API_URL` to an unreachable host) and screenshotting the fallback.
+
+**Don't skip this for "small" UI changes.** A token mismatch on a single component bleeds visually across every screen; you only catch it by looking. If a story is too small to justify the protocol (e.g. a pure tooltip text change), say so explicitly in `notes` with the reasoning.
+
+---
+
 ## Reference Reading (locations relative to `~/`)
 
 - `signal-console/PRD.md` — the spec (sections numbered 1–31).
+- `signal-console/docs/design-language.md` — UI design language spec (palette, typography, motion, components, don'ts). REQUIRED reading for any UI story (US-022 onward). All UI work must source colors from `packages/ui/src/tokens.ts` and follow the principles there. No hex literals outside tokens.ts.
+
 - `.claude/plans/concurrent-crafting-sedgewick.md` — the original architecture plan (deeper rationale).
 - `nba-predict/scripts/board_signal_v2.py` — canonical Python reference for the `board-mad` detector.
 - `nba-predict/packages/shared/src/board-anomaly/game-state-volatility.ts` — TypeScript reference (don't import; read for shape).

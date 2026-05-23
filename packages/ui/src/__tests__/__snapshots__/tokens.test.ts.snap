@@ -1,0 +1,56 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`tokens (US-043) > colors snapshot — drift is a deliberate review event 1`] = `
+{
+  "accentGreen": "#14EB6F",
+  "accentYellow": "#FFD000",
+  "negative": "#FF5757",
+  "surface0From": "#06140E",
+  "surface0To": "#0E2A1F",
+  "surface1": "#0F2419",
+  "surface2": "#163020",
+  "textHi": "#FFFFFF",
+  "textLo": "#6E7E77",
+  "textMd": "#B4C4BD",
+}
+`;
+
+exports[`tokens (US-043) > motion snapshot — drift is a deliberate review event 1`] = `
+{
+  "durations": {
+    "base": "150ms",
+    "fast": "100ms",
+    "pulse": "1500ms",
+    "slow": "200ms",
+  },
+  "easings": {
+    "in": "cubic-bezier(0.4, 0, 1, 1)",
+    "inOut": "cubic-bezier(0.4, 0, 0.2, 1)",
+    "out": "cubic-bezier(0, 0, 0.2, 1)",
+    "standard": "cubic-bezier(0.4, 0, 0.2, 1)",
+  },
+}
+`;
+
+exports[`tokens (US-043) > typography snapshot — drift is a deliberate review event 1`] = `
+{
+  "fontMono": ""JetBrains Mono", "Berkeley Mono", "IBM Plex Mono", ui-monospace, monospace",
+  "fontSans": "Inter, "Geist Sans", system-ui, sans-serif",
+  "scale": {
+    "2xl": "28px",
+    "3xl": "40px",
+    "4xl": "64px",
+    "base": "14px",
+    "lg": "16px",
+    "sm": "13px",
+    "xl": "20px",
+    "xs": "12px",
+  },
+  "weights": {
+    "bold": 700,
+    "medium": 500,
+    "normal": 400,
+    "semibold": 600,
+  },
+}
+`;

@@ -1,0 +1,47 @@
+/* Signal Console — global CSS.
+ *
+ * Declares CSS custom properties that mirror the design tokens in ./tokens.ts
+ * and applies the subtle vertical surface-0 gradient to <body> exactly once
+ * for the entire app. No per-panel gradients, no card gradients (see
+ * docs/design-language.md §"Layout & density").
+ *
+ * Hex literals are allowed in this file by the `verify:no-hex-literals` check.
+ * Keep the values aligned with tokens.ts; the tokens snapshot test guards drift
+ * in the TS source, while visual review covers the CSS side.
+ */
+
+:root {
+  --surface-0-from: #06140e;
+  --surface-0-to: #0e2a1f;
+  --surface-1: #0f2419;
+  --surface-2: #163020;
+  --accent-green: #14eb6f;
+  --accent-yellow: #ffd000;
+  --negative: #ff5757;
+  --text-hi: #ffffff;
+  --text-md: #b4c4bd;
+  --text-lo: #6e7e77;
+
+  --font-sans: Inter, "Geist Sans", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "Berkeley Mono", "IBM Plex Mono", ui-monospace, monospace;
+
+  --motion-fast: 100ms;
+  --motion-base: 150ms;
+  --motion-slow: 200ms;
+  --motion-pulse: 1500ms;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: linear-gradient(to bottom, var(--surface-0-from), var(--surface-0-to));
+  background-attachment: fixed;
+  color: var(--text-md);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}

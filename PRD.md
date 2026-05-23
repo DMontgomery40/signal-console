@@ -1137,7 +1137,8 @@ Three sections, no buttons that mutate (except "clear cache"):
 
 ## 24. Design Considerations
 
-- UI uses Tailwind tokens + headless primitives in `packages/ui/`. Recharts for charts. Recent + Live + Backtest each ship one focused view; no kitchen-sink dashboard.
+- **Design language:** see `docs/design-language.md` for the full palette, typography, motion, and component rules. Lineage: bet365 (palette + typographic restraint), Linear (type craft), NYT election needle (the dial as a moment). Tokens declared once in `packages/ui/src/tokens.ts`; no hex literals outside that file.
+- UI uses Tailwind tokens + headless primitives in `packages/ui/`. Recharts for charts, themed to the design language (1 px lines, no gridlines, hover-only labels). Recent + Live + Backtest each ship one focused view; no kitchen-sink dashboard.
 - Recharts theme: ported from `nba-predict/apps/web/src/lib/chart-theme.ts`.
 - Date/time formatting: ported from `nba-predict/apps/web/src/lib/time-format.ts`.
 - Market formatting: ported from `nba-predict/apps/web/src/lib/market-format.ts`.

@@ -1,0 +1,7 @@
+/* Utility classes shared across the app. Keep this file small; favor Tailwind
+ * utilities first and only land here for things Tailwind doesn't ship.
+ */
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}

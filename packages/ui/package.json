@@ -1,0 +1,22 @@
+{
+  "name": "@signal-console/ui",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./tokens": "./src/tokens.ts",
+    "./tailwind-preset": "./src/tailwind-preset.cjs",
+    "./global.css": "./src/global.css",
+    "./utilities.css": "./src/utilities.css"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "verify": "vitest run"
+  },
+  "devDependencies": {
+    "vitest": "^3.2.0"
+  }
+}
