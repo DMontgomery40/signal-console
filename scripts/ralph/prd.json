@@ -346,8 +346,8 @@
         "Typecheck passes"
       ],
       "priority": 20,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Route at apps/api/src/routes/cache.ts (87 LOC) backed by apps/api/src/services/cache.ts (39 LOC). Service opens the cache DB via openCacheDb (which already sets PRAGMA foreign_keys = ON, so detector_observations cascade-delete from detector_runs by the FK ON DELETE CASCADE clause defined in 0001-init.sql). DELETE statement is built from a clauses[] + params[] pair: WHERE detector_id = ? AND computed_at < ? when both filters present, no WHERE when neither. Empty/missing-cache-DB case: openCacheDb auto-creates + migrates, so an empty cache returns { deleted: 0 } cleanly. Response shape is { deleted: <int> }. Route tagged 'internal' in /openapi.json. 7 tests cover: full clear / detector_id-only filter / before-only filter / combined filter / gold-DB byte size + mtime unchanged / empty-cache 0-row case / openapi internal tag. NOTE for US-021 (and any future story that touches the cache DB write-side): the cache DB's foreign_keys pragma is per-connection -- runMigrations alone does NOT enable it; openCacheDb does. If a test seeds rows via new Database(path) + runMigrations(db) directly (as cache.test.ts seedCacheDb does), explicitly call db.pragma('foreign_keys = ON') BEFORE inserting cascade-target rows, otherwise FK behavior won't be exercised on that seed connection (the constraint is still defined; just not enforced at seed time). The route handler, which opens via openCacheDb, gets foreign_keys ON automatically."
     },
     {
       "id": "US-021",
