@@ -1,0 +1,4 @@
+QUERY PLAN
+SEARCH sm USING COVERING INDEX idx_source_markets_game_instrument (game_id=?)
+SEARCH qt USING INDEX idx_quote_ticks_unique_observation (source_market_id=? AND captured_at>? AND captured_at<?)
+USE TEMP B-TREE FOR ORDER BY

@@ -15,6 +15,7 @@
     "format:write": "prettier --write . --ignore-unknown",
     "typecheck": "tsc --noEmit -p scripts/tsconfig.json && turbo run typecheck",
     "verify:no-stale-plan": "tsx scripts/verify-no-stale-plan.ts",
+    "verify:queries": "tsx scripts/verify-queries.ts",
     "cache:reset": "tsx scripts/cache-reset.ts",
     "verify": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm verify:no-stale-plan && turbo run verify"
   },
