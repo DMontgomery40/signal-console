@@ -1,0 +1,22 @@
+node_modules/
+dist/
+build/
+.turbo/
+coverage/
+.next/
+data/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+
+# Owner-maintained docs / Ralph runtime state
+PRD.md
+scripts/ralph/progress.txt
+scripts/ralph/ralph.log
+scripts/ralph/prd.json
+scripts/ralph/.last-branch
+scripts/ralph/.last-story
+scripts/ralph/.story-attempts
+
+# Lockfile (pnpm manages it)
+pnpm-lock.yaml

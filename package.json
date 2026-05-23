@@ -10,11 +10,21 @@
   "scripts": {
     "build": "turbo run build",
     "dev": "turbo run dev",
-    "verify": "turbo run verify",
-    "typecheck": "turbo run typecheck"
+    "lint": "eslint . --max-warnings=0",
+    "format:check": "prettier --check . --ignore-unknown",
+    "format:write": "prettier --write . --ignore-unknown",
+    "typecheck": "turbo run typecheck",
+    "verify": "pnpm format:check && pnpm lint && pnpm typecheck && turbo run verify"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.4",
+    "eslint": "^9.39.4",
+    "eslint-plugin-functional": "^7.3.0",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "globals": "^16.5.0",
+    "prettier": "^3.8.3",
     "turbo": "^2.5.10",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.59.4"
   }
 }

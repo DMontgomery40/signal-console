@@ -34,8 +34,8 @@
         "Typecheck passes"
       ],
       "priority": 2,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Substituted eslint-plugin-functional rule `no-mutation` (renamed upstream in v4+) with its identical successor `immutable-data`; rule name in AC text predates the rename."
     },
     {
       "id": "US-003",

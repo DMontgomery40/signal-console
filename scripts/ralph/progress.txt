@@ -16,3 +16,19 @@ Started: Sat May 23 00:45:49 MDT 2026
   - There is no tsconfig.json at the repo root yet (only tsconfig.base.json); when adding packages, each must have its own tsconfig.json that extends ../../tsconfig.base.json.
   - Acceptance criterion "Typecheck passes" was satisfied via `pnpm typecheck` (turbo run typecheck) returning exit 0; with zero packages there's nothing to typecheck. Once packages exist, each will need its own typecheck script wired into its package.json.
 ---
+
+## 2026-05-23T06:53:31Z - US-002
+- What was implemented: Pedantic flat-config ESLint at repo root with all 17 required rules at 'error'; type-aware ts-eslint block uses `projectService: true`; eslint-plugin-functional rules scoped to `packages/detectors/`; prettier configured with `.prettierrc.json` and `.prettierignore`; root `lint`, `format:check`, `format:write` scripts added; `verify` script now runs format:check, lint, typecheck, then turbo.
+- Files changed: package.json, pnpm-lock.yaml, eslint.config.js, .prettierrc.json, .prettierignore
+- Verification ran: `pnpm install` (exit 0), `pnpm lint` (exit 0), `pnpm format:check` (exit 0 after one-time `pnpm format:write`), `pnpm typecheck` (exit 0), `pnpm verify` (exit 0)
+- **Learnings for future iterations:**
+  - `eslint-plugin-functional` renamed `no-mutation` → `immutable-data` in v4+. US-002 AC text uses the old name; we use `immutable-data` (semantically identical) and document in story `notes`. Future detector code MUST avoid mutation/reassignment to satisfy this rule.
+  - Installed `eslint-plugin-functional@^7.3.0` (latest 7.x; v9 would also work but pin to a known-good major).
+  - `tseslint.configs.recommendedTypeChecked` MUST be applied inside a `files: ['**/*.{ts,tsx}']` block, otherwise it tries to type-parse `eslint.config.js` itself and explodes looking for a tsconfig.
+  - `projectService: true` is the modern ts-eslint pattern (replaces `project: true`). It walks up from each TS file to find a tsconfig.json on demand — works fine with the empty scaffold because no .ts files exist yet to need a project.
+  - Prettier `--check .` will scan everything not in `.prettierignore`. We ignore `PRD.md`, all `scripts/ralph/` runtime state (progress.txt, prd.json, ralph.log, .last-*), `data/`, `pnpm-lock.yaml`. Run `pnpm format:write` once on a new package before `format:check` to normalize.
+  - `eslint . --max-warnings=0` is the lint command. Eslint flat config self-lints `eslint.config.js` (it's a .js file at root); kept as CommonJS (matches `tseslint.config()` factory). The `eslint.config.js` override block sets `sourceType: 'commonjs'` for any .cjs and the config file itself.
+  - Prettier reformatted `eslint.config.js` once (collapsed the `consistent-type-assertions` line). Subsequent edits should match (printWidth=100, trailingComma=all).
+  - Root `verify` script chains `format:check && lint && typecheck && turbo run verify`. Per-package `lint` and `typecheck` will be added when packages exist; today everything runs from root.
+  - `pnpm verify` shows turbo "no tasks were executed" warning until packages exist — non-fatal (exit 0).
+---
