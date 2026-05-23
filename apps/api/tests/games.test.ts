@@ -214,6 +214,88 @@ describe("games routes (US-018)", () => {
     expect(first["sport"]).toBe("NBA");
   });
 
+  it("GET /v1/games?sport=NFL returns 200 with an empty array (not 404) when no NFL games exist (US-040)", async () => {
+    // US-040 AC #4: future NFL/NCAA-football consumers can probe the endpoint
+    // without it pretending the route is missing. Seed only NBA rows, query
+    // sport=NFL, expect 200 and games=[].
+    seedGoldDb(ctx.goldDbPath, [
+      {
+        id: "nba-only-1",
+        sport: "NBA",
+        league: "national",
+        homeParticipantJson: '{"abbreviation":"BOS"}',
+        awayParticipantJson: '{"abbreviation":"PHI"}',
+        scheduledStart: isoMinutesAgo(45),
+      },
+      {
+        id: "nba-only-2",
+        sport: "NBA",
+        league: "national",
+        homeParticipantJson: '{"abbreviation":"GSW"}',
+        awayParticipantJson: '{"abbreviation":"DEN"}',
+        scheduledStart: isoMinutesAgo(90),
+      },
+    ]);
+    const app = await startApp();
+
+    const res = await app.inject({
+      method: "GET",
+      url: "/v1/games?sport=NFL",
+      headers: authHeaders(),
+    });
+    expect(res.statusCode).toBe(200);
+    const body: unknown = res.json();
+    if (!isRecord(body)) throw new Error("body not an object");
+    const games = body["games"];
+    if (!isUnknownArray(games)) throw new Error("body.games not an array");
+    expect(games).toHaveLength(0);
+    expect(games).toEqual([]);
+  });
+
+  it("GET /v1/games (sport omitted) returns rows of every sport (US-040)", async () => {
+    // US-040 AC #3 + AC #6: when sport is omitted, no filter is applied.
+    // Both NBA and NFL rows must appear.
+    seedGoldDb(ctx.goldDbPath, [
+      {
+        id: "nba-mix-1",
+        sport: "NBA",
+        league: "national",
+        homeParticipantJson: '{"abbreviation":"OKC"}',
+        awayParticipantJson: '{"abbreviation":"LAL"}',
+        scheduledStart: isoMinutesAgo(30),
+      },
+      {
+        id: "nfl-mix-1",
+        sport: "NFL",
+        league: "national",
+        homeParticipantJson: '{"abbreviation":"KC"}',
+        awayParticipantJson: '{"abbreviation":"BUF"}',
+        scheduledStart: isoMinutesAgo(60),
+      },
+    ]);
+    const app = await startApp();
+
+    const res = await app.inject({
+      method: "GET",
+      url: "/v1/games",
+      headers: authHeaders(),
+    });
+    expect(res.statusCode).toBe(200);
+    const body: unknown = res.json();
+    if (!isRecord(body)) throw new Error("body not an object");
+    const games = body["games"];
+    if (!isUnknownArray(games)) throw new Error("body.games not an array");
+    const sports = games.map((g): string => {
+      if (!isRecord(g)) throw new Error("game not an object");
+      const s = g["sport"];
+      if (typeof s !== "string") throw new Error("game.sport not a string");
+      return s;
+    });
+    expect(sports).toContain("NBA");
+    expect(sports).toContain("NFL");
+    expect(games).toHaveLength(2);
+  });
+
   it("GET /v1/games surfaces the latest game_states status via v_games", async () => {
     seedGoldDb(ctx.goldDbPath, [
       {

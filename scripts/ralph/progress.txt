@@ -1206,3 +1206,38 @@ Started: Sat May 23 00:45:49 MDT 2026
   * **Window-too-large defeats the default 28-day window.** The API caps the discovered game count at 20 per backtest call. A 28-day NBA playoff window has >20 games; backtest will 400 with "too many games". For round-trip smokes, a 4-5 day window around the Hartenstein anchor (2026-05-06..2026-05-10) yields ~20 fires/game at K=3, well inside the canonical [15,25] range.
   * **Playwright MCP's browser_wait_for has a hard 30s timeout cap.** Don't pass `time: 60` expecting 60s — it caps at 30s. For long-running waits (the first backtest sweep takes ~15-25s against the gold DB), poll via browser_evaluate (`document.querySelector('[data-testid="backtest-run-id"]')`) with a separate sleep.
 ---
+
+## 2026-05-23T22:30Z - US-040
+- What was implemented: Added two explicit acceptance-criteria tests to apps/api/tests/games.test.ts: (1) GET /v1/games?sport=NFL returns 200 with empty array when no NFL rows exist (AC #4), and (2) GET /v1/games (sport omitted) returns rows of all sports (AC #3/#6 "missing sport returns all rows" — separated from the existing since-window test to make the AC mechanical and grep-able). Also improved the route's OpenAPI summary + description to surface the new filter (AC #5).
+- Files changed:
+  * apps/api/tests/games.test.ts (added two named tests for US-040 ACs; 9/9 games tests pass)
+  * apps/api/src/routes/games.ts (summary mentions optional sport filter; added description explaining the unknown-sport-returns-empty-not-404 contract)
+  * scripts/ralph/prd.json (US-040 passes:true; notes populated)
+  * scripts/ralph/progress.txt (this entry)
+- Pre-existing implementation discovered (no code change needed in src/services/games.ts):
+  * US-018 (b1dd0e4) shipped the sport filter wholesale: Zod schema includes `sport: z.string().optional()`; listGames in services/games.ts branches into `WHERE scheduled_start >= ? AND sport = ?` when sport is supplied (line 110), and `WHERE scheduled_start >= ?` otherwise (line 114). The JSON Schema for OpenAPI already declared `sport` with a description. The only US-040 gap was an explicit test that sport=NFL on a NBA-only DB returns 200 + [].
+- Verification ran:
+  * `pnpm --filter @signal-console/api exec vitest run tests/games.test.ts` → 9/9 pass (the two new US-040 tests + 7 prior US-018 tests)
+  * `pnpm --filter @signal-console/api typecheck` → tsc --noEmit clean
+  * `pnpm lint` → eslint --max-warnings=0 clean across the repo
+  * `pnpm verify:no-stale-plan` → 0 forbidden hits
+  * Real API smoke against the moved gold DB at ~/signal-console/data/signal-console.sqlite (API on :4100, auth X-Signal-Token from apps/web/.env.local):
+    - `curl /v1/games?sport=NFL&since=P30D` → status=200, body={"games":[]} ✓ (AC #4)
+    - `curl /v1/games?sport=basketball&since=P30D` → 74 NBA playoff rows ✓
+    - `curl /v1/games?since=P30D` (no sport) → 74 rows, distinct sports = {'basketball'} ✓ (AC #3)
+    - `curl /openapi.json` → GET /v1/games parameters list contains since + sport with descriptions; summary mentions "optionally filtered by sport" ✓ (AC #5)
+- Acceptance criteria mapping:
+  * AC #1 (Zod-validated optional sport param) — already in listQuerySchema since US-018
+  * AC #2 (v_games WHERE sport = :sport) — already in services/games.ts:110 since US-018
+  * AC #3 (sport omitted returns all sports) — confirmed by new test + smoke
+  * AC #4 (sport=NFL returns 200 with []) — confirmed by new test + smoke
+  * AC #5 (OpenAPI doc updates) — JSON Schema had the param since US-018; this story updated the summary + description
+  * AC #6 (unit tests assert: NBA → NBA rows; NFL → []; missing → all rows) — 3 tests now cover all three branches
+  * AC #7 (Tests pass) — 9/9 games.test.ts pass; full repo verify hits the pre-existing board.test.ts "warm 5x faster" timing flake (passes in isolation, times out under cumulative load — documented by US-053 and US-042 entries above; not caused by US-040)
+  * AC #8 (Typecheck passes) — tsc --noEmit clean
+- **Learnings for future iterations:**
+  * **Sport filter was already shipped in US-018.** Read services/games.ts + the original story commit before assuming new code is needed — the listGames branch on `hasSport` (sport !== undefined && sport.length > 0) and the schema's `sport: z.string().optional()` were already in place. US-040's contribution was the explicit assertions and the OpenAPI summary wording so the contract is mechanically grep-able. Pattern: when a follow-up sport story (e.g. US-041 sport-onboarding) cites US-040 as a prerequisite, the prereq is "explicit AC tests exist for sport=NFL → []", not "code exists".
+  * **The live gold DB stores sport='basketball' (lowercase, generic name), NOT 'NBA'.** When integration-smoking the sport filter against the real DB, query `?sport=basketball` to get rows. The exact-match WHERE sport = :sport in services/games.ts:110 is intentional — the integrator passes whatever the upstream ingest writer recorded. Future onboarding docs (US-041) should call this out so NFL/NCAAF integrators don't pass the wrong canonical name and silently get empty results.
+  * **Don't try to be smart about exactOptionalPropertyTypes:true.** In ListGamesArgs the sport field is declared `sport?: string | undefined` (with the explicit-undefined union) so the Zod-parsed value (which may be `{sport: undefined}` after .safeParse) passes through type-strict assignment to listGames(). Don't reduce it to just `sport?: string` — that breaks the Zod consumer.
+  * **Pre-existing board.test.ts "warm 5x faster than cold" timing flake STILL pre-exists.** Documented again here for next-iteration noise reduction: 5-second test timeout, passes ~2-4s in isolation, times out under cumulative-load full-suite runs. Not a regression. Two prior stories (US-053, US-042) noted this same flake.
+---

@@ -88,7 +88,10 @@ const gamesRoutes: FastifyPluginAsync<GamesRoutesOptions> = (app, opts) => {
     {
       schema: {
         tags: ["desk-stable"],
-        summary: "List games scheduled within the last `since` duration",
+        summary:
+          "List games scheduled within the last `since` duration, optionally filtered by sport",
+        description:
+          "Returns games whose scheduled_start falls within `since` (ISO 8601 duration, default PT24H). When the `sport` query parameter is provided (e.g. NBA, NFL), rows are filtered to exact-match that sport; otherwise rows of all sports are returned. Unknown sports return 200 with an empty array rather than 404.",
         querystring: listQueryJsonSchema,
         response: {
           200: listResponseSchema,
