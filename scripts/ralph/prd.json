@@ -627,8 +627,8 @@
         "Typecheck passes"
       ],
       "priority": 34,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Service module apps/api/src/services/microstructure.ts (~150 LOC) opens the gold DB via openGoldDb, runs a single prepared SELECT on market_microstructure_events filtered by game_id AND volume_share IS NOT NULL AND volume_share >= ? ORDER BY event_timestamp ASC. The IS NOT NULL guard is explicit because SQLite NULL >= anything yields NULL (false in WHERE) — relying on it is fragile if the schema ever shifts to NaN sentinels. Route file apps/api/src/routes/microstructure.ts (~150 LOC) accepts a Zod-validated theta with z.coerce.number().min(0).max(1).default(0.10). GOTCHA: Fastify v5 pre-validates against the JSON Schema querystring stanza FIRST and emits its own 400 with err.validationContext='querystring' BEFORE the route handler runs, so theta=1.5 is rejected by Fastify before the Zod safeParse ever sees it — both are correct, but the Zod check on the AC criterion is now defense-in-depth, not the primary gate. Route tagged 'desk-stable' in /openapi.json. Seven tests cover: theta=0.5 filters 0.3 (AC literal), default theta=0.10 boundary (0.05 excluded, 0.10 included), NULL volume_share excluded even at theta=0, cross-game exclusion, unknown gameId returns empty, out-of-range theta returns 400, OpenAPI tag check. Reused the seedGoldDb helper pattern from tests/live.test.ts; mirrors the verify:queries plan snapshot at microstructure-for-one-game.plan.txt which already uses idx_market_microstructure_game_time."
     },
     {
       "id": "US-030",
