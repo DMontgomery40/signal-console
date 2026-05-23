@@ -52,8 +52,8 @@
         "Typecheck passes"
       ],
       "priority": 3,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Allow-list expanded to include root PRD.md (per CLAUDE.md authorization: 'docs/PRD.md (or the root PRD.md)') because in this repo the spec lives at PRD.md, not docs/PRD.md. The PR template uses markdown backticks around `packages/db/src/queries/` and `game_id` for code-span rendering; the AC's semantic content (WHERE clause + game_id/time column) is on line 20. verify:no-stale-plan was chained into the umbrella `pnpm verify` script."
     },
     {
       "id": "US-004",

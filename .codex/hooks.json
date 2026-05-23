@@ -1,0 +1,52 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "pnpm exec tsx \"$(git rev-parse --show-toplevel)/packages/shared/src/codex-hooks/bugfix-regression-guard.ts\" user-prompt-submit",
+            "timeout": 30,
+            "statusMessage": "Checking bug-fix regression policy"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "^Bash$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "pnpm exec tsx \"$(git rev-parse --show-toplevel)/packages/shared/src/codex-hooks/bugfix-regression-guard.ts\" post-tool-use",
+            "timeout": 30,
+            "statusMessage": "Recording verification activity"
+          }
+        ]
+      },
+      {
+        "matcher": "^(apply_patch|Edit|Write)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "pnpm exec tsx \"$(git rev-parse --show-toplevel)/packages/shared/src/codex-hooks/bugfix-regression-guard.ts\" post-tool-use",
+            "timeout": 30,
+            "statusMessage": "Recording edited files"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "pnpm exec tsx \"$(git rev-parse --show-toplevel)/packages/shared/src/codex-hooks/bugfix-regression-guard.ts\" stop",
+            "timeout": 30,
+            "statusMessage": "Checking regression coverage gate"
+          }
+        ]
+      }
+    ]
+  }
+}
