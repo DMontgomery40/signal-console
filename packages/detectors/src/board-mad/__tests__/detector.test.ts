@@ -15,7 +15,7 @@ const windowOf = (gameIds: readonly string[], ticks: readonly Tick[]): DetectorW
 describe("board-mad detector", () => {
   it("identity matches PRD §10", () => {
     expect(detector.id).toBe("board-mad");
-    expect(detector.version).toBe("1.0.0");
+    expect(detector.version).toBe("1.1.0");
     expect(detector.displayName).toBe("Board MAD (whole-board volatility)");
   });
 

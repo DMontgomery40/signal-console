@@ -684,9 +684,9 @@ export function BacktestPage(): JSX.Element {
               data-testid="backtest-recompute-hint"
               className="mt-3 text-xs text-text-lo max-w-[64ch]"
             >
-              The K dial, warmup slider, and trailingBuckets recompute in-memory after the first
-              run — no API round-trip. Changing bucketSeconds, weighting, or freshCapSeconds
-              requires re-running.
+              The K dial, warmup slider, and trailingBuckets recompute in-memory after the first run
+              — no API round-trip. Changing bucketSeconds, weighting, or freshCapSeconds requires
+              re-running.
             </p>
           ) : null}
         </div>

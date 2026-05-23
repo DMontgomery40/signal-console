@@ -160,7 +160,7 @@ function authHeaders(): Record<string, string> {
 const defaultRuns: SeedRun[] = [
   {
     detectorId: "board-mad",
-    detectorVersion: "1.0.0",
+    detectorVersion: "1.1.0",
     paramsHash: "h-a",
     sourceWatermarkHash: "w-1",
     scope: "game",
@@ -172,7 +172,7 @@ const defaultRuns: SeedRun[] = [
   },
   {
     detectorId: "board-mad",
-    detectorVersion: "1.0.0",
+    detectorVersion: "1.1.0",
     paramsHash: "h-b",
     sourceWatermarkHash: "w-2",
     scope: "game",
@@ -184,7 +184,7 @@ const defaultRuns: SeedRun[] = [
   },
   {
     detectorId: "off-price-print",
-    detectorVersion: "1.0.0",
+    detectorVersion: "1.1.0",
     paramsHash: "h-c",
     sourceWatermarkHash: "w-3",
     scope: "game",

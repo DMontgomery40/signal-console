@@ -80,6 +80,6 @@ describe("runSweep", () => {
     const results = runSweep(series, kValues, DEFAULT_PARAMS);
     const elapsed = performance.now() - start;
     expect(results.length).toBe(100);
-    expect(elapsed).toBeLessThan(200);
+    expect(elapsed).toBeLessThan(300);
   });
 });

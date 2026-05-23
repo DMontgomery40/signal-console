@@ -25,9 +25,17 @@ const ticksForGames = (allTicks: readonly Tick[], gameIds: readonly string[]): r
   return allTicks.filter((t) => allowed.has(t.gameId));
 };
 
+// 1.1.0 (2026-05-23): API path (services/backtest.ts loadTicks) now narrows
+// the tick set per-game to the PBP-anchored in-play window before feeding
+// the detector, mirroring board.ts's resolveInPlayWindow. Without this,
+// pre-game ticks polluted the trailing baseline and inflated fire counts
+// ~14-17x against the canonical contract test's per-game means (9.3 ± 1.0
+// at K=6, ~18 at K=3). Detector math is unchanged; cache rows from 1.0.0
+// remain valid as data but are version-stale and will be re-computed on
+// next access — that's the intentional invalidation.
 export const detector: Detector<typeof Params> = {
   id: "board-mad",
-  version: "1.0.0",
+  version: "1.1.0",
   displayName: "Board MAD (whole-board volatility)",
   sources: ["bet365", "kalshi", "polymarket"],
   paramsSchema: Params,

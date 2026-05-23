@@ -369,30 +369,101 @@ function persistRun(cacheDb: Database.Database, args: PersistArgs): number {
   return tx();
 }
 
+// Per-game PBP-anchored window narrowing. Buffers match board.ts's
+// resolveInPlayWindow so the backtest path and the live /v1/board path
+// see the same ticks for the same game.
+//
+// Why this matters: gold-DB quote_ticks for a single game routinely span
+// 24+ hours (markets open the day before tipoff and accept low-volume
+// pre-game wiggle). If we feed those pre-game ticks to the detector,
+// (a) the bucket count balloons ~8x (1206 buckets observed for one game
+// instead of ~155), and (b) the trailing median+MAD baseline is trained
+// on pre-game noise — which is wrong-domain. In-play activity then
+// blasts through the pre-game baseline at game start, producing ~17x
+// the contract-test fire count at K=6. Narrowing to PBP MIN..MAX +
+// small buffers, the same way board.ts does, fixes both at once. See
+// US-021 / US-034 / canonical.test.ts for context.
+const PBP_PRE_BUFFER_MS = 5 * 60 * 1000;
+const PBP_POST_BUFFER_MS = 60 * 1000;
+
+interface InPlayBound {
+  readonly start: string;
+  readonly end: string;
+}
+
+function resolvePerGameInPlayWindow(
+  goldDb: GoldDbHandle,
+  gameId: string,
+  windowStart: string,
+  windowEnd: string,
+): InPlayBound | null {
+  // Wrap in try because test fixtures may not include the
+  // nba_play_by_play_actions table; production gold DB always does. Any
+  // failure here falls back to the requested window — the behavior the
+  // detector had before US-053-equivalent fix landed.
+  let pbp: unknown;
+  try {
+    pbp = goldDb
+      .prepare(
+        `SELECT MIN(time_actual) AS lo, MAX(time_actual) AS hi
+         FROM nba_play_by_play_actions
+         WHERE game_id = ?`,
+      )
+      .get(gameId);
+  } catch {
+    return { start: windowStart, end: windowEnd };
+  }
+  if (isRecord(pbp)) {
+    const lo = pbp["lo"];
+    const hi = pbp["hi"];
+    if (typeof lo === "string" && typeof hi === "string") {
+      const loMs = Date.parse(lo);
+      const hiMs = Date.parse(hi);
+      if (Number.isFinite(loMs) && Number.isFinite(hiMs)) {
+        const pbpStart = new Date(loMs - PBP_PRE_BUFFER_MS).toISOString();
+        const pbpEnd = new Date(hiMs + PBP_POST_BUFFER_MS).toISOString();
+        const start = pbpStart > windowStart ? pbpStart : windowStart;
+        const end = pbpEnd < windowEnd ? pbpEnd : windowEnd;
+        if (start <= end) return { start, end };
+        return null;
+      }
+    }
+  }
+  // Fallback for games without PBP (e.g. sport without play-by-play feed).
+  return { start: windowStart, end: windowEnd };
+}
+
 function loadTicks(
   goldDb: GoldDbHandle,
   gameIds: readonly string[],
   windowStart: string,
   windowEnd: string,
 ): readonly Tick[] {
-  const placeholders = gameIds.map(() => "?").join(",");
-  const rows = goldDb
-    .prepare(
-      `SELECT sm.game_id AS game_id,
-              qt.source_market_id AS source_market_id,
-              qt.captured_at AS captured_at,
-              qt.implied_probability AS implied_probability,
-              COALESCE(qt.volume, 0) AS volume,
-              qt.is_heartbeat AS is_heartbeat
-       FROM quote_ticks qt
-       JOIN source_markets sm ON sm.id = qt.source_market_id
-       WHERE sm.game_id IN (${placeholders})
-         AND qt.captured_at >= ?
-         AND qt.captured_at <= ?
-       ORDER BY sm.game_id, qt.source_market_id, qt.captured_at`,
-    )
-    .all(...gameIds, windowStart, windowEnd);
-  return rows.map((row): Tick => {
+  // Narrow per-game to the PBP-anchored in-play window. Without this, a
+  // 4-day requested window over one game produces ~1200 buckets covering
+  // 29 hours instead of ~155 buckets covering ~155 min (the actual play
+  // time), and the detector fires ~14-17x too many times.
+  const allRows = gameIds.flatMap((gameId): readonly unknown[] => {
+    const bound = resolvePerGameInPlayWindow(goldDb, gameId, windowStart, windowEnd);
+    if (bound === null) return [];
+    return goldDb
+      .prepare(
+        `SELECT sm.game_id AS game_id,
+                qt.source_market_id AS source_market_id,
+                qt.captured_at AS captured_at,
+                qt.implied_probability AS implied_probability,
+                COALESCE(qt.volume, 0) AS volume,
+                qt.is_heartbeat AS is_heartbeat
+         FROM quote_ticks qt
+         JOIN source_markets sm ON sm.id = qt.source_market_id
+         WHERE sm.game_id = ?
+           AND qt.captured_at >= ?
+           AND qt.captured_at <= ?
+         ORDER BY qt.source_market_id, qt.captured_at`,
+      )
+      .all(gameId, bound.start, bound.end);
+  });
+  return allRows.map((row): Tick => {
     if (!isRecord(row)) throw new Error("tick row not an object");
     const ip = row["implied_probability"];
     return {
