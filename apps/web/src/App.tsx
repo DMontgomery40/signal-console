@@ -1,9 +1,19 @@
 import { useEffect, useState } from "react";
 import type { JSX } from "react";
 
-type HealthStatus = "loading" | "ok" | "error";
+import { ErrorBoundary } from "./components/ErrorBoundary";
+import { RecentPage } from "./features/recent/RecentPage";
+import { LivePage } from "./features/live/LivePage";
+import { BacktestPage } from "./features/backtest/BacktestPage";
+import { DetectorsPage } from "./features/detectors/DetectorsPage";
+import { SettingsPage } from "./features/settings/SettingsPage";
 
-const NAV_LINKS: readonly { readonly label: string; readonly href: string }[] = [
+interface NavLink {
+  readonly label: string;
+  readonly href: string;
+}
+
+const NAV_LINKS: readonly NavLink[] = [
   { label: "Recent", href: "/" },
   { label: "Live", href: "/live" },
   { label: "Backtest", href: "/backtest" },
@@ -11,39 +21,71 @@ const NAV_LINKS: readonly { readonly label: string; readonly href: string }[] = 
   { label: "Settings", href: "/settings" },
 ];
 
-// Scaffold-stage placeholder: the real router lands in US-024. We mark
-// "Recent" active so the design language's nav underline pattern can be
-// visually verified at this story.
-const ACTIVE_LABEL = "Recent";
+function CrashOnRender(): JSX.Element {
+  throw new Error("Forced crash for ErrorBoundary verification");
+}
 
-// Same-origin by default — dev uses the Vite proxy configured in vite.config.ts;
-// production serves UI and API from the same Cloudflare-tunnel origin.
-// `VITE_API_URL` is supported as an override so the error-state path can be
-// exercised by pointing at an unreachable host (see CLAUDE.md UI verification).
-const API_BASE_URL: string =
-  typeof import.meta.env.VITE_API_URL === "string" && import.meta.env.VITE_API_URL.length > 0
-    ? import.meta.env.VITE_API_URL
-    : "";
+function readPath(): string {
+  if (typeof window === "undefined") return "/";
+  return window.location.pathname;
+}
+
+function activeLabelFor(path: string): string {
+  if (path === "/" || path.startsWith("/recent")) return "Recent";
+  if (path.startsWith("/live")) return "Live";
+  if (path.startsWith("/backtest")) return "Backtest";
+  if (path.startsWith("/detectors")) return "Detectors";
+  if (path.startsWith("/settings")) return "Settings";
+  return "";
+}
+
+function routeKey(path: string): string {
+  if (path.startsWith("/__crash")) return "crash";
+  if (path.startsWith("/live")) return "live";
+  if (path.startsWith("/backtest")) return "backtest";
+  if (path.startsWith("/detectors")) return "detectors";
+  if (path.startsWith("/settings")) return "settings";
+  return "recent";
+}
+
+function routeContent(key: string): JSX.Element {
+  switch (key) {
+    case "crash":
+      return <CrashOnRender />;
+    case "live":
+      return <LivePage />;
+    case "backtest":
+      return <BacktestPage />;
+    case "detectors":
+      return <DetectorsPage />;
+    case "settings":
+      return <SettingsPage />;
+    default:
+      return <RecentPage />;
+  }
+}
 
 export function App(): JSX.Element {
-  const [health, setHealth] = useState<HealthStatus>("loading");
+  const [path, setPath] = useState<string>(readPath());
 
   useEffect(() => {
-    const controller = new AbortController();
-    void (async () => {
-      try {
-        const res = await fetch(`${API_BASE_URL}/v1/health/live`, {
-          signal: controller.signal,
-        });
-        setHealth(res.ok ? "ok" : "error");
-      } catch {
-        setHealth("error");
-      }
-    })();
+    function handlePop(): void {
+      setPath(readPath());
+    }
+    window.addEventListener("popstate", handlePop);
     return () => {
-      controller.abort();
+      window.removeEventListener("popstate", handlePop);
     };
   }, []);
+
+  function navigate(event: React.MouseEvent<HTMLAnchorElement>, href: string): void {
+    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    window.history.pushState({}, "", href);
+    setPath(href);
+  }
+
+  const active = activeLabelFor(path);
 
   return (
     <div className="mx-auto max-w-[1440px] px-12 py-10 text-text-md">
@@ -55,12 +97,15 @@ export function App(): JSX.Element {
       <nav aria-label="Primary" className="mt-8 border-b border-surface-1">
         <ul className="flex gap-8">
           {NAV_LINKS.map((link) => {
-            const isActive = link.label === ACTIVE_LABEL;
+            const isActive = link.label === active;
             return (
               <li key={link.label}>
                 <a
                   href={link.href}
                   data-active={isActive ? "true" : "false"}
+                  onClick={(e) => {
+                    navigate(e, link.href);
+                  }}
                   className={
                     isActive
                       ? "inline-block pb-3 text-sm font-medium text-text-hi border-b-2 border-accent-green transition-colors duration-fast ease-out"
@@ -76,34 +121,8 @@ export function App(): JSX.Element {
       </nav>
 
       <main className="mt-12">
-        <section>
-          <p className="text-text-lo text-sm">
-            Read-only, sport-agnostic. Recent / Live / Backtest land in upcoming stories.
-          </p>
-        </section>
-
-        <section className="mt-10">
-          <h2 className="text-text-hi text-lg font-semibold">API connectivity</h2>
-          <p className="mt-3 tabular font-mono text-sm">
-            <span className="text-text-lo">target:</span>{" "}
-            <span className="text-text-md">{API_BASE_URL}/v1/health/live</span>
-          </p>
-          <p className="mt-2 tabular font-mono text-sm" data-testid="health-status">
-            <span className="text-text-lo">status:</span> {renderHealth(health)}
-          </p>
-        </section>
+        <ErrorBoundary key={routeKey(path)}>{routeContent(routeKey(path))}</ErrorBoundary>
       </main>
     </div>
   );
-}
-
-function renderHealth(status: HealthStatus): JSX.Element {
-  switch (status) {
-    case "loading":
-      return <span className="text-text-md">checking…</span>;
-    case "ok":
-      return <span className="text-accent-green">ok</span>;
-    case "error":
-      return <span className="text-negative">unreachable</span>;
-  }
 }

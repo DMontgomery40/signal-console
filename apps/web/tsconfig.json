@@ -7,6 +7,13 @@
     "types": ["node", "vite/client"],
     "allowJs": false
   },
-  "include": ["src/**/*", "vite.config.ts", "tailwind.config.ts", "postcss.config.cjs"],
+  "include": [
+    "src/**/*",
+    "vite.config.ts",
+    "vitest.config.ts",
+    "vitest.setup.ts",
+    "tailwind.config.ts",
+    "postcss.config.cjs"
+  ],
   "exclude": ["node_modules", "dist", "build", "e2e"]
 }
