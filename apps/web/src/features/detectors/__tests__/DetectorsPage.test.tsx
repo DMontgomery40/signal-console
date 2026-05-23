@@ -237,23 +237,56 @@ describe("DetectorsPage", () => {
     expect(oppChip.textContent).toBe("SOURCES: POLYMARKET");
   });
 
-  it("renders the 'How to add a detector' panel with the 3-step recipe", async () => {
+  it("renders the 'How to add a detector ALGORITHM' section with the 3-step recipe (US-049)", async () => {
     mockDetectors();
     render(<DetectorsPage />, { wrapper: makeWrapper() });
 
     const panel = await screen.findByTestId("how-to-add-detector");
-    const text = String(panel.textContent);
-    expect(text).toContain("How to add a detector");
-    expect(text).toContain("packages/detectors/src/<name>/index.ts");
-    expect(text).toContain("packages/detectors/src/registry.ts");
-    expect(text).toContain("pnpm verify");
-    // The three numbered steps must be present and ordered.
-    const ones = (text.match(/1\./g) ?? []).length;
-    const twos = (text.match(/2\./g) ?? []).length;
-    const threes = (text.match(/3\./g) ?? []).length;
-    expect(ones).toBeGreaterThanOrEqual(1);
-    expect(twos).toBeGreaterThanOrEqual(1);
-    expect(threes).toBeGreaterThanOrEqual(1);
+    expect(within(panel).getByTestId("how-to-add-algorithm-heading").textContent).toBe(
+      "How to add a detector ALGORITHM",
+    );
+    const steps = within(panel).getByTestId("how-to-add-algorithm-steps");
+    const stepsText = String(steps.textContent);
+    expect(stepsText).toContain("packages/detectors/src/<name>/index.ts");
+    expect(stepsText).toContain("packages/detectors/src/registry.ts");
+    expect(stepsText).toContain("pnpm verify");
+    // Exactly three numbered steps in the algorithm section.
+    expect(steps.querySelectorAll("li").length).toBe(3);
+    // The honest preamble must call out that the recipe applies ONLY when
+    // the new detector consumes data we already ingest.
+    expect(String(panel.textContent)).toContain("existing ingested data");
+  });
+
+  it("renders the 'How to add a data SOURCE' section enumerating ≥7 touch points (US-049)", async () => {
+    mockDetectors();
+    render(<DetectorsPage />, { wrapper: makeWrapper() });
+
+    const panel = await screen.findByTestId("how-to-add-detector");
+    expect(within(panel).getByTestId("how-to-add-source-heading").textContent).toBe(
+      "How to add a data SOURCE (FanDuel, DraftKings, etc.)",
+    );
+    const sourceSteps = within(panel).getByTestId("how-to-add-source-steps");
+    const sourceText = String(sourceSteps.textContent);
+    // Required touch points (per US-049 AC #2). Match on robust keywords —
+    // the wording can drift but each topic must remain on the page.
+    expect(sourceSteps.querySelectorAll("li").length).toBeGreaterThanOrEqual(7);
+    expect(sourceText).toMatch(/ingest worker/i);
+    expect(sourceText).toMatch(/schema/i);
+    expect(sourceText).toMatch(/watermark/i);
+    expect(sourceText).toContain("Source");
+    expect(sourceText).toContain("packages/detectors/src/types.ts");
+    expect(sourceText).toMatch(/sources/i);
+    expect(sourceText).toMatch(/settings/i);
+    expect(sourceText).toMatch(/tests/i);
+    // Honest closer.
+    expect(within(panel).getByTestId("how-to-add-source-multi-iteration").textContent).toBe(
+      "Multi-iteration work — not a one-line change.",
+    );
+    // Links to the end-to-end checklist doc.
+    const link = within(panel).getByTestId("adding-a-source-link");
+    expect(link.tagName).toBe("A");
+    expect(link.textContent).toBe("docs/adding-a-source.md");
+    expect(link.getAttribute("href")).toContain("docs/adding-a-source.md");
   });
 
   it("shows a loading indicator while the query is in flight, then renders cards", async () => {
