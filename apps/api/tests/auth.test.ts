@@ -71,13 +71,12 @@ describe("auth plugin (US-016)", () => {
 
   it("exempts /v1/health/live from the token check", async () => {
     const app = await startApp();
-    // /v1/health/live does not exist as a route yet (US-017 owns that),
-    // but the exempt list should still allow the request through to the
-    // router. We assert the auth plugin did NOT short-circuit with 401:
-    // an unregistered exempt path returns 404 (router) rather than 401 (auth).
+    // /v1/health/live is auth-exempt: a request missing X-Signal-Token must
+    // not be short-circuited with 401 and should reach the route handler.
     const res = await app.inject({ method: "GET", url: "/v1/health/live" });
     expect(res.statusCode).not.toBe(401);
-    expect(res.statusCode).toBe(404);
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ ok: true });
   });
 
   it("picks up a new token after the file is edited (no server restart)", async () => {

@@ -14,11 +14,14 @@
   "dependencies": {
     "@fastify/swagger": "^9.7.0",
     "@fastify/swagger-ui": "^5.2.0",
+    "@signal-console/db": "workspace:*",
     "fastify": "^5.8.0",
     "fastify-plugin": "^5.1.0"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^22.10.10",
+    "better-sqlite3": "^12.4.0",
     "vitest": "^3.2.0"
   }
 }

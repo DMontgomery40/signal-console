@@ -10,12 +10,14 @@ import swaggerUi from "@fastify/swagger-ui";
 import Fastify, { type FastifyInstance } from "fastify";
 
 import authPlugin, { type AuthPluginOptions } from "./plugins/auth";
+import healthRoutes, { type HealthRoutesOptions } from "./routes/health";
 
 const DEFAULT_PORT = 4100;
 const DEFAULT_HOST = "localhost";
 
 export interface BuildServerOptions {
   readonly auth?: AuthPluginOptions;
+  readonly health?: HealthRoutesOptions;
 }
 
 export async function buildServer(options: BuildServerOptions = {}): Promise<FastifyInstance> {
@@ -44,6 +46,8 @@ export async function buildServer(options: BuildServerOptions = {}): Promise<Fas
   app.get("/openapi.json", (_request, reply) => {
     reply.send(app.swagger());
   });
+
+  await app.register(healthRoutes, options.health ?? {});
 
   // Fastify instances are thenable (await app === app.ready()); awaiting here
   // satisfies @typescript-eslint/return-await:always and gives callers a
