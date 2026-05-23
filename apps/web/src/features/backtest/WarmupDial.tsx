@@ -1,10 +1,13 @@
-// Warmup horizontal slider (US-042).
+// Warmup horizontal slider (US-042; demoted to a secondary auto-form control
+// per US-053 AC #8).
 //
-// Sibling of the Cry Wolf rotary dial (US-036). Unlike CryWolf — which is a
-// rotary potentiometer because the trader mental model is an analog knob —
-// the warmup is a linear-feel "how many leading buckets to skip" so a
-// horizontal range slider is the right primitive (per AC #2: `input
-// type=range`).
+// The original US-042 placement put this dial side-by-side with the Cry Wolf
+// rotary, but US-053 reorganised the prominent rotary slot to host
+// CryWolf + Memory. WarmupDial now lives inside the params auto-form below
+// the dual rotary dials — so visual weight is dialled down to match the
+// other form controls (no 96-px headline that would compete with the rotary
+// knobs). Snap chips, verbatim tooltip text, and clamping behaviour are
+// preserved verbatim from the original AC.
 //
 // Bounds and default come from board-mad's paramsSchema.warmupBuckets
 // (min 2, max 20, default 8). The dial does not own these constants; it
@@ -61,21 +64,22 @@ export function WarmupDial({ value, onChange }: WarmupDialProps): JSX.Element {
     <div
       data-testid="warmup-dial-root"
       data-warmup-value={String(clamped)}
-      className="flex flex-col items-center select-none"
+      className="flex flex-col items-start select-none"
     >
-      {/* Headline value — mirrors the CryWolf K headline visual weight (96 px
-          accent-yellow tabular mono) so the two dials read as a pair. */}
-      <div
-        data-testid="warmup-dial-headline"
-        className="tabular font-mono leading-none text-accent-yellow"
-        style={{ fontSize: "96px" }}
-      >
-        {String(clamped)}
+      <div className="flex items-baseline gap-3">
+        {/* Numeric readout — AC #5 ("Current warmupBuckets value displayed
+            numerically next to slider with integer precision"). Mono +
+            tabular figures so digit width is stable as the value scrubs. */}
+        <span
+          data-testid="warmup-dial-headline"
+          className="tabular font-mono text-text-hi text-2xl leading-none"
+        >
+          {String(clamped)}
+        </span>
+        <span className="text-text-lo text-xs uppercase tracking-[0.08em] font-sans">
+          Warmup buckets
+        </span>
       </div>
-
-      <span className="mt-2 text-text-lo text-xs uppercase tracking-[0.08em] font-sans">
-        Warmup buckets
-      </span>
 
       <input
         type="range"
@@ -90,15 +94,15 @@ export function WarmupDial({ value, onChange }: WarmupDialProps): JSX.Element {
         aria-valuemax={WARMUP_MAX}
         aria-valuenow={clamped}
         data-testid="warmup-dial-slider"
-        className="mt-4 w-48 accent-accent-yellow"
+        className="mt-3 w-48 accent-accent-yellow"
       />
 
-      <div className="mt-4 flex items-center gap-3" data-testid="warmup-dial-chips">
+      <div className="mt-3 flex items-center gap-2" data-testid="warmup-dial-chips">
         {SNAP_CHIPS.map((chip) => {
           const active = clamped === chip.value;
           const className = active
-            ? "border border-accent-green bg-accent-green px-3 py-1 text-xs font-mono uppercase tracking-wider text-surface-1"
-            : "border border-accent-green bg-transparent px-3 py-1 text-xs font-mono uppercase tracking-wider text-accent-green hover:bg-accent-green/10";
+            ? "border border-accent-green bg-accent-green px-2.5 py-0.5 text-xs font-mono uppercase tracking-wider text-surface-1"
+            : "border border-accent-green bg-transparent px-2.5 py-0.5 text-xs font-mono uppercase tracking-wider text-accent-green hover:bg-accent-green/10";
           return (
             <button
               key={chip.value}

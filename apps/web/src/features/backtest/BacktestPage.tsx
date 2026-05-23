@@ -39,11 +39,14 @@ import { BacktestTimelines } from "./BacktestTimelines";
 import { CryWolfDial } from "./CryWolfDial";
 import { MemoryDial } from "./MemoryDial";
 import { PbpAnchoredIncidents } from "./PbpAnchoredIncidents";
+import { WarmupDial } from "./WarmupDial";
 import { K_MAD_LIVE } from "@signal-console/detectors/board-mad/config";
 
 const KMAD_PARAM_NAME = "kMad";
 const TRAILING_PARAM_NAME = "trailingBuckets";
+const WARMUP_PARAM_NAME = "warmupBuckets";
 const TRAILING_DEFAULT = 20;
+const WARMUP_DEFAULT = 8;
 
 function readNumber(v: unknown, fallback: number): number {
   return typeof v === "number" && Number.isFinite(v) ? v : fallback;
@@ -653,6 +656,24 @@ export function BacktestPage(): JSX.Element {
             </div>
           ) : null}
 
+          {selectedDetector?.id === BOARD_MAD_DETECTOR_ID ? (
+            // Warmup is a secondary in-memory-recompute control (US-053 AC #8:
+            // demoted from the prominent dial slot, now lives inside the
+            // params auto-form). Rendered above the rest of the auto-form
+            // grid so the three recompute knobs (K + Memory + Warmup) cluster
+            // visually: rotary K + rotary Memory + horizontal Warmup slider.
+            // The remaining auto-form rows (bucketSeconds, weighting,
+            // freshCapSeconds) are prebucket-only and need a fresh server run.
+            <div className="mt-6" data-testid="backtest-warmup-dial">
+              <WarmupDial
+                value={readNumber(form.params[WARMUP_PARAM_NAME], WARMUP_DEFAULT)}
+                onChange={(next) => {
+                  updateParam(WARMUP_PARAM_NAME, next);
+                }}
+              />
+            </div>
+          ) : null}
+
           {selectedDetector !== undefined && parsedProps.length > 0 ? (
             <div
               data-testid="backtest-param-form"
@@ -662,7 +683,9 @@ export function BacktestPage(): JSX.Element {
                 .filter(
                   (p) =>
                     selectedDetector.id !== BOARD_MAD_DETECTOR_ID ||
-                    (p.name !== KMAD_PARAM_NAME && p.name !== TRAILING_PARAM_NAME),
+                    (p.name !== KMAD_PARAM_NAME &&
+                      p.name !== TRAILING_PARAM_NAME &&
+                      p.name !== WARMUP_PARAM_NAME),
                 )
                 .map((p) => (
                   <ParamRow
