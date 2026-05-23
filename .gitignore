@@ -1,0 +1,22 @@
+node_modules/
+dist/
+build/
+.turbo/
+.next/
+coverage/
+*.log
+.DS_Store
+.env
+.env.local
+.env.*.local
+
+# Local ralph runtime state
+scripts/ralph/.last-branch
+scripts/ralph/.last-story
+scripts/ralph/.story-attempts
+scripts/ralph/ralph.log
+
+# Gold DB (54 GB) — never tracked
+data/*.sqlite
+data/*.sqlite-wal
+data/*.sqlite-shm

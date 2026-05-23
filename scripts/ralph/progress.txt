@@ -1,0 +1,18 @@
+# Ralph Progress Log
+Started: Sat May 23 00:45:49 MDT 2026
+---
+
+## 2026-05-23T06:48:00Z - US-001
+- What was implemented: Initialized the pnpm + Turbo monorepo scaffold with strict TypeScript at ~/signal-console/. Created package.json (packageManager pnpm@11.0.9), pnpm-workspace.yaml (apps/*, packages/*), turbo.json (verify/build/dev/typecheck pipelines), tsconfig.base.json (all required strict flags), and .gitignore.
+- Files changed: package.json, pnpm-workspace.yaml, turbo.json, tsconfig.base.json, .gitignore, pnpm-lock.yaml
+- Verification ran: `pnpm install` (exit 0), `pnpm verify` (exit 0, "no tasks were executed" is acceptable for empty workspace), `pnpm typecheck` (exit 0), grep checks for all required tsconfig strict flags
+- **Learnings for future iterations:**
+  - pnpm version is 11.0.9 on this machine. Set packageManager and engines.pnpm to ">=11.0.0" so future bumps don't require manual edits.
+  - Node is v22.22.0 (set engines.node ">=22.0.0").
+  - Turbo resolved to 2.9.14 (Turbo's "no tasks were executed" emits a WARNING but still exits 0 — fine for an empty workspace).
+  - tsconfig.base.json uses moduleResolution=Bundler and verbatimModuleSyntax=true. Future packages should extend this base, not duplicate strict flags. exactOptionalPropertyTypes=true is required by US-001 — note this means `T | undefined` is NOT assignable to `T?:` — use spreading carefully.
+  - The data/ directory is gitignored (*.sqlite, *-wal, *-shm) so the 54 GB gold DB stays out of git.
+  - The scripts/ralph/ runtime state files (.last-branch, .last-story, .story-attempts, ralph.log) are gitignored, but progress.txt is committed because future iterations rely on it.
+  - There is no tsconfig.json at the repo root yet (only tsconfig.base.json); when adding packages, each must have its own tsconfig.json that extends ../../tsconfig.base.json.
+  - Acceptance criterion "Typecheck passes" was satisfied via `pnpm typecheck` (turbo run typecheck) returning exit 0; with zero packages there's nothing to typecheck. Once packages exist, each will need its own typecheck script wired into its package.json.
+---

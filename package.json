@@ -1,0 +1,20 @@
+{
+  "name": "signal-console",
+  "version": "0.0.0",
+  "private": true,
+  "packageManager": "pnpm@11.0.9",
+  "engines": {
+    "node": ">=22.0.0",
+    "pnpm": ">=11.0.0"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "verify": "turbo run verify",
+    "typecheck": "turbo run typecheck"
+  },
+  "devDependencies": {
+    "turbo": "^2.5.10",
+    "typescript": "^5.9.3"
+  }
+}
