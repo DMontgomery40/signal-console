@@ -10,7 +10,13 @@
 // their server-side response schema must match, or the parse here will fail
 // loudly at runtime.
 
-import { useQuery, type UseQueryResult } from "@tanstack/react-query";
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+  type UseMutationResult,
+  type UseQueryResult,
+} from "@tanstack/react-query";
 import { z } from "zod";
 
 const API_BASE_URL: string =
@@ -252,5 +258,33 @@ export function useSettings(): UseQueryResult<Settings, Error> {
   return useQuery({
     queryKey: ["settings"],
     queryFn: ({ signal }) => fetchJson(`/v1/settings`, settingsSchema, signal),
+  });
+}
+
+// /v1/cache — DELETE clears detector_runs (cascade) and returns { deleted }.
+const clearCacheResponseSchema = z.object({ deleted: z.number().int() });
+export type ClearCacheResponse = z.infer<typeof clearCacheResponseSchema>;
+
+async function clearCacheRequest(): Promise<ClearCacheResponse> {
+  const res = await fetch(`${API_BASE_URL}/v1/cache`, {
+    method: "DELETE",
+    headers: { "X-Signal-Token": SIGNAL_TOKEN },
+  });
+  if (!res.ok) {
+    throw new Error(`HTTP ${String(res.status)} ${res.statusText} for /v1/cache`);
+  }
+  const json: unknown = await res.json();
+  return clearCacheResponseSchema.parse(json);
+}
+
+export function useClearCache(): UseMutationResult<ClearCacheResponse, Error, void> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: clearCacheRequest,
+    onSuccess: () => {
+      // Refresh the Settings query so cacheDb.sizeBytes/pageCount reflect the
+      // post-delete state. Gold DB size is independent and unaffected.
+      void queryClient.invalidateQueries({ queryKey: ["settings"] });
+    },
   });
 }
