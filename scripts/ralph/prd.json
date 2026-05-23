@@ -1006,8 +1006,8 @@
         "Running 'pnpm verify:no-stale-plan' exits 0"
       ],
       "priority": 53,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Runbook at docs/sport-onboarding.md covers all four AC items: §3 (UNION ALL extension point in sport-views.ts), §2.2 (v_games participant-JSON divergence paths), §5 (query-plan snapshot + sport-agnostic + sport-specific contract test layers + API/UI smoke), §7 (worked NFL example with SQL diff and fixture file shape), §8 (checklist). pnpm verify:no-stale-plan exits 0."
     }
   ]
 }
