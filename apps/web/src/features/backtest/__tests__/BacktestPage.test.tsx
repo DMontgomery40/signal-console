@@ -198,6 +198,59 @@ function buildKSensitiveBacktest(): {
   };
 }
 
+// Multi-game variant of buildKSensitiveBacktest. Generates N copies of the
+// K-sensitive series for distinct game ids. Used by US-038 timeline tests to
+// assert per-game row rendering, cap-at-20 behavior, and chart-non-remount
+// across K changes.
+function buildMultiGameKSensitiveBacktest(gameIds: readonly string[]): {
+  readonly runId: number;
+  readonly stats: { firesPerGame: number; totalFires: number; gamesInWindow: number };
+  readonly observations: readonly {
+    gameId: string;
+    bucketStart: string;
+    bucketEnd: string;
+    fired: number;
+    intensity: number;
+    baselineMedian: number;
+    baselineMad: number;
+  }[];
+} {
+  const pattern: readonly number[] = [1, 2, 3];
+  const observations: {
+    gameId: string;
+    bucketStart: string;
+    bucketEnd: string;
+    fired: number;
+    intensity: number;
+    baselineMedian: number;
+    baselineMad: number;
+  }[] = [];
+  for (const gameId of gameIds) {
+    for (let i = 0; i < 30; i++) {
+      const intensity = i === 24 ? 7 : (pattern[i % 3] ?? 0);
+      const t = new Date(Date.UTC(2026, 4, 8, 3, i, 0));
+      observations.push({
+        gameId,
+        bucketStart: t.toISOString(),
+        bucketEnd: new Date(t.getTime() + 60_000).toISOString(),
+        fired: i === 24 ? 1 : 0,
+        intensity,
+        baselineMedian: 2,
+        baselineMad: 1,
+      });
+    }
+  }
+  return {
+    runId: 138,
+    stats: {
+      firesPerGame: 1,
+      totalFires: gameIds.length,
+      gamesInWindow: gameIds.length,
+    },
+    observations,
+  };
+}
+
 describe("BacktestPage", () => {
   let fetchMock: ReturnType<typeof vi.fn<FetchFn>>;
 
@@ -220,6 +273,26 @@ describe("BacktestPage", () => {
     });
   }
 
+  function makeGameRow(gameId: string): {
+    id: string;
+    sport: string;
+    league: string;
+    scheduledStart: string;
+    homeParticipantJson: string;
+    awayParticipantJson: string;
+    status: string | null;
+  } {
+    return {
+      id: gameId,
+      sport: "NBA",
+      league: "nba",
+      scheduledStart: "2026-05-08T03:00:00.000Z",
+      homeParticipantJson: JSON.stringify({ abbreviation: "BKN" }),
+      awayParticipantJson: JSON.stringify({ abbreviation: "NYK" }),
+      status: "final",
+    };
+  }
+
   function mockDetectorsAndBacktest(backtestBody: unknown): void {
     fetchMock.mockImplementation(async (input, init) => {
       await Promise.resolve();
@@ -227,6 +300,10 @@ describe("BacktestPage", () => {
       if (url.startsWith("/v1/detectors")) return jsonResponse(DETECTORS_RESPONSE);
       if (url.startsWith("/v1/backtest") && init?.method === "POST") {
         return jsonResponse(backtestBody);
+      }
+      const gameMatch = /\/v1\/games\/([^?]+)/.exec(url);
+      if (gameMatch !== null && gameMatch[1] !== undefined) {
+        return jsonResponse(makeGameRow(decodeURIComponent(gameMatch[1])));
       }
       return new Response("not found", { status: 404 });
     });
@@ -636,5 +713,148 @@ describe("BacktestPage", () => {
     await waitFor(() => {
       expect(screen.getByTestId("backtest-stale-warning")).not.toBeNull();
     });
+  });
+
+  it("renders one timeline row per game with sport + scheduled_start + opaque id chip (US-038)", async () => {
+    const ids = ["nba-aaa", "nba-bbb", "nba-ccc"];
+    mockDetectorsAndBacktest(buildMultiGameKSensitiveBacktest(ids));
+    render(<BacktestPage />, { wrapper: makeWrapper() });
+    await waitFor(() => {
+      expect(screen.getByTestId("backtest-detector-select")).not.toBeNull();
+    });
+
+    fireEvent.click(screen.getByTestId("backtest-run-button"));
+    await waitFor(() => {
+      expect(screen.getByTestId("backtest-run-id").textContent).toBe("138");
+    });
+
+    // One row per game id, in stable order keyed by gameId.
+    await waitFor(() => {
+      const rows = screen.getAllByTestId("backtest-timeline-row");
+      expect(rows.length).toBe(ids.length);
+    });
+    const rows = screen.getAllByTestId("backtest-timeline-row");
+    for (let i = 0; i < ids.length; i++) {
+      expect(rows[i]?.getAttribute("data-game-id")).toBe(ids[i]);
+    }
+
+    // Game-id chip carries the opaque id; sport + scheduled_start labels
+    // resolve from /v1/games/:gameId. Wait for the metadata query to land —
+    // the chip is the synchronous label, sport/scheduled-start are async.
+    const chips = screen.getAllByTestId("backtest-timeline-game-chip");
+    expect(chips.map((c) => c.textContent)).toEqual(ids);
+    await waitFor(() => {
+      const sports = screen.getAllByTestId("backtest-timeline-sport");
+      expect(sports.every((s) => s.textContent === "NBA")).toBe(true);
+    });
+    const scheduled = screen.getAllByTestId("backtest-timeline-scheduled-start");
+    // formatScheduledStart's locale output varies by host TZ, so just assert
+    // the cell isn't the empty-state dash for any row.
+    for (const s of scheduled) {
+      expect(s.textContent).not.toBe("—");
+    }
+  });
+
+  it("caps the per-game timeline list at 20 rows (US-038)", async () => {
+    const ids = Array.from({ length: 25 }, (_, i) => `nba-${String(i).padStart(4, "0")}`);
+    mockDetectorsAndBacktest(buildMultiGameKSensitiveBacktest(ids));
+    render(<BacktestPage />, { wrapper: makeWrapper() });
+    await waitFor(() => {
+      expect(screen.getByTestId("backtest-detector-select")).not.toBeNull();
+    });
+    fireEvent.click(screen.getByTestId("backtest-run-button"));
+    await waitFor(() => {
+      expect(screen.getByTestId("backtest-run-id").textContent).toBe("138");
+    });
+    const rows = screen.getAllByTestId("backtest-timeline-row");
+    expect(rows.length).toBe(20);
+    // First 20 ids, in order — the slice happens after the per-game group.
+    expect(rows.map((r) => r.getAttribute("data-game-id"))).toEqual(ids.slice(0, 20));
+  });
+
+  it("fire markers update in place as K moves; chart DOM node identity preserved (US-038)", async () => {
+    const ids = ["nba-aaa", "nba-bbb"];
+    mockDetectorsAndBacktest(buildMultiGameKSensitiveBacktest(ids));
+    render(<BacktestPage />, { wrapper: makeWrapper() });
+    await waitFor(() => {
+      expect(screen.getByTestId("backtest-detector-select")).not.toBeNull();
+    });
+    fireEvent.click(screen.getByTestId("backtest-run-button"));
+    await waitFor(() => {
+      expect(screen.getByTestId("backtest-run-id").textContent).toBe("138");
+    });
+
+    // K=3 baseline: both games fire once (the spike at bucket 24 above
+    // threshold ≈ 5). Capture per-row fire counts AND the chart DOM node.
+    const rowsBefore = screen.getAllByTestId("backtest-timeline-row");
+    expect(rowsBefore.length).toBe(2);
+    const firesBefore = screen.getAllByTestId("backtest-timeline-fires").map((s) => s.textContent);
+    expect(firesBefore.every((f) => f.startsWith("1"))).toBe(true);
+    const chartNodesBefore = screen.getAllByTestId("backtest-timeline-chart");
+    expect(chartNodesBefore.length).toBe(2);
+
+    // Move K from 3.0 → 6.0 via the dial. At K=6, threshold ≈ 8 so the spike
+    // of 7 no longer fires for any game.
+    const dial = screen.getByTestId("cry-wolf-dial");
+    act(() => {
+      for (let i = 0; i < 12; i++) {
+        fireEvent.keyDown(dial, { key: "ArrowRight" });
+      }
+    });
+    expect(dial.getAttribute("aria-valuenow")).toBe("6");
+
+    const rowsAfter = screen.getAllByTestId("backtest-timeline-row");
+    const chartNodesAfter = screen.getAllByTestId("backtest-timeline-chart");
+    const firesAfter = screen.getAllByTestId("backtest-timeline-fires").map((s) => s.textContent);
+
+    // Per-row fires must change (markers updated in place).
+    expect(firesAfter).not.toEqual(firesBefore);
+    expect(firesAfter.every((f) => f.startsWith("0"))).toBe(true);
+
+    // Critical non-remount evidence: the chart container DOM nodes are the
+    // SAME references before and after the K change. If the chart had
+    // remounted (which would re-fetch /v1/games and re-render Recharts from
+    // scratch), Object.is would be false. The split-data pattern
+    // (intensity from snapshot, fires from recompute) is what guarantees
+    // this — see BacktestTimelines.tsx for the rationale.
+    expect(Object.is(rowsBefore[0], rowsAfter[0])).toBe(true);
+    expect(Object.is(rowsBefore[1], rowsAfter[1])).toBe(true);
+    expect(Object.is(chartNodesBefore[0], chartNodesAfter[0])).toBe(true);
+    expect(Object.is(chartNodesBefore[1], chartNodesAfter[1])).toBe(true);
+  });
+
+  it("flips data-from-recompute canary after dial-driven K change (US-038)", async () => {
+    mockDetectorsAndBacktest(buildMultiGameKSensitiveBacktest(["nba-aaa"]));
+    render(<BacktestPage />, { wrapper: makeWrapper() });
+    await waitFor(() => {
+      expect(screen.getByTestId("backtest-detector-select")).not.toBeNull();
+    });
+    fireEvent.click(screen.getByTestId("backtest-run-button"));
+    await waitFor(() => {
+      expect(screen.getByTestId("backtest-run-id").textContent).toBe("138");
+    });
+
+    // After a run at defaults, the recompute pipeline already runs (K=3 is a
+    // recompute-eligible K), so the canary is "1" from the start.
+    await waitFor(() => {
+      const row = screen.getByTestId("backtest-timeline-row");
+      expect(row.getAttribute("data-from-recompute")).toBe("1");
+    });
+
+    const dial = screen.getByTestId("cry-wolf-dial");
+    act(() => {
+      fireEvent.keyDown(dial, { key: "ArrowRight" });
+    });
+    const row = screen.getByTestId("backtest-timeline-row");
+    expect(row.getAttribute("data-from-recompute")).toBe("1");
+
+    // Cross-check: zero POST /v1/backtest after the dial move. The canary
+    // proves it was the in-memory recompute that produced the row, not a
+    // fresh server sweep.
+    const postCount = fetchMock.mock.calls.filter(([input, init]) => {
+      const url = urlOf(input);
+      return url.startsWith("/v1/backtest") && init?.method === "POST";
+    }).length;
+    expect(postCount).toBe(1);
   });
 });

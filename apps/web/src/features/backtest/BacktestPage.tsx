@@ -23,6 +23,7 @@ import { QueryErrorBanner } from "../../components/QueryErrorBanner";
 import {
   useBacktest,
   useDetectors,
+  type BacktestObservation,
   type BacktestRequest,
   type BacktestResponse,
   type BacktestStats,
@@ -34,6 +35,7 @@ import {
   isBoardMadPrebucketField,
   BOARD_MAD_DETECTOR_ID,
 } from "./clientRecompute";
+import { BacktestTimelines } from "./BacktestTimelines";
 import { CryWolfDial } from "./CryWolfDial";
 import { K_MAD_LIVE } from "@signal-console/detectors/board-mad/config";
 
@@ -286,18 +288,29 @@ function parseGameIds(raw: string): readonly string[] {
     .filter((s) => s.length > 0);
 }
 
+interface RecomputeView {
+  readonly stats: BacktestStats;
+  readonly observations: readonly BacktestObservation[];
+  readonly fromRecompute: boolean;
+}
+
 function clampedStats(
   snapshot: RunSnapshot,
   currentParams: Readonly<Record<string, unknown>>,
-): {
-  readonly stats: BacktestStats;
-  readonly fromRecompute: boolean;
-} {
+): RecomputeView {
   const recomputed = applyClientRecompute(snapshot.detectorId, snapshot.response, currentParams);
   if (recomputed === null) {
-    return { stats: snapshot.response.stats, fromRecompute: false };
+    return {
+      stats: snapshot.response.stats,
+      observations: snapshot.response.observations,
+      fromRecompute: false,
+    };
   }
-  return { stats: recomputed.stats, fromRecompute: true };
+  return {
+    stats: recomputed.stats,
+    observations: recomputed.observations,
+    fromRecompute: true,
+  };
 }
 
 // True when any param that drives prebucket has drifted from the snapshot's
@@ -696,7 +709,7 @@ function ResultsPanel({
   pending,
 }: {
   readonly snapshot: RunSnapshot | null;
-  readonly recompute: { readonly stats: BacktestStats; readonly fromRecompute: boolean } | null;
+  readonly recompute: RecomputeView | null;
   readonly stale: boolean;
   readonly pending: boolean;
 }): JSX.Element {
@@ -716,7 +729,14 @@ function ResultsPanel({
             : "No backtest has run yet. Configure the form and click Run."}
         </p>
       ) : (
-        <RunSummary snapshot={snapshot} recompute={recompute} stale={stale} />
+        <>
+          <RunSummary snapshot={snapshot} recompute={recompute} stale={stale} />
+          <BacktestTimelines
+            snapshotObservations={snapshot.response.observations}
+            recomputedObservations={recompute?.observations ?? snapshot.response.observations}
+            fromRecompute={recompute?.fromRecompute ?? false}
+          />
+        </>
       )}
     </section>
   );
@@ -728,7 +748,7 @@ function RunSummary({
   stale,
 }: {
   readonly snapshot: RunSnapshot;
-  readonly recompute: { readonly stats: BacktestStats; readonly fromRecompute: boolean } | null;
+  readonly recompute: RecomputeView | null;
   readonly stale: boolean;
 }): JSX.Element {
   const stats = recompute?.stats ?? snapshot.response.stats;
