@@ -4,5 +4,6 @@ export type {
   DetectorResult,
   DetectorStats,
   DetectorWindow,
+  Tick,
 } from "./types";
 export { registry, type DetectorRegistry } from "./registry";

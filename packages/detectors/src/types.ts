@@ -5,20 +5,40 @@
 
 import type { z } from "zod";
 
+// Quote tick shape consumed by board-mad (US-009). Mirrors the gold-DB
+// quote_ticks columns the route would SELECT for one game; the caller joins
+// source_markets to project `gameId` onto each row before handing the batch
+// to the detector. impliedProbability is nullable to match the column;
+// detectors apply their own filters (board-mad drops 0.500 anchors and
+// is_heartbeat rows; see board-mad/index.ts).
+export type Tick = {
+  readonly gameId: string;
+  readonly sourceMarketId: string;
+  readonly capturedAt: Date;
+  readonly impliedProbability: number | null;
+  readonly volume: number;
+  readonly isHeartbeat: boolean;
+};
+
 // A detector's invocation scope. Concrete data is loaded by the caller (route or
 // backtest job) and handed to run(); detectors do not open the gold DB themselves.
-// Tick/event arrays land in later stories (US-009 board-mad, US-027 off-price-print)
-// where the shape is anchored to gold-DB columns; this type stays minimal until then.
+// `ticks` is optional/additive (per US-007 guidance) so future detectors
+// (US-027 off-price-print) can introduce their own optional inputs without
+// breaking the contract; each detector reads only the fields it needs.
 export type DetectorWindow = {
   readonly gameIds: readonly string[];
   readonly start: Date;
   readonly end: Date;
+  readonly ticks?: readonly Tick[];
 };
 
 // One detector fire. Bucket-start is the detector output (the bucket whose
 // intensity crossed threshold). Bucket-end is the watcher-confirmation timestamp
-// (used by /v1/board observations for downstream UI).
+// (used by /v1/board observations for downstream UI). `gameId` is required so
+// the cache write path (US-021) can populate detector_observations.game_id
+// without a separate join.
 export type DetectorFire = {
+  readonly gameId: string;
   readonly bucketStart: Date;
   readonly bucketEnd: Date;
   readonly intensity: number;
