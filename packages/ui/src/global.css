@@ -10,6 +10,8 @@
  * in the TS source, while visual review covers the CSS side.
  */
 
+@import "katex/dist/katex.min.css";
+
 :root {
   --surface-0-from: #06140e;
   --surface-0-to: #0e2a1f;
@@ -44,4 +46,66 @@ body {
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+/* ExplainerCard — Radix HoverCard content. */
+
+.explainer-card-content {
+  scrollbar-width: thin;
+  scrollbar-color: var(--text-lo) var(--surface-2);
+  animation-duration: var(--motion-fast);
+}
+
+.explainer-card-content::-webkit-scrollbar {
+  width: 6px;
+}
+
+.explainer-card-content::-webkit-scrollbar-track {
+  background: var(--surface-2);
+}
+
+.explainer-card-content::-webkit-scrollbar-thumb {
+  background: var(--text-lo);
+  border-radius: 3px;
+}
+
+.explainer-prose p {
+  margin: 0 0 0.75em 0;
+}
+
+.explainer-prose p:last-child {
+  margin-bottom: 0;
+}
+
+.explainer-prose code {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  background: var(--surface-2);
+  padding: 0.05em 0.35em;
+  border-radius: 2px;
+  color: var(--text-hi);
+}
+
+.explainer-prose table {
+  border-collapse: collapse;
+  margin: 0.5em 0;
+  width: 100%;
+}
+
+.explainer-prose th,
+.explainer-prose td {
+  border-bottom: 1px solid var(--surface-2);
+  padding: 0.25em 0.5em;
+  text-align: left;
+}
+
+.explainer-prose th {
+  color: var(--text-lo);
+  font-weight: 500;
+}
+
+.explainer-prose-formal .katex-display {
+  margin: 0.75em 0;
+  overflow-x: auto;
+  overflow-y: hidden;
 }

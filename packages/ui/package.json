@@ -9,14 +9,35 @@
     "./tokens": "./src/tokens.ts",
     "./tailwind-preset": "./src/tailwind-preset.cjs",
     "./global.css": "./src/global.css",
-    "./utilities.css": "./src/utilities.css"
+    "./utilities.css": "./src/utilities.css",
+    "./components/ExplainerCard": "./src/components/ExplainerCard.tsx"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "verify": "vitest run"
   },
+  "peerDependencies": {
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "dependencies": {
+    "@radix-ui/react-hover-card": "^1.1.15",
+    "katex": "^0.16.22",
+    "react-markdown": "^9.1.0",
+    "rehype-katex": "^7.0.1",
+    "remark-math": "^6.0.0"
+  },
   "devDependencies": {
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "jsdom": "^29.1.1",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
     "vitest": "^3.2.0"
   }
 }
