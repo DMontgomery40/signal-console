@@ -49,6 +49,126 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* Form-control base styling — design-language.md §"Components style" inputs:
+ * surface-1 background, 1px text-lo border, focus border accent-green, no
+ * floating labels. Without this, browser defaults (white background) collide
+ * with the dark theme and leave text invisible-on-white. Applies globally so
+ * every <input>, <select>, <textarea> in the app inherits without per-component
+ * className boilerplate. Components can still override via Tailwind utilities
+ * when they need (e.g. the Cry Wolf dial doesn't render a native input).
+ */
+
+input,
+select,
+textarea {
+  background-color: var(--surface-1);
+  color: var(--text-hi);
+  border: 1px solid var(--text-lo);
+  border-radius: 4px;
+  padding: 6px 10px;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: 1.4;
+  transition: border-color var(--motion-fast) ease-out;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--text-lo);
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  outline: none;
+  border-color: var(--accent-green);
+}
+
+input:disabled,
+select:disabled,
+textarea:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Numeric / mono inputs (Cry Wolf dial, K value displays, anywhere numerics
+ * should align). When the input has `font-mono` Tailwind class OR the inline
+ * font-variant tabular-nums, we keep the design-language treatment but switch
+ * the family to the mono stack. */
+input[type="number"],
+input.tabular,
+select.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Native date/time pickers — make the indicator icon legible against the dark
+ * surface. Without invert(), the picker chevron renders almost-black on the
+ * dark input fill. */
+input[type="date"]::-webkit-calendar-picker-indicator,
+input[type="datetime-local"]::-webkit-calendar-picker-indicator,
+input[type="time"]::-webkit-calendar-picker-indicator {
+  filter: invert(0.7);
+  cursor: pointer;
+}
+
+/* Native range slider — used by the WarmupDial (US-042) and any future linear
+ * controls. Track + thumb in design tokens. */
+input[type="range"] {
+  background: transparent;
+  border: none;
+  padding: 0;
+  -webkit-appearance: none;
+  appearance: none;
+  height: 24px;
+}
+
+input[type="range"]::-webkit-slider-runnable-track {
+  background-color: var(--surface-1);
+  height: 8px;
+  border-radius: 999px;
+}
+
+input[type="range"]::-moz-range-track {
+  background-color: var(--surface-1);
+  height: 8px;
+  border-radius: 999px;
+  border: none;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  background-color: var(--accent-yellow);
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid var(--text-hi);
+  margin-top: -5px;
+  cursor: pointer;
+}
+
+input[type="range"]::-moz-range-thumb {
+  background-color: var(--accent-yellow);
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid var(--text-hi);
+  cursor: pointer;
+}
+
+/* Radio + checkbox — keep size but recolor so the indicator + ring use design
+ * tokens, not the OS accent. */
+input[type="radio"],
+input[type="checkbox"] {
+  accent-color: var(--accent-green);
+  background-color: var(--surface-1);
+  border: 1px solid var(--text-lo);
+  padding: 0;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+}
+
 /* ExplainerCard — backdrop overlay. Rendered inside HoverCard.Portal as a
  * sibling to the Content so it mounts/unmounts in sync with the card. The
  * backdrop blurs and dims the rest of the page while keeping the card crisp
