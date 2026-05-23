@@ -83,27 +83,46 @@ If a story you pick contains an acceptance criterion that requires owner action,
 
 **Metadata is not verification.** "File X exists" or "snapshot matches" does NOT prove a UI works. For any story under US-022 onward whose acceptance touches `apps/web/` or `packages/ui/`, you must produce visual evidence via the computer-use and claude-in-chrome MCPs before flipping `passes: true`.
 
-### ⚠️ PLAYWRIGHT IS MANDATORY, NOT OPTIONAL (revised — read carefully) ⚠️
+### ⚠️ VISUAL VERIFICATION RULES — PIVOT, DON'T QUIT (revised again) ⚠️
 
-**Observed behavior on US-036 and US-037: Ralph skipped Playwright entirely and shipped both UI stories using only HTTP-smoke + bundle-grep verification. That is a violation.** The HTTP-smoke path was meant as a LAST RESORT after a documented Playwright failure, not as the default. The owner has explicitly observed: "nothing has popped up. so it's doing it programmatically through metadata, which is against the rules, no headless."
+**Observed: US-036 and US-037 shipped with zero visible browser pops and zero rasterized screenshots — Ralph skipped Playwright entirely via the HTTP-smoke fallback. Owner flagged this as a rule violation.** Subsequent rule revision said "BLOCKED after two 5-min timeouts." Owner flagged THAT too: "if it hangs for 3 minutes it hangs for 5; don't just have it quit." Both wrong. Here's the right rule.
 
-**The new rules — strict order, no skipping ahead:**
+**The principle:** real, headed, on-screen browser interaction with real screenshot evidence is mandatory. If one mechanism hangs, **pivot immediately to another mechanism** — DON'T sit there waiting for the dead one, and DON'T give up. You have multiple paths:
 
-1. **You MUST attempt Playwright/computer-use first for every UI story.** No skipping. No "I anticipate it might hang, so I'll use HTTP smoke." The first action on every UI story's verification step is `browser_navigate` against the running dev server.
+**Path A — Playwright MCP (`@playwright/mcp` via `mcp__plugin_testing-suite_playwright-server__*` tools):**
+- Try this first. `browser_navigate` with `{ headless: false }` so the window pops up on screen.
+- If a single `browser_*` call has not returned in **90 seconds**, do not continue waiting. Move to Path B.
 
-2. **The browser MUST be visible (headed mode), not headless.** When invoking `browser_navigate` or any browser tool that supports launch options, request `{ headless: false }` explicitly. The owner needs to see the browser window pop up on screen as evidence Ralph is actually exercising the UI. A headless run is not acceptable verification — it produces identical evidence to "no run at all" from the owner's perspective.
+**Path B — codemode-mcp Deno scripts:**
+- `codemode-mcp` (configured at `~/.config/codemode-mcp/codemode-mcp-temp/index.ts`) lets you write small Deno scripts that talk to MCPs differently AND can shell out via `Deno.Command`. Use it when Playwright MCP's wrapper is the thing hanging.
+- Example: a Deno script that drives `playwright` the npm package directly (bypassing the MCP wrapper), launches Chromium headed, navigates, drags, screenshots, exits. Same effect, different layer.
 
-3. **Capture real screenshots via `browser_take_screenshot`.** Not bundle-grep, not curl-of-rendered-HTML. Actual rasterized PNG screenshots written to `apps/web/.ralph-screenshots/<story-id>/`. The 3-screenshot minimum (baseline / primary interaction / edge or error state) is still in force.
+**Path C — macOS native tools via Bash:**
+- `open -a "Google Chrome" "http://localhost:5173"` — pops Chrome to the foreground.
+- `screencapture ~/signal-console/apps/web/.ralph-screenshots/<story-id>/<n>-<label>.png` — full-screen rasterized PNG. `-R x,y,w,h` for region; `-l <window-id>` for a specific window.
+- `osascript -e 'tell application "System Events" to click at {x, y}'` — programmatic click. For drag: `osascript -e 'tell application "System Events" to do shell script "..."'` with cliclick (or `osascript` mouse-down/up patterns).
+- This path is always available and never hangs on MCP.
 
-4. **Per-tool-call timeout is 5 minutes (raised from 3), not "abort and skip."** If a single `browser_*` call takes more than 5 minutes to return, log the EXACT tool call + arguments + the elapsed time in `progress.txt`, then retry ONCE with simpler arguments (e.g. drop a `waitFor` selector, increase the launch timeout). Only if the SECOND attempt also exceeds 5 minutes is Playwright considered failed for this attempt.
+**Path D — claude-in-chrome MCP** (if installed): use directly if it's loaded. If `mcp__claude-in-chrome__*` tools are missing from your tool surface, skip to Path B or C.
 
-5. **HTTP smoke is a SUPPLEMENT, not a substitute.** It is allowed to run additional `curl`/`sqlite3`/`vitest` checks for parity assertions (DB row counts matching UI numbers, real-data smokes). But it does NOT satisfy the visual-verification requirement on its own. Two real screenshots + one HTTP parity smoke is the minimum, not "all HTTP, no screenshots."
+**Path E — `mcp__computer-use__*` tools** (call `mcp__computer-use__request_access` first with the apps you need; browsers are tier `"read"` so use for screenshots only, not clicks). Combine with Path C for click/type.
 
-6. **If Playwright is genuinely broken** (two consecutive 5-minute timeouts on the same story across two iterations): the story is **BLOCKED**, NOT passes:true via fallback. Mark `passes: false`, set `notes` to: "BLOCKED: Playwright MCP timeouts on `<tool-call>` after two attempts. Bundle grep + DB parity verified the code shipped correctly; visual verification requires owner intervention or MCP fix." This makes the failure visible to the owner. The circuit breaker (5 attempts) will skip the story to a later run, but the owner sees the visual-verification debt accumulating in the `notes` of each blocked story.
+**The flow:**
+1. Try Path A. If it hangs (>90s on one tool call), abandon Path A for this story attempt.
+2. Pivot to Path B (codemode Deno script). Give it 90s.
+3. If B fails too, Path C (macOS native). Path C cannot hang on MCP because there is no MCP.
+4. Real PNGs land in `apps/web/.ralph-screenshots/<story-id>/`. The story is `passes: true` once they exist, regardless of which path captured them.
 
-7. **NO MORE "Visual screenshots: NOT captured. Per CLAUDE.md HANG MODE protocol..."** in `progress.txt`. That phrase is now a code smell. Either screenshots were captured (cite the file paths) or the story is BLOCKED with notes (per rule 6). There is no third option.
+**Hard rules:**
 
-**The screenshot evidence is what the owner audits.** A UI story with no screenshots is a UI story that wasn't visually verified. Period.
+- **The browser MUST be visible (headed/foreground).** Owner needs to see it pop up. A headless run with no on-screen evidence does not satisfy this.
+- **Screenshots MUST be real rasterized PNGs in `.ralph-screenshots/<story-id>/`.** Bundle-grep + curl alone is NOT sufficient. Three screenshots minimum (baseline / primary interaction / edge or error state).
+- **HTTP smokes are SUPPLEMENTS, not substitutes.** Run them for parity assertions (DB row counts, API contract). They strengthen verification; they do not replace screenshots.
+- **NO `passes: true` on "Visual screenshots: NOT captured" grounds.** That phrase in `progress.txt` is now a contradiction — if it's true, you used the wrong path. Pivot.
+- **NO `BLOCKED` shortcut.** If A hangs, try B. If B hangs, try C. C uses Bash + macOS built-ins and cannot hang on MCP wrappers. There is always a path that produces a screenshot.
+- **Per-call timeout is 90 seconds.** Not 3 minutes, not 5 minutes — a hang at 90s is a hang. Pivot the moment you cross it.
+
+**Document in `progress.txt`** which path produced each screenshot (e.g. "Path A succeeded for baseline; Path C used after Path A hung on browser_drag; final screenshots in apps/web/.ralph-screenshots/US-NNN/").
 
 **Procedure per UI story:**
 
