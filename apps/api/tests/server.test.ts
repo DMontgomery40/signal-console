@@ -1,13 +1,28 @@
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { buildServer } from "../src/server";
 
 type FastifyApp = Awaited<ReturnType<typeof buildServer>>;
 
-const ctx: { current: FastifyApp | null } = { current: null };
+const TEST_TOKEN = "scaffold-test-token";
+
+const ctx: { current: FastifyApp | null; tempDir: string; tokenPath: string } = {
+  current: null,
+  tempDir: "",
+  tokenPath: "",
+};
 
 beforeEach(async () => {
-  const app = await buildServer();
+  ctx.tempDir = mkdtempSync(join(tmpdir(), "signal-console-server-"));
+  ctx.tokenPath = join(ctx.tempDir, "token");
+  writeFileSync(ctx.tokenPath, `${TEST_TOKEN}\n`, "utf8");
+  const app = await buildServer({
+    auth: { tokenPath: ctx.tokenPath, cacheTtlMs: 0 },
+  });
   await app.ready();
   ctx.current = app;
 });
@@ -17,6 +32,7 @@ afterEach(async () => {
     await ctx.current.close();
     ctx.current = null;
   }
+  rmSync(ctx.tempDir, { recursive: true, force: true });
 });
 
 function getApp(): FastifyApp {
@@ -24,6 +40,10 @@ function getApp(): FastifyApp {
     throw new Error("app not initialised");
   }
   return ctx.current;
+}
+
+function authHeaders(): { "x-signal-token": string } {
+  return { "x-signal-token": TEST_TOKEN };
 }
 
 function isValidOpenApiDoc(v: unknown): boolean {
@@ -39,7 +59,11 @@ function isValidOpenApiDoc(v: unknown): boolean {
 
 describe("Fastify server scaffold (US-015)", () => {
   it("GET /openapi.json returns a valid OpenAPI 3.x document", async () => {
-    const res = await getApp().inject({ method: "GET", url: "/openapi.json" });
+    const res = await getApp().inject({
+      method: "GET",
+      url: "/openapi.json",
+      headers: authHeaders(),
+    });
     expect(res.statusCode).toBe(200);
     expect(res.headers["content-type"]).toMatch(/application\/json/);
     const body: unknown = res.json();
@@ -47,7 +71,11 @@ describe("Fastify server scaffold (US-015)", () => {
   });
 
   it("registers @fastify/swagger-ui at /docs/", async () => {
-    const res = await getApp().inject({ method: "GET", url: "/docs/" });
+    const res = await getApp().inject({
+      method: "GET",
+      url: "/docs/",
+      headers: authHeaders(),
+    });
     expect([200, 302]).toContain(res.statusCode);
   });
 });

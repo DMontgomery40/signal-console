@@ -9,13 +9,21 @@ import swagger from "@fastify/swagger";
 import swaggerUi from "@fastify/swagger-ui";
 import Fastify, { type FastifyInstance } from "fastify";
 
+import authPlugin, { type AuthPluginOptions } from "./plugins/auth";
+
 const DEFAULT_PORT = 4100;
 const DEFAULT_HOST = "localhost";
 
-export async function buildServer(): Promise<FastifyInstance> {
+export interface BuildServerOptions {
+  readonly auth?: AuthPluginOptions;
+}
+
+export async function buildServer(options: BuildServerOptions = {}): Promise<FastifyInstance> {
   const app = Fastify({
     logger: { level: "info" },
   });
+
+  await app.register(authPlugin, options.auth ?? {});
 
   await app.register(swagger, {
     openapi: {
