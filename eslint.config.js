@@ -7,7 +7,8 @@
 const js = require("@eslint/js");
 const tseslint = require("typescript-eslint");
 const reactHooks = require("eslint-plugin-react-hooks");
-const functional = require("eslint-plugin-functional");
+// eslint-plugin-functional is ESM-only; require() wraps it in { default, __esModule }.
+const functional = require("eslint-plugin-functional").default;
 const globals = require("globals");
 
 const requiredTypeAwareRules = {

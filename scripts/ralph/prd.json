@@ -120,8 +120,8 @@
         "Typecheck passes"
       ],
       "priority": 7,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "New workspace package @signal-console/detectors added (packages/detectors/{package.json,tsconfig.json,src/{types.ts,registry.ts,index.ts}}); only runtime dep is zod ^3.23.8. Detector<TParams extends z.ZodTypeAny> interface has the four required fields plus a run((window: DetectorWindow, params: z.infer<TParams>) => DetectorResult) signature. DetectorWindow/Fire/Stats/Result placeholder types are exported alongside so US-009 can fill in tick-level shapes without re-typing the contract; the window type intentionally does not include the tick array yet (gold-DB column shapes land with US-009). Registry exports `registry: ReadonlyMap<string, Detector<z.ZodTypeAny>>` initialised empty; the existential per-key params shape is recovered by narrowing on `registry.get(id)` at call sites. Also fixed a pre-existing eslint.config.js bug surfaced by this story: `require('eslint-plugin-functional')` returns the ESM wrapper { default, __esModule }, so the plugin's rules were unreachable until the first file under packages/detectors/ tripped the rule-not-found error; switched to `require(...).default`."
     },
     {
       "id": "US-008",
