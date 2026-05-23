@@ -155,8 +155,8 @@
         "Typecheck passes"
       ],
       "priority": 9,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Board-mad ported with functional patterns required by eslint-plugin-functional (no-let, immutable-data): filter/flatMap/toSorted/reduce; bucket sum via Array.from(new Set(...))+filter+reduce (O(B*C); US-033 prebucket/sweep is where the O(n) optimisation lands). DetectorFire shape extended with gameId (cache schema detector_observations.game_id NOT NULL requires it); DetectorWindow extended with optional ticks per US-007 additive guidance. Total LOC under packages/detectors/src/board-mad/ = 188 (config.ts 7 + index.ts 181), well under the 250 ceiling. Six vitest tests cover identity, default Params, AC empty-input, a synthetic 13-tick single-market spike that fires at bucket 720, heartbeat/0.500 sanitation, and freshCapSeconds gating."
     },
     {
       "id": "US-010",
