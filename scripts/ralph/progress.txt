@@ -1082,3 +1082,58 @@ Started: Sat May 23 00:45:49 MDT 2026
   - **Game ID with the fattest live-coverage proof on this gold DB: `nba-0042500222` (OKC vs LAL, May 7 final).** Multiple unique fires (32 at K=3.0), real PBP, real fanout data. Use this when you need an end-to-end UI smoke against representative data.
   - **The fanout panel selector for snapshots is `[data-testid="fanout-panel"]`. The past-fires bucket trigger is `[data-testid="bucket-explainer-trigger"]` (32 instances on the OKC vs LAL game).** Useful for cross-page interaction tests in future stories.
 ---
+
+## 2026-05-23T20:55:00Z - US-053
+- What was implemented: Dual rotary dials (K + Memory) in Backtest backed by a new <RotaryDial> primitive in packages/ui; runtime-editable detector defaults (kMadLive, trailingBuckets, warmupBuckets, freshCapSeconds, pbpPre/PostBufferMs) at ~/signal-console/data/detector-defaults.json wired into both /v1/board and /v1/backtest with a 5-s TTL cache; POST /v1/settings/detector-defaults route doing atomic .tmp+rename + board-mad version-suffix invalidation; Settings page Detector-defaults section above Database with ExplainerCard-wrapped fields + Reset-to-default + 200ms yellow flash; 15+ new explainer entries (trailing-window-memory + 14× settings-* tooltips on every existing Settings field).
+- Files changed:
+  * NEW packages/ui/src/components/RotaryDial.tsx (generic dial primitive)
+  * NEW apps/web/src/features/backtest/MemoryDial.tsx (range 5-60, snap chips Quick/Default/Steady)
+  * NEW apps/api/src/services/detector-defaults.ts (Zod-schema + TTL + atomic write + version-suffix derivation)
+  * apps/web/src/features/backtest/CryWolfDial.tsx (now a configured RotaryDial instance, K range 2-8, Sensitive/Calm chips)
+  * apps/web/src/features/backtest/BacktestPage.tsx (dual dials row + filters kMad/trailingBuckets from auto-form; warmupBuckets demoted to auto-form per AC #8)
+  * apps/web/src/features/settings/SettingsPage.tsx (new DetectorDefaultsSection above DbSection; every existing label wrapped in ExplainerDt)
+  * apps/api/src/services/board.ts (reads defaults at request time; detector_version derived from defaults hash)
+  * apps/api/src/services/backtest.ts (per-game PBP-window narrowing uses defaults; same buffers as board.ts)
+  * apps/api/src/services/settings.ts (board-mad version reflects runtime defaults; detectorDefaults included in /v1/settings payload)
+  * apps/api/src/routes/settings.ts (POST /v1/settings/detector-defaults schema + validation)
+  * apps/web/src/data/queries.ts (DetectorDefaults type + useUpdateDetectorDefaults mutation hook)
+  * packages/ui/src/explainers.ts (+15 entries: trailing-window-memory, settings-detector-defaults, settings-k-mad-live, settings-trailing-buckets, settings-warmup-buckets, settings-fresh-cap-seconds, settings-pbp-pre-buffer-ms, settings-pbp-post-buffer-ms, settings-db-path, settings-db-mode, settings-db-wal-bytes, settings-db-page-count, settings-db-page-size, settings-db-last-modified, settings-source-heartbeat, settings-source-last-sync, settings-source-last-error, settings-source-rate-limit, settings-errors-filter, settings-app-version, settings-detector-versions, settings-db-schema-version — well past the AC #5 "at least 10" floor)
+  * packages/ui/src/index.ts (export RotaryDial + props)
+  * apps/api/tests/settings.test.ts (added cases for POST detector-defaults round-trip and version-suffix derivation)
+  * apps/web/src/features/backtest/__tests__/BacktestPage.test.tsx, CryWolfDial.test.tsx, SettingsPage.test.tsx (updated for new layout)
+- Verification ran:
+  * typecheck: `pnpm typecheck` → 5/5 packages OK
+  * gates: `pnpm verify:no-stale-plan` → 0 forbidden hits; `pnpm verify:no-hex-literals` → 0 hits outside tokens
+  * detector contract tests: `pnpm --filter @signal-console/detectors test` → 42/42 pass (canonical K=6 + K=3 + Reaves snapshot all green)
+  * api tests: `pnpm --filter @signal-console/api test tests/settings.test.ts` → 12/12; tests/backtest.test.ts → 10/10
+  * web tests: `pnpm --filter @signal-console/web test src/features/backtest src/features/settings` → 61/61
+  * Pre-existing failures observed and confirmed NOT caused by this story (verified via `git stash` round-trip):
+    - apps/web `useGames` test asserts X-Signal-Token: "dev" but .env.local injects a real token. Fails on main HEAD too.
+    - apps/api board.ts "warm 5x faster than cold" timing-sensitive flake — passes in isolation (2-4s), times out (>5s) when run with the full suite due to cumulative load. Pre-existing; isolated runs reproducibly pass.
+- AC #9 (round-trip stability — REAL backtest against ~/signal-console/data/signal-console.sqlite, 9 NBA playoff games from the May 5-19, 2026 window including the K=6 Hartenstein anchor game nba-0042500222):
+    X  = K=3.0, trailing=20: firesPerGame = 20.22222222222222
+    Y  = K=6.0, trailing=20: firesPerGame =  9.33333333333333
+    Z  = K=6.0, trailing=40: firesPerGame =  3.88888888888889
+    X' = K=3.0, trailing=20 (revert): firesPerGame = 20.22222222222222
+    |X - X'| = 0.0 (exact, well below the 1e-9 tolerance)
+    Every visible fires/game across the four reads is positive, finite, and bounded between 0 and the in-window bucket count — none of the four reads are NaN or ∞.
+- AC #10 (anti-empirical-disagreement, pre-fix sanity check):
+    K=3.0 / trailing=20 / 9 games over a 14-day window including nba-0042500222 → fires/game = 20.22, which is **IN the AC #10 range [15, 25]**. The pre-e2447ad value was ~249 fires/game — confirming the PBP-anchored window narrowing fix held under the new detector-defaults service. Mean is consistent with the canonical contract snapshot (66-game K=3 volume-weighted mean = 19.4697; see packages/detectors/src/board-mad/__tests__/__snapshots__/canonical.test.ts.snap).
+- Visual verification (Path A — Playwright MCP, headed Chromium on screen):
+    apps/web/.ralph-screenshots/US-053/1-backtest-baseline.png — Backtest page baseline at 1440x900; dual rotary dials side-by-side (Threshold (K) at 3.00, Memory at 20); chips Sensitive/Calm + Quick/Default/Steady; Estimated fires/game label centered below
+    apps/web/.ralph-screenshots/US-053/2-k-dial-mid-drag.png — Cry Wolf K dial mid-drag (indicator angle different from baseline; chip flash visible)
+    apps/web/.ralph-screenshots/US-053/3-memory-dial-mid-drag.png — Memory dial mid-drag (right knob rotated; left at default)
+    apps/web/.ralph-screenshots/US-053/4-settings-detector-defaults.png — full Settings page showing the new Detector-defaults section ABOVE the Database section, with all 6 fields (K (live) 3, Trailing buckets 20, Warmup buckets 8, Freshness cap 300, PBP pre-buffer 300000, PBP post-buffer 60000), each label with yellow dashed underline
+    apps/web/.ralph-screenshots/US-053/5-settings-explainer-hover.png — ExplainerCard hover popup on the "K (live)" label; PLAIN ENGLISH section legible sans, divider, FORMAL section with rendered KaTeX (K, MAD(·), fire rule), persistent through the 8px bridge
+    apps/web/.ralph-screenshots/US-053/6-backtest-1024x768.png — full Backtest page at responsive 1024x768; dials remain side-by-side in the same horizontal row, no overflow, no scrollbar conflicts
+    Also verified directly via browser_evaluate that auto-form labels render correctly: bucketSeconds / weighting / warmupBuckets / freshCapSeconds all have computed color rgb(255,255,255) and proper bounding boxes (verified live in headed Chromium — earlier scaling artifact in the full-page screenshot made the labels look blank but they render legibly when viewed at native resolution; see scripts/ralph/US-053-debug-form.png in playwright temp dir for the focused capture).
+- **Learnings for future iterations:**
+  - The dev API at localhost:4100 is started against the moved 54 GB gold DB (~/signal-console/data/signal-console.sqlite). Use header `X-Signal-Token: <value from apps/web/.env.local>` — NOT "dev" — when poking it. The "dev" fallback in src/data/queries.ts is only the build-time default; the running API has its own real token configured in apps/api/.env.local.
+  - Calling POST /v1/backtest with `game_ids` that names ~20 games against the gold DB sometimes throws SQLITE_CORRUPT (the 54 GB DB has known concurrency edge cases). Work around it by chunking into ≤10 games per request; the cache makes the round-trip cheap on subsequent reads.
+  - The detector-defaults service reads from ~/signal-console/data/detector-defaults.json with a 5-second TTL cache. When the file is absent or malformed, it returns BASELINE_DEFAULTS silently (no error). This means deleting the file is the supported "reset to baseline" path — and the runtime board-mad version drops the `+def.<hash>` suffix automatically so all cached rows remain valid (no manual /v1/cache flush needed).
+  - For the in-memory recompute pipeline (clientRecompute.ts) to handle a new knob, two things must line up: (a) the param must be in the BoardMadParams Zod schema, and (b) `isBoardMadPrebucketField` in clientRecompute.ts must return false for that param (else dragging it triggers a re-run hint instead of in-memory recompute). kMad and trailingBuckets and warmupBuckets currently route through in-memory recompute; bucketSeconds / weighting / freshCapSeconds re-roll prebucket.
+  - The auto-form ParamRow's outer wrapper uses `text-text-lo` and the inner labelEl uses `text-text-hi`; the inner wins via CSS specificity (deeper element) and labels render white. The full-page Chromium screenshots scale 1425x1740 down for display and the text can look invisible at the small scale — verify with focused element screenshots (browser_evaluate's getBoundingClientRect or browser_take_screenshot with `target`).
+  - The "warmupBuckets" demotion per AC #8 was implemented as: WarmupDial.tsx still exists on disk but is NOT imported by BacktestPage; warmupBuckets renders as a regular NumberControl in the auto-form below the dual rotary dials. This is the cleaner reading of AC #8 ("not removed, but moved INSIDE the params auto-form").
+  - Playwright MCP `mkdir`/`mv` outside the playwright sandbox roots fails with "File access denied: outside allowed roots". The sandbox roots are `scripts/ralph` and `scripts/ralph/.playwright-mcp/`. Save screenshots there first with relative paths, then `mv` them to `apps/web/.ralph-screenshots/US-NNN/` via Bash.
+  - The K=6 Hartenstein-anchor game nba-0042500222 individually fires ~32 buckets at K=3, well above the 66-game canonical mean of ~19.5 — high-volatility playoff game is an outlier. Don't use the AC #10 [15,25] range as a single-game gate; always use ≥9 games to get a stable mean.
+---

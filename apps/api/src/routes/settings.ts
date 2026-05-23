@@ -12,6 +12,11 @@ import { fileURLToPath } from "node:url";
 import { CACHE_DB_PATH, GOLD_DB_PATH } from "@signal-console/db";
 import type { FastifyPluginAsync } from "fastify";
 
+import {
+  DetectorDefaultsSchema,
+  writeDetectorDefaults,
+  type DetectorDefaults,
+} from "../services/detector-defaults";
 import { readSettings, type SettingsResponse } from "../services/settings";
 
 export interface SettingsRoutesOptions {
@@ -151,7 +156,48 @@ const responseSchema = {
         dbSchemaVersion: { type: "integer" },
       },
     },
+    detectorDefaults: {
+      type: "object",
+      required: [
+        "kMadLive",
+        "trailingBuckets",
+        "warmupBuckets",
+        "freshCapSeconds",
+        "pbpPreBufferMs",
+        "pbpPostBufferMs",
+      ],
+      properties: {
+        kMadLive: { type: "number" },
+        trailingBuckets: { type: "integer" },
+        warmupBuckets: { type: "integer" },
+        freshCapSeconds: { type: "integer" },
+        pbpPreBufferMs: { type: "integer" },
+        pbpPostBufferMs: { type: "integer" },
+      },
+      additionalProperties: false,
+    },
   },
+} as const;
+
+const detectorDefaultsResponseSchema = {
+  type: "object",
+  required: [
+    "kMadLive",
+    "trailingBuckets",
+    "warmupBuckets",
+    "freshCapSeconds",
+    "pbpPreBufferMs",
+    "pbpPostBufferMs",
+  ],
+  properties: {
+    kMadLive: { type: "number" },
+    trailingBuckets: { type: "integer" },
+    warmupBuckets: { type: "integer" },
+    freshCapSeconds: { type: "integer" },
+    pbpPreBufferMs: { type: "integer" },
+    pbpPostBufferMs: { type: "integer" },
+  },
+  additionalProperties: false,
 } as const;
 
 const settingsRoutes: FastifyPluginAsync<SettingsRoutesOptions> = (app, opts) => {
@@ -183,6 +229,38 @@ const settingsRoutes: FastifyPluginAsync<SettingsRoutesOptions> = (app, opts) =>
         ...(maxErrors !== undefined ? { maxErrors } : {}),
       });
       reply.send(body);
+    },
+  );
+
+  app.post(
+    "/v1/settings/detector-defaults",
+    {
+      schema: {
+        tags: ["internal"],
+        summary: "Update detector defaults (atomic write + cache invalidate)",
+        description:
+          "Validates the body against the runtime-editable defaults schema, atomically writes ~/signal-console/data/detector-defaults.json (.tmp + rename), and returns the canonical resolved values. The board-mad runtime detector_version reflects the new defaults on next /v1/settings or /v1/board call so cache rows naturally invalidate.",
+        response: {
+          200: detectorDefaultsResponseSchema,
+          400: {
+            type: "object",
+            required: ["error"],
+            properties: {
+              error: { type: "string" },
+              detail: { type: "string" },
+            },
+          },
+        },
+      },
+    },
+    (request, reply) => {
+      const parsed = DetectorDefaultsSchema.safeParse(request.body);
+      if (!parsed.success) {
+        reply.code(400).send({ error: "invalid_defaults", detail: parsed.error.message });
+        return;
+      }
+      const written: DetectorDefaults = writeDetectorDefaults(parsed.data);
+      reply.send(written);
     },
   );
 

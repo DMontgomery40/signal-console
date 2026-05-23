@@ -1,6 +1,10 @@
 // SettingsPage — diagnostic-only dashboard (US-026 / PRD §20).
 //
-// Four sections backed by useSettings():
+// Five sections backed by useSettings():
+//   - Detector defaults (US-053): runtime-editable kMad / trailing / warmup /
+//     freshCap / pbpPre / pbpPost. POST /v1/settings/detector-defaults writes
+//     ~/signal-console/data/detector-defaults.json atomically; the API picks
+//     up the new values within 5 s without restart.
 //   - Database: gold-DB path/size/WAL/pageCount/pageSize/lastModified/mode.
 //     A red banner shows above the section when mode !== 'read-only'.
 //   - Sources: per-source rows when the ingest heartbeat is present, or an
@@ -8,16 +12,28 @@
 //   - Errors: tail of last 200 pino log entries with a level filter.
 //   - About: appVersion, registered detectorVersions, dbSchemaVersion.
 //
+// Every label is wrapped in an ExplainerCard (US-053 AC #5) — yellow dashed
+// underline = the project-wide explainer identity per US-050.
+//
 // 'Clear cache' is admin housekeeping — DELETE /v1/cache with a confirmation
 // dialog (window.confirm), then refresh the settings query. The gold DB's size
 // must not change as a side-effect (asserted in the test).
 
-import { useMemo, useState } from "react";
-import type { JSX } from "react";
+import { useEffect, useMemo, useState } from "react";
+import type { ChangeEvent, JSX, ReactNode } from "react";
+
+import { ExplainerCard } from "@signal-console/ui";
+import type { ExplainerId } from "@signal-console/ui";
 
 import { ApiUnreachableBanner, isNetworkError } from "../../components/ApiUnreachableBanner";
 import { QueryErrorBanner } from "../../components/QueryErrorBanner";
-import { useClearCache, useSettings, type Settings } from "../../data/queries";
+import {
+  useClearCache,
+  useSettings,
+  useUpdateDetectorDefaults,
+  type DetectorDefaults,
+  type Settings,
+} from "../../data/queries";
 
 type Sources = Settings["sources"];
 type SourceRowMap = Readonly<
@@ -33,7 +49,6 @@ const LEVEL_FILTER_SET: ReadonlySet<string> = new Set(LEVEL_FILTERS);
 
 function parseLevelFilter(v: string): LevelFilter | null {
   if (!LEVEL_FILTER_SET.has(v)) return null;
-  // narrow without `as`: walk the typed list once.
   for (const candidate of LEVEL_FILTERS) {
     if (candidate === v) return candidate;
   }
@@ -65,6 +80,259 @@ function formatTimestamp(iso: string | null): string {
   return d.toISOString();
 }
 
+// Compact ExplainerCard-wrapped <dt>. Yellow dashed underline = the
+// project-wide explainer identity (US-050 / US-053 AC #5).
+function ExplainDt({ id, children }: { id: ExplainerId; children: ReactNode }): JSX.Element {
+  return (
+    <dt className="text-text-lo">
+      <ExplainerCard id={id}>
+        <span>{children}</span>
+      </ExplainerCard>
+    </dt>
+  );
+}
+
+function ExplainHeader({ id, children }: { id: ExplainerId; children: ReactNode }): JSX.Element {
+  return (
+    <span role="columnheader" className="font-medium">
+      <ExplainerCard id={id}>
+        <span>{children}</span>
+      </ExplainerCard>
+    </span>
+  );
+}
+
+// ── Detector defaults section (US-053) ──────────────────────────────────────
+
+const DETECTOR_DEFAULT_FIELDS: ReadonlyArray<{
+  readonly key: keyof DetectorDefaults;
+  readonly label: string;
+  readonly explainerId: ExplainerId;
+  readonly step: number;
+  readonly integer: boolean;
+  readonly unit: string;
+}> = [
+  {
+    key: "kMadLive",
+    label: "K (live)",
+    explainerId: "settings-k-mad-live",
+    step: 0.1,
+    integer: false,
+    unit: "× MAD",
+  },
+  {
+    key: "trailingBuckets",
+    label: "Trailing buckets",
+    explainerId: "settings-trailing-buckets",
+    step: 1,
+    integer: true,
+    unit: "buckets",
+  },
+  {
+    key: "warmupBuckets",
+    label: "Warmup buckets",
+    explainerId: "settings-warmup-buckets",
+    step: 1,
+    integer: true,
+    unit: "buckets",
+  },
+  {
+    key: "freshCapSeconds",
+    label: "Freshness cap",
+    explainerId: "settings-fresh-cap-seconds",
+    step: 30,
+    integer: true,
+    unit: "seconds",
+  },
+  {
+    key: "pbpPreBufferMs",
+    label: "PBP pre-buffer",
+    explainerId: "settings-pbp-pre-buffer-ms",
+    step: 60_000,
+    integer: true,
+    unit: "ms",
+  },
+  {
+    key: "pbpPostBufferMs",
+    label: "PBP post-buffer",
+    explainerId: "settings-pbp-post-buffer-ms",
+    step: 10_000,
+    integer: true,
+    unit: "ms",
+  },
+];
+
+// Hardcoded fallback when /v1/settings hasn't reported them yet. Kept in sync
+// with apps/api/src/services/detector-defaults.ts BASELINE_DEFAULTS.
+const BASELINE_DEFAULTS: DetectorDefaults = {
+  kMadLive: 3.0,
+  trailingBuckets: 20,
+  warmupBuckets: 8,
+  freshCapSeconds: 300,
+  pbpPreBufferMs: 5 * 60 * 1000,
+  pbpPostBufferMs: 60_000,
+};
+
+const YELLOW_FLASH_MS = 200;
+
+function DetectorDefaultsSection({
+  defaults,
+}: {
+  readonly defaults: DetectorDefaults;
+}): JSX.Element {
+  const mutation = useUpdateDetectorDefaults();
+  const [draft, setDraft] = useState<DetectorDefaults>(defaults);
+  // Per-field "flash" set — populated immediately after a successful POST so
+  // the changed field briefly highlights yellow per AC #3.
+  const [flashing, setFlashing] = useState<ReadonlySet<keyof DetectorDefaults>>(new Set());
+
+  // Sync local draft with server-reported defaults on first load + after a
+  // successful write (server normalizes values through its Zod schema).
+  useEffect(() => {
+    setDraft(defaults);
+  }, [defaults]);
+
+  function updateField(key: keyof DetectorDefaults, raw: string): void {
+    if (raw === "") return;
+    const field = DETECTOR_DEFAULT_FIELDS.find((f) => f.key === key);
+    if (field === undefined) return;
+    const parsed = field.integer ? Number.parseInt(raw, 10) : Number.parseFloat(raw);
+    if (!Number.isFinite(parsed)) return;
+    setDraft((prev) => ({ ...prev, [key]: parsed }));
+  }
+
+  function commit(changedKey: keyof DetectorDefaults): void {
+    if (draft[changedKey] === defaults[changedKey]) return;
+    mutation.mutate(draft, {
+      onSuccess: () => {
+        const next = new Set(flashing);
+        next.add(changedKey);
+        setFlashing(next);
+        // Clear the flash after 200 ms per AC #3.
+        setTimeout(() => {
+          setFlashing((prev) => {
+            const without = new Set(prev);
+            without.delete(changedKey);
+            return without;
+          });
+        }, YELLOW_FLASH_MS);
+      },
+    });
+  }
+
+  function resetField(key: keyof DetectorDefaults): void {
+    const next: DetectorDefaults = { ...draft, [key]: BASELINE_DEFAULTS[key] };
+    setDraft(next);
+    if (BASELINE_DEFAULTS[key] === defaults[key]) return;
+    mutation.mutate(next, {
+      onSuccess: () => {
+        const flash = new Set(flashing);
+        flash.add(key);
+        setFlashing(flash);
+        setTimeout(() => {
+          setFlashing((prev) => {
+            const without = new Set(prev);
+            without.delete(key);
+            return without;
+          });
+        }, YELLOW_FLASH_MS);
+      },
+    });
+  }
+
+  return (
+    <section data-testid="settings-detector-defaults" className="mt-8">
+      <h3 className="text-text-hi text-base font-semibold">
+        <ExplainerCard id="settings-detector-defaults">
+          <span>Detector defaults</span>
+        </ExplainerCard>
+      </h3>
+      <p className="mt-2 text-xs text-text-lo max-w-[64ch]">
+        Live operating values for Recent + Live. Edits write
+        <span className="font-mono text-text-md">
+          {" "}
+          ~/signal-console/data/detector-defaults.json
+        </span>
+        ; the API picks them up within 5 s and bumps the board-mad version so cached results
+        recompute on next access.
+      </p>
+      <dl className="mt-4 grid grid-cols-[180px_1fr] gap-y-3 text-sm">
+        {DETECTOR_DEFAULT_FIELDS.map((field) => {
+          const isFlashing = flashing.has(field.key);
+          const draftValue = draft[field.key];
+          const serverValue = defaults[field.key];
+          const dirty = draftValue !== serverValue;
+          const isBaseline = serverValue === BASELINE_DEFAULTS[field.key];
+          return (
+            <div
+              key={field.key}
+              data-testid={`detector-default-row`}
+              data-field={field.key}
+              data-dirty={dirty ? "1" : "0"}
+              data-flashing={isFlashing ? "1" : "0"}
+              className="contents"
+            >
+              <ExplainDt id={field.explainerId}>{field.label}</ExplainDt>
+              <dd
+                className={
+                  isFlashing
+                    ? "transition-colors duration-fast bg-accent-yellow/15"
+                    : "transition-colors duration-fast"
+                }
+              >
+                <div className="flex items-center gap-3">
+                  <input
+                    type="number"
+                    value={String(draftValue)}
+                    step={field.step}
+                    onChange={(e: ChangeEvent<HTMLInputElement>) => {
+                      updateField(field.key, e.target.value);
+                    }}
+                    onBlur={() => {
+                      commit(field.key);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        commit(field.key);
+                      }
+                    }}
+                    data-testid={`detector-default-input-${field.key}`}
+                    aria-label={field.label}
+                    className="w-32 border border-surface-2 bg-surface-0 px-2 py-1 text-sm font-mono text-text-hi tabular focus:border-accent-green focus:outline-none"
+                  />
+                  <span className="tabular font-mono text-xs text-text-lo">{field.unit}</span>
+                  {isBaseline ? null : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        resetField(field.key);
+                      }}
+                      data-testid={`detector-default-reset-${field.key}`}
+                      className="font-mono text-xs uppercase tracking-wider text-accent-green hover:text-text-hi"
+                    >
+                      Reset to default
+                    </button>
+                  )}
+                </div>
+              </dd>
+            </div>
+          );
+        })}
+      </dl>
+      {mutation.isError ? (
+        <p
+          role="alert"
+          data-testid="detector-defaults-error"
+          className="mt-3 text-xs text-negative"
+        >
+          {mutation.error.message}
+        </p>
+      ) : null}
+    </section>
+  );
+}
+
 function DbSection({ db }: { db: Settings["db"] }): JSX.Element {
   const isReadOnly = db.mode === "read-only";
   return (
@@ -86,25 +354,25 @@ function DbSection({ db }: { db: Settings["db"] }): JSX.Element {
         </div>
       ) : null}
       <dl className="mt-3 grid grid-cols-[140px_1fr] gap-y-2 text-sm">
-        <dt className="text-text-lo">Path</dt>
+        <ExplainDt id="settings-db-path">Path</ExplainDt>
         <dd data-testid="db-path" className="tabular font-mono text-text-md break-all">
           {db.path}
         </dd>
-        <dt className="text-text-lo">Size</dt>
+        <ExplainDt id="settings-db-page-size">Size</ExplainDt>
         <dd data-testid="db-size" className="tabular font-mono text-text-hi">
           {formatBytesCell(db.sizeBytes)}
         </dd>
-        <dt className="text-text-lo">WAL</dt>
+        <ExplainDt id="settings-db-wal-bytes">WAL</ExplainDt>
         <dd data-testid="db-wal" className="tabular font-mono text-text-md">
           {formatBytesCell(db.walBytes)}
         </dd>
-        <dt className="text-text-lo">Page count</dt>
+        <ExplainDt id="settings-db-page-count">Page count</ExplainDt>
         <dd className="tabular font-mono text-text-md">{BYTES_FMT.format(db.pageCount)}</dd>
-        <dt className="text-text-lo">Page size</dt>
+        <ExplainDt id="settings-db-page-size">Page size</ExplainDt>
         <dd className="tabular font-mono text-text-md">{BYTES_FMT.format(db.pageSize)} bytes</dd>
-        <dt className="text-text-lo">Last modified</dt>
+        <ExplainDt id="settings-db-last-modified">Last modified</ExplainDt>
         <dd className="tabular font-mono text-text-md">{formatTimestamp(db.lastModified)}</dd>
-        <dt className="text-text-lo">Mode</dt>
+        <ExplainDt id="settings-db-mode">Mode</ExplainDt>
         <dd
           data-testid="db-mode"
           className={
@@ -119,7 +387,6 @@ function DbSection({ db }: { db: Settings["db"] }): JSX.Element {
 }
 
 function sourcesMap(sources: Sources): SourceRowMap {
-  // Narrow to the same shape regardless of paused flag for table rendering.
   return sources.ingestPaused ? sources.lastKnown : sources.bySource;
 }
 
@@ -128,7 +395,11 @@ function SourcesSection({ sources }: { sources: Sources }): JSX.Element {
   const rows = KNOWN_SOURCES.map((name) => ({ name, info: map[name] }));
   return (
     <section data-testid="settings-sources" className="mt-10">
-      <h3 className="text-text-hi text-base font-semibold">Sources</h3>
+      <h3 className="text-text-hi text-base font-semibold">
+        <ExplainerCard id="settings-source-heartbeat">
+          <span>Sources</span>
+        </ExplainerCard>
+      </h3>
       {sources.ingestPaused ? (
         <div
           role="status"
@@ -142,18 +413,10 @@ function SourcesSection({ sources }: { sources: Sources }): JSX.Element {
       ) : null}
       <div role="table" aria-label="Sources" className="mt-3 text-sm">
         <div role="row" className="grid grid-cols-[1fr_1fr_1.4fr_1fr] gap-x-6 pb-2 text-text-lo">
-          <span role="columnheader" className="font-medium">
-            Source
-          </span>
-          <span role="columnheader" className="font-medium">
-            Last sync
-          </span>
-          <span role="columnheader" className="font-medium">
-            Last error
-          </span>
-          <span role="columnheader" className="font-medium">
-            Rate-limit cooldown
-          </span>
+          <ExplainHeader id="settings-source-heartbeat">Source</ExplainHeader>
+          <ExplainHeader id="settings-source-last-sync">Last sync</ExplainHeader>
+          <ExplainHeader id="settings-source-last-error">Last error</ExplainHeader>
+          <ExplainHeader id="settings-source-rate-limit">Rate-limit cooldown</ExplainHeader>
         </div>
         {rows.map(({ name, info }) => (
           <div
@@ -206,7 +469,9 @@ function ErrorsSection({ entries }: { entries: Settings["errors"] }): JSX.Elemen
       <div className="flex items-baseline justify-between gap-4">
         <h3 className="text-text-hi text-base font-semibold">Errors</h3>
         <label className="text-xs text-text-lo">
-          Level{" "}
+          <ExplainerCard id="settings-errors-filter">
+            <span>Level</span>
+          </ExplainerCard>{" "}
           <select
             data-testid="errors-level-filter"
             value={filter}
@@ -279,15 +544,15 @@ function AboutSection({
     <section data-testid="settings-about" className="mt-10">
       <h3 className="text-text-hi text-base font-semibold">About</h3>
       <dl className="mt-3 grid grid-cols-[180px_1fr] gap-y-2 text-sm">
-        <dt className="text-text-lo">App version</dt>
+        <ExplainDt id="settings-app-version">App version</ExplainDt>
         <dd data-testid="about-app-version" className="tabular font-mono text-text-hi">
           {about.appVersion}
         </dd>
-        <dt className="text-text-lo">DB schema version</dt>
+        <ExplainDt id="settings-db-schema-version">DB schema version</ExplainDt>
         <dd data-testid="about-schema-version" className="tabular font-mono text-text-md">
           {String(about.dbSchemaVersion)}
         </dd>
-        <dt className="text-text-lo">Detectors</dt>
+        <ExplainDt id="settings-detector-versions">Detectors</ExplainDt>
         <dd data-testid="about-detectors">
           {about.detectorVersions.length === 0 ? (
             <span className="text-text-lo">no detectors registered</span>
@@ -307,7 +572,7 @@ function AboutSection({
             </ul>
           )}
         </dd>
-        <dt className="text-text-lo">Cache DB</dt>
+        <ExplainDt id="settings-db-path">Cache DB</ExplainDt>
         <dd className="tabular font-mono text-text-md">
           <div data-testid="about-cache-path" className="break-all">
             {cacheDb.path}
@@ -396,6 +661,7 @@ export function SettingsPage(): JSX.Element {
         <p className="mt-6 text-text-md text-sm">Loading settings…</p>
       ) : settings.data === undefined ? null : (
         <>
+          <DetectorDefaultsSection defaults={settings.data.detectorDefaults} />
           <DbSection db={settings.data.db} />
           <SourcesSection sources={settings.data.sources} />
           <ErrorsSection entries={settings.data.errors} />

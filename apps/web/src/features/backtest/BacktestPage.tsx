@@ -37,13 +37,13 @@ import {
 } from "./clientRecompute";
 import { BacktestTimelines } from "./BacktestTimelines";
 import { CryWolfDial } from "./CryWolfDial";
+import { MemoryDial } from "./MemoryDial";
 import { PbpAnchoredIncidents } from "./PbpAnchoredIncidents";
-import { WarmupDial } from "./WarmupDial";
 import { K_MAD_LIVE } from "@signal-console/detectors/board-mad/config";
 
 const KMAD_PARAM_NAME = "kMad";
-const WARMUP_PARAM_NAME = "warmupBuckets";
-const WARMUP_DEFAULT = 8;
+const TRAILING_PARAM_NAME = "trailingBuckets";
+const TRAILING_DEFAULT = 20;
 
 function readNumber(v: unknown, fallback: number): number {
   return typeof v === "number" && Number.isFinite(v) ? v : fallback;
@@ -613,12 +613,15 @@ export function BacktestPage(): JSX.Element {
             )}
           </div>
 
-          {/* The Dials panel (US-042): Cry Wolf K dial on the left, Warmup
-              slider on the right. Both own param values out of the auto-
-              rendered param grid below (kMad and warmupBuckets are omitted
-              from the grid when board-mad is selected). The live-preview
-              metric (US-037) is centered below both dials so the eye tracks
-              "either knob moves → fires/game moves" in one visual region. */}
+          {/* The Dials panel (US-053): two rotary dials side-by-side — Cry
+              Wolf K (threshold) and Memory (trailing window). Both feed the
+              in-memory recompute pipeline so dragging either updates the
+              live preview without an API round-trip. Their controlled params
+              (kMad, trailingBuckets) are omitted from the auto-rendered grid
+              below; warmupBuckets / freshCapSeconds / weighting /
+              bucketSeconds remain in the secondary form. The live-preview
+              metric is centered below both dials so the eye tracks "either
+              knob moves → fires/game moves" in one visual region. */}
           {selectedDetector?.id === BOARD_MAD_DETECTOR_ID ? (
             <div
               className="mt-8 flex flex-col items-center gap-8"
@@ -634,10 +637,10 @@ export function BacktestPage(): JSX.Element {
                     updateParam(KMAD_PARAM_NAME, next);
                   }}
                 />
-                <WarmupDial
-                  value={readNumber(form.params[WARMUP_PARAM_NAME], WARMUP_DEFAULT)}
+                <MemoryDial
+                  value={readNumber(form.params[TRAILING_PARAM_NAME], TRAILING_DEFAULT)}
                   onChange={(next) => {
-                    updateParam(WARMUP_PARAM_NAME, next);
+                    updateParam(TRAILING_PARAM_NAME, next);
                   }}
                 />
               </div>
@@ -659,7 +662,7 @@ export function BacktestPage(): JSX.Element {
                 .filter(
                   (p) =>
                     selectedDetector.id !== BOARD_MAD_DETECTOR_ID ||
-                    (p.name !== KMAD_PARAM_NAME && p.name !== WARMUP_PARAM_NAME),
+                    (p.name !== KMAD_PARAM_NAME && p.name !== TRAILING_PARAM_NAME),
                 )
                 .map((p) => (
                   <ParamRow
@@ -684,8 +687,8 @@ export function BacktestPage(): JSX.Element {
               data-testid="backtest-recompute-hint"
               className="mt-3 text-xs text-text-lo max-w-[64ch]"
             >
-              The K dial, warmup slider, and trailingBuckets recompute in-memory after the first run
-              — no API round-trip. Changing bucketSeconds, weighting, or freshCapSeconds requires
+              The K dial, Memory dial, and warmupBuckets recompute in-memory after the first run —
+              no API round-trip. Changing bucketSeconds, weighting, or freshCapSeconds requires
               re-running.
             </p>
           ) : null}

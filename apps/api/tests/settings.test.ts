@@ -3,13 +3,18 @@
 // read-only through openGoldDb / better-sqlite3.
 
 import Database from "better-sqlite3";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { runMigrations } from "@signal-console/db";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import {
+  BASELINE_DEFAULTS,
+  invalidateDetectorDefaultsCache,
+  setDetectorDefaultsPath,
+} from "../src/services/detector-defaults";
 import { buildServer } from "../src/server";
 
 type FastifyApp = Awaited<ReturnType<typeof buildServer>>;
@@ -63,6 +68,10 @@ beforeEach(() => {
   ctx.heartbeatPath = join(ctx.tempDir, "heartbeat.json");
   ctx.logPath = join(ctx.tempDir, "api.log");
   writeFileSync(ctx.tokenPath, `${TEST_TOKEN}\n`, "utf8");
+  // Each test gets its own detector-defaults file in the tempDir so the
+  // production ~/signal-console/data/detector-defaults.json is never touched.
+  setDetectorDefaultsPath(join(ctx.tempDir, "detector-defaults.json"));
+  invalidateDetectorDefaultsCache();
 });
 
 afterEach(async () => {
@@ -314,5 +323,107 @@ describe("settings route (US-019)", () => {
     // Generous budget — AC says <100ms; on a freshly-seeded ~16 KB DB the
     // route should be well under that. Allow some headroom for slow CI.
     expect(elapsed).toBeLessThan(300);
+  });
+});
+
+describe("detector-defaults route (US-053)", () => {
+  it("GET /v1/settings reports baseline detectorDefaults when the file is absent", async () => {
+    seedGoldDb(ctx.goldDbPath);
+    seedCacheDb(ctx.cacheDbPath);
+    const app = await startApp();
+
+    const res = await app.inject({
+      method: "GET",
+      url: "/v1/settings",
+      headers: authHeaders(),
+    });
+    expect(res.statusCode).toBe(200);
+    const body = asRecord(res.json(), "body");
+    const defaults = asRecord(body["detectorDefaults"], "detectorDefaults");
+    expect(defaults["kMadLive"]).toBe(BASELINE_DEFAULTS.kMadLive);
+    expect(defaults["trailingBuckets"]).toBe(BASELINE_DEFAULTS.trailingBuckets);
+    expect(defaults["warmupBuckets"]).toBe(BASELINE_DEFAULTS.warmupBuckets);
+    expect(defaults["freshCapSeconds"]).toBe(BASELINE_DEFAULTS.freshCapSeconds);
+    expect(defaults["pbpPreBufferMs"]).toBe(BASELINE_DEFAULTS.pbpPreBufferMs);
+    expect(defaults["pbpPostBufferMs"]).toBe(BASELINE_DEFAULTS.pbpPostBufferMs);
+    // board-mad version stays the package-declared string when defaults
+    // match baseline — pre-existing cache rows remain valid.
+    const about = asRecord(body["about"], "about");
+    const dv = about["detectorVersions"];
+    if (!isUnknownArray(dv)) throw new Error("detectorVersions not array");
+    const bm = dv.find((d): d is Record<string, unknown> => {
+      return isRecord(d) && d["id"] === "board-mad";
+    });
+    expect(bm).toBeDefined();
+    if (bm === undefined) return;
+    expect(String(bm["version"])).not.toContain("+def.");
+  });
+
+  it("POST /v1/settings/detector-defaults validates, atomic-writes, returns canonical values, bumps board-mad version", async () => {
+    seedGoldDb(ctx.goldDbPath);
+    seedCacheDb(ctx.cacheDbPath);
+    const app = await startApp();
+
+    const next = {
+      kMadLive: 4.5,
+      trailingBuckets: 30,
+      warmupBuckets: 8,
+      freshCapSeconds: 300,
+      pbpPreBufferMs: 5 * 60 * 1000,
+      pbpPostBufferMs: 60_000,
+    };
+    const res = await app.inject({
+      method: "POST",
+      url: "/v1/settings/detector-defaults",
+      headers: { ...authHeaders(), "content-type": "application/json" },
+      payload: next,
+    });
+    expect(res.statusCode).toBe(200);
+    const body = asRecord(res.json(), "body");
+    expect(body["kMadLive"]).toBe(4.5);
+    expect(body["trailingBuckets"]).toBe(30);
+
+    // Atomic write landed at the expected path.
+    const path = join(ctx.tempDir, "detector-defaults.json");
+    const raw = readFileSync(path, "utf8");
+    const onDisk = asRecord(JSON.parse(raw), "onDisk");
+    expect(onDisk["kMadLive"]).toBe(4.5);
+
+    // Cache invalidated immediately: next GET reflects the new values.
+    const get = await app.inject({
+      method: "GET",
+      url: "/v1/settings",
+      headers: authHeaders(),
+    });
+    expect(get.statusCode).toBe(200);
+    const getBody = asRecord(get.json(), "getBody");
+    const defaults = asRecord(getBody["detectorDefaults"], "detectorDefaults");
+    expect(defaults["kMadLive"]).toBe(4.5);
+    expect(defaults["trailingBuckets"]).toBe(30);
+    const about = asRecord(getBody["about"], "about");
+    const dv = about["detectorVersions"];
+    if (!isUnknownArray(dv)) throw new Error("detectorVersions not array");
+    const bm = dv.find((d): d is Record<string, unknown> => {
+      return isRecord(d) && d["id"] === "board-mad";
+    });
+    expect(bm).toBeDefined();
+    if (bm === undefined) return;
+    expect(String(bm["version"])).toMatch(/\+def\.[0-9a-f]{8}$/);
+  });
+
+  it("POST /v1/settings/detector-defaults rejects out-of-range values with 400", async () => {
+    seedGoldDb(ctx.goldDbPath);
+    seedCacheDb(ctx.cacheDbPath);
+    const app = await startApp();
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/v1/settings/detector-defaults",
+      headers: { ...authHeaders(), "content-type": "application/json" },
+      payload: { kMadLive: 99 },
+    });
+    expect(res.statusCode).toBe(400);
+    const body = asRecord(res.json(), "body");
+    expect(body["error"]).toBe("invalid_defaults");
   });
 });

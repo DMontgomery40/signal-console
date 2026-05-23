@@ -313,6 +313,158 @@ $$T_{\text{clean}} = \{ t \in T : \neg(t.\text{source} = \text{Polymarket} \land
 
 The sanitation pass drops any Polymarket tick where the implied probability is exactly $0.500$, prior to delta computation. The exactness of the equality test matters: organic Polymarket prices are quoted in cents but the actual order book can produce values like $0.4998$ or $0.5002$ that are not synthetic anchors. A real later tick landing on exactly $0.500$ is statistically rare and treated as acceptable collateral loss; the alternative — leaving anchors in — generates large, predictable false positives at every market open and is the worse failure mode for a precision-sensitive detector.`,
   },
+
+  // ──────────────────────────────────────────────────────────────────────────
+  //  US-053 — Memory dial + Settings tooltip audit
+  // ──────────────────────────────────────────────────────────────────────────
+
+  "trailing-window-memory": {
+    title: "Memory (trailing window)",
+    eli5: String.raw`The Memory knob is the second of the two big knobs in Backtest. While the K dial controls how *tall* a spike has to be before firing, Memory controls how *long* the detector remembers when it sizes up what "normal" looks like right now.
+
+Twenty minutes (the default) is the compromise: long enough that one quiet stretch doesn't trick the baseline into thinking everything is calm, short enough that the baseline still adapts when the game shifts gears. Crank it down to 10 (Quick) and you'll catch faster phase changes — useful for testing how the detector behaves during scoring runs and late-game leverage. Crank it up to 40 (Steady) and the baseline is harder to spook by a transient burst, but it lags the current regime more.
+
+Two knobs, two axes. K is "how loud must it be" and Memory is "compared to what." Together they describe the whole character of the detector at a glance.`,
+    formal: String.raw`The Memory knob exposes $W = \texttt{trailingBuckets}$, the length of the lookback window over which the trailing baseline statistics are estimated. The fire rule evaluated at bucket $t$ is:
+
+$$\text{fire}_t \iff I_t > \mathrm{median}(I_{t-W..t-1}) + K \cdot \mathrm{MAD}(I_{t-W..t-1})$$
+
+Smaller $W$ makes the baseline track local non-stationarity (intra-quarter regime shifts, scoring runs) at the cost of higher estimator variance — the asymptotic standard error of $\mathrm{median}$ on a normal-like null is $\propto 1/\sqrt{W}$, so $W=10$ gives roughly $1.4\times$ the noise of $W=20$. Larger $W$ stabilizes both location and scale at the cost of regime lag; the characteristic time of intra-game phase transitions is $O(20\,\text{min}) = O(W \Delta t)$ at $\Delta t = 60\,\text{s}$, so a window much longer than this systematically drags the prior regime forward into the current one. Snap points: $W=10$ (Quick, intra-quarter), $W=20$ (Default), $W=40$ (Steady, multi-quarter). Canonical reference: \`packages/detectors/src/board-mad/config.ts\`, schema in \`board-mad/params.ts\`.`,
+  },
+
+  "settings-detector-defaults": {
+    title: "Detector defaults",
+    eli5: String.raw`These are the values the live Recent and Live pages use when they run the board-MAD detector. Backtest lets you sweep any setting in memory, but the live path needs one fixed configuration per run — these are it.
+
+Editing a value here writes a JSON file the API picks up within five seconds. There's no restart, no deploy, no commit. The next request reads the new defaults and the board-mad version string gets a hash suffix so any cached results for the old defaults get re-computed (you'll see the fires count change on Recent within seconds).
+
+Use this when the labeled-event set shifts and the canonical K or trailing window should move with it. Don't use this for one-off comparisons — that's what Backtest is for.`,
+    formal: String.raw`The detector-defaults service backs \`POST /v1/settings/detector-defaults\` with a Zod-validated, atomically-written JSON file at \`~/signal-console/data/detector-defaults.json\`. Both \`apps/api/src/services/board.ts\` (Live + Recent) and \`apps/api/src/services/backtest.ts\` (PBP-anchored window narrowing) read from this file at request time with a 5-second in-process TTL cache.
+
+Cache invalidation: the runtime \`board-mad\` detector version is derived as \`detector.version + '+def.<8-hex>'\` from the SHA-256 of the resolved defaults whenever they diverge from the package-declared baseline. The cache discriminator \`(detector_id, detector_version, params_hash, source_watermark_hash, scope, ...)\` therefore changes whenever any default changes, and the next cache lookup misses — no manual \`/v1/cache\` flush needed.`,
+  },
+
+  "settings-k-mad-live": {
+    title: "K (live)",
+    eli5: String.raw`This is the K the Recent list and the Live page use by default — the multiplier on the trailing baseline that decides whether a bucket is big enough to fire. Lower K = more fires, higher K = fewer.
+
+If you're calibrating against labeled events, this is the knob you'll move most. The contract-test snapshot lives at K = 3.0 (≈ 18-19 fires per game across the 66-game canonical set). Move it up and the Live page reports fewer fires; move it down and it reports more — both within seconds, no restart.`,
+    formal: String.raw`Runtime override for $K$ in $\text{fire}_t \iff I_t > \mathrm{median}(\cdot) + K \cdot \mathrm{MAD}(\cdot)$, applied to the live board path only. The package-declared default \`K_MAD_LIVE = 3.0\` (\`packages/detectors/src/board-mad/config.ts\`) remains the seed value; this override layers on top through the detector-defaults service and feeds \`BoardMadParams.parse({ kMad: override })\` on every Live/Recent request.`,
+  },
+
+  "settings-trailing-buckets": {
+    title: "Trailing buckets",
+    eli5: String.raw`Live setting for how many prior buckets feed the median+MAD baseline. Twenty buckets at one minute each = 20-minute rolling memory. Same knob the Memory dial in Backtest exposes; this is the value the live path commits to.`,
+    formal: String.raw`Live override for $W$ in the trailing-window estimators $\mathrm{median}(I_{t-W..t-1})$ and $\mathrm{MAD}(I_{t-W..t-1})$. Range $[5, 60]$; default $W = 20$. Smaller $W$ adapts faster to non-stationarity, larger $W$ reduces estimator variance. See \`trailing-window-memory\` for the design tradeoff.`,
+  },
+
+  "settings-warmup-buckets": {
+    title: "Warmup buckets",
+    eli5: String.raw`How many leading buckets to suppress before the detector is allowed to fire at all. Default 8 minutes — enough history to compute a baseline you trust, not so much that you miss first-quarter information arrivals.`,
+    formal: String.raw`Live override for $W_0$ — the warmup gate at which buckets $t < W_0$ are unconditionally non-fires regardless of $I_t$. Range $[2, 20]$; default $W_0 = 8$. Below $W_0 = 3$ the MAD is structurally near-zero and the rule trips on any nonzero intensity.`,
+  },
+
+  "settings-fresh-cap-seconds": {
+    title: "Freshness cap (seconds)",
+    eli5: String.raw`If two consecutive ticks on the same market are more than this many seconds apart, the delta between them doesn't count. Stops suspensions and feed dropouts from looking like sudden price moves.`,
+    formal: String.raw`Live override for $\tau_{\max}$, the per-market inter-tick gap threshold above which $\Delta p_{m,i}$ is zeroed. Range $[30, 3600]$ s; default $\tau_{\max} = 300$ s. See \`fresh-cap-seconds\` for the empirical rationale.`,
+  },
+
+  "settings-pbp-pre-buffer-ms": {
+    title: "PBP pre-buffer (ms)",
+    eli5: String.raw`How far before the first play-by-play timestamp to start reading quote ticks. 5 minutes by default — long enough to seed the trailing baseline without dragging in pre-game noise.`,
+    formal: String.raw`Pre-game buffer applied to \`MIN(nba_play_by_play_actions.time_actual)\` when narrowing the per-game in-play tick window. The same buffer is shared between \`services/board.ts\` and \`services/backtest.ts\` so the Live path and the Backtest path see identical ticks for the same game; without this narrowing, gold-DB \`quote_ticks\` rows for a single game routinely span 24+ hours and inflate fire counts ~14-17×.`,
+  },
+
+  "settings-pbp-post-buffer-ms": {
+    title: "PBP post-buffer (ms)",
+    eli5: String.raw`How far after the last play-by-play timestamp to keep reading ticks. 60 seconds by default — captures the post-event watcher confirmations without bleeding into the next session.`,
+    formal: String.raw`Post-game buffer applied to \`MAX(nba_play_by_play_actions.time_actual)\` when narrowing the per-game in-play tick window. Symmetric counterpart to \`settings-pbp-pre-buffer-ms\`; together they bound the in-play tick set that feeds the detector.`,
+  },
+
+  "settings-db-path": {
+    title: "Gold DB path",
+    eli5: String.raw`The absolute path to the 54 GB read-only tick store. All API code opens this through a four-guard wrapper (URI mode=ro, options.readonly:true, fileMustExist:true, PRAGMA query_only=ON) and throws if any of those fails. Nothing in the API layer can write to it.`,
+    formal: String.raw`\`GOLD_DB_PATH\` from \`packages/db/src/open.ts\`. Opens via \`openGoldDb(path)\` which applies four independent read-only guards and verifies \`PRAGMA query_only\` reads back as 1, throwing at startup otherwise. The path is fixed at \`~/signal-console/data/signal-console.sqlite\` after the Phase-0 relocation.`,
+  },
+
+  "settings-db-mode": {
+    title: "DB mode",
+    eli5: String.raw`Should always say "read-only". If it ever says anything else (or shows the red banner above), something has bypassed the openGoldDb wrapper — that's a bug, not a configuration issue, and the API will refuse to start.`,
+    formal: String.raw`Reported by the settings service as \`'read-only'\` when \`openGoldDb()\` succeeds and the post-open \`PRAGMA query_only\` read confirms the guard is active, else \`'error'\` with an attached \`openError\` message. The four guards (URI \`mode=ro\`, \`{ readonly: true, fileMustExist: true }\`, \`busy_timeout=5000\`, \`PRAGMA query_only=ON\`) are documented in \`packages/db/src/open.ts\` and project CLAUDE.md.`,
+  },
+
+  "settings-db-wal-bytes": {
+    title: "WAL bytes",
+    eli5: String.raw`SQLite's write-ahead log. When the value is greater than zero against this read-only DB, it means a writer (the ingest worker, the nba-predict shadow, etc.) is currently appending — the read snapshot is consistent up to its commit point. A persistently large WAL with no writer attached can indicate a stale checkpoint.`,
+    formal: String.raw`Size in bytes of \`signal-console.sqlite-wal\` measured via \`fs.statSync\`. Co-exists with the read-only handle: WAL mode is the gold DB's persistent journal mode, and read transactions see a snapshot at their start point regardless of concurrent writes. Persistent large WAL with no active writer suggests a missing \`PRAGMA wal_checkpoint(TRUNCATE)\` from the writer side.`,
+  },
+
+  "settings-db-page-count": {
+    title: "Page count",
+    eli5: String.raw`Number of fixed-size pages allocated to the gold DB file. Total file size ≈ page count × page size. Useful for sanity-checking against the human-readable bytes figure above.`,
+    formal: String.raw`\`PRAGMA page_count\` against the gold DB handle. Page count × page size approximates \`SELECT page_size * page_count FROM PRAGMA_PAGE_COUNT\` and equals on-disk size minus the WAL and freelist overhead.`,
+  },
+
+  "settings-db-page-size": {
+    title: "Page size",
+    eli5: String.raw`Bytes per SQLite page on the gold DB. 4096 by default; better-sqlite3 doesn't change this without a vacuum. Mostly informational.`,
+    formal: String.raw`\`PRAGMA page_size\`. Fixed at file-creation time; changing requires a \`VACUUM\` rebuild. 4096 is the SQLite default and the value used by the gold DB.`,
+  },
+
+  "settings-db-last-modified": {
+    title: "Last modified",
+    eli5: String.raw`Filesystem mtime of the gold DB. If the writer (ingest worker or nba-predict shadow) is running, you'll see this advance every few minutes; if it's flat, the writer is paused or the file is sealed.`,
+    formal: String.raw`\`fs.statSync(path).mtime.toISOString()\`. Reflects last write to the main DB file; WAL appends update the WAL file's mtime separately, so a moving \`settings-db-wal-bytes\` with a stationary main-file mtime is the normal pattern for an active writer.`,
+  },
+
+  "settings-source-heartbeat": {
+    title: "Source heartbeat",
+    eli5: String.raw`When the ingest worker is running, it writes a small heartbeat file every cycle reporting per-source last-sync timestamps and last errors. If the file is missing, the Sources section shows "Ingest paused" with the last-known values from the prior session — that's the right read when you've intentionally stopped the worker.`,
+    formal: String.raw`Heartbeat path: \`~/signal-console/apps/worker/data/heartbeat.json\`. Schema: \`{ sources: Record<string, { lastSyncAt, lastError, rateLimitCooldown }> }\`. Absence of the file flips the response to the \`ingestPaused: true\` variant with the last known values from the prior settings snapshot. The route does not interpret pause state — it simply reports what's on disk.`,
+  },
+
+  "settings-source-last-sync": {
+    title: "Last sync",
+    eli5: String.raw`Timestamp of the most recent successful pull from this source. If it's older than the heartbeat interval and "Last error" is blank, the source is up but quiet (no new quotes since); if "Last error" has text, the source has been failing since at least this timestamp.`,
+    formal: String.raw`\`lastSyncAt\` field in the heartbeat per-source entry. ISO 8601 string or null. Compared against current time to derive a freshness indicator in the table.`,
+  },
+
+  "settings-source-last-error": {
+    title: "Last error",
+    eli5: String.raw`The most recent error string the worker logged for this source. HTTP 429s, parse failures, auth rotations all surface here. Useful first-line debugging when fires drop unexpectedly: if one source is silent, the board-MAD sum is missing that source's contribution and intensity will be lower.`,
+    formal: String.raw`\`lastError\` field in the heartbeat per-source entry. Free-text string carried verbatim from the worker's error logger; null when the source is healthy.`,
+  },
+
+  "settings-source-rate-limit": {
+    title: "Rate-limit cooldown",
+    eli5: String.raw`If the source returned a 429 with a Retry-After header, this is how long the worker is parking before it tries again. Format is ISO-8601 duration (e.g. PT30S = 30 seconds).`,
+    formal: String.raw`\`rateLimitCooldown\` field in the heartbeat per-source entry. ISO 8601 duration string; the worker stops issuing requests to this source for the duration after a 429. Null when no cooldown is active.`,
+  },
+
+  "settings-errors-filter": {
+    title: "Errors filter",
+    eli5: String.raw`The Errors panel tails the last 200 lines of the API log. Use this dropdown to filter to a single severity level — usually you want "error" or "warn" when chasing an incident.`,
+    formal: String.raw`Filters the in-memory tail of \`~/signal-console/apps/api/data/api.log\` by Pino \`level\` (\`info | warn | error | debug | fatal | trace\`). The cap is enforced after filtering, so the filtered view shows up to 200 entries at the selected level.`,
+  },
+
+  "settings-app-version": {
+    title: "App version",
+    eli5: String.raw`The version string from the API's package.json — useful when reproducing a bug to know exactly which build is running.`,
+    formal: String.raw`Sourced from \`apps/api/package.json#version\` at startup. Sent to clients verbatim; not derived from git tags.`,
+  },
+
+  "settings-detector-versions": {
+    title: "Detector versions",
+    eli5: String.raw`Each registered detector and its current version string. When you change a detector's algorithm or default parameters, the version bumps and cached results for the old version naturally become misses. For board-mad, you'll see a "+def.<hash>" suffix when the runtime defaults file overrides the package baseline — that's how the cache invalidates when you tune K.`,
+    formal: String.raw`For each entry in \`@signal-console/detectors/registry\`, reports its package-declared version. For \`board-mad\` specifically, the version is \`detector.version + '+def.<sha256(defaults).slice(0,8)>'\` whenever the resolved detector-defaults JSON differs from the package baseline. The SemVer build-metadata suffix is ignored by version comparators but does discriminate cache rows.`,
+  },
+
+  "settings-db-schema-version": {
+    title: "DB schema version",
+    eli5: String.raw`The integer SQLite \`user_version\` stamped on the gold DB at migration time. Useful to confirm the read-only handle is seeing the schema you expect.`,
+    formal: String.raw`Read via \`PRAGMA user_version\` against the gold DB at request time. The writer (ingest worker / nba-predict shadow) bumps this on every successful migration; readers use it as a sanity check that the file they opened matches the schema they expect.`,
+  },
 } as const satisfies Record<string, Explainer>;
 
 export type ExplainerId = keyof typeof explainers;

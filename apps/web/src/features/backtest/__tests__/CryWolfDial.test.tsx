@@ -48,11 +48,11 @@ describe("CryWolfDial geometry contract", () => {
 
   it("has 7 ticks at K=2..8 with K=3 and K=6 as accent-green majors", () => {
     render(<Harness initial={3} />);
-    const ticks = screen.getAllByTestId(/^cry-wolf-tick-/);
+    const ticks = screen.getAllByTestId(/^cry-wolf-dial-tick-/);
     expect(ticks.length).toBe(7);
     for (let k = 2; k <= 8; k++) {
-      const t = screen.getByTestId(`cry-wolf-tick-${String(k)}`);
-      expect(t.getAttribute("data-tick-k")).toBe(String(k));
+      const t = screen.getByTestId(`cry-wolf-dial-tick-${String(k)}`);
+      expect(t.getAttribute("data-tick-value")).toBe(String(k));
       const majorExpected = k === 3 || k === 6;
       expect(t.getAttribute("data-tick-major")).toBe(majorExpected ? "true" : "false");
       const visible = t.querySelector("line");
@@ -74,7 +74,7 @@ describe("CryWolfDial geometry contract", () => {
     ];
     for (const { k, deg } of cases) {
       const { unmount } = render(<Harness initial={k} />);
-      const indicator = screen.getByTestId("cry-wolf-indicator");
+      const indicator = screen.getByTestId("cry-wolf-dial-indicator");
       expect(indicator.getAttribute("data-indicator-deg")).toBe(deg);
       unmount();
     }
@@ -92,7 +92,7 @@ describe("CryWolfDial geometry contract", () => {
 
   it("at rest there is no inline transition on the indicator (AC #14: no idle animation)", () => {
     render(<Harness initial={3} />);
-    const indicator = screen.getByTestId("cry-wolf-indicator");
+    const indicator = screen.getByTestId("cry-wolf-dial-indicator");
     // The snap-magnetize transition is only attached during the 50 ms snap
     // window; in the resting render the style is empty.
     const style = indicator.getAttribute("style") ?? "";
@@ -160,7 +160,7 @@ describe("CryWolfDial snap behaviour", () => {
         fireEvent.keyDown(dial, { key: "ArrowRight" });
       });
       expect(dial.getAttribute("aria-valuetext")).toBe("3.00");
-      const indicator = screen.getByTestId("cry-wolf-indicator");
+      const indicator = screen.getByTestId("cry-wolf-dial-indicator");
       const style = indicator.getAttribute("style") ?? "";
       expect(style).toMatch(/transition: transform 50ms/);
 
@@ -200,7 +200,7 @@ describe("CryWolfDial snap chips", () => {
     vi.useFakeTimers();
     try {
       render(<Harness initial={5} />);
-      const headline = screen.getByTestId("cry-wolf-headline");
+      const headline = screen.getByTestId("cry-wolf-dial-headline");
       expect(headline.className).toMatch(/text-accent-yellow/);
       act(() => {
         fireEvent.click(screen.getByTestId("cry-wolf-chip-calm"));
@@ -220,7 +220,7 @@ describe("CryWolfDial tick click", () => {
   it("clicking a tick snaps the dial to that K", () => {
     render(<Harness initial={3} />);
     const dial = screen.getByTestId("cry-wolf-dial");
-    const tick6 = screen.getByTestId("cry-wolf-tick-6");
+    const tick6 = screen.getByTestId("cry-wolf-dial-tick-6");
     const hitTarget = tick6.querySelectorAll("line")[2];
     if (hitTarget === undefined) throw new Error("missing hit-target line on tick 6");
     fireEvent.click(hitTarget);

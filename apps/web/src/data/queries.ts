@@ -203,12 +203,23 @@ const aboutInfoSchema = z.object({
   detectorVersions: z.array(z.object({ id: z.string(), version: z.string() })),
   dbSchemaVersion: z.number().int(),
 });
+// Detector defaults are runtime-editable via POST /v1/settings/detector-defaults
+// (US-053). The shape mirrors apps/api/src/services/detector-defaults.ts.
+const detectorDefaultsSchema = z.object({
+  kMadLive: z.number(),
+  trailingBuckets: z.number().int(),
+  warmupBuckets: z.number().int(),
+  freshCapSeconds: z.number().int(),
+  pbpPreBufferMs: z.number().int(),
+  pbpPostBufferMs: z.number().int(),
+});
 const settingsSchema = z.object({
   db: dbInfoSchema,
   cacheDb: cacheDbInfoSchema,
   sources: sourcesSchema,
   errors: z.array(logEntrySchema),
   about: aboutInfoSchema,
+  detectorDefaults: detectorDefaultsSchema,
 });
 
 // ── Inferred public types ──────────────────────────────────────────────────
@@ -227,6 +238,7 @@ export type Fanout = z.infer<typeof fanoutSchema>;
 export type DetectorEntry = z.infer<typeof detectorEntrySchema>;
 export type DetectorsResponse = z.infer<typeof detectorsSchema>;
 export type Settings = z.infer<typeof settingsSchema>;
+export type DetectorDefaults = z.infer<typeof detectorDefaultsSchema>;
 
 // ── Hooks ──────────────────────────────────────────────────────────────────
 
@@ -412,6 +424,42 @@ export function useClearCache(): UseMutationResult<ClearCacheResponse, Error, vo
     onSuccess: () => {
       // Refresh the Settings query so cacheDb.sizeBytes/pageCount reflect the
       // post-delete state. Gold DB size is independent and unaffected.
+      void queryClient.invalidateQueries({ queryKey: ["settings"] });
+    },
+  });
+}
+
+// POST /v1/settings/detector-defaults (US-053). Body is a full DetectorDefaults
+// payload (no partial PATCH semantics on the server). On success, invalidate
+// ['settings'] so the AboutSection's board-mad version + the editable form's
+// canonical values both refresh.
+async function updateDetectorDefaultsRequest(
+  body: DetectorDefaults,
+): Promise<DetectorDefaults> {
+  const res = await fetch(`${API_BASE_URL}/v1/settings/detector-defaults`, {
+    method: "POST",
+    headers: { "X-Signal-Token": SIGNAL_TOKEN, "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(
+      `HTTP ${String(res.status)} ${res.statusText} for /v1/settings/detector-defaults: ${text}`,
+    );
+  }
+  const json: unknown = await res.json();
+  return detectorDefaultsSchema.parse(json);
+}
+
+export function useUpdateDetectorDefaults(): UseMutationResult<
+  DetectorDefaults,
+  Error,
+  DetectorDefaults
+> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: updateDetectorDefaultsRequest,
+    onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["settings"] });
     },
   });

@@ -29,6 +29,22 @@ function urlOf(input: Parameters<FetchFn>[0]): string {
   return input.url;
 }
 
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+function asRecord(v: unknown, name: string): Record<string, unknown> {
+  if (!isRecord(v)) throw new Error(`${name} is not an object`);
+  return v;
+}
+
+// JSON.parse returns `any` — narrow to `unknown` so subsequent type-guards
+// drive shape checking instead of a free cast.
+function parseJsonUnknown(s: string): unknown {
+  const v: unknown = JSON.parse(s);
+  return v;
+}
+
 interface SettingsFixture {
   readonly mode?: "read-only" | "error";
   readonly sizeBytes?: number;
@@ -36,6 +52,14 @@ interface SettingsFixture {
   readonly paused?: boolean;
   readonly errors?: ReadonlyArray<{ level: string; message: string; time: string | null }>;
   readonly detectors?: ReadonlyArray<{ id: string; version: string }>;
+  readonly detectorDefaults?: {
+    kMadLive: number;
+    trailingBuckets: number;
+    warmupBuckets: number;
+    freshCapSeconds: number;
+    pbpPreBufferMs: number;
+    pbpPostBufferMs: number;
+  };
 }
 
 function makeSettings(fixture: SettingsFixture = {}): Record<string, unknown> {
@@ -105,6 +129,14 @@ function makeSettings(fixture: SettingsFixture = {}): Record<string, unknown> {
       detectorVersions: fixture.detectors ?? [{ id: "board-mad", version: "1.0.0" }],
       dbSchemaVersion: 18,
     },
+    detectorDefaults: fixture.detectorDefaults ?? {
+      kMadLive: 3.0,
+      trailingBuckets: 20,
+      warmupBuckets: 8,
+      freshCapSeconds: 300,
+      pbpPreBufferMs: 5 * 60 * 1000,
+      pbpPostBufferMs: 60_000,
+    },
   };
 }
 
@@ -132,7 +164,7 @@ describe("SettingsPage", () => {
     vi.restoreAllMocks();
   });
 
-  it("renders four sections backed by /v1/settings", async () => {
+  it("renders five sections backed by /v1/settings (US-053 adds detector-defaults above db)", async () => {
     fetchMock.mockImplementation(async () => {
       await Promise.resolve();
       return jsonResponse(makeSettings());
@@ -143,6 +175,7 @@ describe("SettingsPage", () => {
     await waitFor(() => {
       expect(screen.getByTestId("settings-db")).toBeDefined();
     });
+    expect(screen.getByTestId("settings-detector-defaults")).toBeDefined();
     expect(screen.getByTestId("settings-sources")).toBeDefined();
     expect(screen.getByTestId("settings-errors")).toBeDefined();
     expect(screen.getByTestId("settings-about")).toBeDefined();
@@ -362,5 +395,192 @@ describe("SettingsPage", () => {
       expect(screen.getByTestId("query-error-banner")).toBeDefined();
     });
     expect(screen.getByText("Settings")).toBeDefined();
+  });
+});
+
+describe("SettingsPage > Detector defaults (US-053)", () => {
+  let fetchMock: ReturnType<typeof vi.fn<FetchFn>>;
+  beforeEach(() => {
+    fetchMock = vi.fn<FetchFn>();
+    vi.stubGlobal("fetch", fetchMock);
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it("renders one editable row per field with current server value", async () => {
+    fetchMock.mockImplementation(async () => {
+      await Promise.resolve();
+      return jsonResponse(
+        makeSettings({
+          detectorDefaults: {
+            kMadLive: 4.5,
+            trailingBuckets: 30,
+            warmupBuckets: 8,
+            freshCapSeconds: 300,
+            pbpPreBufferMs: 5 * 60 * 1000,
+            pbpPostBufferMs: 60_000,
+          },
+        }),
+      );
+    });
+
+    render(<SettingsPage />, { wrapper: makeWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("settings-detector-defaults")).toBeDefined();
+    });
+    const rows = screen.getAllByTestId("detector-default-row");
+    expect(rows.length).toBe(6);
+    const k = screen.getByTestId("detector-default-input-kMadLive");
+    if (!(k instanceof HTMLInputElement)) throw new Error("not input");
+    expect(k.value).toBe("4.5");
+    const trail = screen.getByTestId("detector-default-input-trailingBuckets");
+    if (!(trail instanceof HTMLInputElement)) throw new Error("not input");
+    expect(trail.value).toBe("30");
+  });
+
+  it("POSTs /v1/settings/detector-defaults on blur with the full payload", async () => {
+    const responses = [
+      makeSettings(),
+      // After write, the API echoes the full settings; reflect the new K.
+      makeSettings({
+        detectorDefaults: {
+          kMadLive: 5.5,
+          trailingBuckets: 20,
+          warmupBuckets: 8,
+          freshCapSeconds: 300,
+          pbpPreBufferMs: 5 * 60 * 1000,
+          pbpPostBufferMs: 60_000,
+        },
+      }),
+    ];
+    let getCount = 0;
+    fetchMock.mockImplementation(async (input, init) => {
+      const url = urlOf(input);
+      await Promise.resolve();
+      if (url.startsWith("/v1/settings/detector-defaults") && init?.method === "POST") {
+        return jsonResponse({
+          kMadLive: 5.5,
+          trailingBuckets: 20,
+          warmupBuckets: 8,
+          freshCapSeconds: 300,
+          pbpPreBufferMs: 5 * 60 * 1000,
+          pbpPostBufferMs: 60_000,
+        });
+      }
+      const body = responses[Math.min(getCount, responses.length - 1)];
+      getCount += 1;
+      return jsonResponse(body);
+    });
+
+    render(<SettingsPage />, { wrapper: makeWrapper() });
+
+    const k = await waitFor(() => screen.getByTestId("detector-default-input-kMadLive"));
+    if (!(k instanceof HTMLInputElement)) throw new Error("not input");
+    fireEvent.change(k, { target: { value: "5.5" } });
+    fireEvent.blur(k);
+
+    await waitFor(() => {
+      const posts = fetchMock.mock.calls.filter((c) => {
+        const url = urlOf(c[0]);
+        return url.startsWith("/v1/settings/detector-defaults") && c[1]?.method === "POST";
+      });
+      expect(posts.length).toBe(1);
+    });
+    const post = fetchMock.mock.calls.find((c) => {
+      const url = urlOf(c[0]);
+      return url.startsWith("/v1/settings/detector-defaults") && c[1]?.method === "POST";
+    });
+    if (post === undefined) throw new Error("missing POST");
+    const body = post[1]?.body;
+    if (typeof body !== "string") throw new Error("body not string");
+    const parsed = parseJsonUnknown(body);
+    const obj = asRecord(parsed, "body");
+    expect(obj["kMadLive"]).toBe(5.5);
+    expect(obj["trailingBuckets"]).toBe(20);
+    expect(obj["warmupBuckets"]).toBe(8);
+  });
+
+  it("Reset to default appears only when value differs from baseline + restores it on click", async () => {
+    fetchMock.mockImplementation(async (input, init) => {
+      const url = urlOf(input);
+      await Promise.resolve();
+      if (url.startsWith("/v1/settings/detector-defaults") && init?.method === "POST") {
+        return jsonResponse({
+          kMadLive: 3.0,
+          trailingBuckets: 20,
+          warmupBuckets: 8,
+          freshCapSeconds: 300,
+          pbpPreBufferMs: 5 * 60 * 1000,
+          pbpPostBufferMs: 60_000,
+        });
+      }
+      return jsonResponse(
+        makeSettings({
+          detectorDefaults: {
+            kMadLive: 4.5,
+            trailingBuckets: 20,
+            warmupBuckets: 8,
+            freshCapSeconds: 300,
+            pbpPreBufferMs: 5 * 60 * 1000,
+            pbpPostBufferMs: 60_000,
+          },
+        }),
+      );
+    });
+
+    render(<SettingsPage />, { wrapper: makeWrapper() });
+
+    // K=4.5 differs from baseline 3.0 → Reset appears.
+    const resetK = await waitFor(() => screen.getByTestId("detector-default-reset-kMadLive"));
+    expect(resetK).toBeDefined();
+    // trailingBuckets=20 matches baseline → no Reset link.
+    expect(screen.queryByTestId("detector-default-reset-trailingBuckets")).toBeNull();
+
+    fireEvent.click(resetK);
+    await waitFor(() => {
+      const posts = fetchMock.mock.calls.filter((c) => {
+        const url = urlOf(c[0]);
+        return url.startsWith("/v1/settings/detector-defaults") && c[1]?.method === "POST";
+      });
+      expect(posts.length).toBe(1);
+    });
+    const post = fetchMock.mock.calls.find((c) => {
+      const url = urlOf(c[0]);
+      return url.startsWith("/v1/settings/detector-defaults") && c[1]?.method === "POST";
+    });
+    if (post === undefined) throw new Error("missing POST");
+    const body = post[1]?.body;
+    if (typeof body !== "string") throw new Error("body not string");
+    const parsed = parseJsonUnknown(body);
+    const obj = asRecord(parsed, "body");
+    expect(obj["kMadLive"]).toBe(3.0);
+  });
+
+  it("renders ExplainerCard wrappers for every Detector defaults field label", async () => {
+    fetchMock.mockImplementation(async () => {
+      await Promise.resolve();
+      return jsonResponse(makeSettings());
+    });
+    render(<SettingsPage />, { wrapper: makeWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("settings-detector-defaults")).toBeDefined();
+    });
+    // ExplainerCard renders a trigger; under jsdom the wrapper places the
+    // child inside an interactive span. Probe presence by walking the DOM
+    // of each label cell and asserting an explainer-trigger span exists.
+    const rows = screen.getAllByTestId("detector-default-row");
+    for (const row of rows) {
+      const dt = row.querySelector("dt");
+      if (dt === null) throw new Error("missing dt");
+      const trigger = dt.querySelector("[data-explainer-id]");
+      // The ExplainerCard primitive marks its trigger with
+      // data-explainer-id; if the wrapper changes, this assertion
+      // catches that the label is no longer wrapped.
+      expect(trigger).not.toBeNull();
+    }
   });
 });

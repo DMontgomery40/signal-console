@@ -38,6 +38,12 @@ import type {
 } from "@signal-console/detectors";
 import type Database from "better-sqlite3";
 
+import {
+  boardMadDetectorVersion,
+  readDetectorDefaults,
+  type DetectorDefaults,
+} from "./detector-defaults";
+
 type GoldDbHandle = ReturnType<typeof openGoldDb>;
 
 export interface BacktestObservation {
@@ -83,7 +89,8 @@ export class BacktestError extends Error {
 
 export function runBacktest(args: RunBacktestArgs): BacktestResult {
   const now = args.now ?? new Date();
-  const dispatch = resolveDispatch(args.detectorId, args.params);
+  const defaults = readDetectorDefaults();
+  const dispatch = resolveDispatch(args.detectorId, args.params, defaults);
   const sortedGameIds = args.gameIds.toSorted();
   const paramsJson = canonicalJson(dispatch.params);
   const paramsHash = sha256Hex(paramsJson);
@@ -122,7 +129,7 @@ export function runBacktest(args: RunBacktestArgs): BacktestResult {
         end: new Date(args.windowEnd),
         ticks:
           dispatch.sources.includes("ticks") && sortedGameIds.length > 0
-            ? loadTicks(goldDb, sortedGameIds, args.windowStart, args.windowEnd)
+            ? loadTicks(goldDb, sortedGameIds, args.windowStart, args.windowEnd, defaults)
             : [],
         microstructureEvents:
           dispatch.sources.includes("microstructure") && sortedGameIds.length > 0
@@ -167,7 +174,11 @@ interface Dispatch {
   readonly run: (window: DetectorWindow) => DetectorResult;
 }
 
-function resolveDispatch(detectorId: string, rawParams: unknown): Dispatch {
+function resolveDispatch(
+  detectorId: string,
+  rawParams: unknown,
+  defaults: DetectorDefaults,
+): Dispatch {
   switch (detectorId) {
     case boardMad.id: {
       const parsed = BoardMadParams.safeParse(rawParams);
@@ -177,7 +188,7 @@ function resolveDispatch(detectorId: string, rawParams: unknown): Dispatch {
       const params = parsed.data;
       return {
         detectorId: boardMad.id,
-        detectorVersion: boardMad.version,
+        detectorVersion: boardMadDetectorVersion(defaults),
         params,
         sources: ["ticks"],
         run: (w) => boardMad.run(w, params),
@@ -369,9 +380,9 @@ function persistRun(cacheDb: Database.Database, args: PersistArgs): number {
   return tx();
 }
 
-// Per-game PBP-anchored window narrowing. Buffers match board.ts's
-// resolveInPlayWindow so the backtest path and the live /v1/board path
-// see the same ticks for the same game.
+// Per-game PBP-anchored window narrowing. Buffers come from the runtime
+// detector-defaults service so the backtest path and the live /v1/board
+// path see the same ticks for the same game.
 //
 // Why this matters: gold-DB quote_ticks for a single game routinely span
 // 24+ hours (markets open the day before tipoff and accept low-volume
@@ -383,8 +394,6 @@ function persistRun(cacheDb: Database.Database, args: PersistArgs): number {
 // the contract-test fire count at K=6. Narrowing to PBP MIN..MAX +
 // small buffers, the same way board.ts does, fixes both at once. See
 // US-021 / US-034 / canonical.test.ts for context.
-const PBP_PRE_BUFFER_MS = 5 * 60 * 1000;
-const PBP_POST_BUFFER_MS = 60 * 1000;
 
 interface InPlayBound {
   readonly start: string;
@@ -396,6 +405,8 @@ function resolvePerGameInPlayWindow(
   gameId: string,
   windowStart: string,
   windowEnd: string,
+  pbpPreBufferMs: number,
+  pbpPostBufferMs: number,
 ): InPlayBound | null {
   // Wrap in try because test fixtures may not include the
   // nba_play_by_play_actions table; production gold DB always does. Any
@@ -420,8 +431,8 @@ function resolvePerGameInPlayWindow(
       const loMs = Date.parse(lo);
       const hiMs = Date.parse(hi);
       if (Number.isFinite(loMs) && Number.isFinite(hiMs)) {
-        const pbpStart = new Date(loMs - PBP_PRE_BUFFER_MS).toISOString();
-        const pbpEnd = new Date(hiMs + PBP_POST_BUFFER_MS).toISOString();
+        const pbpStart = new Date(loMs - pbpPreBufferMs).toISOString();
+        const pbpEnd = new Date(hiMs + pbpPostBufferMs).toISOString();
         const start = pbpStart > windowStart ? pbpStart : windowStart;
         const end = pbpEnd < windowEnd ? pbpEnd : windowEnd;
         if (start <= end) return { start, end };
@@ -438,13 +449,21 @@ function loadTicks(
   gameIds: readonly string[],
   windowStart: string,
   windowEnd: string,
+  defaults: DetectorDefaults,
 ): readonly Tick[] {
   // Narrow per-game to the PBP-anchored in-play window. Without this, a
   // 4-day requested window over one game produces ~1200 buckets covering
   // 29 hours instead of ~155 buckets covering ~155 min (the actual play
   // time), and the detector fires ~14-17x too many times.
   const allRows = gameIds.flatMap((gameId): readonly unknown[] => {
-    const bound = resolvePerGameInPlayWindow(goldDb, gameId, windowStart, windowEnd);
+    const bound = resolvePerGameInPlayWindow(
+      goldDb,
+      gameId,
+      windowStart,
+      windowEnd,
+      defaults.pbpPreBufferMs,
+      defaults.pbpPostBufferMs,
+    );
     if (bound === null) return [];
     return goldDb
       .prepare(

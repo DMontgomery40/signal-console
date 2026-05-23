@@ -32,6 +32,8 @@ import {
 import type { Tick } from "@signal-console/detectors";
 import Database from "better-sqlite3";
 
+import { boardMadDetectorVersion, readDetectorDefaults } from "./detector-defaults";
+
 type GoldDbHandle = ReturnType<typeof openGoldDb>;
 
 export interface BoardObservation {
@@ -58,38 +60,49 @@ export interface GetOrComputeBoardArgs {
 }
 
 const DETECTOR_ID = boardMad.id;
-const DETECTOR_VERSION = boardMad.version;
-const RESOLVED_PARAMS = BoardMadParams.parse({});
-const PARAMS_JSON: string = canonicalJson(RESOLVED_PARAMS);
-const PARAMS_HASH: string = sha256Hex(PARAMS_JSON);
-const K_VALUE: number = RESOLVED_PARAMS.kMad;
-
-const PBP_PRE_BUFFER_MS = 5 * 60 * 1000;
-const PBP_POST_BUFFER_MS = 60 * 1000;
 
 export function getOrComputeBoard(args: GetOrComputeBoardArgs): BoardResult {
   const now = args.now ?? new Date();
+  const defaults = readDetectorDefaults();
+  const detectorVersion = boardMadDetectorVersion(defaults);
+  const resolvedParams = BoardMadParams.parse({
+    kMad: defaults.kMadLive,
+    trailingBuckets: defaults.trailingBuckets,
+    warmupBuckets: defaults.warmupBuckets,
+    freshCapSeconds: defaults.freshCapSeconds,
+  });
+  const paramsJson = canonicalJson(resolvedParams);
+  const paramsHash = sha256Hex(paramsJson);
+  const kValue = resolvedParams.kMad;
+  const pbpPreMs = defaults.pbpPreBufferMs;
+  const pbpPostMs = defaults.pbpPostBufferMs;
+
   const cacheDb = openCacheDb(args.cacheDbPath);
   try {
     const goldDb = openGoldDb(args.goldDbPath);
     try {
       const watermarkHash = computeGameWatermarkHash(goldDb, args.gameId);
-      const hit = lookupRun(cacheDb, args.gameId, watermarkHash);
+      const hit = lookupRun(cacheDb, {
+        detectorVersion,
+        paramsHash,
+        gameId: args.gameId,
+        watermarkHash,
+      });
       if (hit !== null) {
         return {
           gameId: args.gameId,
           runId: hit.runId,
-          k: K_VALUE,
+          k: kValue,
           observations: loadObservations(cacheDb, hit.runId),
         };
       }
       const startNs = process.hrtime.bigint();
-      const window = resolveInPlayWindow(goldDb, args.gameId);
+      const window = resolveInPlayWindow(goldDb, args.gameId, pbpPreMs, pbpPostMs);
       const ticks: readonly Tick[] =
         window === null ? [] : loadTicks(goldDb, args.gameId, window.start, window.end);
       const result = boardMad.run(
         { gameIds: [args.gameId], start: window?.start ?? now, end: window?.end ?? now, ticks },
-        RESOLVED_PARAMS,
+        resolvedParams,
       );
       const computeMs = Number((process.hrtime.bigint() - startNs) / 1_000_000n);
       // Persist ALL bucket observations (fired + non-fired) so US-047's
@@ -107,6 +120,9 @@ export function getOrComputeBoard(args: GetOrComputeBoardArgs): BoardResult {
         }),
       );
       const runId = persistRun(cacheDb, {
+        detectorVersion,
+        paramsJson,
+        paramsHash,
         gameId: args.gameId,
         sourceDbPath: args.goldDbPath,
         watermarkHash,
@@ -114,7 +130,7 @@ export function getOrComputeBoard(args: GetOrComputeBoardArgs): BoardResult {
         computeMs,
         observations,
       });
-      return { gameId: args.gameId, runId, k: K_VALUE, observations };
+      return { gameId: args.gameId, runId, k: kValue, observations };
     } finally {
       goldDb.close();
     }
@@ -127,11 +143,14 @@ interface CacheHit {
   readonly runId: number;
 }
 
-function lookupRun(
-  cacheDb: Database.Database,
-  gameId: string,
-  watermarkHash: string,
-): CacheHit | null {
+interface LookupArgs {
+  readonly detectorVersion: string;
+  readonly paramsHash: string;
+  readonly gameId: string;
+  readonly watermarkHash: string;
+}
+
+function lookupRun(cacheDb: Database.Database, args: LookupArgs): CacheHit | null {
   const row = cacheDb
     .prepare(
       `SELECT id FROM detector_runs
@@ -145,7 +164,7 @@ function lookupRun(
          AND window_end IS NULL
        LIMIT 1`,
     )
-    .get(DETECTOR_ID, DETECTOR_VERSION, PARAMS_HASH, watermarkHash, gameId);
+    .get(DETECTOR_ID, args.detectorVersion, args.paramsHash, args.watermarkHash, args.gameId);
   if (!isRecord(row)) return null;
   const id = row["id"];
   if (typeof id !== "number") return null;
@@ -175,6 +194,9 @@ function loadObservations(cacheDb: Database.Database, runId: number): readonly B
 }
 
 interface PersistArgs {
+  readonly detectorVersion: string;
+  readonly paramsJson: string;
+  readonly paramsHash: string;
   readonly gameId: string;
   readonly sourceDbPath: string;
   readonly watermarkHash: string;
@@ -200,9 +222,9 @@ function persistRun(cacheDb: Database.Database, args: PersistArgs): number {
   const tx = cacheDb.transaction((): number => {
     const result = insertRun.run(
       DETECTOR_ID,
-      DETECTOR_VERSION,
-      PARAMS_HASH,
-      PARAMS_JSON,
+      args.detectorVersion,
+      args.paramsHash,
+      args.paramsJson,
       args.sourceDbPath,
       args.watermarkHash,
       args.gameId,
@@ -232,7 +254,12 @@ interface InPlayWindow {
   readonly end: Date;
 }
 
-function resolveInPlayWindow(goldDb: GoldDbHandle, gameId: string): InPlayWindow | null {
+function resolveInPlayWindow(
+  goldDb: GoldDbHandle,
+  gameId: string,
+  pbpPreBufferMs: number,
+  pbpPostBufferMs: number,
+): InPlayWindow | null {
   // Primary path: PBP MIN/MAX(time_actual). Pre-buffer seeds the warmup
   // trailing baseline; post-buffer captures the watcher confirmation tail.
   const pbp = goldDb
@@ -250,8 +277,8 @@ function resolveInPlayWindow(goldDb: GoldDbHandle, gameId: string): InPlayWindow
       const hiMs = Date.parse(hi);
       if (Number.isFinite(loMs) && Number.isFinite(hiMs)) {
         return {
-          start: new Date(loMs - PBP_PRE_BUFFER_MS),
-          end: new Date(hiMs + PBP_POST_BUFFER_MS),
+          start: new Date(loMs - pbpPreBufferMs),
+          end: new Date(hiMs + pbpPostBufferMs),
         };
       }
     }

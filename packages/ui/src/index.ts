@@ -26,3 +26,7 @@ export { explainers, type Explainer, type ExplainerId } from "./explainers";
 
 // HoverCard primitive consuming the explainer content above. See US-046.
 export { ExplainerCard, type ExplainerCardProps } from "./components/ExplainerCard";
+
+// Generic rotary-dial primitive (US-053). Cry Wolf dial and Memory dial both
+// configure this; consumers supply value/min/max/step + snap points + chips.
+export { RotaryDial, type RotaryDialProps, type RotaryDialSnapChip } from "./components/RotaryDial";

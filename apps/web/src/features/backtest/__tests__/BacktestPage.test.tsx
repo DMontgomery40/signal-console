@@ -426,12 +426,16 @@ describe("BacktestPage", () => {
     }).length;
     expect(postCountBefore).toBe(1);
 
-    // Bump trailingBuckets 20 -> 30 (in-memory recompute path).
-    const trailing = screen.getByTestId("backtest-param-trailingBuckets");
-    if (!(trailing instanceof HTMLInputElement)) throw new Error("not an input");
+    // Bump trailingBuckets 20 -> 30 via the Memory dial (US-053). The dial is
+    // a SVG slider with smallStep 1 (integer) over [5, 60]; 10 ArrowRight key
+    // events walk the value from 20 to 30.
+    const memory = screen.getByTestId("memory-dial");
     act(() => {
-      fireEvent.change(trailing, { target: { value: "30" } });
+      for (let i = 0; i < 10; i++) {
+        fireEvent.keyDown(memory, { key: "ArrowRight" });
+      }
     });
+    expect(memory.getAttribute("aria-valuenow")).toBe("30");
 
     // No new POST.
     const postCountAfterEdit = fetchMock.mock.calls.filter(([input, init]) => {
@@ -447,8 +451,11 @@ describe("BacktestPage", () => {
 
     // Revert to 20 — recompute should round-trip back to the baseline value.
     act(() => {
-      fireEvent.change(trailing, { target: { value: "20" } });
+      for (let i = 0; i < 10; i++) {
+        fireEvent.keyDown(memory, { key: "ArrowLeft" });
+      }
     });
+    expect(memory.getAttribute("aria-valuenow")).toBe("20");
     const afterRevert = screen.getByTestId("backtest-stat-fires-per-game").textContent;
     expect(afterRevert).toBe(baseline);
   });
@@ -502,12 +509,16 @@ describe("BacktestPage", () => {
     }).length;
     expect(postCountAfterDial).toBe(1);
 
-    // (c) Second knob: trailingBuckets 20 → 30. Still no API round-trip.
-    const trailing = screen.getByTestId("backtest-param-trailingBuckets");
-    if (!(trailing instanceof HTMLInputElement)) throw new Error("not an input");
+    // (c) Second knob: Memory dial 20 → 30 (10 × +1 via ArrowRight). Still no
+    // API round-trip — the in-memory recompute reads baseline_median /
+    // baseline_mad from the cached observations.
+    const memory = screen.getByTestId("memory-dial");
     act(() => {
-      fireEvent.change(trailing, { target: { value: "30" } });
+      for (let i = 0; i < 10; i++) {
+        fireEvent.keyDown(memory, { key: "ArrowRight" });
+      }
     });
+    expect(memory.getAttribute("aria-valuenow")).toBe("30");
     const Z = screen.getByTestId("backtest-stat-fires-per-game").textContent;
     expect(Number.isNaN(Number.parseFloat(Z))).toBe(false);
     const postCountAfterTrailing = fetchMock.mock.calls.filter(([input, init]) => {
@@ -516,9 +527,9 @@ describe("BacktestPage", () => {
     }).length;
     expect(postCountAfterTrailing).toBe(1);
 
-    // (d) Revert: K → 3.0 (12 × ArrowLeft), trailingBuckets → 20. Assert
-    // X' === X to within float epsilon (the recompute must be deterministic
-    // and stateless across reversals).
+    // (d) Revert: K → 3.0 (12 × ArrowLeft), Memory 30 → 20 (10 × ArrowLeft).
+    // Assert X' === X to within float epsilon (the recompute must be
+    // deterministic and stateless across reversals).
     act(() => {
       for (let i = 0; i < 12; i++) {
         fireEvent.keyDown(dial, { key: "ArrowLeft" });
@@ -526,8 +537,11 @@ describe("BacktestPage", () => {
     });
     expect(dial.getAttribute("aria-valuenow")).toBe("3");
     act(() => {
-      fireEvent.change(trailing, { target: { value: "20" } });
+      for (let i = 0; i < 10; i++) {
+        fireEvent.keyDown(memory, { key: "ArrowLeft" });
+      }
     });
+    expect(memory.getAttribute("aria-valuenow")).toBe("20");
     const Xprime = screen.getByTestId("backtest-stat-fires-per-game").textContent;
     expect(Xprime).toBe(X);
 

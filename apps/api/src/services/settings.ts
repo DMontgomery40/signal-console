@@ -12,6 +12,12 @@ import Database from "better-sqlite3";
 import { openGoldDb } from "@signal-console/db";
 import { registry } from "@signal-console/detectors/registry";
 
+import {
+  boardMadDetectorVersion,
+  readDetectorDefaults,
+  type DetectorDefaults,
+} from "./detector-defaults";
+
 export interface DbInfo {
   readonly path: string;
   readonly sizeBytes: number;
@@ -70,6 +76,7 @@ export interface SettingsResponse {
   readonly sources: Sources;
   readonly errors: readonly LogEntry[];
   readonly about: AboutInfo;
+  readonly detectorDefaults: DetectorDefaults;
 }
 
 export interface SettingsOptions {
@@ -276,15 +283,22 @@ function readErrors(logPath: string, max: number): readonly LogEntry[] {
   }
 }
 
-function readDetectorVersions(): readonly DetectorVersion[] {
+function readDetectorVersions(defaults: DetectorDefaults): readonly DetectorVersion[] {
   return [...registry.values()]
-    .map((d): DetectorVersion => ({ id: d.id, version: d.version }))
+    .map((d): DetectorVersion => {
+      // board-mad version is runtime-derived: defaults file hash folds into
+      // the cache discriminator so any default change invalidates cached
+      // runs. Other detectors report their package-declared version verbatim.
+      const version = d.id === "board-mad" ? boardMadDetectorVersion(defaults) : d.version;
+      return { id: d.id, version };
+    })
     .toSorted((a, b) => a.id.localeCompare(b.id));
 }
 
 export function readSettings(opts: SettingsOptions): SettingsResponse {
   const max = opts.maxErrors ?? DEFAULT_MAX_ERRORS;
   const goldStats = readGoldStats(opts.goldDbPath);
+  const detectorDefaults = readDetectorDefaults();
   return {
     db: buildDbInfo(opts.goldDbPath, goldStats),
     cacheDb: readCacheDbInfo(opts.cacheDbPath),
@@ -292,8 +306,9 @@ export function readSettings(opts: SettingsOptions): SettingsResponse {
     errors: readErrors(opts.logPath, max),
     about: {
       appVersion: opts.appVersion,
-      detectorVersions: readDetectorVersions(),
+      detectorVersions: readDetectorVersions(detectorDefaults),
       dbSchemaVersion: goldStats.schemaVersion,
     },
+    detectorDefaults,
   };
 }
