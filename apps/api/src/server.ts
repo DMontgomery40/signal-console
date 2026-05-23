@@ -14,6 +14,7 @@ import boardRoutes, { type BoardRoutesOptions } from "./routes/board";
 import cacheRoutes, { type CacheRoutesOptions } from "./routes/cache";
 import gamesRoutes, { type GamesRoutesOptions } from "./routes/games";
 import healthRoutes, { type HealthRoutesOptions } from "./routes/health";
+import liveRoutes, { type LiveRoutesOptions } from "./routes/live";
 import settingsRoutes, { type SettingsRoutesOptions } from "./routes/settings";
 
 const DEFAULT_PORT = 4100;
@@ -26,6 +27,7 @@ export interface BuildServerOptions {
   readonly settings?: SettingsRoutesOptions;
   readonly cache?: CacheRoutesOptions;
   readonly board?: BoardRoutesOptions;
+  readonly live?: LiveRoutesOptions;
 }
 
 export async function buildServer(options: BuildServerOptions = {}): Promise<FastifyInstance> {
@@ -60,6 +62,7 @@ export async function buildServer(options: BuildServerOptions = {}): Promise<Fas
   await app.register(settingsRoutes, options.settings ?? {});
   await app.register(cacheRoutes, options.cache ?? {});
   await app.register(boardRoutes, options.board ?? {});
+  await app.register(liveRoutes, options.live ?? {});
 
   // Fastify instances are thenable (await app === app.ready()); awaiting here
   // satisfies @typescript-eslint/return-await:always and gives callers a

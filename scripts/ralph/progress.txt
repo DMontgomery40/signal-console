@@ -621,3 +621,25 @@ Started: Sat May 23 00:45:49 MDT 2026
   - The Bash shell working directory persists across calls in this session. Previous `cd /Users/davidmontgomery/signal-console` carried over and broke the jq filename — use absolute paths or pwd-check first.
   - All upcoming unpassed stories are routes (US-028/029/030) or UI (US-031/032/035-039) or backtest infra (US-033/034) — the next highest priority is US-028 (Live route /v1/live/:gameId).
 ---
+
+## 2026-05-23T08:55Z - US-028
+- What was implemented: GET /v1/live/:gameId returning the last 5 minutes of quote_ticks for one game, joined to source_markets for instrument metadata. Pure read-only against the gold DB via openGoldDb.
+- Files changed:
+  - apps/api/src/services/live.ts (new, ~120 LOC)
+  - apps/api/src/routes/live.ts (new, ~95 LOC)
+  - apps/api/src/server.ts (register liveRoutes; BuildServerOptions.live)
+  - apps/api/tests/live.test.ts (new, 7 tests)
+- Verification ran:
+  - `pnpm --filter @signal-console/api test -- tests/live.test.ts` (7/7 pass, 52/52 in the suite)
+  - `pnpm verify` (5/5 turbo tasks pass; cached the other packages)
+  - `pnpm verify:no-stale-plan` (0 forbidden plan-drift hits)
+  - `grep -c board_volatility_baselines apps/api/src/routes/live.ts` -> 0 (matches AC criterion 5)
+  - SQL plan shape matches the existing verify:queries snapshot at packages/db/src/queries/__tests__/__snapshots__/ticks-for-one-game-window.plan.txt — SEARCH sm USING COVERING INDEX idx_source_markets_game_instrument, SEARCH qt USING INDEX idx_quote_ticks_unique_observation (bounded by (source_market_id, captured_at) per AC).
+  - OpenAPI desk-stable tag asserted in the suite (test "is tagged 'desk-stable' in /openapi.json").
+- **Learnings for future iterations:**
+  - **Grep-guard ACs eat your prose.** US-028's AC 5 says "grep of routes/live.ts for board_volatility_baselines returning zero matches." The natural code comment "Does NOT read board_volatility_baselines — Live is raw ticks only" makes the grep return 1, not 0. The fix is to phrase the constraint without naming the table: "no baseline-rebuild table is read by this route" works. The same will bite any future story whose AC pins a forbidden-string grep on a source file — never quote the forbidden string in that file, even in comments. Applied prophylactically to services/live.ts as well, since the test grep covers both.
+  - **Service `now` injection is leak-friendly but tests don't need it.** board.ts service accepts args.now for testability, but its route always uses wall-clock now and the route tests seed ticks at offsets from Date.now() rather than injecting a clock. live.ts follows the same convention — args.now is exposed on GetLiveArgs but the route never sets it. Tests use `isoFromNow(deltaMs)` helpers that seed at -10s, -1min, -4min (inside the 5-min window) and -6min, -60min (outside). This keeps the route handler clean and the service still unit-testable.
+  - **Response shape includes a flat windowStart/windowEnd, not a nested window object.** Mirrors the cache-DB observation shape (bucketStart/bucketEnd on board observations). Fast-json-stringify schemas are flatter to specify, and the UI can compute span = end - start trivially if it ever wants it.
+  - **source_markets schema reminders** (from nba-predict/packages/shared/src/migrations.ts): id TEXT PK, game_id TEXT NOT NULL, instrument_id TEXT (nullable), raw_family TEXT (nullable), raw_label TEXT (nullable), mapping_status TEXT NOT NULL, plus source/source_market_key/source_selection_key. Test seed only fills id/game_id/instrument_id/raw_family/raw_label and gives source + source_market_key + mapping_status NOT NULL defaults via column DEFAULT — keeps seedGoldDb compact.
+  - **quote_ticks.volume is NULLABLE in gold; route must COALESCE.** Already established by US-010 / US-021; restated here because services/live.ts also COALESCEs to 0 for the same reason: the wire type is `number` (not `number | null`) since UI computes deltas/sums and a NULL would break math. impliedProbability stays nullable on the wire because some heartbeat ticks legitimately have no quote.
+---

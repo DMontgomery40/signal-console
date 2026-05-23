@@ -610,8 +610,8 @@
         "Typecheck passes"
       ],
       "priority": 33,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Service in apps/api/src/services/live.ts (~120 LOC); route in apps/api/src/routes/live.ts (~95 LOC). Query matches the verify:queries snapshot ticks-for-one-game-window.plan.txt — SEARCH sm USING COVERING INDEX idx_source_markets_game_instrument, then SEARCH qt USING INDEX idx_quote_ticks_unique_observation (bounded by source_market_id + captured_at as the AC requires). Response shape: { gameId, windowStart, windowEnd, ticks[] } where each tick carries sourceMarketId, capturedAt, impliedProbability (nullable), volume (COALESCEd to 0), isHeartbeat (0/1), instrumentId/rawFamily/rawLabel (joined from source_markets, all nullable). 7 vitest tests: shape, window bounds (in/out), empty quiet game, unknown game id (200 + empty array), cross-game isolation, null/missing-volume coalesce, openapi desk-stable tag, AND a grep guard against the baseline-table name in both route + service files. GOTCHA for future iterations: the AC grep guard requires zero matches of board_volatility_baselines in routes/live.ts SOURCE, so even prose comments mentioning the table name trip the check — phrase it as \"no baseline-rebuild table\" instead. Same applied to services/live.ts to keep the guard tight. The service exposes args.now for testability (mirrors board.ts) but the route always uses wall-clock now; this keeps the route handler simple and means tests seed ticks at relative offsets from Date.now() rather than injecting a clock. Window is exactly 300_000 ms (LIVE_WINDOW_MS const exported); tests assert endMs - startMs === 300_000."
     },
     {
       "id": "US-029",
