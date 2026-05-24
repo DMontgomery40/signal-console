@@ -437,39 +437,8 @@ function resolvePerGameInPlayWindow(
       }
     }
   }
-  // Secondary fallback: games.scheduled_start ± fixed buffers. Used when PBP
-  // is unavailable (e.g. gold DB restored from a backup that predates the PBP
-  // ingest, or the sidecar hasn't backfilled this date). NBA games are
-  // ~2.5h, so [tipoff - 30min, tipoff + 3.5h] tightly bounds the in-play
-  // window without needing PBP. This is the critical fix: a tertiary
-  // captured_at MIN..MAX fallback was empirically ~25h wide (markets open
-  // the day before tipoff and close after final), which still produced
-  // ~152 fires/game over the contract-test's ~18/game at K=3.
-  let sched: unknown;
-  try {
-    sched = goldDb
-      .prepare(`SELECT scheduled_start AS ts FROM games WHERE id = ?`)
-      .get(gameId);
-  } catch {
-    sched = null;
-  }
-  if (isRecord(sched)) {
-    const ts = sched["ts"];
-    if (typeof ts === "string") {
-      const tipoffMs = Date.parse(ts);
-      if (Number.isFinite(tipoffMs)) {
-        const SCHED_PRE_MS = 30 * 60 * 1000;
-        const SCHED_POST_MS = 3.5 * 60 * 60 * 1000;
-        const schedStart = new Date(tipoffMs - SCHED_PRE_MS).toISOString();
-        const schedEnd = new Date(tipoffMs + SCHED_POST_MS).toISOString();
-        const start = schedStart > windowStart ? schedStart : windowStart;
-        const end = schedEnd < windowEnd ? schedEnd : windowEnd;
-        if (start <= end) return { start, end };
-      }
-    }
-  }
-  // Tertiary fallback: per-game quote_ticks captured_at MIN..MAX. Last-ditch
-  // when neither PBP nor scheduled_start is available. Less precise (no
+  // Fallback: per-game quote_ticks captured_at MIN..MAX. Used when PBP is
+  // unavailable for this game (e.g. backup predates PBP ingest). Less precise (no
   // pre-tipoff anchor, no after-final cooldown) but still narrows vs the
   // raw requested window because it bounds to "first tick to last tick for
   // THIS game's markets."
@@ -504,9 +473,9 @@ function resolvePerGameInPlayWindow(
       }
     }
   }
-  // Quaternary: requested window (no narrowing). Only true when the game has
-  // no PBP, no scheduled_start, and no ticks — in which case loadTicks finds
-  // nothing anyway, so this is a harmless terminal fallback.
+  // Last-ditch: requested window (no narrowing). Only true when the game has
+  // no PBP and no ticks — in which case loadTicks finds nothing anyway, so
+  // this is a harmless terminal fallback.
   return { start: windowStart, end: windowEnd };
 }
 
@@ -568,17 +537,29 @@ function loadMicrostructure(
   windowStart: string,
   windowEnd: string,
 ): readonly MicrostructureEvent[] {
+  // off_price_distance is computed at query time (report §5.3 / §7.1: the
+  // absolute distance between trade_price and the most recent sampled
+  // implied_probability on the same source_market at or before the trade).
+  // Causal subquery — never reads ticks after event_timestamp — and uses
+  // the (source_market_id, captured_at DESC) index for O(log N) per event.
   const placeholders = gameIds.map(() => "?").join(",");
   const rows = goldDb
     .prepare(
-      `SELECT game_id, source_market_id, event_timestamp, source,
-              COALESCE(volume_share, 0) AS volume_share,
-              COALESCE(off_price_distance, 0) AS off_price_distance
-       FROM market_microstructure_events
-       WHERE game_id IN (${placeholders})
-         AND event_timestamp >= ?
-         AND event_timestamp <= ?
-       ORDER BY game_id, event_timestamp`,
+      `SELECT e.game_id, e.source_market_id, e.event_timestamp, e.source,
+              COALESCE(e.volume_share, 0) AS volume_share,
+              COALESCE(ABS(e.trade_price - (
+                SELECT qt.implied_probability
+                FROM quote_ticks qt
+                WHERE qt.source_market_id = e.source_market_id
+                  AND qt.captured_at <= e.event_timestamp
+                ORDER BY qt.captured_at DESC
+                LIMIT 1
+              )), 0) AS off_price_distance
+       FROM market_microstructure_events e
+       WHERE e.game_id IN (${placeholders})
+         AND e.event_timestamp >= ?
+         AND e.event_timestamp <= ?
+       ORDER BY e.game_id, e.event_timestamp`,
     )
     .all(...gameIds, windowStart, windowEnd);
   return rows.map((row): MicrostructureEvent => {

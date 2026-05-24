@@ -68,7 +68,7 @@ function seedGoldDb(path: string, games: readonly SeedGame[]): void {
       event_timestamp TEXT NOT NULL,
       source TEXT NOT NULL,
       volume_share REAL,
-      off_price_distance REAL
+      trade_price REAL
     );
     CREATE TABLE IF NOT EXISTS game_states (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -114,6 +114,42 @@ function seedGoldDb(path: string, games: readonly SeedGame[]): void {
         ip,
         Math.max(1, i % 50),
       );
+    }
+  }
+  db.close();
+}
+
+interface SeedMicroEvent {
+  readonly gameId: string;
+  readonly sourceMarketId: string;
+  readonly eventTimestamp: string;
+  readonly tradePrice: number;
+  readonly volumeShare: number;
+  readonly sampledPriceAt?: string;
+  readonly sampledImpliedProbability?: number;
+}
+
+function seedMicrostructure(path: string, events: readonly SeedMicroEvent[]): void {
+  const db = new Database(path);
+  const insertEvent = db.prepare(
+    `INSERT INTO market_microstructure_events
+       (game_id, source_market_id, event_timestamp, source, volume_share, trade_price)
+     VALUES (?, ?, ?, 'polymarket', ?, ?)`,
+  );
+  const insertTick = db.prepare(
+    `INSERT INTO quote_ticks (source_market_id, captured_at, implied_probability, volume, is_heartbeat)
+     VALUES (?, ?, ?, ?, 0)`,
+  );
+  for (const e of events) {
+    insertEvent.run(
+      e.gameId,
+      e.sourceMarketId,
+      e.eventTimestamp,
+      e.volumeShare,
+      e.tradePrice,
+    );
+    if (e.sampledImpliedProbability !== undefined && e.sampledPriceAt !== undefined) {
+      insertTick.run(e.sourceMarketId, e.sampledPriceAt, e.sampledImpliedProbability, 100);
     }
   }
   db.close();
@@ -401,5 +437,90 @@ describe("backtest route (US-034)", () => {
     const k3Id = asRecord(k3.json(), "k3")["runId"];
     const k6Id = asRecord(k6.json(), "k6")["runId"];
     expect(k6Id).not.toBe(k3Id);
+  });
+
+  // Regression for the production-schema mismatch where backtest.ts queried a
+  // non-existent off_price_distance column on market_microstructure_events.
+  // off_price_distance is computed at query time: |trade_price - latest
+  // pre-event sampled implied_probability for the same source_market|. This
+  // test asserts the off-price-print detector fires on a Reaves-shaped trade
+  // (trade ≈ 0.99, surrounding sampled price ≈ 0.50, volume_share ≥ 0.10).
+  it("off-price-print fires when trade_price is far from the latest pre-event sampled price", async () => {
+    seedGoldDb(ctx.goldDbPath, [
+      { id: "nba-opp-1", scheduledStart: "2026-05-12T01:30:00Z", tickCount: 0 },
+    ]);
+    seedMicrostructure(ctx.goldDbPath, [
+      {
+        gameId: "nba-opp-1",
+        sourceMarketId: "pm-opp-1-over",
+        eventTimestamp: "2026-05-12T04:52:18.000Z",
+        tradePrice: 0.9894,
+        volumeShare: 0.246,
+        sampledPriceAt: "2026-05-12T04:52:05.000Z",
+        sampledImpliedProbability: 0.495,
+      },
+    ]);
+    const app = await startApp();
+    const res = await app.inject({
+      method: "POST",
+      url: "/v1/backtest",
+      headers: authHeaders(),
+      payload: {
+        detector_id: "off-price-print",
+        params: { minVolumeShare: 0.1, minOffPriceDistance: 0.4 },
+        window: { start: "2026-05-12T04:00:00Z", end: "2026-05-12T05:00:00Z" },
+        game_ids: ["nba-opp-1"],
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = asRecord(res.json(), "off-price body");
+    const stats = asRecord(body["stats"], "stats");
+    expect(stats["totalFires"]).toBe(1);
+    const observations = body["observations"];
+    if (!isUnknownArray(observations)) throw new Error("observations not array");
+    const fired = observations
+      .map((o) => asRecord(o, "obs"))
+      .filter((o) => o["fired"] === 1);
+    expect(fired).toHaveLength(1);
+    // intensity = off_price_distance = |0.9894 - 0.495| ≈ 0.494
+    const intensity = fired[0]?.["intensity"];
+    expect(typeof intensity).toBe("number");
+    expect(Math.abs((intensity as number) - 0.4944)).toBeLessThan(0.005);
+  });
+
+  // Companion guard: when there is no surrounding quote_tick (subquery returns
+  // NULL → COALESCE → 0), the detector must NOT fire, even on a 0.99 trade
+  // with high volume_share. This is the failure mode the broken column query
+  // hid: every event silently had off_price_distance=0 instead of 500-ing or
+  // computing it, so no Polymarket print could ever fire.
+  it("off-price-print does NOT fire when there is no prior sampled price (no ghost-zero leak)", async () => {
+    seedGoldDb(ctx.goldDbPath, [
+      { id: "nba-opp-2", scheduledStart: "2026-05-12T01:30:00Z", tickCount: 0 },
+    ]);
+    seedMicrostructure(ctx.goldDbPath, [
+      {
+        gameId: "nba-opp-2",
+        sourceMarketId: "pm-opp-2-over",
+        eventTimestamp: "2026-05-12T04:52:18.000Z",
+        tradePrice: 0.9894,
+        volumeShare: 0.246,
+        // no sampled tick — subquery returns NULL → distance is COALESCEd to 0
+      },
+    ]);
+    const app = await startApp();
+    const res = await app.inject({
+      method: "POST",
+      url: "/v1/backtest",
+      headers: authHeaders(),
+      payload: {
+        detector_id: "off-price-print",
+        params: { minVolumeShare: 0.1, minOffPriceDistance: 0.4 },
+        window: { start: "2026-05-12T04:00:00Z", end: "2026-05-12T05:00:00Z" },
+        game_ids: ["nba-opp-2"],
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    const stats = asRecord(asRecord(res.json(), "no-prior body")["stats"], "stats");
+    expect(stats["totalFires"]).toBe(0);
   });
 });
