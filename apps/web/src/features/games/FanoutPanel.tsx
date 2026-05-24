@@ -54,17 +54,6 @@ function tierFor(deltaSec: number): Tier | null {
   return null;
 }
 
-function tierColor(tier: Tier): string {
-  switch (tier) {
-    case "yellow":
-      return colors.accentYellow;
-    case "hi":
-      return colors.textHi;
-    case "md":
-      return colors.textMd;
-  }
-}
-
 function tierClassName(tier: Tier): string {
   switch (tier) {
     case "yellow":
@@ -93,11 +82,7 @@ const HOT_ACTIONS: ReadonlySet<string> = new Set([
   "freethrow",
   "violation",
 ]);
-const WARM_ACTIONS: ReadonlySet<string> = new Set([
-  "foul",
-  "jumpball",
-  "assist",
-]);
+const WARM_ACTIONS: ReadonlySet<string> = new Set(["foul", "jumpball", "assist"]);
 
 function heatForAction(actionType: string | null): Heat {
   if (actionType === null) return "warm";
@@ -134,36 +119,16 @@ function formatSignedIp(value: number | null): string {
   return `${sign}${value.toFixed(3)}`;
 }
 
-interface PbpPoint {
-  readonly delta: number;
-  readonly y: number;
-  readonly description: string;
-  readonly tier: Tier;
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function isPbpPoint(value: unknown): value is PbpPoint {
-  if (!isRecord(value)) return false;
-  return (
-    typeof value["delta"] === "number" &&
-    typeof value["y"] === "number" &&
-    typeof value["description"] === "string" &&
-    typeof value["tier"] === "string"
-  );
-}
-
-function extractPbpPayload(item: unknown): PbpPoint | null {
-  if (!isRecord(item)) return null;
-  const payload = item["payload"];
-  return isPbpPoint(payload) ? payload : null;
-}
-
 // Parse NBA ISO-8601 game clock ("PT08M19.00S") + period number into a
 // trader-readable "Q3 8:19" string. Period 5+ → "OT1", "OT2", etc.
-function formatGameClock(period: number | null | undefined, clock: string | null | undefined): string | null {
+function formatGameClock(
+  period: number | null | undefined,
+  clock: string | null | undefined,
+): string | null {
   if (period === null || period === undefined || clock === null || clock === undefined) return null;
   const match = /^PT(?:(\d+)M)?(\d+(?:\.\d+)?)S$/.exec(clock);
   if (match === null) return null;
@@ -234,7 +199,7 @@ function PbpTimelineChart({ events }: { readonly events: readonly FanoutPbpEvent
               fontSize: 12,
               color: colors.textHi,
             }}
-            formatter={(_value, _name, item) => {
+            formatter={(_value: unknown, _name: unknown, item: unknown) => {
               if (!isRecord(item)) return ["", ""];
               const payload = item["payload"];
               if (!isRecord(payload)) return ["", ""];
@@ -331,7 +296,13 @@ function formatVsAlert(deltaSec: number): string {
   return "at alert";
 }
 
-function MicroRow({ e, gold }: { readonly e: FanoutMicroEvent; readonly gold: boolean }): JSX.Element {
+function MicroRow({
+  e,
+  gold,
+}: {
+  readonly e: FanoutMicroEvent;
+  readonly gold: boolean;
+}): JSX.Element {
   return (
     <tr
       className={`border-t border-surface-1 ${gold ? "bg-accent-yellow/5" : ""}`}
@@ -341,18 +312,10 @@ function MicroRow({ e, gold }: { readonly e: FanoutMicroEvent; readonly gold: bo
       <td className="tabular py-2 pr-4 font-mono text-text-hi">
         {e.tradePrice === null ? "—" : e.tradePrice.toFixed(3)}
       </td>
-      <td
-        className={`tabular py-2 pr-4 font-mono ${
-          gold ? "text-accent-yellow" : "text-text-md"
-        }`}
-      >
+      <td className={`tabular py-2 pr-4 font-mono ${gold ? "text-accent-yellow" : "text-text-md"}`}>
         {e.offPriceDistance === null ? "—" : e.offPriceDistance.toFixed(3)}
       </td>
-      <td
-        className={`tabular py-2 pr-4 font-mono ${
-          gold ? "text-accent-yellow" : "text-text-md"
-        }`}
-      >
+      <td className={`tabular py-2 pr-4 font-mono ${gold ? "text-accent-yellow" : "text-text-md"}`}>
         {e.volumeShare === null ? "—" : `${(e.volumeShare * 100).toFixed(1)}%`}
       </td>
       <td className="tabular py-2 pr-4 font-mono text-text-md">
@@ -412,10 +375,7 @@ function MicrostructureStrip({
 
   if (events.length === 0) {
     return (
-      <p
-        className="font-mono text-xs text-text-lo"
-        data-testid="fanout-microstructure-empty"
-      >
+      <p className="font-mono text-xs text-text-lo" data-testid="fanout-microstructure-empty">
         No Polymarket trade prints in this ±5 min window.
       </p>
     );
@@ -462,11 +422,7 @@ function MicrostructureStrip({
               return (
                 <Fragment key={`routine-${String(idx)}`}>
                   {seg.events.map((e) => (
-                    <MicroRow
-                      key={`${e.eventTimestamp}-${e.sourceMarketId}`}
-                      e={e}
-                      gold={false}
-                    />
+                    <MicroRow key={`${e.eventTimestamp}-${e.sourceMarketId}`} e={e} gold={false} />
                   ))}
                 </Fragment>
               );
@@ -488,8 +444,8 @@ function MicrostructureStrip({
                       data-testid="fanout-microstructure-toggle-btn"
                       aria-expanded={isOpen}
                     >
-                      {isOpen ? "▾ hide" : "▸ show"} {String(seg.events.length)} routine
-                      print{seg.events.length === 1 ? "" : "s"}
+                      {isOpen ? "▾ hide" : "▸ show"} {String(seg.events.length)} routine print
+                      {seg.events.length === 1 ? "" : "s"}
                     </button>
                   </td>
                 </tr>

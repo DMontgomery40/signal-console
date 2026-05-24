@@ -28,9 +28,7 @@ export type BoardObservationMaterializationDiagnostics = {
   rawQuoteRows: number;
 };
 
-export function materializeBoardObservations(
-  input: MaterializeBoardObservationsInput
-): {
+export function materializeBoardObservations(input: MaterializeBoardObservationsInput): {
   diagnostics: BoardObservationMaterializationDiagnostics;
   gameLabel: string;
   observations: BoardObservation[];
@@ -43,8 +41,7 @@ export function materializeBoardObservations(
       const context = loadGameContext(input.gameId);
       if (!context) return null;
       const db = getDatabase();
-      const scheduledStartMs =
-        parseTimestampMs(context.game.scheduledStart) ?? Number.NaN;
+      const scheduledStartMs = parseTimestampMs(context.game.scheduledStart) ?? Number.NaN;
 
       const quoteRows = db
         .prepare(
@@ -97,7 +94,7 @@ export function materializeBoardObservations(
                qt.implied_probability,
                CASE WHEN qt.price_raw BETWEEN 0 AND 1 THEN qt.price_raw END
              ) IS NOT NULL
-           ORDER BY qt.captured_at ASC, qt.id ASC`
+           ORDER BY qt.captured_at ASC, qt.id ASC`,
         )
         .all(input.gameId, input.windowStart, input.windowEnd) as Omit<
         QuoteRow,
@@ -150,7 +147,7 @@ export function materializeBoardObservations(
            WHERE mme.game_id = ?
              AND mme.event_timestamp >= ?
              AND mme.event_timestamp <= ?
-           ORDER BY mme.event_timestamp ASC, mme.id ASC`
+           ORDER BY mme.event_timestamp ASC, mme.id ASC`,
         )
         .all(input.gameId, input.windowStart, input.windowEnd) as Omit<
         MicrostructureRow,
@@ -169,7 +166,7 @@ export function materializeBoardObservations(
           { ...row, observationKind: "quote" } as QuoteRow,
           context.gameStates,
           scheduledStartMs,
-          previousProbabilityByMarket
+          previousProbabilityByMarket,
         );
         if (!observation) {
           incrementFiltered("invalid-quote-row");
@@ -191,7 +188,7 @@ export function materializeBoardObservations(
         const observation = microstructureRowToObservation(
           { ...row, observationKind: "microstructure" } as MicrostructureRow,
           context.gameStates,
-          scheduledStartMs
+          scheduledStartMs,
         );
         if (!observation) {
           incrementFiltered("invalid-microstructure-row");
@@ -231,6 +228,6 @@ export function materializeBoardObservations(
         scheduledStart: context.game.scheduledStart,
       };
     },
-    input
+    input,
   );
 }

@@ -44,11 +44,6 @@ import { WarmupDial } from "./WarmupDial";
 import { K_MAD_LIVE } from "@signal-console/detectors/board-mad/config";
 
 const KMAD_PARAM_NAME = "kMad";
-
-function readKMad(params: Readonly<Record<string, unknown>>): number {
-  const raw = params[KMAD_PARAM_NAME];
-  return typeof raw === "number" && Number.isFinite(raw) ? raw : 3.0;
-}
 const TRAILING_PARAM_NAME = "trailingBuckets";
 const WARMUP_PARAM_NAME = "warmupBuckets";
 const TRAILING_DEFAULT = 20;
@@ -83,6 +78,13 @@ function readBoardParam(
     return fallback;
   }
   return readNumber(params[name], fallback);
+}
+
+function readBoardKMad(
+  params: Readonly<Record<string, unknown>>,
+  detectorId: string | undefined,
+): number {
+  return readBoardParam(params, detectorId, KMAD_PARAM_NAME, K_MAD_LIVE);
 }
 
 const MAX_WINDOW_DAYS = 28;
@@ -353,6 +355,17 @@ function clampedStats(
   };
 }
 
+function readRenderedResultKMad(
+  snapshot: RunSnapshot | null,
+  currentParams: Readonly<Record<string, unknown>>,
+  currentDetectorId: string | undefined,
+  recompute: RecomputeView | null,
+): number {
+  if (snapshot === null) return readBoardKMad(currentParams, currentDetectorId);
+  const paramsForRenderedRows = recompute?.fromRecompute === true ? currentParams : snapshot.params;
+  return readBoardKMad(paramsForRenderedRows, snapshot.detectorId);
+}
+
 // True when any param that drives prebucket has drifted from the snapshot's
 // last-run values. Off-price-print has no prebucket params, so we look for
 // drift on any field for non-board-mad detectors.
@@ -517,6 +530,12 @@ export function BacktestPage(): JSX.Element {
 
   const recomputeView = snapshot !== null ? clampedStats(snapshot, form.params) : null;
   const stale = snapshot !== null ? snapshotIsStale(snapshot, form.params) : false;
+  const resultKMad = readRenderedResultKMad(
+    snapshot,
+    form.params,
+    selectedDetector?.id,
+    recomputeView,
+  );
 
   return (
     <section data-testid="backtest-page">
@@ -824,7 +843,7 @@ export function BacktestPage(): JSX.Element {
         pending={runMutation.isPending}
         startDate={form.startDate}
         endDate={form.endDate}
-        kMad={readKMad(form.params)}
+        kMad={resultKMad}
       />
     </section>
   );

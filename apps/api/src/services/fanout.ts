@@ -23,6 +23,7 @@
 import { openGoldDb } from "@signal-console/db";
 
 import { renderFanoutNarrative } from "./fanout-narrative";
+import { parseStrictIsoTimestamp } from "./timestamps";
 
 type GoldDbHandle = ReturnType<typeof openGoldDb>;
 
@@ -107,8 +108,10 @@ export interface GetFanoutArgs {
 }
 
 export function getFanout(args: GetFanoutArgs): FanoutResult {
-  const bucketStartMs = Date.parse(args.bucketStart);
-  if (!Number.isFinite(bucketStartMs)) {
+  const bucketStartMs = parseStrictIsoTimestamp(args.bucketStart, {
+    requireExplicitTimezone: true,
+  });
+  if (bucketStartMs === null) {
     throw new Error(`fanout: invalid bucket_start ${args.bucketStart}`);
   }
   const bucketStart = new Date(bucketStartMs);
@@ -371,6 +374,7 @@ function loadMicrostructureWindow(
               e.notional, e.volume_share
        FROM market_microstructure_events e
        WHERE e.game_id = ?
+         AND e.source = 'polymarket'
          AND e.event_type = 'trade'
          AND e.event_timestamp >= ?
          AND e.event_timestamp <= ?

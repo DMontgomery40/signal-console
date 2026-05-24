@@ -58,20 +58,18 @@ export type DeltaSeriesPoint = {
 
 export function summarizeDeltaSeries(
   series: DeltaSeriesPoint[],
-  threshold = 0.15
+  threshold = 0.15,
 ): InstrumentDivergenceSummary | null {
   const orderedSeries = [...series].sort((left, right) =>
-    left.bucketAt.localeCompare(right.bucketAt)
+    left.bucketAt.localeCompare(right.bucketAt),
   );
   const compared = orderedSeries.filter(
     (
-      point
+      point,
     ): point is DeltaSeriesPoint & {
       absoluteDelta: number;
       signedDelta: number;
-    } =>
-      typeof point.absoluteDelta === "number" &&
-      typeof point.signedDelta === "number"
+    } => typeof point.absoluteDelta === "number" && typeof point.signedDelta === "number",
   );
 
   if (compared.length === 0) {
@@ -145,7 +143,7 @@ function inferComparisonContinuityWindowMs(series: DeltaSeriesPoint[]) {
   const median = deltas[Math.floor(deltas.length / 2)];
   return Math.min(
     Math.max(DEFAULT_COMPARISON_INTERVAL_MS, median * 2),
-    MAX_COMPARISON_CONTINUITY_MS
+    MAX_COMPARISON_CONTINUITY_MS,
   );
 }
 
@@ -221,10 +219,7 @@ function buildDeltaSeriesFromBucketRows(rows: DeltaBucketRow[]) {
 
   const bucketAts = Array.from(buckets.keys()).sort();
   const maxCarryForwardMs = 10 * 60_000;
-  const lastSeenBySource = new Map<
-    string,
-    { bucketAtMs: number; value: number }
-  >();
+  const lastSeenBySource = new Map<string, { bucketAtMs: number; value: number }>();
   const result: DeltaSeriesPoint[] = [];
 
   for (const bucketAt of bucketAts) {
@@ -253,7 +248,7 @@ function buildDeltaSeriesFromBucketRows(rows: DeltaBucketRow[]) {
 
     const bet365 = perSource.bet365 ?? null;
     const externals = [perSource.kalshi, perSource.polymarket].filter(
-      (value): value is number => typeof value === "number"
+      (value): value is number => typeof value === "number",
     );
     const externalAverage =
       externals.length > 0
@@ -261,13 +256,8 @@ function buildDeltaSeriesFromBucketRows(rows: DeltaBucketRow[]) {
         : null;
 
     const absoluteDelta =
-      bet365 != null && externalAverage != null
-        ? Math.abs(bet365 - externalAverage)
-        : null;
-    const signedDelta =
-      bet365 != null && externalAverage != null
-        ? externalAverage - bet365
-        : null;
+      bet365 != null && externalAverage != null ? Math.abs(bet365 - externalAverage) : null;
+    const signedDelta = bet365 != null && externalAverage != null ? externalAverage - bet365 : null;
 
     result.push({
       absoluteDelta,
@@ -340,7 +330,7 @@ export function listClosedGameSummaries(options?: {
           WHERE ${wheres.join(" AND ")}
           ORDER BY g.scheduled_start DESC
           LIMIT ?
-        `
+        `,
       )
       .all(...params) as Row[];
 
@@ -362,14 +352,12 @@ export function listClosedGameSummaries(options?: {
           FROM market_instruments
           WHERE game_id IN (${placeholders})
             AND family = ?
-        `
+        `,
       )
       .all(...gameIds, MONEYLINE_FAMILY) as Row[];
 
     if (moneylineInstruments.length === 0) {
-      return gameRows.map((gameRow) =>
-        buildClosedGameRecord(gameRow, [], new Map())
-      );
+      return gameRows.map((gameRow) => buildClosedGameRecord(gameRow, [], new Map()));
     }
 
     const instrumentIds = moneylineInstruments.map((row) => String(row.id));
@@ -410,7 +398,7 @@ export function listClosedGameSummaries(options?: {
           )
           SELECT instrumentId, source, impliedProbability, capturedAt
           FROM ranked WHERE rn = 1
-        `
+        `,
       )
       .all(...instrumentIds) as Row[];
 
@@ -427,8 +415,8 @@ export function listClosedGameSummaries(options?: {
       buildClosedGameRecord(
         gameRow,
         moneylineInstruments.filter((row) => row.gameId === gameRow.gameId),
-        bySourceByInstrument
-      )
+        bySourceByInstrument,
+      ),
     );
   });
 }
@@ -436,7 +424,7 @@ export function listClosedGameSummaries(options?: {
 function buildClosedGameRecord(
   gameRow: Row,
   instruments: Row[],
-  bySourceByInstrument: Map<string, Map<string, Row>>
+  bySourceByInstrument: Map<string, Map<string, Row>>,
 ): ClosedGameSummary {
   const home = parseJson<Row>(gameRow.homeJson, {});
   const away = parseJson<Row>(gameRow.awayJson, {});
@@ -449,28 +437,24 @@ function buildClosedGameRecord(
     const participantKey = asString(instrument.participantKey);
     const sourceMap = bySourceByInstrument.get(instrumentId) ?? new Map();
 
-    const sources: SourceClosingProbability[] = Array.from(
-      sourceMap.entries()
-    ).map(([source, row]) => {
-      const capturedAt = asString(row.capturedAt);
-      const freshnessMs =
-        finalAtMs != null && capturedAt != null
-          ? Math.max(0, finalAtMs - new Date(capturedAt).getTime())
-          : null;
-      return {
-        capturedAt,
-        freshnessMs,
-        impliedProbability: asNumber(row.impliedProbability),
-        source,
-      };
-    });
+    const sources: SourceClosingProbability[] = Array.from(sourceMap.entries()).map(
+      ([source, row]) => {
+        const capturedAt = asString(row.capturedAt);
+        const freshnessMs =
+          finalAtMs != null && capturedAt != null
+            ? Math.max(0, finalAtMs - new Date(capturedAt).getTime())
+            : null;
+        return {
+          capturedAt,
+          freshnessMs,
+          impliedProbability: asNumber(row.impliedProbability),
+          source,
+        };
+      },
+    );
 
     const winnerProbability: 0 | 1 | null =
-      participantKey == null || winnerKey == null
-        ? null
-        : participantKey === winnerKey
-          ? 1
-          : 0;
+      participantKey == null || winnerKey == null ? null : participantKey === winnerKey ? 1 : 0;
 
     return {
       displayLabel: asString(instrument.displayLabel) ?? instrumentId,
@@ -524,7 +508,7 @@ export function getInstrumentDeltaSeries(options: {
             AND sm.source IN ('bet365', 'kalshi', 'polymarket')
             AND q.implied_probability IS NOT NULL
           ORDER BY q.captured_at ASC
-        `
+        `,
       )
       .all(options.instrumentId) as Row[];
 
@@ -555,9 +539,7 @@ export function getInstrumentDeltaSummaries(options: {
 }) {
   return executeDatabaseOperation("signalQuality.deltaSummaries.list", () => {
     const db = getDatabase();
-    const instrumentIds = Array.from(new Set(options.instrumentIds)).filter(
-      Boolean
-    );
+    const instrumentIds = Array.from(new Set(options.instrumentIds)).filter(Boolean);
     if (instrumentIds.length === 0) {
       return new Map<string, InstrumentDivergenceSummary>();
     }
@@ -580,7 +562,7 @@ export function getInstrumentDeltaSummaries(options: {
             AND q.implied_probability IS NOT NULL
           GROUP BY sm.instrument_id, sm.source, bucketEpoch
           ORDER BY sm.instrument_id ASC, bucketEpoch ASC
-        `
+        `,
       )
       .all(bucketSeconds, bucketSeconds, ...instrumentIds) as Row[];
 
@@ -590,12 +572,7 @@ export function getInstrumentDeltaSummaries(options: {
       const source = asString(row.source);
       const impliedProbability = asNumber(row.impliedProbability);
       const bucketEpoch = asNumber(row.bucketEpoch);
-      if (
-        !instrumentId ||
-        !source ||
-        impliedProbability == null ||
-        bucketEpoch == null
-      ) {
+      if (!instrumentId || !source || impliedProbability == null || bucketEpoch == null) {
         continue;
       }
 
@@ -612,7 +589,7 @@ export function getInstrumentDeltaSummaries(options: {
     for (const [instrumentId, bucketRows] of rowsByInstrument.entries()) {
       const summary = summarizeDeltaSeries(
         buildDeltaSeriesFromBucketRows(bucketRows),
-        options.threshold
+        options.threshold,
       );
       if (summary) {
         summaries.set(instrumentId, summary);
@@ -644,8 +621,7 @@ export function getSourceLeadLagReport(options: {
 
     const sourcesSeen = new Set<string>();
     for (const point of series) {
-      for (const source of Object.keys(point.perSource))
-        sourcesSeen.add(source);
+      for (const source of Object.keys(point.perSource)) sourcesSeen.add(source);
     }
 
     const sources = Array.from(sourcesSeen);
@@ -673,17 +649,11 @@ export function getSourceLeadLagReport(options: {
       for (let j = i + 1; j < sources.length; j += 1) {
         const a = sources[i];
         const b = sources[j];
-        const result = crossCorrelateBestLag(
-          seriesBySource[a],
-          seriesBySource[b],
-          maxLag
-        );
+        const result = crossCorrelateBestLag(seriesBySource[a], seriesBySource[b], maxLag);
         if (result == null) continue;
 
-        const lead =
-          result.bestLagBuckets === 0 ? a : result.bestLagBuckets > 0 ? a : b;
-        const lag =
-          result.bestLagBuckets === 0 ? b : result.bestLagBuckets > 0 ? b : a;
+        const lead = result.bestLagBuckets === 0 ? a : result.bestLagBuckets > 0 ? a : b;
+        const lag = result.bestLagBuckets === 0 ? b : result.bestLagBuckets > 0 ? b : a;
 
         pairs.push({
           bestCorrelation: result.bestCorrelation,
@@ -752,8 +722,7 @@ export function getLeadLagSeries(options: {
 
     const sourcesSeen = new Set<string>();
     for (const point of series) {
-      for (const source of Object.keys(point.perSource))
-        sourcesSeen.add(source);
+      for (const source of Object.keys(point.perSource)) sourcesSeen.add(source);
     }
     const sources = Array.from(sourcesSeen);
     if (sources.length < 2) {
@@ -790,11 +759,7 @@ export function getLeadLagSeries(options: {
     let bestOverallLag = 0;
     let bestOverallSample = 0;
     for (const [a, b] of candidatePairs) {
-      const res = crossCorrelateBestLag(
-        seriesBySource[a],
-        seriesBySource[b],
-        maxLagBuckets
-      );
+      const res = crossCorrelateBestLag(seriesBySource[a], seriesBySource[b], maxLagBuckets);
       if (res == null) continue;
       if (res.bestCorrelation > bestOverallCorr) {
         bestOverallCorr = res.bestCorrelation;
@@ -869,7 +834,7 @@ export function getLeadLagSeries(options: {
 function crossCorrelateBestLag(
   seriesA: Array<number | null>,
   seriesB: Array<number | null>,
-  maxLag: number
+  maxLag: number,
 ) {
   if (seriesA.length !== seriesB.length) return null;
   const length = seriesA.length;
@@ -983,8 +948,7 @@ export function getSignalQualityReport(options?: {
           };
           const diff = implied - actual;
           acc.brierSum += diff * diff;
-          acc.logLossSum -=
-            actual * Math.log(implied) + (1 - actual) * Math.log(1 - implied);
+          acc.logLossSum -= actual * Math.log(implied) + (1 - actual) * Math.log(1 - implied);
           acc.sampleCount += 1;
           const predictedWinner = implied >= 0.5 ? 1 : 0;
           if (predictedWinner === actual) acc.closingWinnerCorrect += 1;
@@ -1015,19 +979,14 @@ export function getSignalQualityReport(options?: {
         calibrationIntercept,
         calibrationSlope,
         closingWinnerAccuracy:
-          acc.closingWinnerTotal > 0
-            ? acc.closingWinnerCorrect / acc.closingWinnerTotal
-            : null,
+          acc.closingWinnerTotal > 0 ? acc.closingWinnerCorrect / acc.closingWinnerTotal : null,
         logLoss: acc.sampleCount > 0 ? acc.logLossSum / acc.sampleCount : null,
         sampleCount: acc.sampleCount,
         source,
       };
     });
 
-    const sampleCount = perSource.reduce(
-      (sum, entry) => sum + entry.sampleCount,
-      0
-    );
+    const sampleCount = perSource.reduce((sum, entry) => sum + entry.sampleCount, 0);
 
     return {
       perSource,

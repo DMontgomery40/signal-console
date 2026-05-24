@@ -68,24 +68,15 @@ function resolveSettings(options?: Partial<WatcherSettings>): WatcherSettings {
         ? numberFromEnv("MARKET_ANOMALY_WATCH_DURATION_MS", 0)
         : undefined),
     includeHistorical:
-      options?.includeHistorical ??
-      booleanFromEnv("MARKET_ANOMALY_INCLUDE_HISTORICAL", false),
+      options?.includeHistorical ?? booleanFromEnv("MARKET_ANOMALY_INCLUDE_HISTORICAL", false),
     includeUnmapped:
-      options?.includeUnmapped ??
-      booleanFromEnv("MARKET_ANOMALY_INCLUDE_UNMAPPED", true),
-    intervalMs:
-      options?.intervalMs ??
-      numberFromEnv("MARKET_ANOMALY_WATCH_INTERVAL_MS", 10_000),
+      options?.includeUnmapped ?? booleanFromEnv("MARKET_ANOMALY_INCLUDE_UNMAPPED", true),
+    intervalMs: options?.intervalMs ?? numberFromEnv("MARKET_ANOMALY_WATCH_INTERVAL_MS", 10_000),
     limit: options?.limit ?? numberFromEnv("MARKET_ANOMALY_LIMIT", 25),
-    minConfidence:
-      options?.minConfidence ??
-      numberFromEnv("MARKET_ANOMALY_MIN_CONFIDENCE", 0.45),
-    minScore:
-      options?.minScore ?? numberFromEnv("MARKET_ANOMALY_MIN_SCORE", 45),
+    minConfidence: options?.minConfidence ?? numberFromEnv("MARKET_ANOMALY_MIN_CONFIDENCE", 0.45),
+    minScore: options?.minScore ?? numberFromEnv("MARKET_ANOMALY_MIN_SCORE", 45),
     notify: options?.notify ?? booleanFromEnv("MARKET_ANOMALY_NOTIFY", true),
-    requireBet365:
-      options?.requireBet365 ??
-      booleanFromEnv("MARKET_ANOMALY_REQUIRE_BET365", false),
+    requireBet365: options?.requireBet365 ?? booleanFromEnv("MARKET_ANOMALY_REQUIRE_BET365", false),
   };
 }
 
@@ -112,10 +103,8 @@ async function sendMacNotification(alert: MarketAnomalyAlert) {
   const notification = buildMarketAnomalyNotification(alert);
   await execFile("osascript", [
     "-e",
-    `display notification ${appleScriptString(
-      notification.body
-    )} with title ${appleScriptString(
-      notification.title
+    `display notification ${appleScriptString(notification.body)} with title ${appleScriptString(
+      notification.title,
     )} subtitle ${appleScriptString(notification.subtitle)}`,
   ]);
 }
@@ -204,7 +193,7 @@ export function startMarketAnomalyWatcher(options?: {
           newAlertCount: newAlerts.length,
           playbackPath,
         },
-        "Market anomaly poll recorded."
+        "Market anomaly poll recorded.",
       );
 
       if (settings.notify) {
@@ -214,7 +203,7 @@ export function startMarketAnomalyWatcher(options?: {
           } catch (error) {
             logger.warn(
               { alertId: alert.id, error: serializeErrorForLog(error) },
-              "Desktop notification failed."
+              "Desktop notification failed.",
             );
           }
         }
@@ -261,7 +250,7 @@ export function startMarketAnomalyWatcher(options?: {
       notify: settings.notify,
       requireBet365: settings.requireBet365,
     },
-    "Market anomaly watcher started."
+    "Market anomaly watcher started.",
   );
 
   void pollOnce();

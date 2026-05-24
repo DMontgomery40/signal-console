@@ -225,7 +225,7 @@ describe("kalshi historical adapter", () => {
                  best_ask AS bestAsk
           FROM quote_ticks
           ORDER BY captured_at ASC, source_market_id ASC
-        `
+        `,
       )
       .all() as Array<{
       bestAsk: number | null;
@@ -236,12 +236,8 @@ describe("kalshi historical adapter", () => {
     }>;
 
     expect(tickRows).toHaveLength(3);
-    expect(
-      tickRows.every((row) => row.sourceMarketId.startsWith("kalshi-"))
-    ).toBe(true);
-    const okc = tickRows.find(
-      (row) => row.sourceMarketId === "kalshi-kxnbagame-26apr22phxokc-okc"
-    );
+    expect(tickRows.every((row) => row.sourceMarketId.startsWith("kalshi-"))).toBe(true);
+    const okc = tickRows.find((row) => row.sourceMarketId === "kalshi-kxnbagame-26apr22phxokc-okc");
     expect(okc?.impliedProbability).toBeCloseTo(0.82);
 
     const runs = listAdapterRuns(10) as Array<{
@@ -250,7 +246,7 @@ describe("kalshi historical adapter", () => {
       status: string;
     }>;
     const historicalRuns = runs.filter(
-      (run) => run.source === "kalshi" && run.captureMode === "historical"
+      (run) => run.source === "kalshi" && run.captureMode === "historical",
     );
     expect(historicalRuns).toHaveLength(2);
     expect(historicalRuns.every((run) => run.status === "ok")).toBe(true);
@@ -306,13 +302,8 @@ describe("kalshi historical adapter", () => {
         } as unknown as Response;
       }
 
-      const match = url.pathname.match(
-        /\/series\/([^/]+)\/markets\/([^/]+)\/candlesticks$/
-      );
-      if (
-        match?.[1] === "KXNBAPTS" &&
-        match[2] === "KXNBAPTS-26APR22PHXOKC-PHXBOOKER245-25"
-      ) {
+      const match = url.pathname.match(/\/series\/([^/]+)\/markets\/([^/]+)\/candlesticks$/);
+      if (match?.[1] === "KXNBAPTS" && match[2] === "KXNBAPTS-26APR22PHXOKC-PHXBOOKER245-25") {
         return {
           json: async () => ({
             candlesticks: [
@@ -339,9 +330,7 @@ describe("kalshi historical adapter", () => {
         } as unknown as Response;
       }
 
-      const marketMatch = url.pathname.match(
-        /\/markets\/([^/]+)\/candlesticks$/
-      );
+      const marketMatch = url.pathname.match(/\/markets\/([^/]+)\/candlesticks$/);
       if (marketMatch) {
         const payload = kalshiCandlesticksByMarket[marketMatch[1]] ?? {
           candlesticks: [],
@@ -376,14 +365,12 @@ describe("kalshi historical adapter", () => {
           FROM quote_ticks q
           WHERE q.source_market_id = 'kalshi-kxnbapts-26apr22phxokc-phxbooker245-25'
           ORDER BY q.captured_at ASC
-        `
+        `,
       )
       .all() as Array<{ capturedAt: string; impliedProbability: number }>;
 
     expect(propRows).toHaveLength(2);
-    expect(
-      propRows.map((row) => Number(row.impliedProbability.toFixed(2)))
-    ).toEqual([0.66, 0.82]);
+    expect(propRows.map((row) => Number(row.impliedProbability.toFixed(2)))).toEqual([0.66, 0.82]);
   });
 
   it("backfills persisted Kalshi source markets for an explicitly requested game even before settlement", async () => {
@@ -425,13 +412,8 @@ describe("kalshi historical adapter", () => {
         } as unknown as Response;
       }
 
-      const match = url.pathname.match(
-        /\/series\/([^/]+)\/markets\/([^/]+)\/candlesticks$/
-      );
-      if (
-        match?.[1] === "KXNBAPTS" &&
-        match[2] === "KXNBAPTS-26APR22PHXOKC-PHXBOOKER245-25"
-      ) {
+      const match = url.pathname.match(/\/series\/([^/]+)\/markets\/([^/]+)\/candlesticks$/);
+      if (match?.[1] === "KXNBAPTS" && match[2] === "KXNBAPTS-26APR22PHXOKC-PHXBOOKER245-25") {
         return {
           json: async () => ({
             candlesticks: [

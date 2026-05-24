@@ -1,5 +1,5 @@
 import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
 import Database from "better-sqlite3";
@@ -9,12 +9,33 @@ import {
   backupDatabase,
   checkDatabaseHealth,
   getDatabase,
+  getDatabasePath,
   recordAdapterRun,
   resetDatabase,
   upsertWatchlist,
 } from "../db";
 
 let tempDir = "";
+
+describe("shared db path defaults", () => {
+  it("uses the same canonical home DB path when SIGNAL_CONSOLE_DB_PATH is unset", () => {
+    const previousDbPath = process.env.SIGNAL_CONSOLE_DB_PATH;
+    resetDatabase();
+    delete process.env.SIGNAL_CONSOLE_DB_PATH;
+    try {
+      expect(getDatabasePath()).toBe(
+        join(homedir(), "signal-console", "data", "signal-console.sqlite"),
+      );
+    } finally {
+      if (previousDbPath === undefined) {
+        delete process.env.SIGNAL_CONSOLE_DB_PATH;
+      } else {
+        process.env.SIGNAL_CONSOLE_DB_PATH = previousDbPath;
+      }
+      resetDatabase();
+    }
+  });
+});
 
 describe("shared db", () => {
   beforeEach(() => {
@@ -68,7 +89,7 @@ describe("shared db", () => {
         "idx_market_microstructure_game_time",
         "idx_raw_payloads_entity_latest",
         "idx_source_markets_instrument_source",
-      ])
+      ]),
     );
   });
 
@@ -80,31 +101,15 @@ describe("shared db", () => {
     const db = getDatabase();
     const firstPayload = db
       .prepare(
-        "INSERT INTO raw_payloads (source, captured_at, entity_type, entity_id, payload_json, content_hash) VALUES (?, ?, ?, ?, ?, ?)"
+        "INSERT INTO raw_payloads (source, captured_at, entity_type, entity_id, payload_json, content_hash) VALUES (?, ?, ?, ?, ?, ?)",
       )
-      .run(
-        "polymarket",
-        "2026-04-22T06:00:00.000Z",
-        "market",
-        "poly-1",
-        "{}",
-        "hash-1"
-      );
+      .run("polymarket", "2026-04-22T06:00:00.000Z", "market", "poly-1", "{}", "hash-1");
     const secondPayload = db
       .prepare(
-        "INSERT INTO raw_payloads (source, captured_at, entity_type, entity_id, payload_json, content_hash) VALUES (?, ?, ?, ?, ?, ?)"
+        "INSERT INTO raw_payloads (source, captured_at, entity_type, entity_id, payload_json, content_hash) VALUES (?, ?, ?, ?, ?, ?)",
       )
-      .run(
-        "polymarket",
-        "2026-04-22T06:00:01.000Z",
-        "market",
-        "poly-2",
-        "{}",
-        "hash-2"
-      );
-    db.prepare("DELETE FROM raw_payloads WHERE id = ?").run(
-      firstPayload.lastInsertRowid
-    );
+      .run("polymarket", "2026-04-22T06:00:01.000Z", "market", "poly-2", "{}", "hash-2");
+    db.prepare("DELETE FROM raw_payloads WHERE id = ?").run(firstPayload.lastInsertRowid);
 
     const health = checkDatabaseHealth({ integrityCheck: "skip" });
 
@@ -212,27 +217,24 @@ describe("shared db", () => {
       db
         .prepare("SELECT instrument_id FROM source_markets WHERE id = ?")
         .pluck()
-        .get("pm-2050554-over")
+        .get("pm-2050554-over"),
     ).toBe("nba-0042500173-player-prop-points-lebron-james-over-24-5");
     expect(
       db
         .prepare("SELECT COUNT(*) FROM market_instruments WHERE id = ?")
         .pluck()
-        .get("nba-0042500173-points-lebron-james-over-24-5")
+        .get("nba-0042500173-points-lebron-james-over-24-5"),
     ).toBe(0);
     expect(
-      db
-        .prepare("SELECT COALESCE(MAX(version), 0) FROM schema_migrations")
-        .pluck()
-        .get()
+      db.prepare("SELECT COALESCE(MAX(version), 0) FROM schema_migrations").pluck().get(),
     ).toBe(14);
     expect(
       db
         .prepare(
-          "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('market_microstructure_events', 'market_anomaly_score_configs') ORDER BY name"
+          "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('market_microstructure_events', 'market_anomaly_score_configs') ORDER BY name",
         )
         .pluck()
-        .all()
+        .all(),
     ).toEqual(["market_anomaly_score_configs", "market_microstructure_events"]);
   });
 
@@ -252,12 +254,8 @@ describe("shared db", () => {
       readonly: true,
     });
     try {
-      expect(snapshot.prepare("PRAGMA integrity_check").pluck().get()).toBe(
-        "ok"
-      );
-      expect(
-        snapshot.prepare("SELECT COUNT(*) FROM watchlist").pluck().get()
-      ).toBe(1);
+      expect(snapshot.prepare("PRAGMA integrity_check").pluck().get()).toBe("ok");
+      expect(snapshot.prepare("SELECT COUNT(*) FROM watchlist").pluck().get()).toBe(1);
     } finally {
       snapshot.close();
     }
@@ -273,10 +271,7 @@ describe("shared db", () => {
     expect(firstHealth.counts.watchlistCount).toBe(1);
 
     const secondDir = mkdtempSync(join(tmpdir(), "signal-console-db-alt-"));
-    process.env.SIGNAL_CONSOLE_DB_PATH = join(
-      secondDir,
-      "signal-console.sqlite"
-    );
+    process.env.SIGNAL_CONSOLE_DB_PATH = join(secondDir, "signal-console.sqlite");
 
     const secondHealth = checkDatabaseHealth();
 

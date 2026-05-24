@@ -1,20 +1,14 @@
 import { existsSync, mkdirSync, rmSync } from "node:fs";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
 
 import Database from "better-sqlite3";
 
-import {
-  DatabaseFailureError,
-  serializeErrorForLog,
-  toAppError,
-} from "./errors";
+import { DatabaseFailureError, serializeErrorForLog, toAppError } from "./errors";
 import { createAppLogger } from "./logger";
 import { applyMigrations, currentSchemaVersion } from "./migrations";
 
-const defaultDbPath = resolve(
-  fileURLToPath(new URL("../../../data/signal-console.sqlite", import.meta.url))
-);
+const defaultDbPath = join(homedir(), "signal-console", "data", "signal-console.sqlite");
 
 const databaseLogger = createAppLogger({ component: "database" });
 
@@ -32,14 +26,11 @@ export function getDatabasePath() {
 export function executeDatabaseOperation<T>(
   operation: string,
   work: () => T,
-  context: Record<string, unknown> = {}
+  context: Record<string, unknown> = {},
 ) {
   try {
     const result = work();
-    databaseLogger.debug(
-      { operation, ...context },
-      "Database operation completed."
-    );
+    databaseLogger.debug({ operation, ...context }, "Database operation completed.");
     return result;
   } catch (error) {
     const appError =
@@ -62,14 +53,14 @@ export function executeDatabaseOperation<T>(
         ...context,
         error: serializeErrorForLog(appError),
       },
-      "Database operation failed."
+      "Database operation failed.",
     );
 
     throw appError;
   }
 }
 
-export function getDatabase() {
+export function getDatabase(): Database.Database {
   const dbPath = getDatabasePath();
   if (database && activeDatabasePath === dbPath) {
     return database;
@@ -81,7 +72,7 @@ export function getDatabase() {
         fromPath: activeDatabasePath,
         toPath: dbPath,
       },
-      "Switching SQLite handle to a new database path."
+      "Switching SQLite handle to a new database path.",
     );
     database.close();
     database = null;
@@ -102,9 +93,7 @@ export function getDatabaseSchemaVersion() {
   return executeDatabaseOperation("database.schemaVersion", () => {
     const db = getDatabase();
     const row = db
-      .prepare(
-        "SELECT COALESCE(MAX(version), 0) AS version FROM schema_migrations"
-      )
+      .prepare("SELECT COALESCE(MAX(version), 0) AS version FROM schema_migrations")
       .get() as { version: number } | undefined;
 
     return row?.version ?? 0;
@@ -119,24 +108,24 @@ function countTable(db: Database.Database, tableName: string) {
       db.prepare(`SELECT COUNT(*) AS count FROM ${tableName}`).get() as
         | { count: number }
         | undefined
-    )?.count ?? 0
+    )?.count ?? 0,
   );
 }
 
 function countTableHighWaterMark(db: Database.Database, tableName: string) {
   return Number(
     (
-      db
-        .prepare(`SELECT COALESCE(MAX(id), 0) AS count FROM ${tableName}`)
-        .get() as { count: number } | undefined
-    )?.count ?? 0
+      db.prepare(`SELECT COALESCE(MAX(id), 0) AS count FROM ${tableName}`).get() as
+        | { count: number }
+        | undefined
+    )?.count ?? 0,
   );
 }
 
 function countTableForHealth(
   db: Database.Database,
   tableName: string,
-  countAccuracy: DatabaseHealthCountAccuracy
+  countAccuracy: DatabaseHealthCountAccuracy,
 ) {
   if (
     countAccuracy === "large-table-high-water-mark" &&
@@ -148,9 +137,7 @@ function countTableForHealth(
   return countTable(db, tableName);
 }
 
-export function checkDatabaseHealth(
-  options: { integrityCheck?: "full" | "skip" } = {}
-) {
+export function checkDatabaseHealth(options: { integrityCheck?: "full" | "skip" } = {}) {
   try {
     const db = getDatabase();
     const shouldRunIntegrityCheck = options.integrityCheck !== "skip";
@@ -171,11 +158,7 @@ export function checkDatabaseHealth(
       gameCount: countTableForHealth(db, "games", countAccuracy),
       quoteTickCount: countTableForHealth(db, "quote_ticks", countAccuracy),
       rawPayloadCount: countTableForHealth(db, "raw_payloads", countAccuracy),
-      sourceMarketCount: countTableForHealth(
-        db,
-        "source_markets",
-        countAccuracy
-      ),
+      sourceMarketCount: countTableForHealth(db, "source_markets", countAccuracy),
       watchlistCount: countTableForHealth(db, "watchlist", countAccuracy),
     };
 
@@ -225,9 +208,7 @@ export function checkDatabaseHealth(
       message: appError.message,
       operatorHint: appError.operatorHint,
       path: getDatabasePath(),
-      schemaVersion: existsSync(getDatabasePath())
-        ? currentSchemaVersion
-        : null,
+      schemaVersion: existsSync(getDatabasePath()) ? currentSchemaVersion : null,
       status: "error" as const,
     };
   }
@@ -238,10 +219,7 @@ export function closeDatabase() {
     return;
   }
 
-  databaseLogger.info(
-    { path: activeDatabasePath },
-    "Closing SQLite database handle."
-  );
+  databaseLogger.info({ path: activeDatabasePath }, "Closing SQLite database handle.");
   database.close();
   database = null;
   activeDatabasePath = null;

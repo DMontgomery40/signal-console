@@ -14,27 +14,20 @@ export function observationTimestampMs(observation: BoardObservation): number {
 export function withinShockWindow(
   observation: BoardObservation,
   nowMs: number,
-  windowMs: number
+  windowMs: number,
 ): boolean {
   const ts = observationTimestampMs(observation);
   if (!Number.isFinite(ts)) return false;
   return nowMs - ts <= windowMs && ts <= nowMs;
 }
 
-export function averageContribution(
-  participants: BoardObservationScored[]
-): number {
+export function averageContribution(participants: BoardObservationScored[]): number {
   if (participants.length === 0) return 0;
-  const sum = participants.reduce(
-    (total, item) => total + item.contribution,
-    0
-  );
+  const sum = participants.reduce((total, item) => total + item.contribution, 0);
   return sum / participants.length;
 }
 
-export function averageMicrostructure(
-  participants: BoardObservationScored[]
-): number {
+export function averageMicrostructure(participants: BoardObservationScored[]): number {
   if (participants.length === 0) return 0;
   return (
     participants.reduce((sum, participant) => {
@@ -60,7 +53,7 @@ export function coverageRatio(participants: BoardObservationScored[]): number {
       (participant) =>
         participant.observation.flags.isStale ||
         participant.observation.missing.impliedProbability ||
-        participant.observation.mappingStatus === "unmapped"
+        participant.observation.mappingStatus === "unmapped",
     ).length / participants.length
   );
 }
@@ -71,30 +64,24 @@ export function unmappedRatio(participants: BoardObservationScored[]): number {
     participants.filter(
       (participant) =>
         participant.observation.mappingStatus === "unmapped" ||
-        participant.observation.flags.isUnmapped
+        participant.observation.flags.isUnmapped,
     ).length / participants.length
   );
 }
 
 export function firstPopAtFromScored(
   participants: BoardObservationScored[],
-  fallbackIso: string
+  fallbackIso: string,
 ): string {
   const sorted = [...participants].sort(
-    (a, b) =>
-      observationTimestampMs(a.observation) -
-      observationTimestampMs(b.observation)
+    (a, b) => observationTimestampMs(a.observation) - observationTimestampMs(b.observation),
   );
-  return (
-    sorted[0]?.observation.eventTimestamp ??
-    sorted[0]?.observation.capturedAt ??
-    fallbackIso
-  );
+  return sorted[0]?.observation.eventTimestamp ?? sorted[0]?.observation.capturedAt ?? fallbackIso;
 }
 
 export function evidenceFromScored(
   participants: BoardObservationScored[],
-  limit = 8
+  limit = 8,
 ): BoardShockEvidence[] {
   return participants
     .slice()
@@ -116,7 +103,7 @@ export function evidenceFromScored(
 }
 
 export function missingDataNotesFromScored(
-  participants: BoardObservationScored[]
+  participants: BoardObservationScored[],
 ): BoardShockMissingNote[] {
   const missingDataNotes: BoardShockMissingNote[] = [];
   const seenMissing = new Set<string>();
@@ -126,13 +113,9 @@ export function missingDataNotesFromScored(
     if (participant.observation.missing.impliedProbability)
       reasons.push("missing implied probability");
     if (participant.observation.missing.volume) reasons.push("missing volume");
-    if (
-      participant.observation.missing.bestBid ||
-      participant.observation.missing.bestAsk
-    )
+    if (participant.observation.missing.bestBid || participant.observation.missing.bestAsk)
       reasons.push("missing bid/ask");
-    if (participant.observation.mappingStatus === "unmapped")
-      reasons.push("unmapped market");
+    if (participant.observation.mappingStatus === "unmapped") reasons.push("unmapped market");
     if (reasons.length === 0) continue;
     const key = `${participant.observation.source}:${reasons.join("|")}`;
     if (seenMissing.has(key)) continue;
@@ -145,48 +128,36 @@ export function missingDataNotesFromScored(
   return missingDataNotes;
 }
 
-export function h0DriversFromScored(
-  participants: BoardObservationScored[]
-): string[] {
+export function h0DriversFromScored(participants: BoardObservationScored[]): string[] {
   return Array.from(
     new Set(
       participants
         .map((participant) => participant.h0Adjustment.reason)
-        .filter((value) => value && value !== "H0 baseline")
-    )
+        .filter((value) => value && value !== "H0 baseline"),
+    ),
   );
 }
 
-export function averageH0Suppression(
-  participants: BoardObservationScored[]
-): number {
+export function averageH0Suppression(participants: BoardObservationScored[]): number {
   if (participants.length === 0) return 0;
   return (
-    participants.reduce(
-      (sum, participant) => sum + participant.h0Suppressed,
-      0
-    ) / participants.length
+    participants.reduce((sum, participant) => sum + participant.h0Suppressed, 0) /
+    participants.length
   );
 }
 
-export function instrumentIdsFromScored(
-  participants: BoardObservationScored[]
-): string[] {
+export function instrumentIdsFromScored(participants: BoardObservationScored[]): string[] {
   return Array.from(
     new Set(
       participants
         .map((participant) => participant.observation.instrumentId ?? null)
-        .filter((value): value is string => typeof value === "string")
-    )
+        .filter((value): value is string => typeof value === "string"),
+    ),
   );
 }
 
-export function sourceMarketIdsFromScored(
-  participants: BoardObservationScored[]
-): string[] {
+export function sourceMarketIdsFromScored(participants: BoardObservationScored[]): string[] {
   return Array.from(
-    new Set(
-      participants.map((participant) => participant.observation.sourceMarketId)
-    )
+    new Set(participants.map((participant) => participant.observation.sourceMarketId)),
   );
 }

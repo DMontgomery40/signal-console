@@ -56,7 +56,7 @@ gap="$(sqlite3 "$GOLD_DB" "SELECT COUNT(*) FROM quote_ticks WHERE captured_at >=
 echo "ticks in May 11–22 window: $gap"
 
 echo "Done. Clear detector cache and restart API/worker so backtest recomputes:"
-echo "  sqlite3 $HOME/signal-console/data/detector-cache.sqlite \"DELETE FROM detector_cache_runs; DELETE FROM detector_cache_observations; DELETE FROM detector_cache_fires;\""
+echo "  sqlite3 $HOME/signal-console/data/detector-cache.sqlite \"PRAGMA foreign_keys=ON; DELETE FROM detector_runs;\""
 echo "After verifying backtest, you can delete:"
 echo "  $RECOVER_SQL"
 echo "  $HOME/signal-console/data/signal-console-corrupt-20260523.sqlite{,-wal,-shm}"

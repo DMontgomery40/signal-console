@@ -1,10 +1,4 @@
-import {
-  mkdirSync,
-  mkdtempSync,
-  readdirSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -17,10 +11,7 @@ import {
   upsertGame,
 } from "@signal-console/shared";
 
-import {
-  parseBet365DumpLine,
-  syncBet365InternalDump,
-} from "../bet365-internal-dump";
+import { parseBet365DumpLine, syncBet365InternalDump } from "../bet365-internal-dump";
 
 let dbDir = "";
 let dumpDir = "";
@@ -76,7 +67,7 @@ describe("parseBet365DumpLine", () => {
         selection: "phi",
       }),
       1,
-      "test.jsonl"
+      "test.jsonl",
     );
     expect(result.ok).toBe(true);
     if (result.ok) {
@@ -86,11 +77,7 @@ describe("parseBet365DumpLine", () => {
   });
 
   it("rejects rows missing required fields", () => {
-    const result = parseBet365DumpLine(
-      JSON.stringify({ home_team: "PHI" }),
-      1,
-      "bad.jsonl"
-    );
+    const result = parseBet365DumpLine(JSON.stringify({ home_team: "PHI" }), 1, "bad.jsonl");
     expect(result.ok).toBe(false);
   });
 });
@@ -140,7 +127,7 @@ describe("syncBet365InternalDump", () => {
           selection: "bos",
         }),
         "",
-      ].join("\n")
+      ].join("\n"),
     );
 
     const result = syncBet365InternalDump({
@@ -164,7 +151,7 @@ describe("syncBet365InternalDump", () => {
           JOIN source_markets sm ON sm.id = q.source_market_id
           WHERE sm.source = 'bet365'
           ORDER BY q.captured_at ASC
-        `
+        `,
       )
       .all() as Array<{
       instrumentId: string;
@@ -182,9 +169,7 @@ describe("syncBet365InternalDump", () => {
     expect(bos?.oddsRaw).toBe("-200");
 
     // File should be moved to the processed dir
-    const remaining = readdirSync(dumpDir).filter((name) =>
-      name.endsWith(".jsonl")
-    );
+    const remaining = readdirSync(dumpDir).filter((name) => name.endsWith(".jsonl"));
     expect(remaining).toHaveLength(0);
     const archived = readdirSync(join(dumpDir, "_processed"));
     expect(archived).toContain("bet365-2026-04-21.jsonl");
@@ -200,7 +185,7 @@ describe("syncBet365InternalDump", () => {
         market_family: "moneyline",
         observed_at: "2026-04-21T22:00:00.000Z",
         selection: "qqq",
-      })
+      }),
     );
 
     const result = syncBet365InternalDump({

@@ -20,18 +20,18 @@ function ensureSchemaMigrationsTable(db: Database.Database) {
 
 function getAppliedVersion(db: Database.Database) {
   const row = db
-    .prepare(
-      "SELECT COALESCE(MAX(version), 0) AS version FROM schema_migrations"
-    )
+    .prepare("SELECT COALESCE(MAX(version), 0) AS version FROM schema_migrations")
     .get() as { version: number } | undefined;
 
   return row?.version ?? 0;
 }
 
 function insertMigration(db: Database.Database, version: number, name: string) {
-  db.prepare(
-    "INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)"
-  ).run(version, name, nowIso());
+  db.prepare("INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)").run(
+    version,
+    name,
+    nowIso(),
+  );
 }
 
 function tableExists(db: Database.Database, tableName: string) {
@@ -49,9 +49,7 @@ function normalizeMigrationToken(value: string | number | null | undefined) {
     .replace(/^-+|-+$/g, "");
 }
 
-function buildMigrationStableId(
-  parts: Array<string | number | null | undefined>
-) {
+function buildMigrationStableId(parts: Array<string | number | null | undefined>) {
   return parts.map(normalizeMigrationToken).filter(Boolean).join("-");
 }
 
@@ -241,7 +239,7 @@ function applyLegacyRuntimeCleanup(db: Database.Database) {
           'replay_frame_index',
           'replay_storyline_id'
         )
-      `
+      `,
     ).run();
 
     insertMigration(db, 3, "legacy-runtime-cleanup");
@@ -264,9 +262,9 @@ function applyHistoricalIngestionSupport(db: Database.Database) {
         ON quote_ticks(source_market_id, captured_at);
     `);
 
-    const adapterRunColumns = db
-      .prepare(`PRAGMA table_info('adapter_runs')`)
-      .all() as Array<{ name: string }>;
+    const adapterRunColumns = db.prepare(`PRAGMA table_info('adapter_runs')`).all() as Array<{
+      name: string;
+    }>;
 
     if (!adapterRunColumns.some((column) => column.name === "capture_mode")) {
       db.exec(`
@@ -289,18 +287,15 @@ export function applyMigrations(db: Database.Database, dbPath: string) {
   const appliedVersion = getAppliedVersion(db);
 
   if (appliedVersion > currentSchemaVersion) {
-    throw new DatabaseFailureError(
-      "Database schema version is newer than this runtime supports.",
-      {
-        details: {
-          appliedVersion,
-          currentSchemaVersion,
-          path: dbPath,
-        },
-        operatorHint:
-          "Use a compatible runtime or recreate the local SQLite database with the current schema.",
-      }
-    );
+    throw new DatabaseFailureError("Database schema version is newer than this runtime supports.", {
+      details: {
+        appliedVersion,
+        currentSchemaVersion,
+        path: dbPath,
+      },
+      operatorHint:
+        "Use a compatible runtime or recreate the local SQLite database with the current schema.",
+    });
   }
 
   if (appliedVersion < 1) {
@@ -422,7 +417,7 @@ function applyPolymarketPlayerPropCanonicalIds(db: Database.Database) {
             AND sm.raw_family IN ('assists', 'points', 'rebounds', 'threes')
             AND mi.participant_key IS NOT NULL
             AND mi.selection IS NOT NULL
-        `
+        `,
       )
       .all() as Array<{
       displayLabel: string;
@@ -458,7 +453,7 @@ function applyPolymarketPlayerPropCanonicalIds(db: Database.Database) {
             id, game_id, family, selection, line, participant_key, in_play, display_label
           )
           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        `
+        `,
       ).run(
         canonicalId,
         row.gameId,
@@ -467,7 +462,7 @@ function applyPolymarketPlayerPropCanonicalIds(db: Database.Database) {
         row.line,
         row.participantKey,
         row.inPlay,
-        row.displayLabel
+        row.displayLabel,
       );
 
       db.prepare(
@@ -475,7 +470,7 @@ function applyPolymarketPlayerPropCanonicalIds(db: Database.Database) {
           UPDATE source_markets
           SET instrument_id = ?
           WHERE id = ?
-        `
+        `,
       ).run(canonicalId, row.sourceMarketId);
 
       if (row.sourceInstrumentId) {
@@ -489,7 +484,7 @@ function applyPolymarketPlayerPropCanonicalIds(db: Database.Database) {
                 FROM source_markets sm
                 WHERE sm.instrument_id = market_instruments.id
               )
-          `
+          `,
         ).run(row.sourceInstrumentId, canonicalId);
       }
     }

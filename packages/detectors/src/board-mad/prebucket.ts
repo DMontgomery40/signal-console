@@ -126,6 +126,9 @@ const buildGameSeries = (
 const discoverGameIds = (ticks: readonly Tick[]): readonly string[] =>
   Array.from(new Set(ticks.map((t) => t.gameId))).toSorted();
 
+const uniqueGameIds = (gameIds: readonly string[]): readonly string[] =>
+  Array.from(new Set(gameIds));
+
 export function prebucket(
   ticks: readonly Tick[],
   bucketSeconds: number,
@@ -133,7 +136,7 @@ export function prebucket(
 ): BucketSeries {
   const weighting: Weighting = options?.weighting ?? DEFAULT_WEIGHTING;
   const freshCapSeconds = options?.freshCapSeconds ?? DEFAULT_FRESH_CAP_SECONDS;
-  const gameIds = options?.gameIds ?? discoverGameIds(ticks);
+  const gameIds = uniqueGameIds(options?.gameIds ?? discoverGameIds(ticks));
   const perGame: readonly BucketSeriesGame[] = gameIds.map((gameId) => {
     const gameTicks = ticks.filter((t) => t.gameId === gameId);
     return buildGameSeries(gameId, gameTicks, bucketSeconds, freshCapSeconds, weighting);

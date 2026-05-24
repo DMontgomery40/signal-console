@@ -84,7 +84,7 @@ describe("nba sidecar worker integration", () => {
     expect(
       buildNbaSidecarUrl("http://127.0.0.1:9393/", "/api/v1/scoreboard", {
         date: "2026-04-22",
-      })
+      }),
     ).toBe("http://127.0.0.1:9393/api/v1/scoreboard?date=2026-04-22");
   });
 
@@ -94,7 +94,7 @@ describe("nba sidecar worker integration", () => {
         lookaheadDays: 2,
         lookbackDays: 1,
         now: () => new Date("2026-04-22T06:00:00.000Z"),
-      })
+      }),
     ).toEqual(["2026-04-21", "2026-04-22", "2026-04-23", "2026-04-24"]);
   });
 
@@ -113,9 +113,7 @@ describe("nba sidecar worker integration", () => {
     });
 
     expect(payload.games).toHaveLength(1);
-    expect(fetchImpl).toHaveBeenCalledWith(
-      "http://127.0.0.1:9393/api/v1/scoreboard"
-    );
+    expect(fetchImpl).toHaveBeenCalledWith("http://127.0.0.1:9393/api/v1/scoreboard");
   });
 
   it("ingests sidecar scoreboard games into the live research store", () => {
@@ -156,7 +154,7 @@ describe("nba sidecar worker integration", () => {
           source: "nba",
           status: "ok",
         }),
-      ])
+      ]),
     );
   });
 
@@ -212,15 +210,13 @@ describe("nba sidecar worker integration", () => {
           source: "nba",
           status: "ok",
         }),
-      ])
+      ]),
     );
 
     expect(
       getDatabase()
-        .prepare(
-          "SELECT COUNT(*) AS count FROM nba_play_by_play_actions WHERE game_id = ?"
-        )
-        .get("nba-0022600001")
+        .prepare("SELECT COUNT(*) AS count FROM nba_play_by_play_actions WHERE game_id = ?")
+        .get("nba-0022600001"),
     ).toEqual({ count: 1 });
   });
 
@@ -358,7 +354,7 @@ describe("nba sidecar worker integration", () => {
           source: "nba",
           status: "error",
         }),
-      ])
+      ]),
     );
   });
 
@@ -374,7 +370,7 @@ describe("nba sidecar worker integration", () => {
         lookaheadDays: 0,
         lookbackDays: 0,
         now: () => new Date("2026-04-22T06:00:00.000Z"),
-      })
+      }),
     ).rejects.toThrow("failed for every requested date");
 
     expect(listAdapterRuns(5)).toEqual(
@@ -383,7 +379,7 @@ describe("nba sidecar worker integration", () => {
           source: "nba",
           status: "error",
         }),
-      ])
+      ]),
     );
   });
 });

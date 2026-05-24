@@ -59,7 +59,7 @@ async function fetchTradesPage(
   ticker: string,
   minTs: number,
   maxTs: number,
-  cursor: string | null
+  cursor: string | null,
 ): Promise<KalshiTradesPayload> {
   const url = new URL("/trade-api/v2/markets/trades", baseUrl);
   url.searchParams.set("ticker", ticker);
@@ -73,9 +73,7 @@ async function fetchTradesPage(
     headers: buildKalshiHeaders(),
   });
   if (!response.ok) {
-    throw new Error(
-      `Kalshi trades request for ${ticker} failed with status ${response.status}.`
-    );
+    throw new Error(`Kalshi trades request for ${ticker} failed with status ${response.status}.`);
   }
   return (await response.json()) as KalshiTradesPayload;
 }
@@ -87,10 +85,7 @@ type KalshiTickerRow = {
   instrumentId: string | null;
 };
 
-function selectKalshiTickers(filters: {
-  gameId?: string;
-  league?: string;
-}): KalshiTickerRow[] {
+function selectKalshiTickers(filters: { gameId?: string; league?: string }): KalshiTickerRow[] {
   const db = getDatabase();
   const params: unknown[] = [];
   const clauses: string[] = ["sm.source = 'kalshi'"];
@@ -112,7 +107,7 @@ function selectKalshiTickers(filters: {
          sm.instrument_id AS instrumentId
        FROM source_markets sm
        JOIN games g ON g.id = sm.game_id
-       WHERE ${clauses.join(" AND ")}`
+       WHERE ${clauses.join(" AND ")}`,
     )
     .all(...params) as KalshiTickerRow[];
   return rows;
@@ -145,7 +140,7 @@ export async function syncKalshiNbaTrades(options: {
   const maxTs = toUnixSeconds(options.until);
   if (!Number.isFinite(minTs) || !Number.isFinite(maxTs) || maxTs <= minTs) {
     throw new Error(
-      `Invalid window for syncKalshiNbaTrades: since=${options.since} until=${options.until}`
+      `Invalid window for syncKalshiNbaTrades: since=${options.since} until=${options.until}`,
     );
   }
 
@@ -174,7 +169,7 @@ export async function syncKalshiNbaTrades(options: {
           target.ticker,
           minTs,
           maxTs,
-          cursor
+          cursor,
         );
         const trades = payload.trades ?? [];
         for (const trade of trades) {

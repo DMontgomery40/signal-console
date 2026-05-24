@@ -12,11 +12,7 @@ import {
   upsertGame,
 } from "@signal-console/shared";
 
-import {
-  buildWorkerHeartbeatSummary,
-  calculateBackoffDelay,
-  runWorkerCycle,
-} from "../index";
+import { buildWorkerHeartbeatSummary, calculateBackoffDelay, runWorkerCycle } from "../index";
 
 let tempDir = "";
 
@@ -32,11 +28,17 @@ describe("worker runtime", () => {
     delete process.env.KALSHI_LIVE_LOOKBACK_DAYS;
     delete process.env.KALSHI_LIVE_MAX_EVENTS;
     delete process.env.BET365_RATE_LIMIT_COOLDOWN_MS;
+    delete process.env.NBA_SIDECAR_LOOKAHEAD_DAYS;
+    delete process.env.NBA_SIDECAR_LOOKBACK_DAYS;
     delete process.env.KALSHI_API_KEY;
     delete process.env.NBA_SIDECAR_BASE_URL;
     delete process.env.ODDS_API_IO_KEY;
     delete process.env.ODDS_API_KEY;
+    delete process.env.POLYMARKET_TRADES_LOOKBACK_MINUTES;
+    delete process.env.POLYMARKET_TRADES_MAX_MARKETS;
     delete process.env.SIGNAL_CONSOLE_DB_PATH;
+    delete process.env.WORKER_INTERVAL_MS;
+    delete process.env.WORKER_MAX_BACKOFF_MS;
     if (tempDir) {
       rmSync(tempDir, { force: true, recursive: true });
     }
@@ -178,7 +180,7 @@ describe("worker runtime", () => {
       expect.objectContaining({
         maxEvents: 200,
         minimumStartDate: "2026-04-20",
-      })
+      }),
     );
     expect(syncNbaSidecar).toHaveBeenCalledOnce();
     expect(syncPolymarket).toHaveBeenCalledOnce();
@@ -189,9 +191,7 @@ describe("worker runtime", () => {
     process.env.KALSHI_API_KEY = "kalshi-key";
 
     const syncBet365 = vi.fn(async () => {
-      throw new Error(
-        "Odds-API events request for Bet365 failed with status 429."
-      );
+      throw new Error("Odds-API events request for Bet365 failed with status 429.");
     });
     const syncKalshi = vi.fn(async () => ({
       bookmaker: "Kalshi" as const,
@@ -246,7 +246,7 @@ describe("worker runtime", () => {
       expect.objectContaining({
         maxEvents: 200,
         minimumStartDate: "2026-04-20",
-      })
+      }),
     );
     expect(syncPolymarket).toHaveBeenCalledOnce();
   });
@@ -257,9 +257,7 @@ describe("worker runtime", () => {
     const providerCooldowns = {};
 
     const syncBet365 = vi.fn(async () => {
-      throw new Error(
-        "Odds-API events request for Bet365 failed with status 429."
-      );
+      throw new Error("Odds-API events request for Bet365 failed with status 429.");
     });
     const syncPolymarket = vi.fn(async () => ({
       finishedAt: "2026-04-22T06:00:00.000Z",
@@ -414,10 +412,10 @@ describe("worker runtime", () => {
     expect(executeMarketsBackfill).toHaveBeenCalledOnce();
     expect(
       (
-        getDatabase()
-          .prepare("SELECT status FROM admin_actions WHERE id = 1")
-          .get() as { status: string }
-      ).status
+        getDatabase().prepare("SELECT status FROM admin_actions WHERE id = 1").get() as {
+          status: string;
+        }
+      ).status,
     ).toBe("completed");
   });
 
@@ -504,14 +502,14 @@ describe("worker runtime", () => {
         dateFrom: "2026-04-29",
         dateTo: "2026-05-20",
         maxEvents: 200,
-      })
+      }),
     );
     expect(
       (
-        getDatabase()
-          .prepare("SELECT status FROM admin_actions WHERE id = 1")
-          .get() as { status: string }
-      ).status
+        getDatabase().prepare("SELECT status FROM admin_actions WHERE id = 1").get() as {
+          status: string;
+        }
+      ).status,
     ).toBe("completed");
   });
 
@@ -596,7 +594,7 @@ describe("worker runtime", () => {
           }),
         ],
         since: "2026-04-22",
-      })
+      }),
     );
   });
 
@@ -703,7 +701,55 @@ describe("worker runtime", () => {
             game: expect.objectContaining({ id: "nba-0022600001" }),
           }),
         ],
-      })
+      }),
+    );
+  });
+
+  it("falls back to safe numeric env defaults before scheduling provider work", async () => {
+    process.env.WORKER_INTERVAL_MS = "30s";
+    process.env.WORKER_MAX_BACKOFF_MS = "0";
+    process.env.POLYMARKET_TRADES_LOOKBACK_MINUTES = "soon";
+    process.env.POLYMARKET_TRADES_MAX_MARKETS = "0";
+
+    const syncPolymarket = vi.fn(async () => ({
+      finishedAt: "2026-04-22T06:00:00.000Z",
+      gamesMatched: 0,
+      marketsSeen: 0,
+      ok: true as const,
+      quoteObservationsWritten: 0,
+      rawPayloadsWritten: 0,
+      recordsSeen: 0,
+      recordsWritten: 0,
+      sourceMarketsObserved: 0,
+      startedAt: "2026-04-22T06:00:00.000Z",
+    }));
+    const syncPolymarketTrades = vi.fn(async () => ({
+      errors: [],
+      eventsFetched: 0,
+      finishedAt: "2026-04-22T06:00:00.000Z",
+      marketsScanned: 0,
+      ok: true as const,
+      source: "polymarket" as const,
+      startedAt: "2026-04-22T06:00:00.000Z",
+      tradesSeen: 0,
+      tradesWritten: 0,
+    }));
+
+    const result = await runWorkerCycle({
+      logger: createAppLogger({ test: "worker" }),
+      now: () => new Date("2026-04-22T06:00:00.000Z"),
+      syncPolymarket,
+      syncPolymarketTrades,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.nextDelayMs).toBe(30_000);
+    expect(syncPolymarketTrades).toHaveBeenCalledWith(
+      expect.objectContaining({
+        maxMarkets: 250,
+        since: "2026-04-22T04:00:00.000Z",
+        until: "2026-04-22T06:00:00.000Z",
+      }),
     );
   });
 

@@ -109,10 +109,7 @@ function sortFamilies(families: Set<MarketFamily>) {
   return FAMILY_ORDER.filter((family) => families.has(family));
 }
 
-function strongestRowsByFamily(
-  rows: BoardObservationScored[],
-  families: Set<MarketFamily>
-) {
+function strongestRowsByFamily(rows: BoardObservationScored[], families: Set<MarketFamily>) {
   const bestByFamily = new Map<MarketFamily, BoardObservationScored>();
   for (const row of rows) {
     const family = row.observation.family;
@@ -129,7 +126,7 @@ function strongestRowsByFamily(
 
 function interpolatePercentile(
   value: number,
-  baseline: BoardVolatilityBaselineResolved["expectedRange"]
+  baseline: BoardVolatilityBaselineResolved["expectedRange"],
 ) {
   const safe = {
     p50: Math.max(0.001, baseline.p50),
@@ -150,9 +147,7 @@ function interpolatePercentile(
   if (value <= safe.p99) {
     return 0.9 + ((value - safe.p90) / (safe.p99 - safe.p90)) * 0.09;
   }
-  return clamp01(
-    0.99 + Math.min(0.01, (value - safe.p99) / Math.max(0.1, 1 - safe.p99))
-  );
+  return clamp01(0.99 + Math.min(0.01, (value - safe.p99) / Math.max(0.1, 1 - safe.p99)));
 }
 
 function evidenceLimit(rows: BoardObservationScored[], limit: number) {
@@ -195,17 +190,15 @@ export function buildBoardVolatilityFeatureSnapshot(input: {
     return Number.isFinite(ts) ? Math.max(max, ts) : max;
   }, 0);
   const shockRows = candidates.filter((item) =>
-    withinShockWindow(item.observation, nowMs, input.shockWindowMs)
+    withinShockWindow(item.observation, nowMs, input.shockWindowMs),
   );
   const families = new Set(
     sampleRows
       .map((item) => item.observation.family)
-      .filter((family): family is MarketFamily => family != null)
+      .filter((family): family is MarketFamily => family != null),
   );
   const coreFamilies = new Set(
-    Array.from(families).filter((family) =>
-      CORE_GAME_STATE_FAMILIES.has(family)
-    )
+    Array.from(families).filter((family) => CORE_GAME_STATE_FAMILIES.has(family)),
   );
   const coreRows = candidates.filter((item) => {
     const family = item.observation.family;
@@ -218,21 +211,15 @@ export function buildBoardVolatilityFeatureSnapshot(input: {
     .filter(
       (item) =>
         !coreRepresentativeRows.some(
-          (core) =>
-            core.observation.observationId === item.observation.observationId
-        )
+          (core) => core.observation.observationId === item.observation.observationId,
+        ),
     );
-  const topRows = [...coreRepresentativeRows, ...supportingRows].slice(
-    0,
-    input.topEvidenceRows
-  );
+  const topRows = [...coreRepresentativeRows, ...supportingRows].slice(0, input.topEvidenceRows);
   const distinctCoreSources = Array.from(
-    new Set<ResearchSourceId>(
-      coreRepresentativeRows.map((row) => row.observation.source)
-    )
+    new Set<ResearchSourceId>(coreRepresentativeRows.map((row) => row.observation.source)),
   ).sort();
   const distinctSources = Array.from(
-    new Set<ResearchSourceId>(sampleRows.map((row) => row.observation.source))
+    new Set<ResearchSourceId>(sampleRows.map((row) => row.observation.source)),
   ).sort();
   const corePriceShock = averageContribution(coreRepresentativeRows);
   const coreLiquidityStress = averageMicrostructure(coreRepresentativeRows);
@@ -240,38 +227,31 @@ export function buildBoardVolatilityFeatureSnapshot(input: {
   const crossSourceConfirmation = clamp01(
     distinctCoreSources.length <= 1
       ? distinctCoreSources.length * 0.35
-      : 0.55 + Math.min(0.45, (distinctCoreSources.length - 1) * 0.25)
+      : 0.55 + Math.min(0.45, (distinctCoreSources.length - 1) * 0.25),
   );
   const supportPropShock = averageContribution(
-    supportingRows.filter((row) => row.observation.family === "player-prop")
+    supportingRows.filter((row) => row.observation.family === "player-prop"),
   );
   const coveragePenalty = clamp01(coverageRatio(candidates));
   const phaseTransitionBonus = clamp01(input.transitionBoost);
   const coreShock = clamp01(corePriceShock * 0.7 + coreLiquidityStress * 0.3);
-  const supportMultiplier =
-    0.65 + coreBreadth * 0.2 + crossSourceConfirmation * 0.15;
+  const supportMultiplier = 0.65 + coreBreadth * 0.2 + crossSourceConfirmation * 0.15;
 
   const rawScore = clamp01(
     coreShock * supportMultiplier +
       Math.min(1, input.persistenceSeconds / 90) * 0.12 +
       supportPropShock * 0.05 +
       phaseTransitionBonus * 0.08 -
-      coveragePenalty * 0.1
+      coveragePenalty * 0.1,
   );
-  const percentile = interpolatePercentile(
-    rawScore,
-    input.baseline.expectedRange
-  );
+  const percentile = interpolatePercentile(rawScore, input.baseline.expectedRange);
   const calibratedAbnormality = clamp01(rawScore * 0.45 + percentile * 0.55);
 
   const hasCoreBreadth = coreFamilies.size >= 2;
   const hasSourceConfirmation = distinctCoreSources.length >= 2;
   const hasPersistence = input.persistenceSeconds >= 30;
   const criticalEligible =
-    coreFamilies.size >= 3 &&
-    hasSourceConfirmation &&
-    hasPersistence &&
-    percentile >= 0.99;
+    coreFamilies.size >= 3 && hasSourceConfirmation && hasPersistence && percentile >= 0.99;
 
   return {
     alertReady:
@@ -286,10 +266,7 @@ export function buildBoardVolatilityFeatureSnapshot(input: {
     distinctCoreSources,
     drivers: {
       coreMarkets: evidenceLimit(coreRepresentativeRows, 4),
-      supportingMarkets: evidenceLimit(
-        supportingRows,
-        Math.max(0, input.topEvidenceRows - 4)
-      ),
+      supportingMarkets: evidenceLimit(supportingRows, Math.max(0, input.topEvidenceRows - 4)),
     },
     evidence: evidenceLimit(topRows, input.topEvidenceRows),
     families: sortFamilies(families),
@@ -349,13 +326,9 @@ export function runBoardStressKalmanFilter(input: {
         ? 0.88
         : 0.8;
   const processNoise =
-    input.phaseKind === "tip-burst" || input.phaseKind === "restart-burst"
-      ? 0.035
-      : 0.02;
+    input.phaseKind === "tip-burst" || input.phaseKind === "restart-burst" ? 0.035 : 0.02;
   const measurementNoise =
-    input.phaseKind === "settled-live" || input.phaseKind === "final"
-      ? 0.08
-      : 0.06;
+    input.phaseKind === "settled-live" || input.phaseKind === "final" ? 0.08 : 0.06;
 
   let stress = 0;
   let velocity = 0;

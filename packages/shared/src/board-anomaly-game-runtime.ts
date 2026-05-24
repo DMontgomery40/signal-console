@@ -26,7 +26,7 @@ export type DetectBoardAnomaliesForGameInput = {
 };
 
 export function detectBoardAnomaliesForGame(
-  input: DetectBoardAnomaliesForGameInput
+  input: DetectBoardAnomaliesForGameInput,
 ): BoardAnomalyAlert[] {
   const nowMs = parseTimestampMs(input.now);
   if (nowMs == null) return [];
@@ -51,7 +51,7 @@ export function detectBoardAnomaliesForGame(
 }
 
 export function measureGameStateVolatilityForGame(
-  input: DetectBoardAnomaliesForGameInput
+  input: DetectBoardAnomaliesForGameInput,
 ): BoardGameStateVolatility | null {
   const nowMs = parseTimestampMs(input.now);
   if (nowMs == null) return null;
@@ -85,7 +85,7 @@ export type ReplayBoardAnomaliesForGameInput = {
 };
 
 export function replayBoardAnomaliesForGame(
-  input: ReplayBoardAnomaliesForGameInput
+  input: ReplayBoardAnomaliesForGameInput,
 ): BoardAnomalyReplayOutput | null {
   const materialized = materializeBoardObservations({
     gameId: input.gameId,

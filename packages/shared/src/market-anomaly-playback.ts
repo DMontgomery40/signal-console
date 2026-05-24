@@ -6,9 +6,7 @@ import { isStrictYmdDate } from "@signal-console/domain";
 import type { MarketAnomalyPlaybackFrame } from "@signal-console/domain";
 
 const defaultPlaybackDirectory = resolve(
-  fileURLToPath(
-    new URL("../../../data/market-anomaly-playback", import.meta.url)
-  )
+  fileURLToPath(new URL("../../../data/market-anomaly-playback", import.meta.url)),
 );
 
 const defaultPlaybackTimeZone = "America/Denver";
@@ -39,7 +37,7 @@ export function getMarketAnomalyPlaybackDirectory() {
 export function resolveMarketAnomalyPlaybackDate(
   date?: string,
   now = new Date(),
-  timeZone = process.env.MARKET_ANOMALY_TIME_ZONE ?? defaultPlaybackTimeZone
+  timeZone = process.env.MARKET_ANOMALY_TIME_ZONE ?? defaultPlaybackTimeZone,
 ) {
   if (date) {
     assertPlaybackDate(date);
@@ -70,9 +68,7 @@ function parsePlaybackLine(line: string): MarketAnomalyPlaybackFrame | null {
   }
 }
 
-export function listMarketAnomalyPlaybackFrames(
-  query: MarketAnomalyPlaybackQuery = {}
-) {
+export function listMarketAnomalyPlaybackFrames(query: MarketAnomalyPlaybackQuery = {}) {
   const date = resolveMarketAnomalyPlaybackDate(query.date);
   const playbackPath = getMarketAnomalyPlaybackPath(date);
   if (!existsSync(playbackPath)) {
@@ -91,13 +87,8 @@ export function listMarketAnomalyPlaybackFrames(
     .filter((frame): frame is MarketAnomalyPlaybackFrame => frame != null);
 }
 
-export function writeMarketAnomalyPlaybackFrame(
-  frame: MarketAnomalyPlaybackFrame
-) {
-  const playbackPath = getMarketAnomalyPlaybackPath(
-    undefined,
-    new Date(frame.capturedAt)
-  );
+export function writeMarketAnomalyPlaybackFrame(frame: MarketAnomalyPlaybackFrame) {
+  const playbackPath = getMarketAnomalyPlaybackPath(undefined, new Date(frame.capturedAt));
   mkdirSync(dirname(playbackPath), { recursive: true });
   appendFileSync(playbackPath, `${JSON.stringify(frame)}\n`, "utf8");
   return playbackPath;

@@ -79,6 +79,14 @@ describe("off-price-print detector", () => {
     expect(fire?.gameId).toBe("synth-1");
   });
 
+  it("treats duplicate gameIds as one game for stats", () => {
+    const result = detector.run(windowOf(["synth-1", "synth-1"], [ev()]), defaults());
+
+    expect(result.fires).toHaveLength(1);
+    expect(result.stats.gamesInWindow).toBe(1);
+    expect(result.stats.firesPerGame).toBe(1);
+  });
+
   it("fire intensity equals event off_price_distance; baseline fields are 0", () => {
     const event = ev({ offPriceDistance: 0.73 });
     const result = detector.run(windowOf(["synth-1"], [event]), defaults());

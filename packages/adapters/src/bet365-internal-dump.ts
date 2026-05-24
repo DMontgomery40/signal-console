@@ -99,7 +99,7 @@ function isEligibleFile(name: string) {
 export function parseBet365DumpLine(
   rawLine: string,
   lineNumber: number,
-  file: string
+  file: string,
 ): { ok: true; row: Bet365InternalRow } | { ok: false; error: string } {
   const trimmed = rawLine.trim();
   if (!trimmed) return { error: "empty line", ok: false };
@@ -121,35 +121,16 @@ export function parseBet365DumpLine(
     return null;
   };
 
-  const observedAt = pick(
-    "observed_at",
-    "observedAt",
-    "captured_at",
-    "capturedAt"
-  );
+  const observedAt = pick("observed_at", "observedAt", "captured_at", "capturedAt");
   const gameDate = pick("game_date", "gameDate");
   const homeTeam = pick("home_team", "homeTeam", "home");
   const awayTeam = pick("away_team", "awayTeam", "away");
   const marketFamily = pick("market_family", "marketFamily", "family");
   const selection = pick("selection", "sel");
-  const participantKey = pick(
-    "participant_key",
-    "participantKey",
-    "participant"
-  );
+  const participantKey = pick("participant_key", "participantKey", "participant");
   const lineValue = pick("line");
-  const priceDecimal = pick(
-    "price_decimal",
-    "priceDecimal",
-    "price",
-    "decimal"
-  );
-  const impliedProbability = pick(
-    "implied_probability",
-    "impliedProbability",
-    "implied",
-    "prob"
-  );
+  const priceDecimal = pick("price_decimal", "priceDecimal", "price", "decimal");
+  const impliedProbability = pick("implied_probability", "impliedProbability", "implied", "prob");
   const oddsAmerican = pick("odds_american", "oddsAmerican", "american");
   const inPlay = pick("in_play", "inPlay");
 
@@ -171,8 +152,7 @@ export function parseBet365DumpLine(
     awayTeam,
     gameDate,
     homeTeam,
-    impliedProbability:
-      typeof impliedProbability === "number" ? impliedProbability : null,
+    impliedProbability: typeof impliedProbability === "number" ? impliedProbability : null,
     inPlay: typeof inPlay === "boolean" ? inPlay : false,
     line: typeof lineValue === "number" ? lineValue : null,
     marketFamily: marketFamily as MarketFamily,
@@ -202,10 +182,7 @@ function buildGameIndex(games: Awaited<ReturnType<typeof listResearchGames>>) {
   return index;
 }
 
-function resolveGame(
-  row: Bet365InternalRow,
-  gameIndex: ReturnType<typeof buildGameIndex>
-) {
+function resolveGame(row: Bet365InternalRow, gameIndex: ReturnType<typeof buildGameIndex>) {
   const key = buildGameKey(row.gameDate, [row.homeTeam, row.awayTeam]);
   return gameIndex.get(key) ?? null;
 }
@@ -221,13 +198,7 @@ function buildInstrumentId(row: Bet365InternalRow, gameId: string) {
   if (row.marketFamily === "total") {
     return buildStableId([gameId, "total", row.selection, row.line]);
   }
-  return buildStableId([
-    gameId,
-    row.marketFamily,
-    participant,
-    row.selection,
-    row.line,
-  ]);
+  return buildStableId([gameId, row.marketFamily, participant, row.selection, row.line]);
 }
 
 function buildDisplayLabel(row: Bet365InternalRow) {
@@ -255,9 +226,7 @@ export function syncBet365InternalDump(options?: {
   const processedDirName = options?.processedDirName ?? "_processed";
 
   if (!dumpDir) {
-    throw new Error(
-      "BET365_INTERNAL_DUMP_DIR is not configured; set it or pass options.dumpDir."
-    );
+    throw new Error("BET365_INTERNAL_DUMP_DIR is not configured; set it or pass options.dumpDir.");
   }
 
   const dirStat = (() => {
@@ -281,8 +250,7 @@ export function syncBet365InternalDump(options?: {
     const gameIndex = buildGameIndex(games);
 
     const entries = readdirSync(dumpDir).filter(isEligibleFile);
-    const parseErrors: Array<{ error: string; file: string; line: number }> =
-      [];
+    const parseErrors: Array<{ error: string; file: string; line: number }> = [];
     const matchedGameIds = new Set<string>();
     let rowsParsed = 0;
     let rowsSkipped = 0;
@@ -359,10 +327,7 @@ export function syncBet365InternalDump(options?: {
           depthScore: null,
           impliedProbability: implied,
           lineRaw: row.line ?? null,
-          oddsRaw:
-            typeof row.oddsAmerican === "number"
-              ? String(row.oddsAmerican)
-              : null,
+          oddsRaw: typeof row.oddsAmerican === "number" ? String(row.oddsAmerican) : null,
           priceRaw: row.priceDecimal ?? implied,
           sourceMarketId,
           volume: null,

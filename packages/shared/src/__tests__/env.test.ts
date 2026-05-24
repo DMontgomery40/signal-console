@@ -33,13 +33,13 @@ describe("runtime env loading", () => {
       envLocalPath,
       ["RUNTIME_ENV_LOCAL_ONLY=from-local", "RUNTIME_ENV_LOCAL_OVERRIDE=local"]
         .join("\n")
-        .concat("\n")
+        .concat("\n"),
     );
     writeFileSync(
       envPath,
       ["RUNTIME_ENV_SHARED_ONLY=from-env", "RUNTIME_ENV_LOCAL_OVERRIDE=env"]
         .join("\n")
-        .concat("\n")
+        .concat("\n"),
     );
 
     process.env.RUNTIME_ENV_LOCAL_OVERRIDE = "shell";

@@ -34,6 +34,7 @@ interface SeedGame {
   readonly id: string;
   readonly tickCount: number;
   readonly markets?: number;
+  readonly pbpTimes?: readonly string[];
   readonly sport?: string;
   readonly scheduledStart?: string;
 }
@@ -67,6 +68,7 @@ function seedGoldDb(path: string, games: readonly SeedGame[]): void {
       source_market_id TEXT NOT NULL,
       event_timestamp TEXT NOT NULL,
       source TEXT NOT NULL,
+      event_type TEXT NOT NULL DEFAULT 'trade',
       volume_share REAL,
       trade_price REAL
     );
@@ -76,8 +78,15 @@ function seedGoldDb(path: string, games: readonly SeedGame[]): void {
       captured_at TEXT NOT NULL,
       status TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS nba_play_by_play_actions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      game_id TEXT NOT NULL,
+      time_actual TEXT NOT NULL
+    );
     CREATE INDEX IF NOT EXISTS idx_quote_ticks_source_market
       ON quote_ticks(source_market_id, captured_at);
+    CREATE INDEX IF NOT EXISTS idx_pbp_game_time
+      ON nba_play_by_play_actions(game_id, time_actual);
   `);
 
   const insertGame = db.prepare(
@@ -88,6 +97,9 @@ function seedGoldDb(path: string, games: readonly SeedGame[]): void {
   const insertTick = db.prepare(
     `INSERT INTO quote_ticks (source_market_id, captured_at, implied_probability, volume, is_heartbeat)
      VALUES (?, ?, ?, ?, 0)`,
+  );
+  const insertPbp = db.prepare(
+    `INSERT INTO nba_play_by_play_actions (game_id, time_actual) VALUES (?, ?)`,
   );
 
   for (const g of games) {
@@ -115,6 +127,9 @@ function seedGoldDb(path: string, games: readonly SeedGame[]): void {
         Math.max(1, i % 50),
       );
     }
+    for (const t of g.pbpTimes ?? []) {
+      insertPbp.run(g.id, t);
+    }
   }
   db.close();
 }
@@ -125,6 +140,8 @@ interface SeedMicroEvent {
   readonly eventTimestamp: string;
   readonly tradePrice: number;
   readonly volumeShare: number;
+  readonly source?: string;
+  readonly eventType?: string;
   readonly sampledPriceAt?: string;
   readonly sampledImpliedProbability?: number;
 }
@@ -133,8 +150,8 @@ function seedMicrostructure(path: string, events: readonly SeedMicroEvent[]): vo
   const db = new Database(path);
   const insertEvent = db.prepare(
     `INSERT INTO market_microstructure_events
-       (game_id, source_market_id, event_timestamp, source, volume_share, trade_price)
-     VALUES (?, ?, ?, 'polymarket', ?, ?)`,
+       (game_id, source_market_id, event_timestamp, source, event_type, volume_share, trade_price)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
   );
   const insertTick = db.prepare(
     `INSERT INTO quote_ticks (source_market_id, captured_at, implied_probability, volume, is_heartbeat)
@@ -145,6 +162,8 @@ function seedMicrostructure(path: string, events: readonly SeedMicroEvent[]): vo
       e.gameId,
       e.sourceMarketId,
       e.eventTimestamp,
+      e.source ?? "polymarket",
+      e.eventType ?? "trade",
       e.volumeShare,
       e.tradePrice,
     );
@@ -153,6 +172,35 @@ function seedMicrostructure(path: string, events: readonly SeedMicroEvent[]): vo
     }
   }
   db.close();
+}
+
+function seedPbp(path: string, gameId: string, times: readonly string[]): void {
+  const db = new Database(path);
+  try {
+    const insert = db.prepare(
+      `INSERT INTO nba_play_by_play_actions (game_id, time_actual) VALUES (?, ?)`,
+    );
+    for (const t of times) insert.run(gameId, t);
+  } finally {
+    db.close();
+  }
+}
+
+function seedQuoteTick(
+  path: string,
+  sourceMarketId: string,
+  capturedAt: string,
+  impliedProbability: number,
+): void {
+  const db = new Database(path);
+  try {
+    db.prepare(
+      `INSERT INTO quote_ticks (source_market_id, captured_at, implied_probability, volume, is_heartbeat)
+       VALUES (?, ?, ?, 1, 0)`,
+    ).run(sourceMarketId, capturedAt, impliedProbability);
+  } finally {
+    db.close();
+  }
 }
 
 beforeEach(() => {
@@ -263,6 +311,330 @@ describe("backtest route (US-034)", () => {
     expect(secondBody["observations"]).toEqual(firstBody["observations"]);
   });
 
+  it("treats explicit game_ids as a canonical set for cache and stats", async () => {
+    seedGoldDb(ctx.goldDbPath, [{ id: "nba-canon-1", tickCount: 1200 }]);
+    const app = await startApp();
+    const uniquePayload = {
+      detector_id: "board-mad",
+      params: defaultBoardMadParams(3.0),
+      window: { start: "2026-05-23T02:30:00Z", end: "2026-05-23T05:00:00Z" },
+      game_ids: ["nba-canon-1"],
+    };
+    const duplicatePayload = {
+      ...uniquePayload,
+      game_ids: [" nba-canon-1 ", "nba-canon-1"],
+    };
+
+    const first = await app.inject({
+      method: "POST",
+      url: "/v1/backtest",
+      headers: authHeaders(),
+      payload: uniquePayload,
+    });
+    const second = await app.inject({
+      method: "POST",
+      url: "/v1/backtest",
+      headers: authHeaders(),
+      payload: duplicatePayload,
+    });
+
+    expect(first.statusCode).toBe(200);
+    expect(second.statusCode).toBe(200);
+    const firstBody = asRecord(first.json(), "first");
+    const secondBody = asRecord(second.json(), "second");
+    expect(secondBody["runId"]).toBe(firstBody["runId"]);
+    const stats = asRecord(secondBody["stats"], "stats");
+    expect(stats["gamesInWindow"]).toBe(1);
+
+    const cacheDb = new Database(ctx.cacheDbPath, { readonly: true });
+    try {
+      const row = cacheDb
+        .prepare(`SELECT COUNT(*) AS n FROM detector_runs WHERE scope = 'window'`)
+        .get();
+      expect(isRecord(row) ? row["n"] : null).toBe(1);
+    } finally {
+      cacheDb.close();
+    }
+  });
+
+  it("canonicalizes equivalent window timestamps before SQL filtering and cache identity", async () => {
+    seedGoldDb(ctx.goldDbPath, [{ id: "nba-window-canon-1", tickCount: 1200 }]);
+    const app = await startApp();
+    const utcPayload = {
+      detector_id: "board-mad",
+      params: defaultBoardMadParams(3.0),
+      window: {
+        start: "2026-05-23T02:30:00.000Z",
+        end: "2026-05-23T05:00:00.000Z",
+      },
+      game_ids: ["nba-window-canon-1"],
+    };
+    const offsetPayload = {
+      ...utcPayload,
+      window: {
+        start: "2026-05-22T20:30:00-06:00",
+        end: "2026-05-22T23:00:00-06:00",
+      },
+    };
+
+    const first = await app.inject({
+      method: "POST",
+      url: "/v1/backtest",
+      headers: authHeaders(),
+      payload: utcPayload,
+    });
+    const second = await app.inject({
+      method: "POST",
+      url: "/v1/backtest",
+      headers: authHeaders(),
+      payload: offsetPayload,
+    });
+
+    expect(first.statusCode).toBe(200);
+    expect(second.statusCode).toBe(200);
+    const firstBody = asRecord(first.json(), "first");
+    const secondBody = asRecord(second.json(), "second");
+    expect(secondBody["runId"]).toBe(firstBody["runId"]);
+
+    const cacheDb = new Database(ctx.cacheDbPath, { readonly: true });
+    try {
+      const rows = cacheDb
+        .prepare(
+          `SELECT window_start, window_end FROM detector_runs
+           WHERE scope = 'window'
+           ORDER BY id`,
+        )
+        .all();
+      expect(rows).toHaveLength(1);
+      const row = asRecord(rows[0], "detector_runs row");
+      expect(row["window_start"]).toBe("2026-05-23T02:30:00.000Z");
+      expect(row["window_end"]).toBe("2026-05-23T05:00:00.000Z");
+    } finally {
+      cacheDb.close();
+    }
+  });
+
+  it("canonicalizes equivalent window timestamps before game discovery", async () => {
+    seedGoldDb(ctx.goldDbPath, [
+      { id: "nba-discovery-canon-1", scheduledStart: "2026-05-23T03:00:00Z", tickCount: 200 },
+    ]);
+    const app = await startApp();
+    const utcPayload = {
+      detector_id: "board-mad",
+      params: defaultBoardMadParams(3.0),
+      window: {
+        start: "2026-05-23T02:30:00.000Z",
+        end: "2026-05-23T05:00:00.000Z",
+      },
+    };
+    const offsetPayload = {
+      ...utcPayload,
+      window: {
+        start: "2026-05-22T20:30:00-06:00",
+        end: "2026-05-22T23:00:00-06:00",
+      },
+    };
+
+    const first = await app.inject({
+      method: "POST",
+      url: "/v1/backtest",
+      headers: authHeaders(),
+      payload: utcPayload,
+    });
+    const second = await app.inject({
+      method: "POST",
+      url: "/v1/backtest",
+      headers: authHeaders(),
+      payload: offsetPayload,
+    });
+
+    expect(first.statusCode).toBe(200);
+    expect(second.statusCode).toBe(200);
+    const firstBody = asRecord(first.json(), "first");
+    const secondBody = asRecord(second.json(), "second");
+    expect(secondBody["runId"]).toBe(firstBody["runId"]);
+    expect(asRecord(secondBody["stats"], "stats")["gamesInWindow"]).toBe(1);
+  });
+
+  it("rejects timezone-less and calendar-overflow backtest window timestamps before normalization", async () => {
+    seedGoldDb(ctx.goldDbPath, [{ id: "nba-window-localtime-1", tickCount: 0 }]);
+    const app = await startApp();
+    const cases = [
+      { start: "2026-05-23T02:30:00", end: "2026-05-23T05:00:00Z" },
+      { start: "2026-05-23T02:30:00Z", end: "2026-05-23T05:00:00" },
+      { start: "2026-02-30T02:30:00Z", end: "2026-05-23T05:00:00Z" },
+      { start: "2026-05-23T02:30:00Z", end: "2026-04-31T05:00:00Z" },
+    ];
+
+    for (const window of cases) {
+      const res = await app.inject({
+        method: "POST",
+        url: "/v1/backtest",
+        headers: authHeaders(),
+        payload: {
+          detector_id: "board-mad",
+          params: defaultBoardMadParams(3.0),
+          window,
+          game_ids: ["nba-window-localtime-1"],
+        },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(asRecord(res.json(), "err")["error"]).toBe("invalid window timestamps");
+    }
+  });
+
+  it("invalidates cached backtests when PBP-derived tick bounds change", async () => {
+    seedGoldDb(ctx.goldDbPath, [{ id: "nba-pbp-watermark-1", tickCount: 1200 }]);
+    const app = await startApp();
+    const payload = {
+      detector_id: "board-mad",
+      params: defaultBoardMadParams(3.0),
+      window: {
+        start: "2026-05-23T02:30:00.000Z",
+        end: "2026-05-23T05:00:00.000Z",
+      },
+      game_ids: ["nba-pbp-watermark-1"],
+    };
+
+    const first = await app.inject({
+      method: "POST",
+      url: "/v1/backtest",
+      headers: authHeaders(),
+      payload,
+    });
+    expect(first.statusCode).toBe(200);
+    const firstBody = asRecord(first.json(), "first");
+
+    seedPbp(ctx.goldDbPath, "nba-pbp-watermark-1", [
+      "2026-05-23T03:25:00.000Z",
+      "2026-05-23T04:10:00.000Z",
+    ]);
+
+    const second = await app.inject({
+      method: "POST",
+      url: "/v1/backtest",
+      headers: authHeaders(),
+      payload,
+    });
+    expect(second.statusCode).toBe(200);
+    const secondBody = asRecord(second.json(), "second");
+    expect(secondBody["runId"]).not.toBe(firstBody["runId"]);
+
+    const cacheDb = new Database(ctx.cacheDbPath, { readonly: true });
+    try {
+      const row = cacheDb
+        .prepare(`SELECT COUNT(*) AS n FROM detector_runs WHERE scope = 'window'`)
+        .get();
+      expect(isRecord(row) ? row["n"] : null).toBe(2);
+    } finally {
+      cacheDb.close();
+    }
+  });
+
+  it("keeps cached backtests when quote ticks change outside PBP-derived tick bounds", async () => {
+    seedGoldDb(ctx.goldDbPath, [
+      {
+        id: "nba-pbp-relevance-1",
+        pbpTimes: ["2026-05-23T03:30:00.000Z", "2026-05-23T04:00:00.000Z"],
+        tickCount: 1200,
+      },
+    ]);
+    const app = await startApp();
+    const payload = {
+      detector_id: "board-mad",
+      params: defaultBoardMadParams(3.0),
+      window: {
+        start: "2026-05-23T02:30:00.000Z",
+        end: "2026-05-23T05:00:00.000Z",
+      },
+      game_ids: ["nba-pbp-relevance-1"],
+    };
+
+    const first = await app.inject({
+      method: "POST",
+      url: "/v1/backtest",
+      headers: authHeaders(),
+      payload,
+    });
+    expect(first.statusCode).toBe(200);
+    const firstBody = asRecord(first.json(), "first");
+
+    seedQuoteTick(ctx.goldDbPath, "mkt-nba-pbp-relevance-1-0", "2026-05-23T03:10:00.000Z", 0.99);
+
+    const second = await app.inject({
+      method: "POST",
+      url: "/v1/backtest",
+      headers: authHeaders(),
+      payload,
+    });
+    expect(second.statusCode).toBe(200);
+    const secondBody = asRecord(second.json(), "second");
+    expect(secondBody["runId"]).toBe(firstBody["runId"]);
+
+    const cacheDb = new Database(ctx.cacheDbPath, { readonly: true });
+    try {
+      const row = cacheDb
+        .prepare(`SELECT COUNT(*) AS n FROM detector_runs WHERE scope = 'window'`)
+        .get();
+      expect(isRecord(row) ? row["n"] : null).toBe(1);
+    } finally {
+      cacheDb.close();
+    }
+  });
+
+  it("keeps cached board-mad backtests when microstructure rows change", async () => {
+    seedGoldDb(ctx.goldDbPath, [{ id: "nba-board-mme-irrelevant-1", tickCount: 1200 }]);
+    const app = await startApp();
+    const payload = {
+      detector_id: "board-mad",
+      params: defaultBoardMadParams(3.0),
+      window: {
+        start: "2026-05-23T02:30:00.000Z",
+        end: "2026-05-23T05:00:00.000Z",
+      },
+      game_ids: ["nba-board-mme-irrelevant-1"],
+    };
+
+    const first = await app.inject({
+      method: "POST",
+      url: "/v1/backtest",
+      headers: authHeaders(),
+      payload,
+    });
+    expect(first.statusCode).toBe(200);
+    const firstBody = asRecord(first.json(), "first");
+
+    seedMicrostructure(ctx.goldDbPath, [
+      {
+        eventTimestamp: "2026-05-23T03:42:00.000Z",
+        gameId: "nba-board-mme-irrelevant-1",
+        sourceMarketId: "pm-board-mme-irrelevant-1",
+        tradePrice: 0.99,
+        volumeShare: 0.5,
+      },
+    ]);
+
+    const second = await app.inject({
+      method: "POST",
+      url: "/v1/backtest",
+      headers: authHeaders(),
+      payload,
+    });
+    expect(second.statusCode).toBe(200);
+    const secondBody = asRecord(second.json(), "second");
+    expect(secondBody["runId"]).toBe(firstBody["runId"]);
+
+    const cacheDb = new Database(ctx.cacheDbPath, { readonly: true });
+    try {
+      const row = cacheDb
+        .prepare(`SELECT COUNT(*) AS n FROM detector_runs WHERE scope = 'window'`)
+        .get();
+      expect(isRecord(row) ? row["n"] : null).toBe(1);
+    } finally {
+      cacheDb.close();
+    }
+  });
+
   it("returns 400 with 'window exceeds 28 days' when end-start > 28 days", async () => {
     seedGoldDb(ctx.goldDbPath, []);
     const app = await startApp();
@@ -298,6 +670,24 @@ describe("backtest route (US-034)", () => {
     });
     expect(res.statusCode).toBe(400);
     expect(asRecord(res.json(), "err")["error"]).toBe("too many games");
+  });
+
+  it("returns 400 when explicit game_ids contain a blank id", async () => {
+    seedGoldDb(ctx.goldDbPath, []);
+    const app = await startApp();
+    const res = await app.inject({
+      method: "POST",
+      url: "/v1/backtest",
+      headers: authHeaders(),
+      payload: {
+        detector_id: "board-mad",
+        params: defaultBoardMadParams(3.0),
+        window: { start: "2026-05-23T00:00:00Z", end: "2026-05-23T06:00:00Z" },
+        game_ids: [" "],
+      },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(asRecord(res.json(), "err")["error"]).toBe("invalid game_ids");
   });
 
   it("returns 400 for an unknown detector_id", async () => {
@@ -478,14 +868,114 @@ describe("backtest route (US-034)", () => {
     expect(stats["totalFires"]).toBe(1);
     const observations = body["observations"];
     if (!isUnknownArray(observations)) throw new Error("observations not array");
-    const fired = observations
-      .map((o) => asRecord(o, "obs"))
-      .filter((o) => o["fired"] === 1);
+    const fired = observations.map((o) => asRecord(o, "obs")).filter((o) => o["fired"] === 1);
     expect(fired).toHaveLength(1);
     // intensity = off_price_distance = |0.9894 - 0.495| ≈ 0.494
     const intensity = fired[0]?.["intensity"];
-    expect(typeof intensity).toBe("number");
-    expect(Math.abs((intensity as number) - 0.4944)).toBeLessThan(0.005);
+    if (typeof intensity !== "number") throw new Error("intensity not numeric");
+    expect(Math.abs(intensity - 0.4944)).toBeLessThan(0.005);
+  });
+
+  it("keeps cached off-price-print backtests when non-Polymarket trade rows change", async () => {
+    seedGoldDb(ctx.goldDbPath, [
+      { id: "nba-opp-kalshi-1", scheduledStart: "2026-05-12T01:30:00Z", tickCount: 0 },
+    ]);
+    const app = await startApp();
+    const payload = {
+      detector_id: "off-price-print",
+      params: { minVolumeShare: 0.1, minOffPriceDistance: 0.4 },
+      window: { start: "2026-05-12T04:00:00Z", end: "2026-05-12T05:00:00Z" },
+      game_ids: ["nba-opp-kalshi-1"],
+    };
+
+    const first = await app.inject({
+      method: "POST",
+      url: "/v1/backtest",
+      headers: authHeaders(),
+      payload,
+    });
+    expect(first.statusCode).toBe(200);
+    const firstBody = asRecord(first.json(), "first kalshi");
+
+    seedMicrostructure(ctx.goldDbPath, [
+      {
+        eventTimestamp: "2026-05-12T04:52:18.000Z",
+        gameId: "nba-opp-kalshi-1",
+        sampledImpliedProbability: 0.495,
+        sampledPriceAt: "2026-05-12T04:52:05.000Z",
+        source: "kalshi",
+        sourceMarketId: "mkt-nba-opp-kalshi-1-0",
+        tradePrice: 0.9894,
+        volumeShare: 0.246,
+      },
+    ]);
+
+    const second = await app.inject({
+      method: "POST",
+      url: "/v1/backtest",
+      headers: authHeaders(),
+      payload,
+    });
+    expect(second.statusCode).toBe(200);
+    const secondBody = asRecord(second.json(), "second kalshi");
+    expect(secondBody["runId"]).toBe(firstBody["runId"]);
+    const stats = asRecord(secondBody["stats"], "second stats");
+    expect(stats["totalFires"]).toBe(0);
+  });
+
+  it("invalidates off-price-print backtests when prior sampled quote ticks change", async () => {
+    seedGoldDb(ctx.goldDbPath, [
+      { id: "nba-opp-quote-cache-1", scheduledStart: "2026-05-12T01:30:00Z", tickCount: 0 },
+    ]);
+    seedMicrostructure(ctx.goldDbPath, [
+      {
+        eventTimestamp: "2026-05-12T04:52:18.000Z",
+        gameId: "nba-opp-quote-cache-1",
+        sampledImpliedProbability: 0.495,
+        sampledPriceAt: "2026-05-12T04:52:05.000Z",
+        sourceMarketId: "mkt-nba-opp-quote-cache-1-0",
+        tradePrice: 0.9894,
+        volumeShare: 0.246,
+      },
+    ]);
+    const app = await startApp();
+    const payload = {
+      detector_id: "off-price-print",
+      params: { minOffPriceDistance: 0.4, minVolumeShare: 0.1 },
+      window: { end: "2026-05-12T05:00:00Z", start: "2026-05-12T04:00:00Z" },
+      game_ids: ["nba-opp-quote-cache-1"],
+    };
+
+    const first = await app.inject({
+      method: "POST",
+      url: "/v1/backtest",
+      headers: authHeaders(),
+      payload,
+    });
+    expect(first.statusCode).toBe(200);
+    const firstBody = asRecord(first.json(), "first");
+
+    seedQuoteTick(ctx.goldDbPath, "mkt-nba-opp-quote-cache-1-0", "2026-05-12T04:52:10.000Z", 0.2);
+
+    const second = await app.inject({
+      method: "POST",
+      url: "/v1/backtest",
+      headers: authHeaders(),
+      payload,
+    });
+    expect(second.statusCode).toBe(200);
+    const secondBody = asRecord(second.json(), "second");
+    expect(secondBody["runId"]).not.toBe(firstBody["runId"]);
+
+    const cacheDb = new Database(ctx.cacheDbPath, { readonly: true });
+    try {
+      const row = cacheDb
+        .prepare(`SELECT COUNT(*) AS n FROM detector_runs WHERE scope = 'window'`)
+        .get();
+      expect(isRecord(row) ? row["n"] : null).toBe(2);
+    } finally {
+      cacheDb.close();
+    }
   });
 
   // Companion guard: when there is no surrounding quote_tick (subquery returns

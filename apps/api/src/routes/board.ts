@@ -13,6 +13,7 @@ import { z } from "zod";
 
 import { getOrComputeBoard } from "../services/board";
 import { getFanout } from "../services/fanout";
+import { parseStrictIsoTimestamp } from "../services/timestamps";
 
 export interface BoardRoutesOptions {
   readonly goldDbPath?: string;
@@ -214,14 +215,17 @@ const boardRoutes: FastifyPluginAsync<BoardRoutesOptions> = (app, opts) => {
         reply.code(400).send({ error: "invalid query" });
         return;
       }
-      if (!Number.isFinite(Date.parse(parsedQuery.data.bucket_start))) {
+      const bucketStartMs = parseStrictIsoTimestamp(parsedQuery.data.bucket_start, {
+        requireExplicitTimezone: true,
+      });
+      if (bucketStartMs === null) {
         reply.code(400).send({ error: "invalid bucket_start" });
         return;
       }
       const result = getFanout({
         goldDbPath,
         gameId: parsedParams.data.gameId,
-        bucketStart: parsedQuery.data.bucket_start,
+        bucketStart: new Date(bucketStartMs).toISOString(),
       });
       reply.send(result);
     },

@@ -47,6 +47,7 @@ import {
   readDetectorDefaults,
   type DetectorDefaults,
 } from "./detector-defaults";
+import { parseStrictIsoTimestamp } from "./timestamps";
 
 type GoldDbHandle = ReturnType<typeof openGoldDb>;
 
@@ -94,11 +95,23 @@ export class BacktestError extends Error {
   }
 }
 
+function canonicalTimestamp(input: string): string {
+  const ms = parseStrictIsoTimestamp(input, { requireExplicitTimezone: true });
+  if (ms === null) {
+    throw new BacktestError("invalid_params", `invalid window timestamp: ${input}`);
+  }
+  return new Date(ms).toISOString();
+}
+
 export function runBacktest(args: RunBacktestArgs): BacktestResult {
   const now = args.now ?? new Date();
   const defaults = readDetectorDefaults();
   const dispatch = resolveDispatch(args.detectorId, args.params, defaults);
-  const sortedGameIds = args.gameIds.toSorted();
+  const sortedGameIds = Array.from(
+    new Set(args.gameIds.map((id) => id.trim()).filter((id) => id.length > 0)),
+  ).toSorted();
+  const windowStart = canonicalTimestamp(args.windowStart);
+  const windowEnd = canonicalTimestamp(args.windowEnd);
   const paramsJson = canonicalJson(dispatch.params);
   const paramsHash = sha256Hex(paramsJson);
 
@@ -109,22 +122,24 @@ export function runBacktest(args: RunBacktestArgs): BacktestResult {
       const watermarkHash = computeWindowWatermarkHash(
         goldDb,
         sortedGameIds,
-        args.windowStart,
-        args.windowEnd,
+        windowStart,
+        windowEnd,
+        dispatch.sources,
+        defaults,
       );
       const hit = lookupRun(cacheDb, {
         detectorId: dispatch.detectorId,
         detectorVersion: dispatch.detectorVersion,
         paramsHash,
         watermarkHash,
-        windowStart: args.windowStart,
-        windowEnd: args.windowEnd,
+        windowStart,
+        windowEnd,
       });
       if (hit !== null) {
         const observations = loadObservations(cacheDb, hit.runId);
         return {
           runId: hit.runId,
-          stats: buildStats(observations, args.gameIds.length),
+          stats: buildStats(observations, sortedGameIds.length),
           observations,
         };
       }
@@ -132,15 +147,15 @@ export function runBacktest(args: RunBacktestArgs): BacktestResult {
       const startNs = process.hrtime.bigint();
       const window: DetectorWindow = {
         gameIds: sortedGameIds,
-        start: new Date(args.windowStart),
-        end: new Date(args.windowEnd),
+        start: new Date(windowStart),
+        end: new Date(windowEnd),
         ticks:
           dispatch.sources.includes("ticks") && sortedGameIds.length > 0
-            ? loadTicks(goldDb, sortedGameIds, args.windowStart, args.windowEnd, defaults)
+            ? loadTicks(goldDb, sortedGameIds, windowStart, windowEnd, defaults)
             : [],
         microstructureEvents:
           dispatch.sources.includes("microstructure") && sortedGameIds.length > 0
-            ? loadMicrostructure(goldDb, sortedGameIds, args.windowStart, args.windowEnd)
+            ? loadMicrostructure(goldDb, sortedGameIds, windowStart, windowEnd)
             : [],
       };
       const result: DetectorResult = dispatch.run(window);
@@ -154,15 +169,15 @@ export function runBacktest(args: RunBacktestArgs): BacktestResult {
         paramsJson,
         sourceDbPath: args.goldDbPath,
         watermarkHash,
-        windowStart: args.windowStart,
-        windowEnd: args.windowEnd,
+        windowStart,
+        windowEnd,
         computedAt: now.toISOString(),
         computeMs,
         observations,
       });
       return {
         runId,
-        stats: buildStats(observations, args.gameIds.length),
+        stats: buildStats(observations, sortedGameIds.length),
         observations,
       };
     } finally {
@@ -177,9 +192,11 @@ interface Dispatch {
   readonly detectorId: string;
   readonly detectorVersion: string;
   readonly params: unknown;
-  readonly sources: readonly ("ticks" | "microstructure")[];
+  readonly sources: readonly SourceKind[];
   readonly run: (window: DetectorWindow) => DetectorResult;
 }
+
+type SourceKind = "ticks" | "microstructure";
 
 function resolveDispatch(
   detectorId: string,
@@ -398,7 +415,7 @@ interface PersistArgs {
 
 function persistRun(cacheDb: Database.Database, args: PersistArgs): number {
   const insertRun = cacheDb.prepare(
-    `INSERT INTO detector_runs (
+    `INSERT OR IGNORE INTO detector_runs (
        detector_id, detector_version, params_hash, params_json,
        source_db_path, source_watermark_hash, scope, game_id,
        window_start, window_end, computed_at, compute_ms
@@ -423,6 +440,20 @@ function persistRun(cacheDb: Database.Database, args: PersistArgs): number {
       args.computedAt,
       args.computeMs,
     );
+    if (result.changes === 0) {
+      const existing = lookupRun(cacheDb, {
+        detectorId: args.detectorId,
+        detectorVersion: args.detectorVersion,
+        paramsHash: args.paramsHash,
+        watermarkHash: args.watermarkHash,
+        windowStart: args.windowStart,
+        windowEnd: args.windowEnd,
+      });
+      if (existing === null) {
+        throw new Error("detector run insert was ignored but no cache row was found");
+      }
+      return existing.runId;
+    }
     const runId = Number(result.lastInsertRowid);
     for (const obs of args.observations) {
       const detail = obs.lane === undefined ? null : JSON.stringify({ lane: obs.lane });
@@ -620,6 +651,8 @@ function loadMicrostructure(
               )), 0) AS off_price_distance
        FROM market_microstructure_events e
        WHERE e.game_id IN (${placeholders})
+         AND e.source = 'polymarket'
+         AND e.event_type = 'trade'
          AND e.event_timestamp >= ?
          AND e.event_timestamp <= ?
        ORDER BY e.game_id, e.event_timestamp`,
@@ -638,62 +671,147 @@ function loadMicrostructure(
   });
 }
 
-// Per-window watermark hash. Includes the sorted gameIds list and, per game,
-// the in-window counts + max ids/timestamps over quote_ticks and
-// market_microstructure_events. Restricting the watermark queries to the
-// requested window means data outside the window does not invalidate cache.
+// Per-window watermark hash. Includes only the upstream loader inputs that can
+// change the selected detector's result.
+//
+// - ticks: effective PBP-derived tick bounds, PBP bounds/buffers, and quote
+//   aggregates over that exact tick window.
+// - microstructure: Polymarket trade-print rows in the requested window, plus
+//   quote_ticks up to windowEnd because loadMicrostructure derives
+//   off_price_distance from the latest prior quote tick.
 function computeWindowWatermarkHash(
   goldDb: GoldDbHandle,
   sortedGameIds: readonly string[],
   windowStart: string,
   windowEnd: string,
+  sources: readonly SourceKind[],
+  defaults: DetectorDefaults,
 ): string {
+  const usesTicks = sources.includes("ticks");
+  const usesMicrostructure = sources.includes("microstructure");
   const perGame = sortedGameIds.map((gameId) => {
-    const qt = goldDb
-      .prepare(
-        `SELECT COUNT(*) AS cnt,
-                COALESCE(MAX(qt.id), 0) AS max_id,
-                COALESCE(MAX(qt.captured_at), '') AS max_captured_at
-         FROM quote_ticks qt
-         JOIN source_markets sm ON sm.id = qt.source_market_id
-         WHERE sm.game_id = ?
-           AND qt.captured_at >= ?
-           AND qt.captured_at <= ?`,
-      )
-      .get(gameId, windowStart, windowEnd);
-    const mme = goldDb
-      .prepare(
-        `SELECT COUNT(*) AS cnt,
-                COALESCE(MAX(id), 0) AS max_id,
-                COALESCE(MAX(event_timestamp), '') AS max_event_timestamp
-         FROM market_microstructure_events
-         WHERE game_id = ?
-           AND event_timestamp >= ?
-           AND event_timestamp <= ?`,
-      )
-      .get(gameId, windowStart, windowEnd);
+    const tickWindow = usesTicks
+      ? resolvePerGameInPlayWindow(
+          goldDb,
+          gameId,
+          windowStart,
+          windowEnd,
+          defaults.pbpPreBufferMs,
+          defaults.pbpPostBufferMs,
+        )
+      : null;
+    const qt =
+      !usesTicks || tickWindow === null
+        ? null
+        : goldDb
+            .prepare(
+              `SELECT COUNT(*) AS cnt,
+                      COALESCE(MAX(qt.id), 0) AS max_id,
+                      COALESCE(MAX(qt.captured_at), '') AS max_captured_at
+               FROM quote_ticks qt
+               JOIN source_markets sm ON sm.id = qt.source_market_id
+               WHERE sm.game_id = ?
+                 AND qt.captured_at >= ?
+                 AND qt.captured_at <= ?`,
+            )
+            .get(gameId, tickWindow.start, tickWindow.end);
+    const mme = usesMicrostructure
+      ? goldDb
+          .prepare(
+            `SELECT COUNT(*) AS cnt,
+                    COALESCE(MAX(id), 0) AS max_id,
+                    COALESCE(MAX(event_timestamp), '') AS max_event_timestamp
+             FROM market_microstructure_events
+             WHERE game_id = ?
+               AND source = 'polymarket'
+               AND event_type = 'trade'
+               AND event_timestamp >= ?
+               AND event_timestamp <= ?`,
+          )
+          .get(gameId, windowStart, windowEnd)
+      : null;
+    const microstructureQuoteTicks = usesMicrostructure
+      ? goldDb
+          .prepare(
+            `SELECT COUNT(*) AS cnt,
+                    COALESCE(MAX(qt.id), 0) AS max_id,
+                    COALESCE(MAX(qt.captured_at), '') AS max_captured_at
+             FROM quote_ticks qt
+             WHERE qt.captured_at <= ?
+               AND qt.source_market_id IN (
+                 SELECT DISTINCT source_market_id
+                 FROM market_microstructure_events
+                 WHERE game_id = ?
+                   AND source = 'polymarket'
+                   AND event_type = 'trade'
+                   AND event_timestamp >= ?
+                   AND event_timestamp <= ?
+               )`,
+          )
+          .get(windowEnd, gameId, windowStart, windowEnd)
+      : null;
+    const pbp = usesTicks ? readPbpBounds(goldDb, gameId) : null;
     return {
+      effective_tick_window: tickWindow,
       gameId,
-      market_microstructure_events: {
-        cnt: getNumber(mme, "cnt"),
-        max_event_timestamp: getString(mme, "max_event_timestamp"),
-        max_id: getNumber(mme, "max_id"),
-      },
-      quote_ticks: {
-        cnt: getNumber(qt, "cnt"),
-        max_captured_at: getString(qt, "max_captured_at"),
-        max_id: getNumber(qt, "max_id"),
-      },
+      market_microstructure_events: usesMicrostructure
+        ? {
+            cnt: getNumber(mme, "cnt"),
+            max_event_timestamp: getString(mme, "max_event_timestamp"),
+            max_id: getNumber(mme, "max_id"),
+          }
+        : null,
+      microstructure_quote_ticks: usesMicrostructure
+        ? {
+            cnt: getNumber(microstructureQuoteTicks, "cnt"),
+            max_captured_at: getString(microstructureQuoteTicks, "max_captured_at"),
+            max_id: getNumber(microstructureQuoteTicks, "max_id"),
+          }
+        : null,
+      nba_play_by_play_actions: pbp,
+      quote_ticks: usesTicks
+        ? {
+            cnt: getNumber(qt, "cnt"),
+            max_captured_at: getString(qt, "max_captured_at"),
+            max_id: getNumber(qt, "max_id"),
+          }
+        : null,
     };
   });
   return sha256Hex(
     canonicalJson({
       gameIds: sortedGameIds,
+      pbpPostBufferMs: usesTicks ? defaults.pbpPostBufferMs : null,
+      pbpPreBufferMs: usesTicks ? defaults.pbpPreBufferMs : null,
       perGame,
+      sources,
       windowEnd,
       windowStart,
     }),
   );
+}
+
+function readPbpBounds(
+  goldDb: GoldDbHandle,
+  gameId: string,
+): { readonly max_time_actual: string; readonly min_time_actual: string } {
+  let row: unknown;
+  try {
+    row = goldDb
+      .prepare(
+        `SELECT COALESCE(MIN(time_actual), '') AS min_time_actual,
+                COALESCE(MAX(time_actual), '') AS max_time_actual
+         FROM nba_play_by_play_actions
+         WHERE game_id = ?`,
+      )
+      .get(gameId);
+  } catch {
+    row = null;
+  }
+  return {
+    max_time_actual: getString(row, "max_time_actual"),
+    min_time_actual: getString(row, "min_time_actual"),
+  };
 }
 
 function sha256Hex(input: string): string {

@@ -106,10 +106,7 @@ function IntensityTimeline({ data, offPriceEvents }: IntensityTimelineProps): JS
   const fires = data.filter((d) => d.fired === 1);
   const offPriceMarkers = offPriceEvents
     .map((ev) => ({ snapped: snapEventToBucket(ev.eventTimestamp, data), ev }))
-    .filter(
-      (m): m is { snapped: string; ev: MicrostructureEvent } =>
-        m.snapped !== null,
-    );
+    .filter((m): m is { snapped: string; ev: MicrostructureEvent } => m.snapped !== null);
   return (
     // Fixed-height container so the layout doesn't shift between empty/loading
     // and the first resolved poll (US-031 AC #6: "renders without a layout-shift
@@ -285,7 +282,8 @@ export function LivePage({ gameId }: LivePageProps): JSX.Element {
             >
               {String(fires.length)}
             </span>{" "}
-            board · <span data-testid="live-offprice-count" className="text-negative">
+            board ·{" "}
+            <span data-testid="live-offprice-count" className="text-negative">
               {String(offPriceEvents.length)}
             </span>{" "}
             off-price · {String(observations.length)} bucket
@@ -320,17 +318,11 @@ export function LivePage({ gameId }: LivePageProps): JSX.Element {
           data-testid="live-legend"
         >
           <span className="flex items-center gap-2">
-            <span
-              aria-hidden
-              className="inline-block h-[1.5px] w-5 bg-accent-green"
-            />
+            <span aria-hidden className="inline-block h-[1.5px] w-5 bg-accent-green" />
             $wt intensity
           </span>
           <span className="flex items-center gap-2">
-            <span
-              aria-hidden
-              className="inline-block h-2 w-2 rounded-full bg-accent-yellow"
-            />
+            <span aria-hidden className="inline-block h-2 w-2 rounded-full bg-accent-yellow" />
             board-mad fire
           </span>
           <span className="flex items-center gap-2">

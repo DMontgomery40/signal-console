@@ -1,8 +1,4 @@
-import type {
-  BoardObservation,
-  MarketAnomalyAlert,
-  MarketFamily,
-} from "@signal-console/domain";
+import type { BoardObservation, MarketAnomalyAlert, MarketFamily } from "@signal-console/domain";
 
 import { scoreToSeverity } from "./board-anomaly/config";
 import { titleCase } from "./board-anomaly-fanout-support";
@@ -47,7 +43,7 @@ type HistoricalParticipantFanout = {
 
 function participantFanoutShockKind(
   anchorAt: string,
-  pbp: PlayByPlayContext
+  pbp: PlayByPlayContext,
 ): FinishedGameIncident["shockKind"] {
   const timing = classifyPlayByPlayAnchorTiming(anchorAt, pbp);
   if (timing === "near-tip") return "near-tip-availability";
@@ -56,7 +52,7 @@ function participantFanoutShockKind(
 }
 
 function historicalObservationKind(
-  observation: BoardObservation
+  observation: BoardObservation,
 ): HistoricalParticipantReactionRow["observationKind"] {
   return observation.tradePrice != null ||
     observation.tradeSize != null ||
@@ -97,7 +93,7 @@ function isHistoricalParticipantObservation(observation: BoardObservation) {
 function observationToHistoricalReactionRow(
   observation: BoardObservation,
   gameId: string,
-  gameLabel: string
+  gameLabel: string,
 ): HistoricalParticipantReactionRow | null {
   if (!observation.participantKey || !observation.sourceMarketId) {
     return null;
@@ -136,31 +132,22 @@ export function listHistoricalParticipantReactionRowsFromObservations(input: {
   const reactionRows: HistoricalParticipantReactionRow[] = [];
   for (const observation of input.observations) {
     if (!isHistoricalParticipantObservation(observation)) continue;
-    if (
-      input.participantKey != null &&
-      observation.participantKey !== input.participantKey
-    ) {
+    if (input.participantKey != null && observation.participantKey !== input.participantKey) {
       continue;
     }
-    const row = observationToHistoricalReactionRow(
-      observation,
-      input.gameId,
-      input.gameLabel
-    );
+    const row = observationToHistoricalReactionRow(observation, input.gameId, input.gameLabel);
     if (!row || !Number.isFinite(Date.parse(row.eventTimestamp))) continue;
     reactionRows.push(row);
   }
 
-  reactionRows.sort(
-    (a, b) => Date.parse(a.eventTimestamp) - Date.parse(b.eventTimestamp)
-  );
+  reactionRows.sort((a, b) => Date.parse(a.eventTimestamp) - Date.parse(b.eventTimestamp));
   return reactionRows;
 }
 
 export function listHistoricalParticipantReactionRows(
   db: ReturnType<typeof getDatabase>,
   date: string,
-  gameId?: string
+  gameId?: string,
 ) {
   const gameIds = db
     .prepare(
@@ -179,16 +166,11 @@ export function listHistoricalParticipantReactionRows(
            AND (? IS NULL OR mme.game_id = ?)
            AND mme.source IN ('kalshi', 'polymarket')
        )
-       ORDER BY game_id ASC`
+       ORDER BY game_id ASC`,
     )
-    .all(
-      date,
-      gameId ?? null,
-      gameId ?? null,
-      date,
-      gameId ?? null,
-      gameId ?? null
-    ) as Array<{ gameId: string }>;
+    .all(date, gameId ?? null, gameId ?? null, date, gameId ?? null, gameId ?? null) as Array<{
+    gameId: string;
+  }>;
 
   const windowStart = `${date}T00:00:00.000Z`;
   const windowEnd = `${date}T23:59:59.999Z`;
@@ -206,20 +188,18 @@ export function listHistoricalParticipantReactionRows(
         gameId,
         gameLabel: materialized.gameLabel,
         observations: materialized.observations,
-      })
+      }),
     );
   }
 
-  reactionRows.sort(
-    (a, b) => Date.parse(a.eventTimestamp) - Date.parse(b.eventTimestamp)
-  );
+  reactionRows.sort((a, b) => Date.parse(a.eventTimestamp) - Date.parse(b.eventTimestamp));
   return reactionRows;
 }
 
 export function buildHistoricalParticipantFanouts(
   rows: ReturnType<typeof listHistoricalParticipantReactionRows>,
   windowSeconds = 1800,
-  minStatFamilies = 2
+  minStatFamilies = 2,
 ) {
   const byGame = new Map<string, HistoricalParticipantReactionRow[]>();
   for (const row of rows) {
@@ -230,9 +210,7 @@ export function buildHistoricalParticipantFanouts(
 
   const fanouts: HistoricalParticipantFanout[] = [];
   for (const [gameId, list] of byGame.entries()) {
-    list.sort(
-      (a, b) => Date.parse(a.eventTimestamp) - Date.parse(b.eventTimestamp)
-    );
+    list.sort((a, b) => Date.parse(a.eventTimestamp) - Date.parse(b.eventTimestamp));
     const used = new Set<string>();
     for (let i = 0; i < list.length; i += 1) {
       const anchor = list[i];
@@ -251,10 +229,7 @@ export function buildHistoricalParticipantFanouts(
         if (candidate.participantKey !== anchor.participantKey) continue;
         cluster.push(candidate);
         families.add(candidate.family);
-        peakSignalStrength = Math.max(
-          peakSignalStrength,
-          candidate.signalStrength
-        );
+        peakSignalStrength = Math.max(peakSignalStrength, candidate.signalStrength);
         if (candidate.observationKind === "trade") {
           tradeCount += 1;
         }
@@ -263,10 +238,7 @@ export function buildHistoricalParticipantFanouts(
       const totalNotional = cluster.reduce((sum, row) => sum + row.notional, 0);
       if (
         families.size < minStatFamilies ||
-        (peakShare < 0.03 &&
-          peakSignalStrength < 0.45 &&
-          totalNotional < 20 &&
-          tradeCount === 0)
+        (peakShare < 0.03 && peakSignalStrength < 0.45 && totalNotional < 20 && tradeCount === 0)
       ) {
         continue;
       }
@@ -290,22 +262,14 @@ export function buildHistoricalParticipantFanouts(
 
 export function historicalParticipantFanoutToBoardCard(
   fanout: ReturnType<typeof buildHistoricalParticipantFanouts>[number],
-  pbp: PlayByPlayContext
+  pbp: PlayByPlayContext,
 ): FinishedGameIncident {
   const peakShare = Math.max(...fanout.members.map((row) => row.volumeShare));
-  const peakSignalStrength = Math.max(
-    ...fanout.members.map((row) => row.signalStrength)
-  );
-  const totalNotional = fanout.members.reduce(
-    (sum, row) => sum + row.notional,
-    0
-  );
-  const tradeCount = fanout.members.filter(
-    (row) => row.observationKind === "trade"
-  ).length;
+  const peakSignalStrength = Math.max(...fanout.members.map((row) => row.signalStrength));
+  const totalNotional = fanout.members.reduce((sum, row) => sum + row.notional, 0);
+  const tradeCount = fanout.members.filter((row) => row.observationKind === "trade").length;
   const familyParts = Array.from(fanout.families).sort().join(", ");
-  const durationMs =
-    Date.parse(fanout.windowEndIso) - Date.parse(fanout.windowStartIso);
+  const durationMs = Date.parse(fanout.windowEndIso) - Date.parse(fanout.windowStartIso);
   const durationText =
     durationMs < 60_000
       ? `${Math.max(1, Math.round(durationMs / 1000))}s`
@@ -317,8 +281,8 @@ export function historicalParticipantFanoutToBoardCard(
         peakShare * 50 +
         fanout.families.size * 18 +
         Math.min(18, totalNotional / 40) +
-        Math.min(10, tradeCount * 2)
-    )
+        Math.min(10, tradeCount * 2),
+    ),
   );
   const confidence = Math.min(
     0.97,
@@ -326,7 +290,7 @@ export function historicalParticipantFanoutToBoardCard(
       peakSignalStrength * 0.25 +
       peakShare * 0.2 +
       fanout.families.size * 0.05 +
-      Math.min(0.07, tradeCount * 0.015)
+      Math.min(0.07, tradeCount * 0.015),
   );
   const shockKind = participantFanoutShockKind(fanout.windowStartIso, pbp);
   const evidence = fanout.members
@@ -335,17 +299,14 @@ export function historicalParticipantFanoutToBoardCard(
       (a, b) =>
         b.signalStrength - a.signalStrength ||
         b.volumeShare - a.volumeShare ||
-        b.notional - a.notional
+        b.notional - a.notional,
     )
     .slice(0, 8)
     .map((member) => ({
       observationId: `historic-participant:${member.sourceMarketId}:${member.eventTimestamp}`,
       source: member.source,
       sourceKind: sourceKindFor(member.source),
-      family:
-        member.family === "other"
-          ? null
-          : (member.family as MarketFamily | null),
+      family: member.family === "other" ? null : (member.family as MarketFamily | null),
       participantKey: fanout.participantKey,
       displayLabel: member.displayLabel,
       contribution: Number(Math.min(1, member.signalStrength).toFixed(3)),

@@ -4,12 +4,7 @@ import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import {
-  getDatabase,
-  listAdapterRuns,
-  resetDatabase,
-  upsertGame,
-} from "@signal-console/shared";
+import { getDatabase, listAdapterRuns, resetDatabase, upsertGame } from "@signal-console/shared";
 
 import { syncKalshiNbaDirect } from "../kalshi-direct";
 
@@ -185,7 +180,7 @@ describe("kalshi direct adapter", () => {
           JOIN source_markets sm ON sm.instrument_id = mi.id
           JOIN quote_ticks qt ON qt.source_market_id = sm.id
           ORDER BY mi.family ASC, mi.display_label ASC
-        `
+        `,
       )
       .all() as Array<{
       displayLabel: string;
@@ -218,7 +213,7 @@ describe("kalshi direct adapter", () => {
           selection: "over",
           volume: 22,
         }),
-      ])
+      ]),
     );
     expect(rows[0]?.impliedProbability).toBeGreaterThan(0);
 
@@ -234,7 +229,7 @@ describe("kalshi direct adapter", () => {
           source: "kalshi",
           status: "ok",
         }),
-      ])
+      ]),
     );
   });
 
@@ -261,7 +256,7 @@ describe("kalshi direct adapter", () => {
           source: "kalshi",
           status: "ok",
         }),
-      ])
+      ]),
     );
   });
 
@@ -284,7 +279,7 @@ describe("kalshi direct adapter", () => {
           FROM source_markets sm
           JOIN quote_ticks qt ON qt.source_market_id = sm.id
           WHERE sm.source_market_key = 'KXNBAREB-26MAY03ORLDET-DETJDUREN0-12'
-        `
+        `,
       )
       .get() as
       | {

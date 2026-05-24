@@ -4,11 +4,9 @@
 // response shape, so every hook's return type is z.infer<typeof schema> with
 // zero `any` and zero `as`.
 //
-// Routes that don't exist on the server yet (live, microstructure, detectors —
-// US-028/029/030) have their response shapes declared here in advance from
-// PRD §15. Those Zod schemas are the de facto contract: when the routes land,
-// their server-side response schema must match, or the parse here will fail
-// loudly at runtime.
+// Zod schemas mirror the shipped API response shapes and are the data boundary
+// for the UI. When server-side response schemas change, these client contracts
+// must move with them or React Query will fail loudly at runtime.
 
 import {
   useMutation,
@@ -30,11 +28,11 @@ const SIGNAL_TOKEN: string =
     ? import.meta.env.VITE_SIGNAL_TOKEN
     : "dev";
 
-async function fetchJson<T>(
+async function fetchJson<TOutput>(
   path: string,
-  schema: z.ZodType<T>,
+  schema: z.ZodType<TOutput, z.ZodTypeDef, unknown>,
   signal?: AbortSignal,
-): Promise<T> {
+): Promise<TOutput> {
   const init: RequestInit = {
     headers: { "X-Signal-Token": SIGNAL_TOKEN },
     ...(signal !== undefined ? { signal } : {}),
@@ -122,16 +120,21 @@ const fanoutMicroEventSchema = z.object({
   offPriceDistance: z.number().nullable(),
   deltaSecondsFromAlert: z.number(),
 });
-const fanoutSchema = z.object({
-  bucketStart: z.string(),
-  bucketEnd: z.string(),
-  pbp: z.array(fanoutPbpEventSchema),
-  movers: z.array(fanoutMoverSchema),
-  // Optional + default [] for back-compat: older API responses didn't
-  // include the Polymarket trade-print strip yet.
-  microstructureEvents: z.array(fanoutMicroEventSchema).optional().default([]),
-  narrative: z.string(),
-});
+const fanoutSchema = z
+  .object({
+    bucketStart: z.string(),
+    bucketEnd: z.string(),
+    pbp: z.array(fanoutPbpEventSchema),
+    movers: z.array(fanoutMoverSchema),
+    // Optional input for back-compat: older API responses didn't include the
+    // Polymarket trade-print strip yet.
+    microstructureEvents: z.array(fanoutMicroEventSchema).optional(),
+    narrative: z.string(),
+  })
+  .transform(({ microstructureEvents, ...fanout }) => ({
+    ...fanout,
+    microstructureEvents: microstructureEvents ?? [],
+  }));
 
 // /v1/live/:gameId — PRD §15: last 5 min of quote_ticks joined to
 // source_markets for instrument metadata. Schema matches the shipped route
@@ -155,17 +158,29 @@ const liveSchema = z.object({
   ticks: z.array(quoteTickSchema),
 });
 
-// /v1/microstructure/:gameId — PRD §15: market_microstructure_events filtered
-// by volume_share >= θ (default 0.10). Route TBD (US-029).
+// /v1/microstructure/:gameId — mirrors apps/api/src/routes/microstructure.ts.
 const microstructureEventSchema = z.object({
-  id: z.string(),
-  gameId: z.string(),
+  id: z.number().int(),
+  source: z.string(),
   sourceMarketId: z.string(),
+  gameId: z.string(),
+  instrumentId: z.string().nullable(),
+  eventType: z.string(),
+  apiSurface: z.string(),
   eventTimestamp: z.string(),
-  price: z.number(),
-  size: z.number(),
-  volumeShare: z.number(),
-  offPriceDistance: z.number().nullable(),
+  capturedAt: z.string(),
+  price: z.number().nullable(),
+  previousPrice: z.number().nullable(),
+  tradePrice: z.number().nullable(),
+  size: z.number().nullable(),
+  notional: z.number().nullable(),
+  volume: z.number().nullable(),
+  finalMarketVolume: z.number().nullable(),
+  volumeShare: z.number().nullable(),
+  bestBid: z.number().nullable(),
+  bestAsk: z.number().nullable(),
+  spread: z.number().nullable(),
+  depthScore: z.number().nullable(),
 });
 const microstructureSchema = z.object({
   gameId: z.string(),

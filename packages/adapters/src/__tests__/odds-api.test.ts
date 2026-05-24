@@ -229,8 +229,7 @@ function makeOddsApiFetch(bookmaker: "Bet365" | "Kalshi") {
 
     if (pathname.endsWith("/odds/multi") && requestedBookmaker === bookmaker) {
       return {
-        json: async () =>
-          bookmaker === "Bet365" ? bet365OddsPayload : kalshiOddsPayload,
+        json: async () => (bookmaker === "Bet365" ? bet365OddsPayload : kalshiOddsPayload),
         ok: true,
         status: 200,
       };
@@ -261,8 +260,7 @@ function makeStrictOddsApiFetch(bookmaker: "Bet365" | "Kalshi") {
 
     if (pathname === "/v3/odds/multi" && requestedBookmaker === bookmaker) {
       return {
-        json: async () =>
-          bookmaker === "Bet365" ? bet365OddsPayload : kalshiOddsPayload,
+        json: async () => (bookmaker === "Bet365" ? bet365OddsPayload : kalshiOddsPayload),
         ok: true,
         status: 200,
       };
@@ -302,16 +300,8 @@ describe("odds-api adapter", () => {
       sport: "basketball",
     });
 
-    const bet365Records = buildOddsApiSelectionRecords(
-      "Bet365",
-      bet365OddsPayload[0],
-      games[0]
-    );
-    const kalshiRecords = buildOddsApiSelectionRecords(
-      "Kalshi",
-      kalshiOddsPayload[0],
-      games[0]
-    );
+    const bet365Records = buildOddsApiSelectionRecords("Bet365", bet365OddsPayload[0], games[0]);
+    const kalshiRecords = buildOddsApiSelectionRecords("Kalshi", kalshiOddsPayload[0], games[0]);
 
     expect(bet365Records).toEqual(
       expect.arrayContaining([
@@ -354,7 +344,7 @@ describe("odds-api adapter", () => {
           selection: "yes",
           source: "bet365",
         }),
-      ])
+      ]),
     );
 
     expect(kalshiRecords).toEqual(
@@ -374,7 +364,7 @@ describe("odds-api adapter", () => {
           source: "kalshi",
           volume: 730,
         }),
-      ])
+      ]),
     );
   });
 
@@ -423,12 +413,12 @@ describe("odds-api adapter", () => {
             family: "player-prop",
           }),
         }),
-      ])
+      ]),
     );
 
     const comparison = getInstrumentComparison(
       "nba-0042500173",
-      "nba-0042500173-moneyline-rockets-moneyline"
+      "nba-0042500173-moneyline-rockets-moneyline",
     );
     expect(comparison).toMatchObject({
       latestQuotesBySource: expect.arrayContaining([
@@ -460,7 +450,7 @@ describe("odds-api adapter", () => {
           source: "kalshi",
           status: "ok",
         }),
-      ])
+      ]),
     );
   });
 
@@ -538,7 +528,7 @@ describe("odds-api adapter", () => {
 
     const comparison = getInstrumentComparison(
       "nba-0042500173",
-      "nba-0042500173-spreads-rockets-6-5"
+      "nba-0042500173-spreads-rockets-6-5",
     );
 
     expect(comparison?.latestQuotesBySource).toEqual([
@@ -564,7 +554,7 @@ describe("odds-api adapter", () => {
             source: "bet365",
           }),
         }),
-      ])
+      ]),
     );
   });
 
@@ -690,9 +680,7 @@ describe("odds-api adapter", () => {
       }
 
       if (pathname.endsWith("/odds/multi") && requestedBookmaker === "Bet365") {
-        requestedEventIds = (url.searchParams.get("eventIds") ?? "")
-          .split(",")
-          .filter(Boolean);
+        requestedEventIds = (url.searchParams.get("eventIds") ?? "").split(",").filter(Boolean);
 
         return {
           json: async () =>
@@ -785,7 +773,7 @@ describe("odds-api adapter", () => {
             displayLabel: "Rockets moneyline",
           }),
         }),
-      ])
+      ]),
     );
     expect(listGameMarkets("nba-0042500174")).toEqual(
       expect.arrayContaining([
@@ -794,7 +782,7 @@ describe("odds-api adapter", () => {
             displayLabel: "Mavericks moneyline",
           }),
         }),
-      ])
+      ]),
     );
     expect(listGameMarkets("nba-0042500175")).toHaveLength(0);
   });

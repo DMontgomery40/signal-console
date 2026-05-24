@@ -106,15 +106,12 @@ describe("parseBet365HtmlSnapshot", () => {
   });
 
   it("returns no offerings when markers are absent rather than guessing", () => {
-    const offerings = parseBet365HtmlSnapshot(
-      "<html><body>no structured odds here</body></html>",
-      {
-        awayParticipantKey: "lal",
-        awayTeamShort: "Lakers",
-        homeParticipantKey: "hou",
-        homeTeamShort: "Rockets",
-      }
-    );
+    const offerings = parseBet365HtmlSnapshot("<html><body>no structured odds here</body></html>", {
+      awayParticipantKey: "lal",
+      awayTeamShort: "Lakers",
+      homeParticipantKey: "hou",
+      homeTeamShort: "Rockets",
+    });
     expect(offerings).toEqual([]);
   });
 });
@@ -164,7 +161,7 @@ describe("captureBet365Snapshot + persistBet365Snapshot", () => {
           JOIN source_markets sm ON sm.id = q.source_market_id
           WHERE sm.source = 'bet365'
           ORDER BY sm.source_selection_key
-        `
+        `,
       )
       .all() as Array<{ instrumentId: string; selection: string; p: number }>;
     expect(rows).toHaveLength(2);
@@ -177,16 +174,14 @@ describe("captureBet365Snapshot + persistBet365Snapshot", () => {
     // Just import the openBet365Browser to check the guard — no actual browser launch
     const { openBet365Browser } = await import("../bet365-direct");
     const fake = join(tempDir, "missing-storage.json");
-    await expect(openBet365Browser({ storageStatePath: fake })).rejects.toThrow(
-      /does not exist/
-    );
+    await expect(openBet365Browser({ storageStatePath: fake })).rejects.toThrow(/does not exist/);
   });
 
   it("reports missing BET365_SESSION_STATE_PATH", async () => {
     const { openBet365Browser } = await import("../bet365-direct");
     delete process.env.BET365_SESSION_STATE_PATH;
     await expect(openBet365Browser()).rejects.toThrow(
-      /BET365_SESSION_STATE_PATH is not configured/
+      /BET365_SESSION_STATE_PATH is not configured/,
     );
   });
 });

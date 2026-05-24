@@ -2,16 +2,14 @@ import type { ResearchSourceId } from "@signal-console/domain";
 
 const NUMERIC_LABEL_TOKEN_RE = /^\d+(\.\d+)?$/;
 
-export function parseTimestampMs(
-  value: string | null | undefined
-): number | null {
+export function parseTimestampMs(value: string | null | undefined): number | null {
   if (!value) return null;
   const ms = Date.parse(value);
   return Number.isFinite(ms) ? ms : null;
 }
 
 export function sourceKindFor(
-  source: ResearchSourceId | string
+  source: ResearchSourceId | string,
 ): "sportsbook" | "prediction-market" {
   if (source === "kalshi" || source === "polymarket") {
     return "prediction-market";
@@ -34,7 +32,5 @@ export function tokenizeBoardText(value: string | null | undefined): string[] {
   return normalized
     .replace(/[^\p{L}0-9. ]+/gu, " ")
     .split(/\s+/)
-    .filter(
-      (token) => token.length >= 3 && !NUMERIC_LABEL_TOKEN_RE.test(token)
-    );
+    .filter((token) => token.length >= 3 && !NUMERIC_LABEL_TOKEN_RE.test(token));
 }

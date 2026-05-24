@@ -180,7 +180,7 @@ describe("polymarket trade adapter", () => {
            final_market_volume AS finalMarketVolume,
            volume_share AS volumeShare,
            raw_metadata_json AS rawMetadataJson
-         FROM market_microstructure_events`
+         FROM market_microstructure_events`,
       )
       .get() as Record<string, unknown>;
 
@@ -204,7 +204,7 @@ describe("polymarket trade adapter", () => {
       .prepare(
         `SELECT raw_metadata_json AS rawMetadataJson
          FROM source_markets
-         WHERE id = 'pm-2277370-over'`
+         WHERE id = 'pm-2277370-over'`,
       )
       .get() as Record<string, unknown>;
     expect(JSON.parse(String(sourceMarket.rawMetadataJson))).toMatchObject({
@@ -278,16 +278,14 @@ describe("polymarket trade adapter", () => {
     expect(first.tradesWritten).toBe(1);
     expect(second.tradesWritten).toBe(0);
     expect(
-      getDatabase()
-        .prepare("SELECT COUNT(*) AS count FROM market_microstructure_events")
-        .get()
+      getDatabase().prepare("SELECT COUNT(*) AS count FROM market_microstructure_events").get(),
     ).toEqual({ count: 1 });
     expect(
       getDatabase()
         .prepare(
-          "SELECT COUNT(*) AS count FROM raw_payloads WHERE entity_type = 'polymarket-data-api-trade'"
+          "SELECT COUNT(*) AS count FROM raw_payloads WHERE entity_type = 'polymarket-data-api-trade'",
         )
-        .get()
+        .get(),
     ).toEqual({ count: 1 });
   });
 
@@ -350,10 +348,8 @@ describe("polymarket trade adapter", () => {
     expect(result.tradesWritten).toBe(1);
     expect(
       getDatabase()
-        .prepare(
-          "SELECT source_market_id AS sourceMarketId FROM market_microstructure_events"
-        )
-        .get()
+        .prepare("SELECT source_market_id AS sourceMarketId FROM market_microstructure_events")
+        .get(),
     ).toEqual({ sourceMarketId: "pm-2277370-under" });
   });
 });

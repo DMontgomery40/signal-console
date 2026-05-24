@@ -22,7 +22,7 @@ export type ListBoardAnomaliesAcrossGamesInput = {
 };
 
 export function listBoardAnomaliesAcrossGames(
-  input: ListBoardAnomaliesAcrossGamesInput
+  input: ListBoardAnomaliesAcrossGamesInput,
 ): BoardAnomalyAlert[] {
   return executeDatabaseOperation(
     "board-anomaly.listAcrossGames",
@@ -37,7 +37,7 @@ export function listBoardAnomaliesAcrossGames(
         const alertLimit = Math.max(1, Math.min(50, input.limit ?? 10));
         const candidateGameLimit = Math.max(
           1,
-          Math.min(25, input.candidateGameLimit ?? alertLimit * 4)
+          Math.min(25, input.candidateGameLimit ?? alertLimit * 4),
         );
         gameIds = db
           .prepare(
@@ -62,7 +62,7 @@ export function listBoardAnomaliesAcrossGames(
              )
              GROUP BY id
              ORDER BY MAX(latestAt) DESC
-             LIMIT ?`
+             LIMIT ?`,
           )
           .all(sinceIso, sinceIso, candidateGameLimit)
           .map((row) => (row as { id: string }).id);
@@ -81,12 +81,12 @@ export function listBoardAnomaliesAcrossGames(
       const limit = Math.max(1, Math.min(50, input.limit ?? 10));
       return alerts.slice(0, limit);
     },
-    input
+    input,
   );
 }
 
 export function listGameStateVolatilityAcrossGames(
-  input: ListBoardAnomaliesAcrossGamesInput
+  input: ListBoardAnomaliesAcrossGamesInput,
 ): BoardGameStateVolatility[] {
   return executeDatabaseOperation(
     "board-anomaly.listGameStateVolatility",
@@ -101,7 +101,7 @@ export function listGameStateVolatilityAcrossGames(
         const alertLimit = Math.max(1, Math.min(50, input.limit ?? 10));
         const candidateGameLimit = Math.max(
           1,
-          Math.min(25, input.candidateGameLimit ?? alertLimit * 4)
+          Math.min(25, input.candidateGameLimit ?? alertLimit * 4),
         );
         gameIds = db
           .prepare(
@@ -128,7 +128,7 @@ export function listGameStateVolatilityAcrossGames(
              )
              GROUP BY id
              ORDER BY MAX(latestAt) DESC
-             LIMIT ?`
+             LIMIT ?`,
           )
           .all(sinceIso, sinceIso, candidateGameLimit)
           .map((row) => (row as { id: string }).id);
@@ -141,12 +141,11 @@ export function listGameStateVolatilityAcrossGames(
             now: input.now,
             contextWindowMinutes: input.contextWindowMinutes,
             config: input.config,
-          })
+          }),
         )
         .filter((row): row is BoardGameStateVolatility => row != null)
         .sort((left, right) => {
-          const readyDelta =
-            Number(right.sample.ready) - Number(left.sample.ready);
+          const readyDelta = Number(right.sample.ready) - Number(left.sample.ready);
           if (readyDelta !== 0) return readyDelta;
           const stateRank = (row: BoardGameStateVolatility) => {
             switch (row.state) {
@@ -166,13 +165,11 @@ export function listGameStateVolatilityAcrossGames(
           const stateDelta = stateRank(right) - stateRank(left);
           if (stateDelta !== 0) return stateDelta;
           if (right.score !== left.score) return right.score - left.score;
-          return (
-            right.sample.predictionMarketRows - left.sample.predictionMarketRows
-          );
+          return right.sample.predictionMarketRows - left.sample.predictionMarketRows;
         });
       const limit = Math.max(1, Math.min(50, input.limit ?? 10));
       return rows.slice(0, limit);
     },
-    input
+    input,
   );
 }

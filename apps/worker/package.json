@@ -10,11 +10,15 @@
     "build": "tsup src/index.ts --format esm --out-dir dist",
     "lint": "eslint src --ext .ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run --passWithNoTests --config ../../vitest.config.ts"
+    "test": "vitest run --passWithNoTests",
+    "verify": "vitest run --passWithNoTests"
   },
   "dependencies": {
     "@signal-console/adapters": "workspace:*",
     "@signal-console/domain": "workspace:*",
     "@signal-console/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "^3.2.0"
   }
 }

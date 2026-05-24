@@ -12,12 +12,7 @@ export type PlayByPlayContext = {
 
 export const NEARBY_PLAY_BY_PLAY_WINDOW_SECONDS = 30 * 60;
 
-export type PlayByPlayAnchorTiming =
-  | "pregame"
-  | "near-tip"
-  | "in-game"
-  | "postgame"
-  | "unknown";
+export type PlayByPlayAnchorTiming = "pregame" | "near-tip" | "in-game" | "postgame" | "unknown";
 
 export type PlayByPlayAnchor = {
   actionNumber: number;
@@ -32,7 +27,7 @@ export type PlayByPlayAnchor = {
 
 function rowToAnchor(
   row: Record<string, unknown> | undefined,
-  referenceMs: number | null
+  referenceMs: number | null,
 ): PlayByPlayAnchor | null {
   if (!row) return null;
   const actionNumber = Number(row.actionNumber);
@@ -54,10 +49,7 @@ function rowToAnchor(
   };
 }
 
-function pruneDistantAnchor(
-  anchor: PlayByPlayAnchor | null,
-  maxDistanceSeconds: number
-) {
+function pruneDistantAnchor(anchor: PlayByPlayAnchor | null, maxDistanceSeconds: number) {
   if (!anchor) return null;
   if (anchor.offsetSeconds == null) return null;
   return Math.abs(anchor.offsetSeconds) <= maxDistanceSeconds ? anchor : null;
@@ -67,12 +59,8 @@ export function classifyPlayByPlayAnchorTiming(
   referenceIso: string,
   pbp: Pick<
     PlayByPlayContext,
-    | "available"
-    | "firstActionAt"
-    | "lastActionAt"
-    | "nearestBefore"
-    | "nearestAfter"
-  >
+    "available" | "firstActionAt" | "lastActionAt" | "nearestBefore" | "nearestAfter"
+  >,
 ): PlayByPlayAnchorTiming {
   const referenceMs = Date.parse(referenceIso);
   if (!pbp.available || !Number.isFinite(referenceMs)) {
@@ -80,8 +68,7 @@ export function classifyPlayByPlayAnchorTiming(
   }
   const firstActionMs = Date.parse(pbp.firstActionAt ?? "");
   if (Number.isFinite(firstActionMs) && referenceMs < firstActionMs) {
-    return firstActionMs - referenceMs <=
-      NEARBY_PLAY_BY_PLAY_WINDOW_SECONDS * 1000
+    return firstActionMs - referenceMs <= NEARBY_PLAY_BY_PLAY_WINDOW_SECONDS * 1000
       ? "near-tip"
       : "pregame";
   }
@@ -89,27 +76,19 @@ export function classifyPlayByPlayAnchorTiming(
   if (Number.isFinite(lastActionMs) && referenceMs > lastActionMs) {
     return "postgame";
   }
-  if (
-    pbp.nearestBefore?.timeActual != null ||
-    pbp.nearestAfter?.timeActual != null
-  ) {
+  if (pbp.nearestBefore?.timeActual != null || pbp.nearestAfter?.timeActual != null) {
     return "in-game";
   }
   return "unknown";
 }
 
-export function getPlayByPlayContext(
-  gameId: string,
-  referenceIso: string
-): PlayByPlayContext {
+export function getPlayByPlayContext(gameId: string, referenceIso: string): PlayByPlayContext {
   return executeDatabaseOperation(
     "board-anomaly.getPlayByPlayContext",
     () => {
       const db = getDatabase();
       const totalRow = db
-        .prepare(
-          `SELECT COUNT(*) AS total FROM nba_play_by_play_actions WHERE game_id = ?`
-        )
+        .prepare(`SELECT COUNT(*) AS total FROM nba_play_by_play_actions WHERE game_id = ?`)
         .get(gameId) as { total: number } | undefined;
       const total = totalRow?.total ?? 0;
       if (total === 0) {
@@ -130,7 +109,7 @@ export function getPlayByPlayContext(
            WHERE game_id = ?
              AND time_actual IS NOT NULL
            ORDER BY datetime(time_actual) ASC, action_number ASC
-           LIMIT 1`
+           LIMIT 1`,
         )
         .get(gameId) as { timeActual: string | null } | undefined;
       const lastActionRow = db
@@ -140,7 +119,7 @@ export function getPlayByPlayContext(
            WHERE game_id = ?
              AND time_actual IS NOT NULL
            ORDER BY datetime(time_actual) DESC, action_number DESC
-           LIMIT 1`
+           LIMIT 1`,
         )
         .get(gameId) as { timeActual: string | null } | undefined;
       const before = db
@@ -158,7 +137,7 @@ export function getPlayByPlayContext(
              AND time_actual IS NOT NULL
              AND datetime(time_actual) <= datetime(?)
            ORDER BY datetime(time_actual) DESC, action_number DESC
-           LIMIT 1`
+           LIMIT 1`,
         )
         .get(gameId, referenceIso) as Record<string, unknown> | undefined;
       const after = db
@@ -176,16 +155,16 @@ export function getPlayByPlayContext(
              AND time_actual IS NOT NULL
              AND datetime(time_actual) > datetime(?)
            ORDER BY datetime(time_actual) ASC, action_number ASC
-           LIMIT 1`
+           LIMIT 1`,
         )
         .get(gameId, referenceIso) as Record<string, unknown> | undefined;
       const nearestBefore = pruneDistantAnchor(
         rowToAnchor(before, referenceMs),
-        NEARBY_PLAY_BY_PLAY_WINDOW_SECONDS
+        NEARBY_PLAY_BY_PLAY_WINDOW_SECONDS,
       );
       const nearestAfter = pruneDistantAnchor(
         rowToAnchor(after, referenceMs),
-        NEARBY_PLAY_BY_PLAY_WINDOW_SECONDS
+        NEARBY_PLAY_BY_PLAY_WINDOW_SECONDS,
       );
       return {
         available: true,
@@ -196,6 +175,6 @@ export function getPlayByPlayContext(
         nearestAfter,
       };
     },
-    { gameId, referenceIso }
+    { gameId, referenceIso },
   );
 }

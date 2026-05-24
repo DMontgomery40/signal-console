@@ -299,6 +299,23 @@ describe("microstructure route (US-029)", () => {
     expect(res.statusCode).toBe(400);
   });
 
+  it("rejects blank theta query values instead of coercing them to zero", async () => {
+    seedGoldDb(ctx.goldDbPath, []);
+    const app = await startApp();
+
+    for (const url of [
+      "/v1/microstructure/nba-empty-theta?theta=",
+      "/v1/microstructure/nba-empty-theta?theta=%20%20",
+    ]) {
+      const res = await app.inject({
+        method: "GET",
+        url,
+        headers: authHeaders(),
+      });
+      expect(res.statusCode).toBe(400);
+    }
+  });
+
   it("is tagged 'desk-stable' in /openapi.json", async () => {
     seedGoldDb(ctx.goldDbPath, []);
     const app = await startApp();

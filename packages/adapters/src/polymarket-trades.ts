@@ -144,19 +144,17 @@ function hydrateSourceMarketsWithGammaMetadata(options: {
   const read = db.prepare(
     `SELECT raw_metadata_json AS rawMetadataJson
      FROM source_markets
-     WHERE id = ?`
+     WHERE id = ?`,
   );
   const update = db.prepare(
     `UPDATE source_markets
      SET raw_metadata_json = ?
-     WHERE id = ?`
+     WHERE id = ?`,
   );
   const clobTokenIds = parseStringArray(options.market.clobTokenIds);
   const outcomes = parseStringArray(options.market.outcomes);
   for (const target of options.targets) {
-    const row = read.get(target.sourceMarketId) as
-      | { rawMetadataJson: string | null }
-      | undefined;
+    const row = read.get(target.sourceMarketId) as { rawMetadataJson: string | null } | undefined;
     const existing = parseObjectJson(row?.rawMetadataJson);
     update.run(
       JSON.stringify({
@@ -175,7 +173,7 @@ function hydrateSourceMarketsWithGammaMetadata(options: {
         outcomes,
         sportsMarketType: options.market.sportsMarketType ?? target.rawFamily,
       }),
-      target.sourceMarketId
+      target.sourceMarketId,
     );
   }
 }
@@ -205,10 +203,7 @@ function selectTargets(filters: {
   }
 
   const midpoint = filters.midpointIso ?? new Date().toISOString();
-  const limit =
-    filters.maxMarkets != null && filters.maxMarkets > 0
-      ? filters.maxMarkets
-      : 500;
+  const limit = filters.maxMarkets != null && filters.maxMarkets > 0 ? filters.maxMarkets : 500;
 
   const rows = db
     .prepare(
@@ -243,7 +238,7 @@ function selectTargets(filters: {
        ORDER BY selected.distanceSeconds ASC,
                 selected.sortKey ASC,
                 sm.source_market_key ASC,
-                sm.source_selection_key ASC`
+                sm.source_selection_key ASC`,
     )
     .all(midpoint, ...params, limit) as Array<Record<string, unknown>>;
 
@@ -255,17 +250,13 @@ function selectTargets(filters: {
       return {
         eventSlug,
         gameId: String(row.gameId),
-        instrumentId:
-          row.instrumentId == null ? null : String(row.instrumentId),
+        instrumentId: row.instrumentId == null ? null : String(row.instrumentId),
         marketId,
         rawFamily: row.rawFamily == null ? null : String(row.rawFamily),
         rawLabel: row.rawLabel == null ? null : String(row.rawLabel),
         sourceMarketId: String(row.sourceMarketId),
         sourceMarketKey: String(row.sourceMarketKey),
-        sourceSelectionKey:
-          row.sourceSelectionKey == null
-            ? null
-            : String(row.sourceSelectionKey),
+        sourceSelectionKey: row.sourceSelectionKey == null ? null : String(row.sourceSelectionKey),
       };
     })
     .filter((target): target is SourceMarketTarget => target != null);
@@ -281,13 +272,11 @@ async function fetchGammaEvent(options: {
   const response = await options.fetchImpl(url.toString());
   if (!response.ok) {
     throw new Error(
-      `Polymarket Gamma event ${options.eventSlug} failed with status ${response.status}.`
+      `Polymarket Gamma event ${options.eventSlug} failed with status ${response.status}.`,
     );
   }
   const payload = (await response.json()) as unknown;
-  const events = Array.isArray(payload)
-    ? (payload as PolymarketGammaEvent[])
-    : [];
+  const events = Array.isArray(payload) ? (payload as PolymarketGammaEvent[]) : [];
   return events[0] ?? null;
 }
 
@@ -310,7 +299,7 @@ async function fetchTradesPage(options: {
   }
   if (!response.ok) {
     throw new Error(
-      `Polymarket Data API trades for ${options.conditionId} failed with status ${response.status}.`
+      `Polymarket Data API trades for ${options.conditionId} failed with status ${response.status}.`,
     );
   }
   const payload = (await response.json()) as unknown;
@@ -320,12 +309,10 @@ async function fetchTradesPage(options: {
 function buildTeamOutcomeMap(event: PolymarketGammaEvent) {
   const byToken = new Map<string, string>();
   for (const team of event.teams ?? []) {
-    const value = normalizeToken(
-      team.abbreviation ?? team.alias ?? team.name ?? ""
-    );
+    const value = normalizeToken(team.abbreviation ?? team.alias ?? team.name ?? "");
     if (!value) continue;
-    for (const token of [team.abbreviation, team.alias, team.name].map(
-      (entry) => normalizeToken(entry ?? "")
+    for (const token of [team.abbreviation, team.alias, team.name].map((entry) =>
+      normalizeToken(entry ?? ""),
     )) {
       if (token) byToken.set(token, value);
     }
@@ -393,7 +380,7 @@ export async function syncPolymarketNbaTrades(options: {
   const maxTs = toUnixSeconds(options.until);
   if (!Number.isFinite(minTs) || !Number.isFinite(maxTs) || maxTs <= minTs) {
     throw new Error(
-      `Invalid window for syncPolymarketNbaTrades: since=${options.since} until=${options.until}`
+      `Invalid window for syncPolymarketNbaTrades: since=${options.since} until=${options.until}`,
     );
   }
 
@@ -405,7 +392,7 @@ export async function syncPolymarketNbaTrades(options: {
   const maxPages = options.maxPages ?? DEFAULT_MAX_PAGES;
   const pageLimit = options.pageLimit ?? DEFAULT_PAGE_LIMIT;
   const midpointIso = new Date(
-    (Date.parse(options.since) + Date.parse(options.until)) / 2
+    (Date.parse(options.since) + Date.parse(options.until)) / 2,
   ).toISOString();
   const targets = selectTargets({
     gameId: options.gameId,
@@ -439,9 +426,7 @@ export async function syncPolymarketNbaTrades(options: {
       targetsByMarket.set(target.marketId, list);
     }
 
-    const marketsById = new Map(
-      (event.markets ?? []).map((market) => [market.id, market])
-    );
+    const marketsById = new Map((event.markets ?? []).map((market) => [market.id, market]));
 
     for (const [marketId, marketTargets] of targetsByMarket.entries()) {
       const market = marketsById.get(marketId);
@@ -502,15 +487,11 @@ export async function syncPolymarketNbaTrades(options: {
             const price = toNumber(trade.price);
             const size = toNumber(trade.size);
             const notional =
-              price != null && size != null
-                ? Number((price * size).toFixed(8))
-                : null;
+              price != null && size != null ? Number((price * size).toFixed(8)) : null;
             const eventTimestamp = tradeTimestampIso(trade);
             if (!eventTimestamp) continue;
             const volumeShare =
-              marketVolume != null && marketVolume > 0 && size != null
-                ? size / marketVolume
-                : null;
+              marketVolume != null && marketVolume > 0 && size != null ? size / marketVolume : null;
             const rawPayload = trade as unknown as Record<string, unknown>;
             const raw = recordRawPayload({
               source: "polymarket",
@@ -546,8 +527,7 @@ export async function syncPolymarketNbaTrades(options: {
                 outcome: trade.outcome ?? null,
                 reportedVolumeBasis: isClosed ? "final" : "live-to-date",
                 side: trade.side ?? null,
-                sportsMarketType:
-                  market.sportsMarketType ?? target.rawFamily ?? null,
+                sportsMarketType: market.sportsMarketType ?? target.rawFamily ?? null,
                 transactionHash: trade.transactionHash ?? null,
               },
               rawPayloadId: raw.id ?? null,
@@ -586,10 +566,7 @@ export async function syncPolymarketNbaTrades(options: {
   recordAdapterRun({
     captureMode: "historical",
     errorCode: errors.length > 0 ? "PARTIAL_FAILURES" : null,
-    errorMessage:
-      errors.length > 0
-        ? `${errors.length} Polymarket trade markets failed`
-        : null,
+    errorMessage: errors.length > 0 ? `${errors.length} Polymarket trade markets failed` : null,
     finishedAt,
     recordsSeen: tradesSeen,
     recordsWritten: tradesWritten,

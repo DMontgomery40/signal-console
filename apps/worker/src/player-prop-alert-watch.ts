@@ -66,21 +66,15 @@ function resolveSettings(options?: Partial<WatcherSettings>): WatcherSettings {
       (process.env.PLAYER_PROP_ALERT_WATCH_DURATION_MS
         ? numberFromEnv("PLAYER_PROP_ALERT_WATCH_DURATION_MS", 0)
         : undefined),
-    includeStale:
-      options?.includeStale ??
-      booleanFromEnv("PLAYER_PROP_ALERT_INCLUDE_STALE", false),
-    intervalMs:
-      options?.intervalMs ??
-      numberFromEnv("PLAYER_PROP_ALERT_WATCH_INTERVAL_MS", 10_000),
+    includeStale: options?.includeStale ?? booleanFromEnv("PLAYER_PROP_ALERT_INCLUDE_STALE", false),
+    intervalMs: options?.intervalMs ?? numberFromEnv("PLAYER_PROP_ALERT_WATCH_INTERVAL_MS", 10_000),
     limit: options?.limit ?? numberFromEnv("PLAYER_PROP_ALERT_LIMIT", 25),
     maxQuoteTimeGapMinutes:
       options?.maxQuoteTimeGapMinutes ??
       numberFromEnv("PLAYER_PROP_ALERT_MAX_QUOTE_TIME_GAP_MINUTES", 10),
     maxQuoteAgeMinutes:
-      options?.maxQuoteAgeMinutes ??
-      numberFromEnv("PLAYER_PROP_ALERT_MAX_QUOTE_AGE_MINUTES", 10),
-    minDelta:
-      options?.minDelta ?? numberFromEnv("PLAYER_PROP_ALERT_MIN_DELTA", 0.15),
+      options?.maxQuoteAgeMinutes ?? numberFromEnv("PLAYER_PROP_ALERT_MAX_QUOTE_AGE_MINUTES", 10),
+    minDelta: options?.minDelta ?? numberFromEnv("PLAYER_PROP_ALERT_MIN_DELTA", 0.15),
     notify: options?.notify ?? booleanFromEnv("PLAYER_PROP_ALERT_NOTIFY", true),
   };
 }
@@ -98,14 +92,12 @@ function appleScriptString(value: string) {
   return `"${value.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
 }
 
-export function buildPlayerPropAlertNotification(
-  alert: PlayerPropDisagreementAlert
-) {
+export function buildPlayerPropAlertNotification(alert: PlayerPropDisagreementAlert) {
   return {
     body: `b365 ${formatProbability(
-      alert.bet365.impliedProbability
+      alert.bet365.impliedProbability,
     )} vs ${alert.predictionMarket.source} ${formatProbability(
-      alert.predictionMarket.impliedProbability
+      alert.predictionMarket.impliedProbability,
     )}; delta ${formatDelta(alert.signedDelta)}`,
     subtitle: `${alert.gameLabel} | ${alert.displayLabel}`,
     title: "NBA player prop alert",
@@ -116,10 +108,8 @@ async function sendMacNotification(alert: PlayerPropDisagreementAlert) {
   const notification = buildPlayerPropAlertNotification(alert);
   await execFile("osascript", [
     "-e",
-    `display notification ${appleScriptString(
-      notification.body
-    )} with title ${appleScriptString(
-      notification.title
+    `display notification ${appleScriptString(notification.body)} with title ${appleScriptString(
+      notification.title,
     )} subtitle ${appleScriptString(notification.subtitle)}`,
   ]);
 }
@@ -206,7 +196,7 @@ export function startPlayerPropAlertWatcher(options?: {
           newAlertCount: newAlerts.length,
           playbackPath,
         },
-        "Player prop alert poll recorded."
+        "Player prop alert poll recorded.",
       );
 
       if (settings.notify) {
@@ -216,7 +206,7 @@ export function startPlayerPropAlertWatcher(options?: {
           } catch (error) {
             logger.warn(
               { alertId: alert.id, error: serializeErrorForLog(error) },
-              "Desktop notification failed."
+              "Desktop notification failed.",
             );
           }
         }
@@ -261,7 +251,7 @@ export function startPlayerPropAlertWatcher(options?: {
       minDelta: settings.minDelta,
       notify: settings.notify,
     },
-    "Player prop alert watcher started."
+    "Player prop alert watcher started.",
   );
 
   void pollOnce();

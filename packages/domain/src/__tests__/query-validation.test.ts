@@ -12,9 +12,7 @@ describe("query validation contracts", () => {
   it("rejects impossible calendar dates", () => {
     expect(isStrictYmdDate("2026-04-21")).toBe(true);
     expect(isStrictYmdDate("2026-02-31")).toBe(false);
-    expect(
-      researchDivergenceQuerySchema.safeParse({ date: "2026-02-31" }).success
-    ).toBe(false);
+    expect(researchDivergenceQuerySchema.safeParse({ date: "2026-02-31" }).success).toBe(false);
   });
 
   it("requires explicit timezone information for board-alert timestamps", () => {
@@ -24,7 +22,7 @@ describe("query validation contracts", () => {
       boardAlertEventContextQuerySchema.safeParse({
         at: "2026-04-21T23:56:00",
         gameId: "nba-bos-nyk-2026-04-21",
-      }).success
+      }).success,
     ).toBe(false);
   });
 
@@ -34,7 +32,7 @@ describe("query validation contracts", () => {
         gameId: "nba-bos-nyk-2026-04-21",
         windowEnd: "2026-04-21T23:50:00.000Z",
         windowStart: "2026-04-21T23:56:00.000Z",
-      }).success
+      }).success,
     ).toBe(false);
   });
 });

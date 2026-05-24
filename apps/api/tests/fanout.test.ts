@@ -98,6 +98,7 @@ function seedGoldDb(
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       game_id TEXT NOT NULL,
       source_market_id TEXT NOT NULL,
+      source TEXT NOT NULL DEFAULT 'polymarket',
       event_type TEXT NOT NULL,
       event_timestamp TEXT NOT NULL,
       trade_price REAL,
@@ -349,6 +350,42 @@ function seedHartensteinAnchor(): void {
   seedGoldDb(ctx.goldDbPath, markets, ticks, pbp);
 }
 
+interface SeedMicrostructureEvent {
+  readonly gameId: string;
+  readonly sourceMarketId: string;
+  readonly source: string;
+  readonly eventTimestamp: string;
+  readonly tradePrice: number;
+  readonly volumeShare: number;
+  readonly size?: number;
+  readonly notional?: number;
+}
+
+function seedMicrostructureEvents(events: readonly SeedMicrostructureEvent[]): void {
+  const db = new Database(ctx.goldDbPath);
+  try {
+    const insert = db.prepare(
+      `INSERT INTO market_microstructure_events
+         (game_id, source_market_id, source, event_type, event_timestamp, trade_price, size, notional, volume_share)
+       VALUES (?, ?, ?, 'trade', ?, ?, ?, ?, ?)`,
+    );
+    for (const e of events) {
+      insert.run(
+        e.gameId,
+        e.sourceMarketId,
+        e.source,
+        e.eventTimestamp,
+        e.tradePrice,
+        e.size ?? null,
+        e.notional ?? null,
+        e.volumeShare,
+      );
+    }
+  } finally {
+    db.close();
+  }
+}
+
 describe("fanout route (US-051)", () => {
   it("returns the bucket shape with bucketStart/bucketEnd, pbp[], movers[], narrative", async () => {
     seedHartensteinAnchor();
@@ -365,6 +402,21 @@ describe("fanout route (US-051)", () => {
     expect(isUnknownArray(body["pbp"])).toBe(true);
     expect(isUnknownArray(body["movers"])).toBe(true);
     expect(typeof body["narrative"]).toBe("string");
+  });
+
+  it("rejects invalid bucket_start timestamps before fanout lookup", async () => {
+    const app = await startApp();
+    const cases = ["2026-02-30T03:12:00Z", "2026-05-08T03:12:00"];
+
+    for (const bucketStart of cases) {
+      const res = await app.inject({
+        method: "GET",
+        url: `/v1/board/${GAME_ID}/fanout?bucket_start=${encodeURIComponent(bucketStart)}`,
+        headers: authHeaders(),
+      });
+      expect(res.statusCode).toBe(400);
+      expect(asRecord(res.json(), "error")["error"]).toBe("invalid bucket_start");
+    }
   });
 
   it("enforces ±5 min PBP window: events outside ±300s are NOT returned", async () => {
@@ -539,6 +591,61 @@ describe("fanout route (US-051)", () => {
     if (typeof narrative === "string") {
       expect(narrative).toMatch(/no PBP within ±5 min/);
     }
+  });
+
+  it("returns only Polymarket trade prints in the off-price microstructure lane", async () => {
+    seedGoldDb(
+      ctx.goldDbPath,
+      [
+        { id: "pm-trade-1", gameId: GAME_ID, source: "polymarket" },
+        { id: "kalshi-trade-1", gameId: GAME_ID, source: "kalshi" },
+      ],
+      [
+        {
+          sourceMarketId: "pm-trade-1",
+          capturedAt: "2026-05-08T03:12:05.0Z",
+          impliedProbability: 0.4,
+        },
+        {
+          sourceMarketId: "kalshi-trade-1",
+          capturedAt: "2026-05-08T03:12:05.0Z",
+          impliedProbability: 0.4,
+        },
+      ],
+      [],
+    );
+    seedMicrostructureEvents([
+      {
+        eventTimestamp: "2026-05-08T03:12:30.0Z",
+        gameId: GAME_ID,
+        notional: 50,
+        size: 100,
+        source: "polymarket",
+        sourceMarketId: "pm-trade-1",
+        tradePrice: 0.91,
+        volumeShare: 0.2,
+      },
+      {
+        eventTimestamp: "2026-05-08T03:12:31.0Z",
+        gameId: GAME_ID,
+        notional: 70,
+        size: 100,
+        source: "kalshi",
+        sourceMarketId: "kalshi-trade-1",
+        tradePrice: 0.92,
+        volumeShare: 0.3,
+      },
+    ]);
+    const app = await startApp();
+    const res = await app.inject({
+      method: "GET",
+      url: `/v1/board/${GAME_ID}/fanout?bucket_start=${encodeURIComponent(BUCKET_START)}`,
+      headers: authHeaders(),
+    });
+    expect(res.statusCode).toBe(200);
+    const body = asRecord(res.json(), "body");
+    const microstructureEvents = readArray(body, "microstructureEvents");
+    expect(microstructureEvents.map((e) => e["sourceMarketId"])).toEqual(["pm-trade-1"]);
   });
 
   it("400 on missing or invalid bucket_start", async () => {

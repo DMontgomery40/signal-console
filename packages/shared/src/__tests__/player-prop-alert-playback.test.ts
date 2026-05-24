@@ -75,7 +75,7 @@ function sampleAlert(id: string): PlayerPropDisagreementAlert {
 
 function sampleFrame(
   capturedAt: string,
-  alerts: PlayerPropDisagreementAlert[]
+  alerts: PlayerPropDisagreementAlert[],
 ): PlayerPropAlertPlaybackFrame {
   return {
     alertCount: alerts.length,
@@ -109,54 +109,49 @@ describe("player prop alert playback", () => {
 
   it("writes and reads the latest watcher frames for the Denver game date", () => {
     writePlayerPropAlertPlaybackFrame(
-      sampleFrame("2026-05-11T01:00:00.000Z", [sampleAlert("alert-1")])
+      sampleFrame("2026-05-11T01:00:00.000Z", [sampleAlert("alert-1")]),
     );
+    writePlayerPropAlertPlaybackFrame(sampleFrame("2026-05-11T01:00:10.000Z", []));
     writePlayerPropAlertPlaybackFrame(
-      sampleFrame("2026-05-11T01:00:10.000Z", [])
-    );
-    writePlayerPropAlertPlaybackFrame(
-      sampleFrame("2026-05-11T01:00:20.000Z", [sampleAlert("alert-2")])
+      sampleFrame("2026-05-11T01:00:20.000Z", [sampleAlert("alert-2")]),
     );
 
     expect(
-      resolvePlayerPropAlertPlaybackDate(
-        undefined,
-        new Date("2026-05-11T01:00:00.000Z")
-      )
+      resolvePlayerPropAlertPlaybackDate(undefined, new Date("2026-05-11T01:00:00.000Z")),
     ).toBe("2026-05-10");
     expect(
       listPlayerPropAlertPlaybackFrames({
         date: "2026-05-10",
         limit: 2,
-      }).map((frame) => frame.capturedAt)
+      }).map((frame) => frame.capturedAt),
     ).toEqual(["2026-05-11T01:00:10.000Z", "2026-05-11T01:00:20.000Z"]);
   });
 
   it("rejects impossible playback dates instead of normalizing them", () => {
     expect(() => resolvePlayerPropAlertPlaybackDate("2026-02-31")).toThrow(
-      "Playback date must use YYYY-MM-DD format."
+      "Playback date must use YYYY-MM-DD format.",
     );
   });
 
   it("treats zero and negative playback limits as empty result limits", () => {
     writePlayerPropAlertPlaybackFrame(
-      sampleFrame("2026-05-11T01:00:00.000Z", [sampleAlert("alert-1")])
+      sampleFrame("2026-05-11T01:00:00.000Z", [sampleAlert("alert-1")]),
     );
     writePlayerPropAlertPlaybackFrame(
-      sampleFrame("2026-05-11T01:00:10.000Z", [sampleAlert("alert-2")])
+      sampleFrame("2026-05-11T01:00:10.000Z", [sampleAlert("alert-2")]),
     );
 
     expect(
       listPlayerPropAlertPlaybackFrames({
         date: "2026-05-10",
         limit: 0,
-      })
+      }),
     ).toEqual([]);
     expect(
       listPlayerPropAlertPlaybackFrames({
         date: "2026-05-10",
         limit: -4,
-      })
+      }),
     ).toEqual([]);
   });
 
@@ -166,15 +161,11 @@ describe("player prop alert playback", () => {
       [
         JSON.stringify(sampleFrame("2026-05-11T01:00:00.000Z", [])),
         "{not json",
-        JSON.stringify(
-          sampleFrame("2026-05-11T01:00:10.000Z", [sampleAlert("alert-1")])
-        ),
-      ].join("\n")
+        JSON.stringify(sampleFrame("2026-05-11T01:00:10.000Z", [sampleAlert("alert-1")])),
+      ].join("\n"),
     );
 
-    expect(
-      listPlayerPropAlertPlaybackFrames({ date: "2026-05-10" })
-    ).toMatchObject([
+    expect(listPlayerPropAlertPlaybackFrames({ date: "2026-05-10" })).toMatchObject([
       { alertCount: 0 },
       {
         alertCount: 1,

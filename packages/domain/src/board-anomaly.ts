@@ -6,10 +6,7 @@ import type {
 } from "./live-types";
 import type { SeverityBand } from "./modes";
 
-export const boardAnomalySourceKinds = [
-  "sportsbook",
-  "prediction-market",
-] as const;
+export const boardAnomalySourceKinds = ["sportsbook", "prediction-market"] as const;
 export type BoardAnomalySourceKind = (typeof boardAnomalySourceKinds)[number];
 
 export const boardAnomalyShockKinds = [

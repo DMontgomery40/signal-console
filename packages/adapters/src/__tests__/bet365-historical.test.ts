@@ -168,7 +168,7 @@ describe("bet365 historical adapter", () => {
          FROM quote_ticks qt
          JOIN source_markets sm ON sm.id = qt.source_market_id
          WHERE sm.game_id = ?
-           AND sm.source = 'bet365'`
+           AND sm.source = 'bet365'`,
       )
       .get("nba-0042500301") as { quotes: number } | undefined;
     expect(sourceCounts?.quotes ?? 0).toBeGreaterThan(0);
@@ -179,14 +179,11 @@ describe("bet365 historical adapter", () => {
          FROM source_markets
          WHERE game_id = ?
            AND source = 'bet365'
-         ORDER BY raw_label ASC`
+         ORDER BY raw_label ASC`,
       )
       .all("nba-0042500301") as Array<{ rawLabel: string | null }>;
     expect(markets.map((row) => row.rawLabel)).toEqual(
-      expect.arrayContaining([
-        "Cleveland Cavaliers",
-        "Jarrett Allen (1) (12.5)",
-      ])
+      expect.arrayContaining(["Cleveland Cavaliers", "Jarrett Allen (1) (12.5)"]),
     );
 
     const bet365HistoricalRuns = listAdapterRuns() as Array<{
@@ -196,14 +193,14 @@ describe("bet365 historical adapter", () => {
     }>;
     expect(
       bet365HistoricalRuns.filter(
-        (run) => run.source === "bet365" && run.captureMode === "historical"
-      )
+        (run) => run.source === "bet365" && run.captureMode === "historical",
+      ),
     ).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           status: "ok",
         }),
-      ])
+      ]),
     );
   });
 });

@@ -25,6 +25,9 @@ const ticksForGames = (allTicks: readonly Tick[], gameIds: readonly string[]): r
   return allTicks.filter((t) => allowed.has(t.gameId));
 };
 
+const uniqueGameIds = (gameIds: readonly string[]): readonly string[] =>
+  Array.from(new Set(gameIds));
+
 // 1.1.0 (2026-05-23): API path (services/backtest.ts loadTicks) now narrows
 // the tick set per-game to the PBP-anchored in-play window before feeding
 // the detector, mirroring board.ts's resolveInPlayWindow. Without this,
@@ -40,12 +43,13 @@ export const detector: Detector<typeof Params> = {
   sources: ["bet365", "kalshi", "polymarket"],
   paramsSchema: Params,
   run(window: DetectorWindow, params: ParamsResolved): DetectorResult {
+    const gameIds = uniqueGameIds(window.gameIds);
     const allTicks = window.ticks ?? [];
-    const scopedTicks = ticksForGames(allTicks, window.gameIds);
+    const scopedTicks = ticksForGames(allTicks, gameIds);
     const series = prebucket(scopedTicks, params.bucketSeconds, {
       weighting: params.weighting,
       freshCapSeconds: params.freshCapSeconds,
-      gameIds: window.gameIds,
+      gameIds,
     });
     const { fires, buckets } = runForK(series, params.kMad, {
       bucketSeconds: params.bucketSeconds,
@@ -54,7 +58,7 @@ export const detector: Detector<typeof Params> = {
       warmupBuckets: params.warmupBuckets,
       freshCapSeconds: params.freshCapSeconds,
     });
-    const games = window.gameIds.length;
+    const games = gameIds.length;
     const stats: DetectorStats = {
       firesPerGame: games === 0 ? 0 : fires.length / games,
       totalFires: fires.length,

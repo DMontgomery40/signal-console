@@ -34,9 +34,15 @@ export interface ListGamesArgs {
 // degenerate forms `P` and `PT` (each requires at least one component).
 const ISO_DURATION_RE =
   /^P(?!$)(?:(\d+)W)?(?:(\d+)D)?(?:T(?!$)(?:(\d+)H)?(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?)?$/;
+const MAX_SINCE_DURATION_MS = 366 * 86_400_000;
 
 export function isValidIsoDuration(input: string): boolean {
-  return ISO_DURATION_RE.test(input);
+  try {
+    parseIsoDuration(input);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export function parseIsoDuration(input: string): number {
@@ -49,13 +55,16 @@ export function parseIsoDuration(input: string): number {
   const hours = m[3] !== undefined ? Number(m[3]) : 0;
   const minutes = m[4] !== undefined ? Number(m[4]) : 0;
   const seconds = m[5] !== undefined ? Number(m[5]) : 0;
-  return (
+  const durationMs =
     weeks * 7 * 86_400_000 +
     days * 86_400_000 +
     hours * 3_600_000 +
     minutes * 60_000 +
-    seconds * 1000
-  );
+    seconds * 1000;
+  if (!Number.isFinite(durationMs) || durationMs > MAX_SINCE_DURATION_MS) {
+    throw new Error(`ISO 8601 duration exceeds maximum recent window: ${input}`);
+  }
+  return durationMs;
 }
 
 function isRecord(v: unknown): v is Record<string, unknown> {

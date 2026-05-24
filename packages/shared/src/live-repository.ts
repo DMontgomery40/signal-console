@@ -101,12 +101,7 @@ type DivergenceFilters = {
   limit?: number;
   mappedState?: ComparableState;
   severity?: "low" | "medium" | "high" | "critical";
-  sort?:
-    | "captureRecency"
-    | "divergence"
-    | "freshness"
-    | "lineMismatch"
-    | "signalPriority";
+  sort?: "captureRecency" | "divergence" | "freshness" | "lineMismatch" | "signalPriority";
   sourceSet?: string;
   sport?: string;
 };
@@ -124,20 +119,14 @@ type MarketAnomalyFilters = {
   profileId?: string;
   requireBet365?: boolean;
   skipQuoteAnomalies?: boolean;
-  source?: Extract<
-    ResearchSourceId,
-    "bet365" | "fanduel" | "draftkings" | "kalshi" | "polymarket"
-  >;
+  source?: Extract<ResearchSourceId, "bet365" | "fanduel" | "draftkings" | "kalshi" | "polymarket">;
 };
 
 type QuoteObservationInput = Omit<QuoteTick, "id" | "isHeartbeat"> & {
   heartbeatAfterMs?: number;
 };
 
-type MarketMicrostructureEventInput = Omit<
-  MarketMicrostructureEvent,
-  "id" | "capturedAt"
-> & {
+type MarketMicrostructureEventInput = Omit<MarketMicrostructureEvent, "id" | "capturedAt"> & {
   capturedAt?: string;
 };
 
@@ -172,8 +161,7 @@ function parseJson<T>(payload: string | null | undefined, fallback: T): T {
       details: {
         payload,
       },
-      operatorHint:
-        "Inspect the offending SQLite JSON column before retrying this read path.",
+      operatorHint: "Inspect the offending SQLite JSON column before retrying this read path.",
     });
   }
 }
@@ -198,11 +186,11 @@ function scoreToSeverity(score: number) {
 function computeCoverageSummary(
   sourceMarkets: SourceMarket[],
   latestTicks: Map<string, QuoteTick>,
-  hasNbaState: boolean
+  hasNbaState: boolean,
 ): CoverageSummary {
   const availableSources = new Set<ResearchSourceId>();
   const unmappedSourceMarketCount = sourceMarkets.filter(
-    (market) => market.mappingStatus === "unmapped"
+    (market) => market.mappingStatus === "unmapped",
   ).length;
 
   for (const sourceMarket of sourceMarkets) {
@@ -215,16 +203,12 @@ function computeCoverageSummary(
     availableSources.add("nba");
   }
 
-  const available = researchSourceIds.filter((sourceId) =>
-    availableSources.has(sourceId)
-  );
+  const available = researchSourceIds.filter((sourceId) => availableSources.has(sourceId));
 
   return {
     activeSourceCount: available.length,
     availableSources: available,
-    missingSources: researchSourceIds.filter(
-      (sourceId) => !availableSources.has(sourceId)
-    ),
+    missingSources: researchSourceIds.filter((sourceId) => !availableSources.has(sourceId)),
     unmappedSourceMarketCount,
   };
 }
@@ -233,18 +217,10 @@ function computeMappingStatus(sourceMarkets: SourceMarket[]): MappingStatus {
   if (sourceMarkets.length === 0) {
     return "unmapped";
   }
-  if (
-    sourceMarkets.some(
-      (sourceMarket) => sourceMarket.mappingStatus === "unmapped"
-    )
-  ) {
+  if (sourceMarkets.some((sourceMarket) => sourceMarket.mappingStatus === "unmapped")) {
     return "unmapped";
   }
-  if (
-    sourceMarkets.some(
-      (sourceMarket) => sourceMarket.mappingStatus === "manual"
-    )
-  ) {
+  if (sourceMarkets.some((sourceMarket) => sourceMarket.mappingStatus === "manual")) {
     return "manual";
   }
   return "auto";
@@ -254,25 +230,19 @@ function computeComparableState(
   instrument: MarketInstrument,
   mappingStatus: MappingStatus,
   latestSources: LatestSourceView[],
-  game?: CanonicalGame
+  game?: CanonicalGame,
 ): ComparableState {
   if (mappingStatus === "unmapped") {
     return "unmapped";
   }
 
-  if (
-    latestSources.some(
-      (source) => !sourceSelectionMatchesInstrument(instrument, source, game)
-    )
-  ) {
+  if (latestSources.some((source) => !sourceSelectionMatchesInstrument(instrument, source, game))) {
     return "selection-mismatch";
   }
 
   if (
     instrument.family !== "moneyline" &&
-    latestSources.some(
-      (source) => !lineValuesMatch(source.raw.line, instrument.line)
-    )
+    latestSources.some((source) => !lineValuesMatch(source.raw.line, instrument.line))
   ) {
     return "line-mismatch";
   }
@@ -289,13 +259,12 @@ function computeImpliedProbabilityGap(latestSources: LatestSourceView[]) {
     }))
     .filter(
       (
-        source
+        source,
       ): source is {
         capturedAt: number;
         impliedProbability: number;
         source: ResearchSourceId;
-      } =>
-        source.capturedAt >= 0 && typeof source.impliedProbability === "number"
+      } => source.capturedAt >= 0 && typeof source.impliedProbability === "number",
     );
 
   if (comparable.length < 2) {
@@ -305,7 +274,7 @@ function computeImpliedProbabilityGap(latestSources: LatestSourceView[]) {
   const sameTimeWindowMs = 10 * 60_000;
   const bet365Rows = comparable.filter((source) => source.source === "bet365");
   const exchangeRows = comparable.filter(
-    (source) => source.source === "kalshi" || source.source === "polymarket"
+    (source) => source.source === "kalshi" || source.source === "polymarket",
   );
   if (bet365Rows.length === 0 || exchangeRows.length === 0) {
     return null;
@@ -317,9 +286,7 @@ function computeImpliedProbabilityGap(latestSources: LatestSourceView[]) {
       if (Math.abs(book.capturedAt - exchange.capturedAt) > sameTimeWindowMs) {
         continue;
       }
-      const gap = Math.abs(
-        book.impliedProbability - exchange.impliedProbability
-      );
+      const gap = Math.abs(book.impliedProbability - exchange.impliedProbability);
       maxGap = maxGap == null ? gap : Math.max(maxGap, gap);
     }
   }
@@ -332,7 +299,7 @@ function buildInstrumentDivergenceSummary(instrumentId: string) {
     getInstrumentDeltaSeries({
       bucketSeconds: 60,
       instrumentId,
-    })
+    }),
   );
 }
 
@@ -366,17 +333,12 @@ function computeSignalPriority(
   impliedProbabilityGap: number | null,
   latestSources: LatestSourceView[],
   comparableState: ComparableState,
-  inPlay: boolean
+  inPlay: boolean,
 ) {
   const gapScore = Math.round((impliedProbabilityGap ?? 0) * 1000);
-  const coverageBonus =
-    latestSources.filter((source) => source.capturedAt).length * 5;
+  const coverageBonus = latestSources.filter((source) => source.capturedAt).length * 5;
   const mismatchPenalty =
-    comparableState === "line-mismatch"
-      ? -8
-      : comparableState === "selection-mismatch"
-        ? -80
-        : 0;
+    comparableState === "line-mismatch" ? -8 : comparableState === "selection-mismatch" ? -80 : 0;
   const inPlayBonus = inPlay ? 12 : 0;
 
   return Math.max(0, gapScore + coverageBonus + mismatchPenalty + inPlayBonus);
@@ -388,31 +350,22 @@ function sourceHasProbability(source: LatestSourceView) {
 
 function quotedResearchSources(latestSources: LatestSourceView[]) {
   return uniqueResearchSources(
-    latestSources.filter(sourceHasProbability).map((source) => source.source)
+    latestSources.filter(sourceHasProbability).map((source) => source.source),
   );
 }
 
 function hasPlayerPropComparisonSource(latestSources: LatestSourceView[]) {
   const sources = new Set(quotedResearchSources(latestSources));
-  return (
-    sources.has("bet365") &&
-    (sources.has("kalshi") || sources.has("polymarket"))
-  );
+  return sources.has("bet365") && (sources.has("kalshi") || sources.has("polymarket"));
 }
 
-function hasBet365PlusExchangeSourceMarkets(
-  instrumentId: string,
-  sourceMarkets: SourceMarket[]
-) {
+function hasBet365PlusExchangeSourceMarkets(instrumentId: string, sourceMarkets: SourceMarket[]) {
   const sources = new Set(
     sourceMarkets
       .filter((sourceMarket) => sourceMarket.instrumentId === instrumentId)
-      .map((sourceMarket) => sourceMarket.source)
+      .map((sourceMarket) => sourceMarket.source),
   );
-  return (
-    sources.has("bet365") &&
-    (sources.has("kalshi") || sources.has("polymarket"))
-  );
+  return sources.has("bet365") && (sources.has("kalshi") || sources.has("polymarket"));
 }
 
 function isVisibleDivergenceInstrument(instrumentView: MarketInstrumentView) {
@@ -424,42 +377,36 @@ function isVisibleDivergenceInstrument(instrumentView: MarketInstrumentView) {
 
 function uniqueResearchSources(
   sources: Iterable<ResearchSourceId>,
-  options?: { includeNba?: boolean }
+  options?: { includeNba?: boolean },
 ) {
   const seen = new Set(sources);
   return researchSourceIds.filter((sourceId) =>
-    options?.includeNba === true
-      ? seen.has(sourceId)
-      : sourceId !== "nba" && seen.has(sourceId)
+    options?.includeNba === true ? seen.has(sourceId) : sourceId !== "nba" && seen.has(sourceId),
   );
 }
 
-function normalizeCoverageFamily(
-  value: string | null | undefined
-): MarketFamily | null {
+function normalizeCoverageFamily(value: string | null | undefined): MarketFamily | null {
   if (value == null) {
     return "other";
   }
 
-  return marketFamilies.includes(value as MarketFamily)
-    ? (value as MarketFamily)
-    : "other";
+  return marketFamilies.includes(value as MarketFamily) ? (value as MarketFamily) : "other";
 }
 
 function buildCoverageSources(sourceMarkets: SourceMarket[]) {
   const availableSources = uniqueResearchSources(
-    sourceMarkets.map((sourceMarket) => sourceMarket.source)
+    sourceMarkets.map((sourceMarket) => sourceMarket.source),
   );
   const unmappedSources = uniqueResearchSources(
     sourceMarkets
       .filter((sourceMarket) => sourceMarket.mappingStatus === "unmapped")
-      .map((sourceMarket) => sourceMarket.source)
+      .map((sourceMarket) => sourceMarket.source),
   );
 
   return {
     availableSources,
     missingSources: researchSourceIds.filter(
-      (sourceId) => sourceId !== "nba" && !availableSources.includes(sourceId)
+      (sourceId) => sourceId !== "nba" && !availableSources.includes(sourceId),
     ),
     unmappedSources,
   };
@@ -480,15 +427,12 @@ function rowToGame(row: Record<string, unknown>): CanonicalGame {
     id: String(row.id),
     league: String(row.league),
     scheduledStart: String(row.scheduledStart),
-    sourceGameKeyNba:
-      row.sourceGameKeyNba == null ? null : String(row.sourceGameKeyNba),
+    sourceGameKeyNba: row.sourceGameKeyNba == null ? null : String(row.sourceGameKeyNba),
     sport: String(row.sport),
   };
 }
 
-function rowToGameState(
-  row: Record<string, unknown> | undefined
-): CanonicalGameState | null {
+function rowToGameState(row: Record<string, unknown> | undefined): CanonicalGameState | null {
   if (!row) {
     return null;
   }
@@ -508,9 +452,7 @@ function rowToGameState(
   };
 }
 
-function rowToOutcome(
-  row: Record<string, unknown> | undefined
-): GameOutcome | null {
+function rowToOutcome(row: Record<string, unknown> | undefined): GameOutcome | null {
   if (!row) {
     return null;
   }
@@ -532,8 +474,7 @@ function rowToInstrument(row: Record<string, unknown>): MarketInstrument {
     id: String(row.id),
     inPlay: toBoolean(row.inPlay as number | boolean | null | undefined),
     line: row.line == null ? null : Number(row.line),
-    participantKey:
-      row.participantKey == null ? null : String(row.participantKey),
+    participantKey: row.participantKey == null ? null : String(row.participantKey),
     selection: String(row.selection),
   };
 }
@@ -548,18 +489,15 @@ function rowToSourceMarket(row: Record<string, unknown>): SourceMarket {
     rawLabel: row.rawLabel == null ? null : String(row.rawLabel),
     rawMetadata: parseJson<Record<string, unknown> | null>(
       row.rawMetadataJson == null ? null : String(row.rawMetadataJson),
-      null
+      null,
     ),
     source: String(row.source) as ResearchSourceId,
     sourceMarketKey: String(row.sourceMarketKey),
-    sourceSelectionKey:
-      row.sourceSelectionKey == null ? null : String(row.sourceSelectionKey),
+    sourceSelectionKey: row.sourceSelectionKey == null ? null : String(row.sourceSelectionKey),
   };
 }
 
-function rowToQuoteTick(
-  row: Record<string, unknown> | undefined
-): QuoteTick | null {
+function rowToQuoteTick(row: Record<string, unknown> | undefined): QuoteTick | null {
   if (!row) {
     return null;
   }
@@ -570,11 +508,8 @@ function rowToQuoteTick(
     capturedAt: String(row.capturedAt),
     depthScore: row.depthScore == null ? null : Number(row.depthScore),
     id: Number(row.id),
-    impliedProbability:
-      row.impliedProbability == null ? null : Number(row.impliedProbability),
-    isHeartbeat: toBoolean(
-      row.isHeartbeat as number | boolean | null | undefined
-    ),
+    impliedProbability: row.impliedProbability == null ? null : Number(row.impliedProbability),
+    isHeartbeat: toBoolean(row.isHeartbeat as number | boolean | null | undefined),
     lineRaw: row.lineRaw == null ? null : Number(row.lineRaw),
     oddsRaw: row.oddsRaw == null ? null : String(row.oddsRaw),
     priceRaw: row.priceRaw == null ? null : Number(row.priceRaw),
@@ -583,9 +518,7 @@ function rowToQuoteTick(
   };
 }
 
-function rowToRawPayload(
-  row: Record<string, unknown> | undefined
-): RawPayloadAttachment | null {
+function rowToRawPayload(row: Record<string, unknown> | undefined): RawPayloadAttachment | null {
   if (!row) {
     return null;
   }
@@ -596,19 +529,13 @@ function rowToRawPayload(
     entityId: String(row.entityId),
     entityType: String(row.entityType),
     id: Number(row.id),
-    payloadJson: parseJson<Record<string, unknown>>(
-      String(row.payloadJson),
-      {}
-    ),
+    payloadJson: parseJson<Record<string, unknown>>(String(row.payloadJson), {}),
     source: String(row.source) as ResearchSourceId,
   };
 }
 
 function gameStateLifecycleRank(
-  state:
-    | Pick<CanonicalGameState, "isFinal" | "status" | "startedAt">
-    | null
-    | undefined
+  state: Pick<CanonicalGameState, "isFinal" | "status" | "startedAt"> | null | undefined,
 ) {
   if (!state) return 0;
   if (state.isFinal || state.status === "final") return 4;
@@ -618,21 +545,11 @@ function gameStateLifecycleRank(
 }
 
 function isScheduledRegression(
-  latest:
-    | Pick<CanonicalGameState, "isFinal" | "status" | "startedAt">
-    | null
-    | undefined,
+  latest: Pick<CanonicalGameState, "isFinal" | "status" | "startedAt"> | null | undefined,
   incoming: Pick<
     CanonicalGameState,
-    | "awayScore"
-    | "clock"
-    | "finalAt"
-    | "homeScore"
-    | "isFinal"
-    | "period"
-    | "startedAt"
-    | "status"
-  >
+    "awayScore" | "clock" | "finalAt" | "homeScore" | "isFinal" | "period" | "startedAt" | "status"
+  >,
 ) {
   if (!latest) return false;
 
@@ -689,9 +606,9 @@ function selectLatestGameState(db: Database.Database, gameId: string) {
             datetime(captured_at) DESC,
             id DESC
           LIMIT 1
-        `
+        `,
       )
-      .get(gameId) as Record<string, unknown> | undefined
+      .get(gameId) as Record<string, unknown> | undefined,
   );
 }
 
@@ -708,9 +625,9 @@ function selectOutcome(db: Database.Database, gameId: string) {
             captured_at AS capturedAt
           FROM game_outcomes
           WHERE game_id = ?
-        `
+        `,
       )
-      .get(gameId) as Record<string, unknown> | undefined
+      .get(gameId) as Record<string, unknown> | undefined,
   );
 }
 
@@ -739,7 +656,7 @@ function selectInstrumentsForGame(db: Database.Database, gameId: string) {
             ELSE 5
           END,
           display_label ASC
-      `
+      `,
     )
     .all(gameId)
     .map((row) => rowToInstrument(row as Record<string, unknown>));
@@ -765,7 +682,7 @@ function selectSourceMarketsForGame(db: Database.Database, gameId: string) {
         FROM source_markets
         WHERE game_id = ?
         ORDER BY source ASC, raw_label ASC, source_market_key ASC
-      `
+      `,
     )
     .all(gameId)
     .map((row) => rowToSourceMarket(row as Record<string, unknown>));
@@ -781,10 +698,7 @@ function chunkValues<T>(values: T[], chunkSize: number) {
   return chunks;
 }
 
-function selectLatestTicksBySourceMarketIds(
-  db: Database.Database,
-  sourceMarketIds: string[]
-) {
+function selectLatestTicksBySourceMarketIds(db: Database.Database, sourceMarketIds: string[]) {
   const latest = new Map<string, QuoteTick>();
   if (sourceMarketIds.length === 0) {
     return latest;
@@ -817,7 +731,7 @@ function selectLatestTicksBySourceMarketIds(
           LIMIT 1
         )
         WHERE sm.id IN (${placeholders})
-      `
+      `,
       )
       .all(...chunk) as Record<string, unknown>[];
 
@@ -835,7 +749,7 @@ function selectLatestTicksBySourceMarketIds(
 function selectLatestRawPayloadsBySourceMarketIds(
   db: Database.Database,
   sourceMarketIds: string[],
-  options: { includePayloadJson?: boolean } = { includePayloadJson: true }
+  options: { includePayloadJson?: boolean } = { includePayloadJson: true },
 ) {
   const latest = new Map<string, RawPayloadAttachment>();
   if (sourceMarketIds.length === 0) {
@@ -865,7 +779,7 @@ function selectLatestRawPayloadsBySourceMarketIds(
           LIMIT 1
         )
         WHERE sm.id IN (${placeholders})
-      `
+      `,
       )
       .all(...chunk) as Record<string, unknown>[];
 
@@ -883,7 +797,7 @@ function selectLatestRawPayloadsBySourceMarketIds(
 function buildLatestSourceViews(
   sourceMarkets: SourceMarket[],
   latestTicks: Map<string, QuoteTick>,
-  latestPayloads: Map<string, RawPayloadAttachment>
+  latestPayloads: Map<string, RawPayloadAttachment>,
 ) {
   const latestBySource = new Map<ResearchSourceId, LatestSourceView>();
 
@@ -946,28 +860,22 @@ function buildMarketInstrumentView(
   sourceMarkets: SourceMarket[],
   latestTicks: Map<string, QuoteTick>,
   latestPayloads: Map<string, RawPayloadAttachment>,
-  options: { game?: CanonicalGame; includeDivergenceSummary?: boolean } = {}
+  options: { game?: CanonicalGame; includeDivergenceSummary?: boolean } = {},
 ) {
-  const latestSources = buildLatestSourceViews(
-    sourceMarkets,
-    latestTicks,
-    latestPayloads
-  );
+  const latestSources = buildLatestSourceViews(sourceMarkets, latestTicks, latestPayloads);
   const mappingStatus = computeMappingStatus(sourceMarkets);
   const comparableState = computeComparableState(
     instrument,
     mappingStatus,
     latestSources,
-    options.game
+    options.game,
   );
   const impliedProbabilityGap =
     comparableState === "comparable"
       ? computeImpliedProbabilityGap(latestSources)
       : comparableState === "line-mismatch"
         ? computeImpliedProbabilityGap(
-            latestSources.filter((source) =>
-              lineValuesMatch(source.raw.line, instrument.line)
-            )
+            latestSources.filter((source) => lineValuesMatch(source.raw.line, instrument.line)),
           )
         : null;
   const comparisonSummary =
@@ -986,7 +894,7 @@ function buildMarketInstrumentView(
       impliedProbabilityGap,
       latestSources,
       comparableState,
-      instrument.inPlay
+      instrument.inPlay,
     ),
     sources: latestSources,
   } satisfies MarketInstrumentView;
@@ -995,26 +903,21 @@ function buildMarketInstrumentView(
 function buildDivergenceRow(
   game: CanonicalGame,
   gameStatus: ResearchGameStatus,
-  instrumentView: MarketInstrumentView
+  instrumentView: MarketInstrumentView,
 ) {
   const freshnessMs = freshnessMsFromSourceViews(instrumentView.sources);
   const comparisonGap =
     gameStatus === "final"
-      ? (instrumentView.comparisonSummary?.maxGap ??
-        instrumentView.impliedProbabilityGap ??
-        null)
+      ? (instrumentView.comparisonSummary?.maxGap ?? instrumentView.impliedProbabilityGap ?? null)
       : (instrumentView.comparisonSummary?.latestGap ??
         instrumentView.impliedProbabilityGap ??
         null);
-  const severity = gapToSeverity(
-    comparisonGap ?? 0,
-    instrumentView.lineMismatch
-  );
+  const severity = gapToSeverity(comparisonGap ?? 0, instrumentView.lineMismatch);
   const signalPriority = computeSignalPriority(
     comparisonGap,
     instrumentView.sources,
     instrumentView.comparableState,
-    gameStatus === "in-play" && instrumentView.instrument.inPlay
+    gameStatus === "in-play" && instrumentView.instrument.inPlay,
   );
 
   return {
@@ -1043,9 +946,7 @@ function formatGameLabel(game: CanonicalGame) {
   return `${game.awayParticipant.shortName} at ${game.homeParticipant.shortName}`;
 }
 
-function deriveResearchGameStatus(
-  bundle: NonNullable<ReturnType<typeof selectGameBundle>>
-) {
+function deriveResearchGameStatus(bundle: NonNullable<ReturnType<typeof selectGameBundle>>) {
   if (bundle.outcome) {
     return "final" as const;
   }
@@ -1062,7 +963,7 @@ function isFreshInPlayGameStateSql(referenceNowExpression: string) {
 
 function isExpiredScheduledGhostGame(
   bundle: NonNullable<ReturnType<typeof selectGameBundle>>,
-  referenceNow: string
+  referenceNow: string,
 ) {
   if (bundle.outcome) return false;
   if (!bundle.gameState) return false;
@@ -1071,12 +972,9 @@ function isExpiredScheduledGhostGame(
     return false;
   }
   if (bundle.sourceMarkets.length > 0) {
-    const sources = new Set(
-      bundle.sourceMarkets.map((sourceMarket) => sourceMarket.source)
-    );
+    const sources = new Set(bundle.sourceMarkets.map((sourceMarket) => sourceMarket.source));
     const hasOnlyPolymarketCoverage =
-      sources.size > 0 &&
-      Array.from(sources).every((source) => source === "polymarket");
+      sources.size > 0 && Array.from(sources).every((source) => source === "polymarket");
     if (!hasOnlyPolymarketCoverage) {
       return false;
     }
@@ -1105,7 +1003,7 @@ function selectGameBundle(db: Database.Database, gameId: string) {
           scheduled_start AS scheduledStart
         FROM games
         WHERE id = ?
-      `
+      `,
     )
     .get(gameId) as Record<string, unknown> | undefined;
 
@@ -1120,11 +1018,11 @@ function selectGameBundle(db: Database.Database, gameId: string) {
   const sourceMarkets = selectSourceMarketsForGame(db, gameId);
   const latestTicks = selectLatestTicksBySourceMarketIds(
     db,
-    sourceMarkets.map((sourceMarket) => sourceMarket.id)
+    sourceMarkets.map((sourceMarket) => sourceMarket.id),
   );
   const latestPayloads = selectLatestRawPayloadsBySourceMarketIds(
     db,
-    sourceMarkets.map((sourceMarket) => sourceMarket.id)
+    sourceMarkets.map((sourceMarket) => sourceMarket.id),
   );
 
   return {
@@ -1140,17 +1038,15 @@ function selectGameBundle(db: Database.Database, gameId: string) {
 
 function buildGameCard(
   bundle: NonNullable<ReturnType<typeof selectGameBundle>>,
-  comparisonSummaries: Map<string, InstrumentDivergenceSummary> = new Map()
+  comparisonSummaries: Map<string, InstrumentDivergenceSummary> = new Map(),
 ) {
   const instrumentViews = bundle.instruments.map((instrument) => {
     const instrumentView = buildMarketInstrumentView(
       instrument,
-      bundle.sourceMarkets.filter(
-        (sourceMarket) => sourceMarket.instrumentId === instrument.id
-      ),
+      bundle.sourceMarkets.filter((sourceMarket) => sourceMarket.instrumentId === instrument.id),
       bundle.latestTicks,
       bundle.latestPayloads,
-      { game: bundle.game }
+      { game: bundle.game },
     );
     return {
       ...instrumentView,
@@ -1167,7 +1063,7 @@ function buildGameCard(
       const divergence = buildDivergenceRow(
         bundle.game,
         deriveResearchGameStatus(bundle),
-        instrumentView
+        instrumentView,
       );
       if (divergence.impliedProbabilityGap == null) {
         return [];
@@ -1184,9 +1080,7 @@ function buildGameCard(
         },
       ];
     })
-    .sort(
-      (left, right) => right.impliedProbabilityGap - left.impliedProbabilityGap
-    )
+    .sort((left, right) => right.impliedProbabilityGap - left.impliedProbabilityGap)
     .slice(0, 3);
 
   return {
@@ -1194,12 +1088,12 @@ function buildGameCard(
     coverage: computeCoverageSummary(
       bundle.sourceMarkets,
       bundle.latestTicks,
-      Boolean(bundle.gameState || bundle.outcome)
+      Boolean(bundle.gameState || bundle.outcome),
     ),
     game: bundle.game,
     gameState: bundle.gameState,
     hasUnmappedMarkets: bundle.sourceMarkets.some(
-      (sourceMarket) => sourceMarket.mappingStatus === "unmapped"
+      (sourceMarket) => sourceMarket.mappingStatus === "unmapped",
     ),
     outcome: bundle.outcome,
     topDivergences,
@@ -1214,13 +1108,10 @@ type ResearchDivergenceEntry = {
 
 function selectFilteredGameBundles(
   db: Database.Database,
-  filters: Pick<
-    GamesFilters,
-    "date" | "gameId" | "league" | "limit" | "referenceNow" | "sport"
-  > & {
+  filters: Pick<GamesFilters, "date" | "gameId" | "league" | "limit" | "referenceNow" | "sport"> & {
     family?: MarketFamily;
     order?: "currentSlate" | "scheduledAsc";
-  }
+  },
 ) {
   const clauses: string[] = [];
   const params: unknown[] = [];
@@ -1270,7 +1161,7 @@ function selectFilteredGameBundles(
   }
   if (filters.family) {
     clauses.push(
-      "EXISTS (SELECT 1 FROM market_instruments mi WHERE mi.game_id = games.id AND mi.family = ?)"
+      "EXISTS (SELECT 1 FROM market_instruments mi WHERE mi.game_id = games.id AND mi.family = ?)",
     );
     params.push(filters.family);
   }
@@ -1324,7 +1215,7 @@ function selectFilteredGameBundles(
       referenceNow,
       referenceNow,
       referenceNow,
-      referenceNow
+      referenceNow,
     );
   }
 
@@ -1347,7 +1238,7 @@ function selectFilteredGameBundles(
             ? `LIMIT ${Math.min(500, Math.max(1, Math.floor(filters.limit)))}`
             : ""
         }
-      `
+      `,
     )
     .all(...params, ...orderParams) as Record<string, unknown>[];
 
@@ -1392,7 +1283,7 @@ function selectFilteredGameBundles(
           WHERE game_id IN (${gamePlaceholders})
         )
         SELECT * FROM ranked WHERE rn = 1
-      `
+      `,
     )
     .all(referenceNow, ...gameIds) as Record<string, unknown>[];
   const latestStateByGame = new Map<string, CanonicalGameState>();
@@ -1412,7 +1303,7 @@ function selectFilteredGameBundles(
           captured_at AS capturedAt
         FROM game_outcomes
         WHERE game_id IN (${gamePlaceholders})
-      `
+      `,
     )
     .all(...gameIds) as Record<string, unknown>[];
   const outcomeByGame = new Map<string, GameOutcome>();
@@ -1443,7 +1334,7 @@ function selectFilteredGameBundles(
         FROM market_instruments
         WHERE ${instrumentClauses.join(" AND ")}
         ORDER BY display_label ASC
-      `
+      `,
     )
     .all(...instrumentParams) as Record<string, unknown>[];
   const instrumentsByGame = new Map<string, MarketInstrument[]>();
@@ -1481,7 +1372,7 @@ function selectFilteredGameBundles(
         FROM source_markets sm
         ${sourceMarketFamilyJoin}
         WHERE ${sourceMarketClauses.join(" AND ")}
-      `
+      `,
     )
     .all(...sourceMarketParams) as Record<string, unknown>[];
   const sourceMarketsByGame = new Map<string, SourceMarket[]>();
@@ -1494,15 +1385,10 @@ function selectFilteredGameBundles(
     sourceMarketsByGame.set(sourceMarket.gameId, list);
   }
 
-  const latestTicks = selectLatestTicksBySourceMarketIds(
-    db,
-    allSourceMarketIds
-  );
-  const latestPayloads = selectLatestRawPayloadsBySourceMarketIds(
-    db,
-    allSourceMarketIds,
-    { includePayloadJson: false }
-  );
+  const latestTicks = selectLatestTicksBySourceMarketIds(db, allSourceMarketIds);
+  const latestPayloads = selectLatestRawPayloadsBySourceMarketIds(db, allSourceMarketIds, {
+    includePayloadJson: false,
+  });
 
   return gameRows
     .map((gameRow) => {
@@ -1524,7 +1410,7 @@ function selectFilteredGameBundles(
 function compareDivergenceRows(
   left: DivergenceRow,
   right: DivergenceRow,
-  sort: DivergenceFilters["sort"]
+  sort: DivergenceFilters["sort"],
 ) {
   switch (sort) {
     case "captureRecency":
@@ -1534,7 +1420,7 @@ function compareDivergenceRows(
       );
     case "freshness":
       return freshnessBandFromMs(left.captureRecencyMs ?? null).localeCompare(
-        freshnessBandFromMs(right.captureRecencyMs ?? null)
+        freshnessBandFromMs(right.captureRecencyMs ?? null),
       );
     case "lineMismatch":
       return Number(right.lineMismatch) - Number(left.lineMismatch);
@@ -1542,9 +1428,7 @@ function compareDivergenceRows(
       return right.signalPriority - left.signalPriority;
     case "divergence":
     default:
-      return (
-        (right.impliedProbabilityGap ?? 0) - (left.impliedProbabilityGap ?? 0)
-      );
+      return (right.impliedProbabilityGap ?? 0) - (left.impliedProbabilityGap ?? 0);
   }
 }
 
@@ -1566,18 +1450,12 @@ function buildResearchDivergenceEntries(filters: DivergenceFilters = {}) {
         if (filters.family && instrument.family !== filters.family) {
           return false;
         }
-        if (
-          typeof filters.inPlay === "boolean" &&
-          instrument.inPlay !== filters.inPlay
-        ) {
+        if (typeof filters.inPlay === "boolean" && instrument.inPlay !== filters.inPlay) {
           return false;
         }
-        return hasBet365PlusExchangeSourceMarkets(
-          instrument.id,
-          bundle.sourceMarkets
-        );
+        return hasBet365PlusExchangeSourceMarkets(instrument.id, bundle.sourceMarkets);
       })
-      .map((instrument) => instrument.id)
+      .map((instrument) => instrument.id),
   );
   const candidateInstrumentIdSet = new Set(candidateInstrumentIds);
   const comparisonSummaries = getInstrumentDeltaSummaries({
@@ -1594,10 +1472,7 @@ function buildResearchDivergenceEntries(filters: DivergenceFilters = {}) {
         if (filters.family && instrument.family !== filters.family) {
           return false;
         }
-        if (
-          typeof filters.inPlay === "boolean" &&
-          instrument.inPlay !== filters.inPlay
-        ) {
+        if (typeof filters.inPlay === "boolean" && instrument.inPlay !== filters.inPlay) {
           return false;
         }
         return true;
@@ -1606,11 +1481,11 @@ function buildResearchDivergenceEntries(filters: DivergenceFilters = {}) {
         const instrumentView = buildMarketInstrumentView(
           instrument,
           bundle.sourceMarkets.filter(
-            (sourceMarket) => sourceMarket.instrumentId === instrument.id
+            (sourceMarket) => sourceMarket.instrumentId === instrument.id,
           ),
           bundle.latestTicks,
           bundle.latestPayloads,
-          { game: bundle.game }
+          { game: bundle.game },
         );
         const comparisonSummary =
           instrumentView.comparableState === "comparable"
@@ -1628,10 +1503,9 @@ function buildResearchDivergenceEntries(filters: DivergenceFilters = {}) {
         const row = buildDivergenceRow(
           bundle.game,
           deriveResearchGameStatus(bundle),
-          enrichedInstrumentView
+          enrichedInstrumentView,
         );
-        const keepLineMismatchEvidence =
-          row.lineMismatch && instrument.family !== "player-prop";
+        const keepLineMismatchEvidence = row.lineMismatch && instrument.family !== "player-prop";
         if (row.impliedProbabilityGap == null && !keepLineMismatchEvidence) {
           return [];
         }
@@ -1643,24 +1517,18 @@ function buildResearchDivergenceEntries(filters: DivergenceFilters = {}) {
             row,
           } satisfies ResearchDivergenceEntry,
         ];
-      })
+      }),
   );
 
   if (filters.mappedState) {
-    entries = entries.filter(
-      (entry) => entry.row.comparableState === filters.mappedState
-    );
+    entries = entries.filter((entry) => entry.row.comparableState === filters.mappedState);
   }
   if (filters.severity) {
-    entries = entries.filter(
-      (entry) => entry.row.severity === filters.severity
-    );
+    entries = entries.filter((entry) => entry.row.severity === filters.severity);
   }
   if (filters.freshness) {
     entries = entries.filter(
-      (entry) =>
-        freshnessBandFromMs(entry.row.captureRecencyMs ?? null) ===
-        filters.freshness
+      (entry) => freshnessBandFromMs(entry.row.captureRecencyMs ?? null) === filters.freshness,
     );
   }
   if (filters.sourceSet) {
@@ -1668,18 +1536,16 @@ function buildResearchDivergenceEntries(filters: DivergenceFilters = {}) {
       filters.sourceSet
         .split(",")
         .map((value) => value.trim())
-        .filter(Boolean)
+        .filter(Boolean),
     );
 
     entries = entries.filter((entry) =>
-      entry.instrumentView.sources.every((source) =>
-        requestedSources.has(source.source)
-      )
+      entry.instrumentView.sources.every((source) => requestedSources.has(source.source)),
     );
   }
 
   const sortedEntries = [...entries].sort((left, right) =>
-    compareDivergenceRows(left.row, right.row, filters.sort)
+    compareDivergenceRows(left.row, right.row, filters.sort),
   );
   if (filters.limit == null) {
     return sortedEntries;
@@ -1690,33 +1556,22 @@ function buildResearchDivergenceEntries(filters: DivergenceFilters = {}) {
 }
 
 function buildSignalMismatchRow(entry: ResearchDivergenceEntry) {
-  const bySource = new Map(
-    entry.instrumentView.sources.map((quote) => [quote.source, quote])
-  );
+  const bySource = new Map(entry.instrumentView.sources.map((quote) => [quote.source, quote]));
   const gameStatus = deriveResearchGameStatus(entry.bundle);
   const comparisonSources =
     gameStatus === "final"
       ? entry.instrumentView.comparisonSummary?.maxGapSourceProbabilities
       : entry.instrumentView.comparisonSummary?.latestSourceProbabilities;
-  const bet365 =
-    comparisonSources?.bet365 ??
-    bySource.get("bet365")?.impliedProbability ??
-    null;
-  const kalshi =
-    comparisonSources?.kalshi ??
-    bySource.get("kalshi")?.impliedProbability ??
-    null;
+  const bet365 = comparisonSources?.bet365 ?? bySource.get("bet365")?.impliedProbability ?? null;
+  const kalshi = comparisonSources?.kalshi ?? bySource.get("kalshi")?.impliedProbability ?? null;
   const polymarket =
-    comparisonSources?.polymarket ??
-    bySource.get("polymarket")?.impliedProbability ??
-    null;
+    comparisonSources?.polymarket ?? bySource.get("polymarket")?.impliedProbability ?? null;
   const externalValues = [kalshi, polymarket].filter(
-    (value): value is number => typeof value === "number"
+    (value): value is number => typeof value === "number",
   );
   const externalAverage =
     externalValues.length > 0
-      ? externalValues.reduce((sum, value) => sum + value, 0) /
-        externalValues.length
+      ? externalValues.reduce((sum, value) => sum + value, 0) / externalValues.length
       : null;
 
   return {
@@ -1725,8 +1580,7 @@ function buildSignalMismatchRow(entry: ResearchDivergenceEntry) {
     directionalDisagreement:
       typeof bet365 === "number" &&
       typeof externalAverage === "number" &&
-      ((bet365 >= 0.5 && externalAverage < 0.5) ||
-        (bet365 < 0.5 && externalAverage >= 0.5)),
+      ((bet365 >= 0.5 && externalAverage < 0.5) || (bet365 < 0.5 && externalAverage >= 0.5)),
     finalAwayScore: entry.bundle.outcome?.finalAwayScore ?? null,
     finalHomeScore: entry.bundle.outcome?.finalHomeScore ?? null,
     gameLabel: formatGameLabel(entry.bundle.game),
@@ -1783,99 +1637,63 @@ function clampAnomalyLimit(value: number | undefined) {
   return Math.min(100, Math.max(1, Math.floor(value)));
 }
 
-function normalizeScoreConfig(
-  config: Partial<MarketAnomalyScoreConfig> | null | undefined
-) {
+function normalizeScoreConfig(config: Partial<MarketAnomalyScoreConfig> | null | undefined) {
   const base = defaultMarketAnomalyScoreConfig;
   const families =
-    config?.families?.filter((family): family is MarketFamily =>
-      marketFamilies.includes(family)
-    ) ?? base.families;
+    config?.families?.filter((family): family is MarketFamily => marketFamilies.includes(family)) ??
+    base.families;
   return {
     contextWindowMinutes: normalizeAlertNumber(
       config?.contextWindowMinutes,
       base.contextWindowMinutes,
-      1
+      1,
     ),
     families: families.length > 0 ? families : base.families,
-    minConfidence: clampScorePercent(
-      config?.minConfidence ?? base.minConfidence
-    ),
+    minConfidence: clampScorePercent(config?.minConfidence ?? base.minConfidence),
     minScore: normalizeAlertNumber(config?.minScore, base.minScore, 0),
     profileId: config?.profileId || base.profileId,
     shockWindowSeconds: normalizeAlertNumber(
       config?.shockWindowSeconds,
       base.shockWindowSeconds,
-      1
+      1,
     ),
     thresholds: {
       depthScoreDrop: normalizeAlertNumber(
         config?.thresholds?.depthScoreDrop,
         base.thresholds.depthScoreDrop,
-        0
+        0,
       ),
       maxQuoteAgeMinutes: normalizeAlertNumber(
         config?.thresholds?.maxQuoteAgeMinutes,
         base.thresholds.maxQuoteAgeMinutes,
-        0
+        0,
       ),
-      priceJump: normalizeAlertNumber(
-        config?.thresholds?.priceJump,
-        base.thresholds.priceJump,
-        0
-      ),
-      spread: normalizeAlertNumber(
-        config?.thresholds?.spread,
-        base.thresholds.spread,
-        0
-      ),
+      priceJump: normalizeAlertNumber(config?.thresholds?.priceJump, base.thresholds.priceJump, 0),
+      spread: normalizeAlertNumber(config?.thresholds?.spread, base.thresholds.spread, 0),
       tradeDistance: normalizeAlertNumber(
         config?.thresholds?.tradeDistance,
         base.thresholds.tradeDistance,
-        0
+        0,
       ),
       volumeShare: normalizeAlertNumber(
         config?.thresholds?.volumeShare,
         base.thresholds.volumeShare,
-        0
+        0,
       ),
     },
     toggles: {
-      includeHistorical:
-        config?.toggles?.includeHistorical ?? base.toggles.includeHistorical,
-      includeUnmapped:
-        config?.toggles?.includeUnmapped ?? base.toggles.includeUnmapped,
-      requireBet365:
-        config?.toggles?.requireBet365 ?? base.toggles.requireBet365,
+      includeHistorical: config?.toggles?.includeHistorical ?? base.toggles.includeHistorical,
+      includeUnmapped: config?.toggles?.includeUnmapped ?? base.toggles.includeUnmapped,
+      requireBet365: config?.toggles?.requireBet365 ?? base.toggles.requireBet365,
     },
     updatedAt: config?.updatedAt ?? null,
     updatedBy: config?.updatedBy ?? null,
     weights: {
-      crossVenue: normalizeAlertNumber(
-        config?.weights?.crossVenue,
-        base.weights.crossVenue,
-        0
-      ),
-      liquidity: normalizeAlertNumber(
-        config?.weights?.liquidity,
-        base.weights.liquidity,
-        0
-      ),
-      offPrice: normalizeAlertNumber(
-        config?.weights?.offPrice,
-        base.weights.offPrice,
-        0
-      ),
-      volatility: normalizeAlertNumber(
-        config?.weights?.volatility,
-        base.weights.volatility,
-        0
-      ),
-      volumeShare: normalizeAlertNumber(
-        config?.weights?.volumeShare,
-        base.weights.volumeShare,
-        0
-      ),
+      crossVenue: normalizeAlertNumber(config?.weights?.crossVenue, base.weights.crossVenue, 0),
+      liquidity: normalizeAlertNumber(config?.weights?.liquidity, base.weights.liquidity, 0),
+      offPrice: normalizeAlertNumber(config?.weights?.offPrice, base.weights.offPrice, 0),
+      volatility: normalizeAlertNumber(config?.weights?.volatility, base.weights.volatility, 0),
+      volumeShare: normalizeAlertNumber(config?.weights?.volumeShare, base.weights.volumeShare, 0),
     },
   } satisfies MarketAnomalyScoreConfig;
 }
@@ -1895,7 +1713,7 @@ export function getMarketAnomalyScoreConfig(profileId = "default") {
               updated_by AS updatedBy
             FROM market_anomaly_score_configs
             WHERE profile_id = ?
-          `
+          `,
         )
         .get(profileId) as Record<string, unknown> | undefined;
 
@@ -1903,10 +1721,7 @@ export function getMarketAnomalyScoreConfig(profileId = "default") {
         return normalizeScoreConfig({ profileId });
       }
 
-      const config = parseJson<Partial<MarketAnomalyScoreConfig>>(
-        String(row.configJson),
-        {}
-      );
+      const config = parseJson<Partial<MarketAnomalyScoreConfig>>(String(row.configJson), {});
       return normalizeScoreConfig({
         ...config,
         profileId: String(row.profileId),
@@ -1914,13 +1729,13 @@ export function getMarketAnomalyScoreConfig(profileId = "default") {
         updatedBy: String(row.updatedBy),
       });
     },
-    { profileId }
+    { profileId },
   );
 }
 
 export function upsertMarketAnomalyScoreConfig(
   config: Partial<MarketAnomalyScoreConfig>,
-  options: { updatedBy?: string } = {}
+  options: { updatedBy?: string } = {},
 ) {
   return executeDatabaseOperation(
     "marketAnomalyScoreConfig.upsert",
@@ -1945,12 +1760,12 @@ export function upsertMarketAnomalyScoreConfig(
             config_json = excluded.config_json,
             updated_at = excluded.updated_at,
             updated_by = excluded.updated_by
-        `
+        `,
       ).run(
         normalized.profileId,
         stringifyJson(normalized),
         updatedAt,
-        normalized.updatedBy ?? "operator"
+        normalized.updatedBy ?? "operator",
       );
 
       return normalized;
@@ -1958,7 +1773,7 @@ export function upsertMarketAnomalyScoreConfig(
     {
       profileId: config.profileId ?? "default",
       updatedBy: options.updatedBy ?? "operator",
-    }
+    },
   );
 }
 
@@ -2002,35 +1817,29 @@ function familyFromRaw(value: unknown): MarketFamily | null {
     return null;
   }
 
-  return marketFamilies.includes(value as MarketFamily)
-    ? (value as MarketFamily)
-    : null;
+  return marketFamilies.includes(value as MarketFamily) ? (value as MarketFamily) : null;
 }
 
 function buildGameLabelFromRows(row: Record<string, unknown>) {
   const away = parseJson<{ shortName?: string }>(
     row.awayParticipantJson == null ? null : String(row.awayParticipantJson),
-    {}
+    {},
   );
   const home = parseJson<{ shortName?: string }>(
     row.homeParticipantJson == null ? null : String(row.homeParticipantJson),
-    {}
+    {},
   );
   return `${away.shortName ?? "Away"} at ${home.shortName ?? "Home"}`;
 }
 
-function marketAnomalyCandidateFromRow(
-  row: Record<string, unknown>
-): MarketAnomalyCandidate {
+function marketAnomalyCandidateFromRow(row: Record<string, unknown>): MarketAnomalyCandidate {
   const rawFamily = row.rawFamily == null ? null : String(row.rawFamily);
   const family = familyFromRaw(row.family) ?? familyFromRaw(rawFamily);
   const bestBid = nullableNumber(row.bestBid);
   const bestAsk = nullableNumber(row.bestAsk);
   const spread =
     nullableNumber(row.spread) ??
-    (bestBid != null && bestAsk != null
-      ? Math.max(0, bestAsk - bestBid)
-      : null);
+    (bestBid != null && bestAsk != null ? Math.max(0, bestAsk - bestBid) : null);
   return {
     apiSurface: String(row.apiSurface),
     bestAsk,
@@ -2059,8 +1868,7 @@ function marketAnomalyCandidateFromRow(
     source: String(row.source) as MarketAnomalyAlert["source"],
     sourceMarketId: String(row.sourceMarketId),
     sourceMarketKey: String(row.sourceMarketKey),
-    sourceSelectionKey:
-      row.sourceSelectionKey == null ? null : String(row.sourceSelectionKey),
+    sourceSelectionKey: row.sourceSelectionKey == null ? null : String(row.sourceSelectionKey),
     sport: String(row.sport),
     spread,
     tradePrice: nullableNumber(row.tradePrice),
@@ -2072,7 +1880,7 @@ function marketAnomalyCandidateFromRow(
 function selectCrossVenueContext(
   db: Database.Database,
   candidate: MarketAnomalyCandidate,
-  config: MarketAnomalyScoreConfig
+  config: MarketAnomalyScoreConfig,
 ) {
   if (!candidate.instrumentId) {
     return {
@@ -2081,9 +1889,7 @@ function selectCrossVenueContext(
     };
   }
 
-  const eventSeconds = Math.floor(
-    timestampValue(candidate.eventTimestamp) / 1000
-  );
+  const eventSeconds = Math.floor(timestampValue(candidate.eventTimestamp) / 1000);
   if (!Number.isFinite(eventSeconds) || eventSeconds < 0) {
     return {
       gap: null as number | null,
@@ -2091,8 +1897,7 @@ function selectCrossVenueContext(
     };
   }
 
-  const candidatePrice =
-    candidate.tradePrice ?? candidate.price ?? candidate.previousPrice;
+  const candidatePrice = candidate.tradePrice ?? candidate.price ?? candidate.previousPrice;
   const rows = db
     .prepare(
       `
@@ -2116,14 +1921,14 @@ function selectCrossVenueContext(
           AND sm.source IN ('bet365', 'kalshi', 'polymarket')
           AND sm.source != ?
           AND sm.mapping_status != 'unmapped'
-      `
+      `,
     )
     .all(
       eventSeconds,
       config.contextWindowMinutes * 60,
       eventSeconds,
       candidate.instrumentId,
-      candidate.source
+      candidate.source,
     ) as Record<string, unknown>[];
 
   let gap: number | null = null;
@@ -2135,14 +1940,10 @@ function selectCrossVenueContext(
     }
     const midpoint =
       nullableNumber(row.bestBid) != null && nullableNumber(row.bestAsk) != null
-        ? ((nullableNumber(row.bestBid) ?? 0) +
-            (nullableNumber(row.bestAsk) ?? 0)) /
-          2
+        ? ((nullableNumber(row.bestBid) ?? 0) + (nullableNumber(row.bestAsk) ?? 0)) / 2
         : null;
     const rowPrice =
-      nullableNumber(row.impliedProbability) ??
-      nullableNumber(row.priceRaw) ??
-      midpoint;
+      nullableNumber(row.impliedProbability) ?? nullableNumber(row.priceRaw) ?? midpoint;
     if (candidatePrice == null || rowPrice == null) {
       continue;
     }
@@ -2155,11 +1956,11 @@ function selectCrossVenueContext(
 
 function scoreMarketAnomalyComponents(
   components: MarketAnomalyScoreComponents,
-  config: MarketAnomalyScoreConfig
+  config: MarketAnomalyScoreConfig,
 ) {
   const weightTotal = Math.max(
     0.001,
-    Object.values(config.weights).reduce((sum, value) => sum + value, 0)
+    Object.values(config.weights).reduce((sum, value) => sum + value, 0),
   );
   return Math.round(
     (components.crossVenue * config.weights.crossVenue +
@@ -2167,7 +1968,7 @@ function scoreMarketAnomalyComponents(
       components.offPrice * config.weights.offPrice +
       components.volatility * config.weights.volatility +
       components.volumeShare * config.weights.volumeShare) *
-      (100 / weightTotal)
+      (100 / weightTotal),
   );
 }
 
@@ -2177,10 +1978,7 @@ function normalizeVolumeShare(value: number | null | undefined) {
   return value;
 }
 
-function confidenceForMarketAnomalyCandidate(
-  candidate: MarketAnomalyCandidate,
-  score: number
-) {
+function confidenceForMarketAnomalyCandidate(candidate: MarketAnomalyCandidate, score: number) {
   const surface = candidate.apiSurface.toLowerCase();
   const typeConfidence =
     candidate.eventType === "trade"
@@ -2195,22 +1993,19 @@ function confidenceForMarketAnomalyCandidate(
   return clampScorePercent(
     typeConfidence -
       (candidate.mappingStatus === "unmapped" ? 0.15 : 0) +
-      Math.min(0.1, score / 1000)
+      Math.min(0.1, score / 1000),
   );
 }
 
 function scoreMarketAnomalyCandidate(
   db: Database.Database,
   candidate: MarketAnomalyCandidate,
-  config: MarketAnomalyScoreConfig
+  config: MarketAnomalyScoreConfig,
 ): MarketAnomalyAlert | null {
   if (candidate.family && !config.families.includes(candidate.family)) {
     return null;
   }
-  if (
-    !config.toggles.includeUnmapped &&
-    candidate.mappingStatus === "unmapped"
-  ) {
+  if (!config.toggles.includeUnmapped && candidate.mappingStatus === "unmapped") {
     return null;
   }
 
@@ -2234,7 +2029,7 @@ function scoreMarketAnomalyCandidate(
         candidate.finalMarketVolume > 0 &&
         candidate.size != null
         ? candidate.size / candidate.finalMarketVolume
-        : null
+        : null,
     );
   const spread =
     candidate.spread ??
@@ -2249,23 +2044,17 @@ function scoreMarketAnomalyCandidate(
         candidate.depthScore == null
           ? 0
           : (config.thresholds.depthScoreDrop - candidate.depthScore) /
-              Math.max(config.thresholds.depthScoreDrop, 1)
-      )
+              Math.max(config.thresholds.depthScoreDrop, 1),
+      ),
     ),
     offPrice: clampScorePercent(
-      tradeDistance == null
-        ? 0
-        : tradeDistance / Math.max(config.thresholds.tradeDistance, 0.001)
+      tradeDistance == null ? 0 : tradeDistance / Math.max(config.thresholds.tradeDistance, 0.001),
     ),
     volatility: clampScorePercent(
-      priceChange == null
-        ? 0
-        : priceChange / Math.max(config.thresholds.priceJump, 0.001)
+      priceChange == null ? 0 : priceChange / Math.max(config.thresholds.priceJump, 0.001),
     ),
     volumeShare: clampScorePercent(
-      volumeShare == null
-        ? 0
-        : volumeShare / Math.max(config.thresholds.volumeShare, 0.001)
+      volumeShare == null ? 0 : volumeShare / Math.max(config.thresholds.volumeShare, 0.001),
     ),
   };
   const maxPossibleScore = scoreMarketAnomalyComponents(
@@ -2273,17 +2062,11 @@ function scoreMarketAnomalyCandidate(
       ...componentsWithoutCrossVenue,
       crossVenue: 1,
     },
-    config
+    config,
   );
-  const maxPossibleConfidence = confidenceForMarketAnomalyCandidate(
-    candidate,
-    maxPossibleScore
-  );
+  const maxPossibleConfidence = confidenceForMarketAnomalyCandidate(candidate, maxPossibleScore);
 
-  if (
-    maxPossibleScore < config.minScore ||
-    maxPossibleConfidence < config.minConfidence
-  ) {
+  if (maxPossibleScore < config.minScore || maxPossibleConfidence < config.minConfidence) {
     return null;
   }
 
@@ -2295,9 +2078,7 @@ function scoreMarketAnomalyCandidate(
   const components = {
     ...componentsWithoutCrossVenue,
     crossVenue: clampScorePercent(
-      crossVenue.gap == null
-        ? 0
-        : crossVenue.gap / Math.max(config.thresholds.priceJump, 0.001)
+      crossVenue.gap == null ? 0 : crossVenue.gap / Math.max(config.thresholds.priceJump, 0.001),
     ),
   };
   const score = scoreMarketAnomalyComponents(components, config);
@@ -2311,11 +2092,7 @@ function scoreMarketAnomalyCandidate(
   if (components.offPrice > 0) labels.push("isolated off-price print");
   if (components.volumeShare > 0) labels.push("volume-share anomaly");
   if (components.volatility > 0) {
-    labels.push(
-      candidate.eventType === "trade"
-        ? "volatility shock"
-        : "sustained repricing"
-    );
+    labels.push(candidate.eventType === "trade" ? "volatility shock" : "sustained repricing");
   }
   if (components.liquidity > 0) labels.push("liquidity shock");
   if (components.crossVenue > 0) labels.push("cross-venue disagreement");
@@ -2375,10 +2152,7 @@ function scoreMarketAnomalyCandidate(
   } satisfies MarketAnomalyAlert;
 }
 
-function buildAnomalyWhereClause(
-  filters: MarketAnomalyFilters,
-  config: MarketAnomalyScoreConfig
-) {
+function buildAnomalyWhereClause(filters: MarketAnomalyFilters, config: MarketAnomalyScoreConfig) {
   const clauses = ["sm.source IN ('bet365', 'kalshi', 'polymarket')"];
   const params: unknown[] = [];
 
@@ -2416,8 +2190,7 @@ function buildAnomalyWhereClause(
     `);
   }
   if (!filters.date && !config.toggles.includeHistorical) {
-    const nowMs =
-      filters.now == null ? Date.now() : timestampValue(filters.now);
+    const nowMs = filters.now == null ? Date.now() : timestampValue(filters.now);
     const maxAgeMinutes = Math.max(1, config.thresholds.maxQuoteAgeMinutes);
     if (Number.isFinite(nowMs)) {
       clauses.push("datetime(EVENT_TIME_COLUMN) >= datetime(?)");
@@ -2431,7 +2204,7 @@ function buildAnomalyWhereClause(
 function selectMicrostructureAnomalyCandidates(
   db: Database.Database,
   filters: MarketAnomalyFilters,
-  config: MarketAnomalyScoreConfig
+  config: MarketAnomalyScoreConfig,
 ) {
   const where = buildAnomalyWhereClause(filters, config);
   const whereSql = where.clauses
@@ -2481,7 +2254,7 @@ function selectMicrostructureAnomalyCandidates(
         WHERE ${whereSql}
         ORDER BY datetime(mme.event_timestamp) DESC, mme.id DESC
         LIMIT 2000
-      `
+      `,
     )
     .all(...where.params) as Record<string, unknown>[];
 
@@ -2491,12 +2264,10 @@ function selectMicrostructureAnomalyCandidates(
 function selectQuoteAnomalyCandidates(
   db: Database.Database,
   filters: MarketAnomalyFilters,
-  config: MarketAnomalyScoreConfig
+  config: MarketAnomalyScoreConfig,
 ) {
   const where = buildAnomalyWhereClause(filters, config);
-  const whereSql = where.clauses
-    .join(" AND ")
-    .replaceAll("EVENT_TIME_COLUMN", "q.captured_at");
+  const whereSql = where.clauses.join(" AND ").replaceAll("EVENT_TIME_COLUMN", "q.captured_at");
   const useLiveWindow = !filters.date && !config.toggles.includeHistorical;
   const recentQuoteLimit = useLiveWindow ? 1000 : 500;
 
@@ -2580,12 +2351,9 @@ function selectQuoteAnomalyCandidates(
         WHERE ${whereSql}
         ORDER BY q.captured_at DESC, q.id DESC
         LIMIT 2000
-      `
+      `,
     )
-    .all(...(useLiveWindow ? [] : where.params), ...where.params) as Record<
-    string,
-    unknown
-  >[];
+    .all(...(useLiveWindow ? [] : where.params), ...where.params) as Record<string, unknown>[];
 
   return rows.map(marketAnomalyCandidateFromRow);
 }
@@ -2598,18 +2366,13 @@ export function listMarketAnomalyAlerts(filters: MarketAnomalyFilters = {}) {
       const db = getDatabase();
       const config = normalizeScoreConfig({
         ...storedConfig,
-        ...(filters.minConfidence != null
-          ? { minConfidence: filters.minConfidence }
-          : {}),
+        ...(filters.minConfidence != null ? { minConfidence: filters.minConfidence } : {}),
         ...(filters.minScore != null ? { minScore: filters.minScore } : {}),
         toggles: {
           ...storedConfig.toggles,
-          includeHistorical:
-            filters.includeHistorical ?? storedConfig.toggles.includeHistorical,
-          includeUnmapped:
-            filters.includeUnmapped ?? storedConfig.toggles.includeUnmapped,
-          requireBet365:
-            filters.requireBet365 ?? storedConfig.toggles.requireBet365,
+          includeHistorical: filters.includeHistorical ?? storedConfig.toggles.includeHistorical,
+          includeUnmapped: filters.includeUnmapped ?? storedConfig.toggles.includeUnmapped,
+          requireBet365: filters.requireBet365 ?? storedConfig.toggles.requireBet365,
         },
       });
       const limit = clampAnomalyLimit(filters.limit);
@@ -2634,14 +2397,11 @@ export function listMarketAnomalyAlerts(filters: MarketAnomalyFilters = {}) {
           if (right.score !== left.score) {
             return right.score - left.score;
           }
-          return (
-            timestampValue(right.eventTimestamp) -
-            timestampValue(left.eventTimestamp)
-          );
+          return timestampValue(right.eventTimestamp) - timestampValue(left.eventTimestamp);
         })
         .slice(0, limit);
     },
-    filters
+    filters,
   );
 }
 
@@ -2677,7 +2437,7 @@ export function upsertGame(game: CanonicalGame) {
             home_participant_json = excluded.home_participant_json,
             away_participant_json = excluded.away_participant_json,
             scheduled_start = excluded.scheduled_start
-        `
+        `,
       ).run({
         awayParticipantJson: stringifyJson(game.awayParticipant),
         homeParticipantJson: stringifyJson(game.homeParticipant),
@@ -2690,13 +2450,11 @@ export function upsertGame(game: CanonicalGame) {
     },
     {
       gameId: game.id,
-    }
+    },
   );
 }
 
-export function recordGameStateObservation(
-  input: Omit<CanonicalGameState, "id">
-) {
+export function recordGameStateObservation(input: Omit<CanonicalGameState, "id">) {
   return executeDatabaseOperation(
     "gameStates.observe",
     () => {
@@ -2744,7 +2502,7 @@ export function recordGameStateObservation(
               final_at
             )
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-          `
+          `,
         )
         .run(
           input.gameId,
@@ -2756,7 +2514,7 @@ export function recordGameStateObservation(
           input.awayScore ?? null,
           input.isFinal ? 1 : 0,
           input.startedAt ?? null,
-          input.finalAt ?? null
+          input.finalAt ?? null,
         );
 
       return {
@@ -2771,7 +2529,7 @@ export function recordGameStateObservation(
     {
       gameId: input.gameId,
       status: input.status,
-    }
+    },
   );
 }
 
@@ -2825,7 +2583,7 @@ export function recordNbaPlayByPlayActions(input: {
             time_actual = excluded.time_actual,
             captured_at = excluded.captured_at,
             raw_metadata_json = excluded.raw_metadata_json
-        `
+        `,
       );
 
       const run = db.transaction(() => {
@@ -2844,7 +2602,7 @@ export function recordNbaPlayByPlayActions(input: {
             action.teamTricode ?? null,
             action.timeActual ?? null,
             input.capturedAt,
-            stringifyJson(action.rawMetadata ?? action)
+            stringifyJson(action.rawMetadata ?? action),
           );
           written += result.changes;
         }
@@ -2858,7 +2616,7 @@ export function recordNbaPlayByPlayActions(input: {
     },
     {
       gameId: input.gameId,
-    }
+    },
   );
 }
 
@@ -2888,7 +2646,7 @@ export function upsertMarketInstrument(instrument: MarketInstrument) {
             participant_key = excluded.participant_key,
             in_play = excluded.in_play,
             display_label = excluded.display_label
-        `
+        `,
       ).run(
         instrument.id,
         instrument.gameId,
@@ -2897,13 +2655,13 @@ export function upsertMarketInstrument(instrument: MarketInstrument) {
         instrument.line ?? null,
         instrument.participantKey ?? null,
         instrument.inPlay ? 1 : 0,
-        instrument.displayLabel
+        instrument.displayLabel,
       );
     },
     {
       gameId: instrument.gameId,
       instrumentId: instrument.id,
-    }
+    },
   );
 }
 
@@ -2937,7 +2695,7 @@ export function upsertSourceMarket(sourceMarket: SourceMarket) {
             raw_label = excluded.raw_label,
             mapping_status = excluded.mapping_status,
             raw_metadata_json = excluded.raw_metadata_json
-        `
+        `,
       ).run(
         sourceMarket.id,
         sourceMarket.source,
@@ -2948,13 +2706,13 @@ export function upsertSourceMarket(sourceMarket: SourceMarket) {
         sourceMarket.rawFamily ?? null,
         sourceMarket.rawLabel ?? null,
         sourceMarket.mappingStatus,
-        stringifyJson(sourceMarket.rawMetadata)
+        stringifyJson(sourceMarket.rawMetadata),
       );
     },
     {
       source: sourceMarket.source,
       sourceMarketId: sourceMarket.id,
-    }
+    },
   );
 }
 
@@ -2965,9 +2723,7 @@ export type HistoricalTickResult = {
   inserted: boolean;
 };
 
-export function appendHistoricalTick(
-  tick: HistoricalTickInput
-): HistoricalTickResult {
+export function appendHistoricalTick(tick: HistoricalTickInput): HistoricalTickResult {
   return executeDatabaseOperation(
     "quoteTicks.appendHistorical",
     () => {
@@ -2989,7 +2745,7 @@ export function appendHistoricalTick(
               is_heartbeat
             )
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
-          `
+          `,
         )
         .run(
           tick.sourceMarketId,
@@ -3001,7 +2757,7 @@ export function appendHistoricalTick(
           tick.bestBid ?? null,
           tick.bestAsk ?? null,
           tick.volume ?? null,
-          tick.depthScore ?? null
+          tick.depthScore ?? null,
         );
 
       return {
@@ -3011,7 +2767,7 @@ export function appendHistoricalTick(
     },
     {
       sourceMarketId: tick.sourceMarketId,
-    }
+    },
   );
 }
 
@@ -3038,7 +2794,7 @@ export function appendQuoteTick(tick: Omit<QuoteTick, "id">) {
             )
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(source_market_id, captured_at) DO NOTHING
-          `
+          `,
         )
         .run(
           tick.sourceMarketId,
@@ -3051,7 +2807,7 @@ export function appendQuoteTick(tick: Omit<QuoteTick, "id">) {
           tick.bestAsk ?? null,
           tick.volume ?? null,
           tick.depthScore ?? null,
-          tick.isHeartbeat ? 1 : 0
+          tick.isHeartbeat ? 1 : 0,
         );
 
       if (result.changes === 0) {
@@ -3076,11 +2832,9 @@ export function appendQuoteTick(tick: Omit<QuoteTick, "id">) {
                 WHERE source_market_id = ?
                   AND captured_at = ?
                 LIMIT 1
-              `
+              `,
             )
-            .get(tick.sourceMarketId, tick.capturedAt) as
-            | Record<string, unknown>
-            | undefined
+            .get(tick.sourceMarketId, tick.capturedAt) as Record<string, unknown> | undefined,
         );
         if (existing) return existing;
       }
@@ -3092,7 +2846,7 @@ export function appendQuoteTick(tick: Omit<QuoteTick, "id">) {
     },
     {
       sourceMarketId: tick.sourceMarketId,
-    }
+    },
   );
 }
 
@@ -3122,11 +2876,9 @@ export function recordQuoteObservation(input: QuoteObservationInput) {
               WHERE source_market_id = ?
                 AND captured_at = ?
               LIMIT 1
-            `
+            `,
           )
-          .get(input.sourceMarketId, input.capturedAt) as
-          | Record<string, unknown>
-          | undefined
+          .get(input.sourceMarketId, input.capturedAt) as Record<string, unknown> | undefined,
       );
 
       if (existingAtCapturedAt) {
@@ -3158,9 +2910,9 @@ export function recordQuoteObservation(input: QuoteObservationInput) {
               WHERE source_market_id = ?
               ORDER BY captured_at DESC, id DESC
               LIMIT 1
-            `
+            `,
           )
-          .get(input.sourceMarketId) as Record<string, unknown> | undefined
+          .get(input.sourceMarketId) as Record<string, unknown> | undefined,
       );
 
       const sameShape =
@@ -3177,8 +2929,7 @@ export function recordQuoteObservation(input: QuoteObservationInput) {
       if (sameShape && latest) {
         const heartbeatAfterMs = input.heartbeatAfterMs ?? 0;
         const elapsedMs =
-          new Date(input.capturedAt).getTime() -
-          new Date(latest.capturedAt).getTime();
+          new Date(input.capturedAt).getTime() - new Date(latest.capturedAt).getTime();
 
         if (heartbeatAfterMs > 0 && elapsedMs >= heartbeatAfterMs) {
           const heartbeatTick = appendQuoteTick({
@@ -3213,7 +2964,7 @@ export function recordQuoteObservation(input: QuoteObservationInput) {
     },
     {
       sourceMarketId: input.sourceMarketId,
-    }
+    },
   );
 }
 
@@ -3240,14 +2991,11 @@ export function recordRawPayload(input: {
               AND content_hash = ?
             ORDER BY datetime(captured_at) DESC, id DESC
             LIMIT 1
-          `
+          `,
         )
-        .get(
-          input.source,
-          input.entityType,
-          input.entityId,
-          input.contentHash
-        ) as { id: number } | undefined;
+        .get(input.source, input.entityType, input.entityId, input.contentHash) as
+        | { id: number }
+        | undefined;
       if (existing) {
         return {
           ...input,
@@ -3266,7 +3014,7 @@ export function recordRawPayload(input: {
               content_hash
             )
             VALUES (?, ?, ?, ?, ?, ?)
-          `
+          `,
         )
         .run(
           input.source,
@@ -3274,7 +3022,7 @@ export function recordRawPayload(input: {
           input.entityType,
           input.entityId,
           JSON.stringify(input.payloadJson),
-          input.contentHash
+          input.contentHash,
         );
 
       return {
@@ -3285,13 +3033,11 @@ export function recordRawPayload(input: {
     {
       entityId: input.entityId,
       source: input.source,
-    }
+    },
   );
 }
 
-export function recordMarketMicrostructureEvent(
-  input: MarketMicrostructureEventInput
-) {
+export function recordMarketMicrostructureEvent(input: MarketMicrostructureEventInput) {
   return executeDatabaseOperation(
     "marketMicrostructureEvents.append",
     () => {
@@ -3325,7 +3071,7 @@ export function recordMarketMicrostructureEvent(
               raw_metadata_json
             )
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-          `
+          `,
         )
         .run(
           input.source,
@@ -3349,7 +3095,7 @@ export function recordMarketMicrostructureEvent(
           input.spread ?? null,
           input.depthScore ?? null,
           input.rawPayloadId ?? null,
-          stringifyJson(input.rawMetadata)
+          stringifyJson(input.rawMetadata),
         );
 
       return {
@@ -3369,7 +3115,7 @@ export function recordMarketMicrostructureEvent(
       eventType: input.eventType,
       source: input.source,
       sourceMarketId: input.sourceMarketId,
-    }
+    },
   );
 }
 
@@ -3405,7 +3151,7 @@ export function recordAdapterRun(input: {
               capture_mode
             )
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-          `
+          `,
         )
         .run(
           input.source,
@@ -3416,7 +3162,7 @@ export function recordAdapterRun(input: {
           input.errorMessage ?? null,
           input.recordsSeen ?? 0,
           input.recordsWritten ?? 0,
-          input.captureMode ?? "live"
+          input.captureMode ?? "live",
         );
 
       return Number(result.lastInsertRowid);
@@ -3425,7 +3171,7 @@ export function recordAdapterRun(input: {
       captureMode: input.captureMode ?? "live",
       source: input.source,
       status: input.status,
-    }
+    },
   );
 }
 
@@ -3449,18 +3195,18 @@ export function upsertGameOutcome(outcome: GameOutcome) {
             final_away_score = excluded.final_away_score,
             winner_key = excluded.winner_key,
             captured_at = excluded.captured_at
-        `
+        `,
       ).run(
         outcome.gameId,
         outcome.finalHomeScore,
         outcome.finalAwayScore,
         outcome.winnerKey ?? null,
-        outcome.capturedAt
+        outcome.capturedAt,
       );
     },
     {
       gameId: outcome.gameId,
-    }
+    },
   );
 }
 
@@ -3492,16 +3238,13 @@ export function resolveSourceMarketMapping(input: {
         .prepare("SELECT id FROM market_instruments WHERE id = ?")
         .get(input.instrumentId) as { id: string } | undefined;
       if (!instrument) {
-        throw new DatabaseFailureError(
-          "Target market instrument could not be resolved.",
-          {
-            details: {
-              instrumentId: input.instrumentId,
-            },
-            operatorHint:
-              "Create or locate the target canonical instrument before linking the source market.",
-          }
-        );
+        throw new DatabaseFailureError("Target market instrument could not be resolved.", {
+          details: {
+            instrumentId: input.instrumentId,
+          },
+          operatorHint:
+            "Create or locate the target canonical instrument before linking the source market.",
+        });
       }
 
       db.prepare(
@@ -3509,7 +3252,7 @@ export function resolveSourceMarketMapping(input: {
           UPDATE source_markets
           SET instrument_id = ?, mapping_status = 'manual'
           WHERE id = ?
-        `
+        `,
       ).run(input.instrumentId, input.sourceMarketId);
 
       const resolvedAt = currentTimestamp();
@@ -3524,22 +3267,16 @@ export function resolveSourceMarketMapping(input: {
               reason
             )
             VALUES (?, ?, ?, ?, ?)
-          `
+          `,
         )
-        .run(
-          input.sourceMarketId,
-          input.instrumentId,
-          input.resolvedBy,
-          resolvedAt,
-          input.reason
-        );
+        .run(input.sourceMarketId, input.instrumentId, input.resolvedBy, resolvedAt, input.reason);
 
       return Number(result.lastInsertRowid);
     },
     {
       instrumentId: input.instrumentId,
       sourceMarketId: input.sourceMarketId,
-    }
+    },
   );
 }
 
@@ -3561,14 +3298,14 @@ function enqueueAdminAction(actionType: string, payload: AdminActionPayload) {
               payload_json
             )
             VALUES (?, ?, ?, ?, 'queued', ?)
-          `
+          `,
         )
         .run(
           actionType,
           payload.scope,
           requestedAt,
           payload.requestedBy ?? "operator",
-          JSON.stringify(payload.payloadJson)
+          JSON.stringify(payload.payloadJson),
         );
 
       return {
@@ -3581,7 +3318,7 @@ function enqueueAdminAction(actionType: string, payload: AdminActionPayload) {
     {
       actionType,
       scope: payload.scope,
-    }
+    },
   );
 }
 
@@ -3597,15 +3334,11 @@ export function enqueueMarketBackfill(payload: AdminActionPayload) {
   return enqueueAdminAction("markets-backfill", payload);
 }
 
-export function enqueueTimelineMaterializationRebuild(
-  payload: AdminActionPayload
-) {
+export function enqueueTimelineMaterializationRebuild(payload: AdminActionPayload) {
   return enqueueAdminAction("timeline-materialization-rebuild", payload);
 }
 
-export function enqueueBoardVolatilityBaselineRebuild(
-  payload: AdminActionPayload
-) {
+export function enqueueBoardVolatilityBaselineRebuild(payload: AdminActionPayload) {
   return enqueueAdminAction("board-volatility-baseline-rebuild", payload);
 }
 
@@ -3629,7 +3362,7 @@ export function claimNextQueuedAdminAction() {
             WHERE status = 'queued'
             ORDER BY id ASC
             LIMIT 1
-          `
+          `,
         )
         .get() as
         | {
@@ -3654,7 +3387,7 @@ export function claimNextQueuedAdminAction() {
             SET status = 'running'
             WHERE id = ?
               AND status = 'queued'
-          `
+          `,
         )
         .run(row.id);
 
@@ -3683,7 +3416,7 @@ export function markAdminActionCompleted(id: number) {
           UPDATE admin_actions
           SET status = 'completed'
           WHERE id = ?
-        `
+        `,
       )
       .run(id);
   });
@@ -3697,7 +3430,7 @@ export function markAdminActionErrored(id: number) {
           UPDATE admin_actions
           SET status = 'error'
           WHERE id = ?
-        `
+        `,
       )
       .run(id);
   });
@@ -3717,11 +3450,7 @@ export function listResearchGames(filters: GamesFilters = {}) {
         league: filters.league,
         limit: hasPostBundleFilter ? undefined : filters.limit,
         order:
-          filters.scope === "all"
-            ? "scheduledAsc"
-            : filters.date
-              ? "scheduledAsc"
-              : "currentSlate",
+          filters.scope === "all" ? "scheduledAsc" : filters.date ? "scheduledAsc" : "currentSlate",
         referenceNow: filters.referenceNow,
         sport: filters.sport,
       })
@@ -3741,8 +3470,7 @@ export function listResearchGames(filters: GamesFilters = {}) {
           }
           if (filters.sourceCoverage === "partial") {
             return (
-              card.coverage.availableSources.length > 0 &&
-              card.coverage.missingSources.length > 0
+              card.coverage.availableSources.length > 0 && card.coverage.missingSources.length > 0
             );
           }
           if (filters.sourceCoverage === "missing") {
@@ -3752,15 +3480,12 @@ export function listResearchGames(filters: GamesFilters = {}) {
         });
 
       if (hasPostBundleFilter && filters.limit != null) {
-        return cards.slice(
-          0,
-          Math.min(500, Math.max(1, Math.floor(filters.limit)))
-        );
+        return cards.slice(0, Math.min(500, Math.max(1, Math.floor(filters.limit))));
       }
 
       return cards;
     },
-    filters
+    filters,
   );
 }
 
@@ -3777,9 +3502,7 @@ export function getResearchGame(gameId: string) {
       const familyCounts = bundle.instruments.reduce<
         Array<{ family: MarketFamily; count: number }>
       >((counts, instrument) => {
-        const existing = counts.find(
-          (entry) => entry.family === instrument.family
-        );
+        const existing = counts.find((entry) => entry.family === instrument.family);
         if (existing) {
           existing.count += 1;
         } else {
@@ -3792,7 +3515,7 @@ export function getResearchGame(gameId: string) {
         coverageSummary: computeCoverageSummary(
           bundle.sourceMarkets,
           bundle.latestTicks,
-          Boolean(bundle.gameState || bundle.outcome)
+          Boolean(bundle.gameState || bundle.outcome),
         ),
         game: bundle.game,
         gameState: bundle.gameState,
@@ -3802,7 +3525,7 @@ export function getResearchGame(gameId: string) {
     },
     {
       gameId,
-    }
+    },
   );
 }
 
@@ -3821,10 +3544,7 @@ export function listGameMarkets(gameId: string, filters: MarketFilters = {}) {
           if (filters.family && instrument.family !== filters.family) {
             return false;
           }
-          if (
-            typeof filters.inPlay === "boolean" &&
-            instrument.inPlay !== filters.inPlay
-          ) {
+          if (typeof filters.inPlay === "boolean" && instrument.inPlay !== filters.inPlay) {
             return false;
           }
           return true;
@@ -3843,19 +3563,17 @@ export function listGameMarkets(gameId: string, filters: MarketFilters = {}) {
             }),
             bundle.latestTicks,
             bundle.latestPayloads,
-            { game: bundle.game }
-          )
+            { game: bundle.game },
+          ),
         )
         .filter((instrumentView) =>
-          filters.mappedOnly
-            ? instrumentView.mappingStatus !== "unmapped"
-            : true
+          filters.mappedOnly ? instrumentView.mappingStatus !== "unmapped" : true,
         );
     },
     {
       ...filters,
       gameId,
-    }
+    },
   );
 }
 
@@ -3869,27 +3587,25 @@ export function getInstrumentComparison(gameId: string, instrumentId: string) {
         return null;
       }
 
-      const instrument = bundle.instruments.find(
-        (entry) => entry.id === instrumentId
-      );
+      const instrument = bundle.instruments.find((entry) => entry.id === instrumentId);
       if (!instrument) {
         return null;
       }
 
       const sourceMarkets = bundle.sourceMarkets.filter(
-        (sourceMarket) => sourceMarket.instrumentId === instrumentId
+        (sourceMarket) => sourceMarket.instrumentId === instrumentId,
       );
       const latestQuotesBySource = buildLatestSourceViews(
         sourceMarkets,
         bundle.latestTicks,
-        bundle.latestPayloads
+        bundle.latestPayloads,
       );
       const mappingStatus = computeMappingStatus(sourceMarkets);
       const comparableState = computeComparableState(
         instrument,
         mappingStatus,
         latestQuotesBySource,
-        bundle.game
+        bundle.game,
       );
       const impliedProbabilityGap =
         comparableState === "comparable"
@@ -3897,14 +3613,12 @@ export function getInstrumentComparison(gameId: string, instrumentId: string) {
           : comparableState === "line-mismatch"
             ? computeImpliedProbabilityGap(
                 latestQuotesBySource.filter((source) =>
-                  lineValuesMatch(source.raw.line, instrument.line)
-                )
+                  lineValuesMatch(source.raw.line, instrument.line),
+                ),
               )
             : null;
       const comparisonSummary =
-        comparableState === "comparable"
-          ? buildInstrumentDivergenceSummary(instrument.id)
-          : null;
+        comparableState === "comparable" ? buildInstrumentDivergenceSummary(instrument.id) : null;
       const comparisonGap =
         comparableState === "comparable"
           ? (comparisonSummary?.latestGap ?? impliedProbabilityGap ?? null)
@@ -3933,7 +3647,7 @@ export function getInstrumentComparison(gameId: string, instrumentId: string) {
     {
       gameId,
       instrumentId,
-    }
+    },
   );
 }
 
@@ -3944,7 +3658,7 @@ export function getInstrumentTimeline(
     from?: string;
     source?: ResearchSourceId[];
     to?: string;
-  } = {}
+  } = {},
 ) {
   return executeDatabaseOperation(
     "research.instrument.timeline",
@@ -3955,9 +3669,7 @@ export function getInstrumentTimeline(
         return null;
       }
 
-      const instrument = bundle.instruments.find(
-        (entry) => entry.id === instrumentId
-      );
+      const instrument = bundle.instruments.find((entry) => entry.id === instrumentId);
       if (!instrument) {
         return null;
       }
@@ -3972,10 +3684,7 @@ export function getInstrumentTimeline(
         return true;
       });
 
-      const quoteSeriesBySource: Record<
-        ResearchSourceId,
-        InstrumentTimelinePoint[]
-      > = {
+      const quoteSeriesBySource: Record<ResearchSourceId, InstrumentTimelinePoint[]> = {
         bet365: [],
         fanduel: [],
         draftkings: [],
@@ -4015,7 +3724,7 @@ export function getInstrumentTimeline(
               FROM quote_ticks
               WHERE ${clauses.join(" AND ")}
               ORDER BY captured_at ASC, id ASC
-            `
+            `,
           )
           .all(...params) as Record<string, unknown>[];
 
@@ -4033,7 +3742,7 @@ export function getInstrumentTimeline(
               line: tick.lineRaw ?? null,
               source: sourceMarket.source,
               volume: tick.volume ?? null,
-            }))
+            })),
         );
       }
 
@@ -4066,7 +3775,7 @@ export function getInstrumentTimeline(
             FROM game_states
             WHERE ${gameStateClauses.join(" AND ")}
             ORDER BY captured_at ASC, id ASC
-          `
+          `,
         )
         .all(...gameStateParams)
         .map((row) => rowToGameState(row as Record<string, unknown>))
@@ -4088,8 +3797,7 @@ export function getInstrumentTimeline(
 
         for (const point of points) {
           const mismatched =
-            instrument.family !== "moneyline" &&
-            !lineValuesMatch(point.line, instrument.line);
+            instrument.family !== "moneyline" && !lineValuesMatch(point.line, instrument.line);
 
           if (mismatched && !activeWindow) {
             activeWindow = {
@@ -4115,8 +3823,7 @@ export function getInstrumentTimeline(
         annotations: [
           ...lineMismatchWindows.map((window) => ({
             capturedAt: window.start,
-            detail:
-              "One or more source lines diverged from the canonical instrument line.",
+            detail: "One or more source lines diverged from the canonical instrument line.",
             label: "Line mismatch",
             source: "system" as const,
           })),
@@ -4127,9 +3834,7 @@ export function getInstrumentTimeline(
             label: "Game state",
             source: "system" as const,
           })),
-        ].sort((left, right) =>
-          left.capturedAt.localeCompare(right.capturedAt)
-        ),
+        ].sort((left, right) => left.capturedAt.localeCompare(right.capturedAt)),
         gameStateSeries,
         lineMismatchWindows,
         quoteSeriesBySource,
@@ -4139,7 +3844,7 @@ export function getInstrumentTimeline(
       ...filters,
       gameId,
       instrumentId,
-    }
+    },
   );
 }
 
@@ -4153,9 +3858,7 @@ export function getInstrumentSources(gameId: string, instrumentId: string) {
         return [];
       }
 
-      const instrument = bundle.instruments.find(
-        (entry) => entry.id === instrumentId
-      );
+      const instrument = bundle.instruments.find((entry) => entry.id === instrumentId);
       if (!instrument) {
         return [];
       }
@@ -4164,13 +3867,9 @@ export function getInstrumentSources(gameId: string, instrumentId: string) {
         .filter((sourceMarket) => sourceMarket.instrumentId === instrumentId)
         .map((sourceMarket) => {
           const latestQuote = bundle.latestTicks.get(sourceMarket.id) ?? null;
-          const latestRawPayload =
-            bundle.latestPayloads.get(sourceMarket.id) ?? null;
+          const latestRawPayload = bundle.latestPayloads.get(sourceMarket.id) ?? null;
           const freshnessMs = latestQuote
-            ? Math.max(
-                0,
-                Date.now() - new Date(latestQuote.capturedAt).getTime()
-              )
+            ? Math.max(0, Date.now() - new Date(latestQuote.capturedAt).getTime())
             : null;
 
           return {
@@ -4192,14 +3891,14 @@ export function getInstrumentSources(gameId: string, instrumentId: string) {
     {
       gameId,
       instrumentId,
-    }
+    },
   );
 }
 
 export function getInstrumentRawSource(
   gameId: string,
   instrumentId: string,
-  source: ResearchSourceId
+  source: ResearchSourceId,
 ) {
   return executeDatabaseOperation(
     "research.instrument.rawSource",
@@ -4210,32 +3909,23 @@ export function getInstrumentRawSource(
         return null;
       }
 
-      const instrument = bundle.instruments.find(
-        (entry) => entry.id === instrumentId
-      );
+      const instrument = bundle.instruments.find((entry) => entry.id === instrumentId);
       if (!instrument) {
         return null;
       }
 
       const sourceMarket = bundle.sourceMarkets
-        .filter(
-          (entry) =>
-            entry.instrumentId === instrumentId && entry.source === source
-        )
+        .filter((entry) => entry.instrumentId === instrumentId && entry.source === source)
         .sort((left, right) => {
           const leftLatestTick = bundle.latestTicks.get(left.id) ?? null;
           const rightLatestTick = bundle.latestTicks.get(right.id) ?? null;
           const leftTimestamp = Math.max(
             timestampValue(leftLatestTick?.capturedAt ?? null),
-            timestampValue(
-              bundle.latestPayloads.get(left.id)?.capturedAt ?? null
-            )
+            timestampValue(bundle.latestPayloads.get(left.id)?.capturedAt ?? null),
           );
           const rightTimestamp = Math.max(
             timestampValue(rightLatestTick?.capturedAt ?? null),
-            timestampValue(
-              bundle.latestPayloads.get(right.id)?.capturedAt ?? null
-            )
+            timestampValue(bundle.latestPayloads.get(right.id)?.capturedAt ?? null),
           );
 
           if (rightTimestamp !== leftTimestamp) {
@@ -4267,7 +3957,7 @@ export function getInstrumentRawSource(
               AND entity_id = ?
             ORDER BY captured_at DESC, id DESC
             LIMIT 10
-          `
+          `,
         )
         .all(source, sourceMarket.id)
         .map((row) => rowToRawPayload(row as Record<string, unknown>))
@@ -4277,11 +3967,8 @@ export function getInstrumentRawSource(
         captureDiagnostics: {
           freshnessBand: freshnessBandFromMs(
             latestQuote
-              ? Math.max(
-                  0,
-                  Date.now() - new Date(latestQuote.capturedAt).getTime()
-                )
-              : null
+              ? Math.max(0, Date.now() - new Date(latestQuote.capturedAt).getTime())
+              : null,
           ),
           lastQuoteCapturedAt: latestQuote?.capturedAt ?? null,
           mappingStatus: sourceMarket.mappingStatus,
@@ -4301,7 +3988,7 @@ export function getInstrumentRawSource(
       gameId,
       instrumentId,
       source,
-    }
+    },
   );
 }
 
@@ -4309,7 +3996,7 @@ export function listResearchDivergence(filters: DivergenceFilters = {}) {
   return executeDatabaseOperation(
     "research.divergence.list",
     () => buildResearchDivergenceEntries(filters).map((entry) => entry.row),
-    filters
+    filters,
   );
 }
 
@@ -4323,11 +4010,7 @@ export function listSignalMismatches(filters: DivergenceFilters = {}) {
         sort: entryFilters.sort ?? "divergence",
       })
         .map((entry) => buildSignalMismatchRow(entry))
-        .filter(
-          (row) =>
-            row.directionalDisagreement ||
-            (row.impliedProbabilityGap ?? 0) >= 0.08
-        );
+        .filter((row) => row.directionalDisagreement || (row.impliedProbabilityGap ?? 0) >= 0.08);
 
       if (limit == null) {
         return rows as SignalMismatchRow[];
@@ -4336,7 +4019,7 @@ export function listSignalMismatches(filters: DivergenceFilters = {}) {
       const clampedLimit = Math.min(500, Math.max(1, Math.floor(limit)));
       return rows.slice(0, clampedLimit) as SignalMismatchRow[];
     },
-    filters
+    filters,
   );
 }
 
@@ -4364,7 +4047,7 @@ export function getResearchCoverage() {
             scheduled_start ASC,
             id ASC
           LIMIT 25
-        `
+        `,
       )
       .all() as Array<{ id: string; league: string; sport: string }>;
     if (gameRows.length === 0) {
@@ -4373,10 +4056,7 @@ export function getResearchCoverage() {
 
     const gameIds = gameRows.map((row) => row.id);
     const gamePlaceholders = gameIds.map(() => "?").join(", ");
-    const instrumentsByGame = new Map<
-      string,
-      Array<{ family: MarketFamily; id: string }>
-    >();
+    const instrumentsByGame = new Map<string, Array<{ family: MarketFamily; id: string }>>();
     const sourceMarketsByGame = new Map<string, SourceMarket[]>();
     const stateGameIds = new Set<string>(
       (
@@ -4386,10 +4066,10 @@ export function getResearchCoverage() {
               SELECT DISTINCT game_id AS gameId
               FROM game_states
               WHERE game_id IN (${gamePlaceholders})
-            `
+            `,
           )
           .all(...gameIds) as Array<{ gameId: string }>
-      ).map((row) => row.gameId)
+      ).map((row) => row.gameId),
     );
     const outcomeGameIds = new Set<string>(
       (
@@ -4399,10 +4079,10 @@ export function getResearchCoverage() {
               SELECT game_id AS gameId
               FROM game_outcomes
               WHERE game_id IN (${gamePlaceholders})
-            `
+            `,
           )
           .all(...gameIds) as Array<{ gameId: string }>
-      ).map((row) => row.gameId)
+      ).map((row) => row.gameId),
     );
 
     for (const row of db
@@ -4415,7 +4095,7 @@ export function getResearchCoverage() {
           FROM market_instruments
           WHERE game_id IN (${gamePlaceholders})
           ORDER BY display_label ASC
-        `
+        `,
       )
       .all(...gameIds) as Array<{
       family: MarketFamily;
@@ -4440,7 +4120,7 @@ export function getResearchCoverage() {
           FROM source_markets
           WHERE game_id IN (${gamePlaceholders})
           ORDER BY source ASC, raw_label ASC, source_market_key ASC
-        `
+        `,
       )
       .all(...gameIds) as Array<{
       gameId: string;
@@ -4485,20 +4165,17 @@ export function getResearchCoverage() {
         if (sourceMarket.instrumentId == null) {
           continue;
         }
-        const existing =
-          sourceMarketsByInstrument.get(sourceMarket.instrumentId) ?? [];
+        const existing = sourceMarketsByInstrument.get(sourceMarket.instrumentId) ?? [];
         existing.push(sourceMarket);
         sourceMarketsByInstrument.set(sourceMarket.instrumentId, existing);
       }
 
-      const hasNbaState =
-        stateGameIds.has(game.id) || outcomeGameIds.has(game.id);
+      const hasNbaState = stateGameIds.has(game.id) || outcomeGameIds.has(game.id);
       const gameCoverageSources = buildCoverageSources(sourceMarkets);
       const gameAvailableSources = hasNbaState
-        ? uniqueResearchSources(
-            [...gameCoverageSources.availableSources, "nba"],
-            { includeNba: true }
-          )
+        ? uniqueResearchSources([...gameCoverageSources.availableSources, "nba"], {
+            includeNba: true,
+          })
         : gameCoverageSources.availableSources;
 
       pushCoverageRow({
@@ -4506,13 +4183,13 @@ export function getResearchCoverage() {
         gameId: game.id,
         league: game.league,
         missingSources: researchSourceIds.filter(
-          (sourceId) => !gameAvailableSources.includes(sourceId)
+          (sourceId) => !gameAvailableSources.includes(sourceId),
         ),
         sport: game.sport,
         unmappedSources: uniqueResearchSources(
           sourceMarkets
             .filter((sourceMarket) => sourceMarket.mappingStatus === "unmapped")
-            .map((sourceMarket) => sourceMarket.source)
+            .map((sourceMarket) => sourceMarket.source),
         ),
       });
 
@@ -4521,7 +4198,7 @@ export function getResearchCoverage() {
           break;
         }
         const coverageSources = buildCoverageSources(
-          sourceMarketsByInstrument.get(instrument.id) ?? []
+          sourceMarketsByInstrument.get(instrument.id) ?? [],
         );
         pushCoverageRow({
           availableSources: coverageSources.availableSources,
@@ -4537,8 +4214,7 @@ export function getResearchCoverage() {
 
       const orphanUnmappedMarkets = sourceMarkets.filter(
         (sourceMarket) =>
-          sourceMarket.instrumentId == null &&
-          sourceMarket.mappingStatus === "unmapped"
+          sourceMarket.instrumentId == null && sourceMarket.mappingStatus === "unmapped",
       );
       const orphanGroups = new Map<MarketFamily | null, SourceMarket[]>();
 
@@ -4591,15 +4267,14 @@ function latestSuccessfulRun(source: string) {
         WHERE source = ? AND status = 'ok'
         ORDER BY started_at DESC, id DESC
         LIMIT 1
-      `
+      `,
     )
     .get(source) as Record<string, unknown> | undefined;
 
   return row
     ? {
         errorCode: row.errorCode == null ? null : String(row.errorCode),
-        errorMessage:
-          row.errorMessage == null ? null : String(row.errorMessage),
+        errorMessage: row.errorMessage == null ? null : String(row.errorMessage),
         captureMode: row.captureMode == null ? "live" : String(row.captureMode),
         finishedAt: row.finishedAt == null ? null : String(row.finishedAt),
         id: Number(row.id),
@@ -4632,15 +4307,14 @@ function latestRun(source: string) {
         WHERE source = ?
         ORDER BY started_at DESC, id DESC
         LIMIT 1
-      `
+      `,
     )
     .get(source) as Record<string, unknown> | undefined;
 
   return row
     ? {
         errorCode: row.errorCode == null ? null : String(row.errorCode),
-        errorMessage:
-          row.errorMessage == null ? null : String(row.errorMessage),
+        errorMessage: row.errorMessage == null ? null : String(row.errorMessage),
         captureMode: row.captureMode == null ? "live" : String(row.captureMode),
         finishedAt: row.finishedAt == null ? null : String(row.finishedAt),
         id: Number(row.id),
@@ -4667,9 +4341,7 @@ export function listAdminSources() {
     const polymarketKey = process.env.POLYMARKET_API_KEY;
     const polymarketSecret = process.env.POLYMARKET_API_SECRET;
     const polymarketPassphrase = process.env.POLYMARKET_API_PASSPHRASE;
-    const polymarketReady = Boolean(
-      polymarketKey && polymarketSecret && polymarketPassphrase
-    );
+    const polymarketReady = Boolean(polymarketKey && polymarketSecret && polymarketPassphrase);
 
     const sources: Array<{
       authState: "configured" | "invalid" | "missing";
@@ -4751,9 +4423,7 @@ export function listAdminSources() {
               ? "ok"
               : "error"
             : sourceInfo.authState === "configured" &&
-                (sourceInfo.source === "nba"
-                  ? success != null
-                  : sourceInfo.configured)
+                (sourceInfo.source === "nba" ? success != null : sourceInfo.configured)
               ? "ok"
               : "error",
         subscriptionState: sourceInfo.subscriptionState,
@@ -4784,13 +4454,13 @@ export function listAdapterRuns(limit = 50) {
             FROM adapter_runs
             ORDER BY started_at DESC, id DESC
             LIMIT ?
-          `
+          `,
         )
         .all(limit);
     },
     {
       limit,
-    }
+    },
   );
 }
 
@@ -4814,7 +4484,7 @@ export function listUnmappedMarkets() {
           FROM source_markets
           WHERE mapping_status = 'unmapped'
           ORDER BY source ASC, raw_label ASC, source_market_key ASC
-        `
+        `,
       )
       .all() as Record<string, unknown>[];
 
@@ -4841,9 +4511,9 @@ export function listUnmappedMarkets() {
               WHERE source_market_id = ?
               ORDER BY captured_at DESC, id DESC
               LIMIT 1
-            `
+            `,
           )
-          .get(sourceMarket.id) as Record<string, unknown> | undefined
+          .get(sourceMarket.id) as Record<string, unknown> | undefined,
       );
 
       const game = rowToGame(
@@ -4860,9 +4530,9 @@ export function listUnmappedMarkets() {
                 scheduled_start AS scheduledStart
               FROM games
               WHERE id = ?
-            `
+            `,
           )
-          .get(sourceMarket.gameId) as Record<string, unknown>
+          .get(sourceMarket.gameId) as Record<string, unknown>,
       );
 
       return {
@@ -4927,7 +4597,7 @@ export function getStorageCoverage() {
           FROM selected_source_markets ssm
           GROUP BY ssm.source, ssm.sport, ssm.league, ssm.gameId, ssm.family
           ORDER BY MIN(ssm.scheduledStart) ASC, ssm.source ASC
-        `
+        `,
       )
       .all()
       .map((row) => ({
@@ -4937,16 +4607,10 @@ export function getStorageCoverage() {
             : (String((row as { family: string }).family) as MarketFamily),
         gameId: String((row as { gameId: string }).gameId),
         league: String((row as { league: string }).league),
-        quoteTickCount: Number(
-          (row as { quoteTickCount: number }).quoteTickCount
-        ),
-        rawPayloadCount: Number(
-          (row as { rawPayloadCount: number }).rawPayloadCount
-        ),
+        quoteTickCount: Number((row as { quoteTickCount: number }).quoteTickCount),
+        rawPayloadCount: Number((row as { rawPayloadCount: number }).rawPayloadCount),
         source: String((row as { source: string }).source),
-        sourceMarketCount: Number(
-          (row as { sourceMarketCount: number }).sourceMarketCount
-        ),
+        sourceMarketCount: Number((row as { sourceMarketCount: number }).sourceMarketCount),
         sport: String((row as { sport: string }).sport),
       })) satisfies StorageCoverageRow[];
   });
@@ -4964,9 +4628,7 @@ function auditTimestampAgeMs(value: string | null) {
     return null;
   }
   const timestamp = new Date(value).getTime();
-  return Number.isFinite(timestamp)
-    ? Math.max(0, Date.now() - timestamp)
-    : null;
+  return Number.isFinite(timestamp) ? Math.max(0, Date.now() - timestamp) : null;
 }
 
 function classifyAuditDataState(counts: {
@@ -4979,11 +4641,7 @@ function classifyAuditDataState(counts: {
     return "empty" as const;
   }
 
-  if (
-    counts.gameCount <= 5 &&
-    counts.sourceMarketCount <= 25 &&
-    counts.quoteTickCount <= 1000
-  ) {
+  if (counts.gameCount <= 5 && counts.sourceMarketCount <= 25 && counts.quoteTickCount <= 1000) {
     return "seed-or-test" as const;
   }
 
@@ -5006,38 +4664,36 @@ function inferRuntimeWarnings(input: {
 
   if (input.dataState === "empty") {
     warnings.push(
-      "The selected SQLite database has schema but no quote or raw payload rows. Point SIGNAL_CONSOLE_DB_PATH at the persisted live database before a demo."
+      "The selected SQLite database has schema but no quote or raw payload rows. Point SIGNAL_CONSOLE_DB_PATH at the persisted live database before a demo.",
     );
   }
 
   if (input.dataState === "seed-or-test") {
     warnings.push(
-      "The selected database looks like a seed or e2e fixture. Do not present it as live evidence."
+      "The selected database looks like a seed or e2e fixture. Do not present it as live evidence.",
     );
   }
 
   if (input.dbPath.includes(".e2e.")) {
-    warnings.push(
-      "The active database path contains .e2e.; this is test data by convention."
-    );
+    warnings.push("The active database path contains .e2e.; this is test data by convention.");
   }
 
   if (!process.env.SIGNAL_CONSOLE_DB_PATH) {
     warnings.push(
-      "SIGNAL_CONSOLE_DB_PATH is not set, so the runtime is using the repo default database path."
+      "SIGNAL_CONSOLE_DB_PATH is not set, so the runtime is using the canonical home database path.",
     );
   }
 
   const bet365 = input.sourceBreakdown.find((row) => row.source === "bet365");
   if (!bet365 || bet365.quoteTickCount === 0) {
     warnings.push(
-      "No persisted Bet365 quotes were found in the active DB. The trader desk can still compare external markets, but the book leg is not evidence-backed yet."
+      "No persisted Bet365 quotes were found in the active DB. The trader desk can still compare external markets, but the book leg is not evidence-backed yet.",
     );
   }
 
   if (bet365 && bet365.quoteTickCount > 0 && process.env.ODDS_API_KEY) {
     warnings.push(
-      "Bet365 ticks are currently sourced through ODDS_API_KEY provider plumbing, not a direct internal book feed. Label this as proxy sportsbook pricing until the internal feed is wired."
+      "Bet365 ticks are currently sourced through ODDS_API_KEY provider plumbing, not a direct internal book feed. Label this as proxy sportsbook pricing until the internal feed is wired.",
     );
   }
 
@@ -5073,7 +4729,7 @@ export function getRuntimeAudit() {
           LEFT JOIN quote_ticks qt ON qt.source_market_id = sm.id
           GROUP BY sm.source
           ORDER BY quoteTickCount DESC, sm.source ASC
-        `
+        `,
       )
       .all() as Array<{
       gameCount: number;
@@ -5094,14 +4750,14 @@ export function getRuntimeAudit() {
                 MAX(captured_at) AS latestRawPayloadAt
               FROM raw_payloads
               GROUP BY source
-            `
+            `,
           )
           .all() as Array<{
           latestRawPayloadAt: string | null;
           rawPayloadCount: number;
           source: string;
         }>
-      ).map((row) => [row.source, row])
+      ).map((row) => [row.source, row]),
     );
 
     const latestRunRows = new Map(
@@ -5125,7 +4781,7 @@ export function getRuntimeAudit() {
                 FROM adapter_runs
               )
               SELECT * FROM ranked WHERE rn = 1
-            `
+            `,
           )
           .all() as Array<{
           captureMode: string | null;
@@ -5136,7 +4792,7 @@ export function getRuntimeAudit() {
           startedAt: string;
           status: string;
         }>
-      ).map((row) => [row.source, row])
+      ).map((row) => [row.source, row]),
     );
 
     const captureModesBySource = new Map(
@@ -5147,15 +4803,13 @@ export function getRuntimeAudit() {
               SELECT source, GROUP_CONCAT(DISTINCT capture_mode) AS captureModes
               FROM adapter_runs
               GROUP BY source
-            `
+            `,
           )
           .all() as Array<{ captureModes: string | null; source: string }>
       ).map((row) => [
         row.source,
-        row.captureModes
-          ? row.captureModes.split(",").filter((value) => value.length > 0)
-          : [],
-      ])
+        row.captureModes ? row.captureModes.split(",").filter((value) => value.length > 0) : [],
+      ]),
     );
 
     const sourceBreakdown = sourceRows.map((row) => {
@@ -5166,9 +4820,7 @@ export function getRuntimeAudit() {
         gameCount: Number(row.gameCount ?? 0),
         latestQuoteAgeMs: auditTimestampAgeMs(row.latestQuoteAt),
         latestQuoteAt: row.latestQuoteAt ?? null,
-        latestRawPayloadAgeMs: auditTimestampAgeMs(
-          raw?.latestRawPayloadAt ?? null
-        ),
+        latestRawPayloadAgeMs: auditTimestampAgeMs(raw?.latestRawPayloadAt ?? null),
         latestRawPayloadAt: raw?.latestRawPayloadAt ?? null,
         latestRun: latestRun
           ? {
@@ -5195,12 +4847,10 @@ export function getRuntimeAudit() {
     });
 
     const hasExternalMarkets = sourceBreakdown.some(
-      (row) =>
-        (row.source === "kalshi" || row.source === "polymarket") &&
-        row.quoteTickCount > 0
+      (row) => (row.source === "kalshi" || row.source === "polymarket") && row.quoteTickCount > 0,
     );
     const hasBookProxy = sourceBreakdown.some(
-      (row) => row.source === "bet365" && row.quoteTickCount > 0
+      (row) => row.source === "bet365" && row.quoteTickCount > 0,
     );
     const hasOutcomes = counts.outcomeCount > 0;
     const hasRawPayloads = counts.rawPayloadCount > 0;

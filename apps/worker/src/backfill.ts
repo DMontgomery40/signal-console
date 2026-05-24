@@ -93,8 +93,7 @@ function parseArgs(argv: string[]): BackfillOptions {
     lookbackDays: asNumber(args.lookbackDays) ?? DEFAULT_LOOKBACK_DAYS,
     maxEvents: asNumber(args.maxEvents),
     maxTickers: asNumber(args.maxTickers),
-    periodIntervalMinutes:
-      period === 1 || period === 60 ? (period as 1 | 60) : undefined,
+    periodIntervalMinutes: period === 1 || period === 60 ? (period as 1 | 60) : undefined,
     since: args.since,
     target,
     until: args.until,
@@ -125,10 +124,7 @@ function printUsage() {
   }
 }
 
-async function runNba(
-  logger: ReturnType<typeof createAppLogger>,
-  options: BackfillOptions
-) {
+async function runNba(logger: ReturnType<typeof createAppLogger>, options: BackfillOptions) {
   const summary = await syncNbaSidecarWindow({
     lookaheadDays: options.lookaheadDays ?? 0,
     lookbackDays: options.lookbackDays ?? DEFAULT_LOOKBACK_DAYS,
@@ -137,17 +133,14 @@ async function runNba(
     throw new Error(
       `NBA sidecar historical window had partial failures: ${summary.dateErrors
         .map((entry) => `${entry.date}: ${entry.error}`)
-        .join(" | ")}`
+        .join(" | ")}`,
     );
   }
   logger.info(summary, "NBA sidecar historical window completed.");
   return summary;
 }
 
-async function runKalshi(
-  logger: ReturnType<typeof createAppLogger>,
-  options: BackfillOptions
-) {
+async function runKalshi(logger: ReturnType<typeof createAppLogger>, options: BackfillOptions) {
   const summary = await syncKalshiNbaDirect({
     captureMode: "historical",
     maxEvents: options.maxEvents,
@@ -159,7 +152,7 @@ async function runKalshi(
 
 async function runKalshiHistorical(
   logger: ReturnType<typeof createAppLogger>,
-  options: BackfillOptions
+  options: BackfillOptions,
 ) {
   const summary = await syncKalshiNbaHistorical({
     maxEvents: options.maxEvents,
@@ -171,12 +164,10 @@ async function runKalshiHistorical(
 
 async function runKalshiTrades(
   logger: ReturnType<typeof createAppLogger>,
-  options: BackfillOptions
+  options: BackfillOptions,
 ) {
   if (!options.since || !options.until) {
-    throw new Error(
-      "kalshi-trades requires --since and --until (ISO8601 timestamps)"
-    );
+    throw new Error("kalshi-trades requires --since and --until (ISO8601 timestamps)");
   }
   const summary = await syncKalshiNbaTrades({
     since: options.since,
@@ -189,10 +180,7 @@ async function runKalshiTrades(
   return summary;
 }
 
-async function runPolymarket(
-  logger: ReturnType<typeof createAppLogger>,
-  options: BackfillOptions
-) {
+async function runPolymarket(logger: ReturnType<typeof createAppLogger>, options: BackfillOptions) {
   const summary = await syncPolymarketNbaHistorical({
     fidelityMinutes: options.fidelityMinutes ?? 1,
     maxEvents: options.maxEvents,
@@ -204,12 +192,10 @@ async function runPolymarket(
 
 async function runPolymarketTrades(
   logger: ReturnType<typeof createAppLogger>,
-  options: BackfillOptions
+  options: BackfillOptions,
 ) {
   if (!options.since || !options.until) {
-    throw new Error(
-      "polymarket-trades requires --since and --until (ISO8601 timestamps)"
-    );
+    throw new Error("polymarket-trades requires --since and --until (ISO8601 timestamps)");
   }
   const summary = await syncPolymarketNbaTrades({
     since: options.since,
@@ -230,7 +216,7 @@ async function runBet365Internal(logger: ReturnType<typeof createAppLogger>) {
 
 async function runBet365Historical(
   logger: ReturnType<typeof createAppLogger>,
-  options: BackfillOptions
+  options: BackfillOptions,
 ) {
   const summary = await syncBet365Historical({
     dateFrom: options.since,
@@ -297,10 +283,7 @@ export async function runBackfill(argv: string[] = process.argv.slice(2)) {
     }
     logger.info(options, "Backfill finished.");
   } catch (error) {
-    logger.error(
-      { error: serializeErrorForLog(error), options },
-      "Backfill failed."
-    );
+    logger.error({ error: serializeErrorForLog(error), options }, "Backfill failed.");
     process.exitCode = 1;
   } finally {
     closeDatabase();

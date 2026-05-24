@@ -14,10 +14,7 @@ import {
   upsertGame,
 } from "@signal-console/shared";
 
-import {
-  buildPolymarketSelectionRecords,
-  syncPolymarketNbaMarkets,
-} from "../polymarket";
+import { buildPolymarketSelectionRecords, syncPolymarketNbaMarkets } from "../polymarket";
 
 let tempDir = "";
 
@@ -149,7 +146,7 @@ describe("polymarket adapter", () => {
       polymarketEventsPayload[0],
       games[0],
       polymarketEventsPayload[0].markets[1],
-      "2026-04-22T07:25:00.000Z"
+      "2026-04-22T07:25:00.000Z",
     );
 
     expect(records).toEqual(
@@ -166,14 +163,14 @@ describe("polymarket adapter", () => {
           line: 9.5,
           selection: "lal",
         }),
-      ])
+      ]),
     );
 
     const propRecords = buildPolymarketSelectionRecords(
       polymarketEventsPayload[0],
       games[0],
       polymarketEventsPayload[0].markets[3],
-      "2026-04-22T07:25:00.000Z"
+      "2026-04-22T07:25:00.000Z",
     );
 
     expect(propRecords).toEqual(
@@ -181,13 +178,12 @@ describe("polymarket adapter", () => {
         expect.objectContaining({
           displayLabel: "LeBron James points over 24.5",
           family: "player-prop",
-          instrumentId:
-            "nba-0042500173-player-prop-points-lebron-james-over-24-5",
+          instrumentId: "nba-0042500173-player-prop-points-lebron-james-over-24-5",
           line: 24.5,
           participantKey: "lebron-james",
           selection: "over",
         }),
-      ])
+      ]),
     );
   });
 
@@ -231,14 +227,11 @@ describe("polymarket adapter", () => {
             displayLabel: "LeBron James points over 24.5",
           }),
         }),
-      ])
+      ]),
     );
 
     expect(
-      getInstrumentComparison(
-        "nba-0042500173",
-        "nba-0042500173-moneyline-lakers-moneyline"
-      )
+      getInstrumentComparison("nba-0042500173", "nba-0042500173-moneyline-lakers-moneyline"),
     ).toMatchObject({
       latestQuotesBySource: expect.arrayContaining([
         expect.objectContaining({
@@ -251,8 +244,8 @@ describe("polymarket adapter", () => {
     expect(
       getInstrumentComparison(
         "nba-0042500173",
-        "nba-0042500173-player-prop-points-lebron-james-over-24-5"
-      )
+        "nba-0042500173-player-prop-points-lebron-james-over-24-5",
+      ),
     ).toMatchObject({
       latestQuotesBySource: expect.arrayContaining([
         expect.objectContaining({
@@ -269,7 +262,7 @@ describe("polymarket adapter", () => {
           source: "polymarket",
           status: "ok",
         }),
-      ])
+      ]),
     );
   });
 

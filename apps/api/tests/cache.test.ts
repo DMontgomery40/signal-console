@@ -257,6 +257,45 @@ describe("cache route (US-020)", () => {
     expect(after.observations).toBe(4);
   });
 
+  it("DELETE /v1/cache canonicalizes before before comparing computed_at", async () => {
+    seedGoldDb(ctx.goldDbPath);
+    seedCacheDb(ctx.cacheDbPath, defaultRuns);
+    const app = await startApp();
+    const res = await app.inject({
+      method: "DELETE",
+      url: "/v1/cache?before=2026-05-23T13:00:00%2B13:00",
+      headers: authHeaders(),
+    });
+    expect(res.statusCode).toBe(200);
+    const body = asRecord(res.json(), "body");
+    expect(body["deleted"]).toBe(2);
+
+    const after = rowCounts(ctx.cacheDbPath);
+    expect(after.runs).toBe(1);
+    expect(after.observations).toBe(4);
+  });
+
+  it("DELETE /v1/cache rejects malformed before without deleting rows", async () => {
+    seedGoldDb(ctx.goldDbPath);
+    seedCacheDb(ctx.cacheDbPath, defaultRuns);
+    const app = await startApp();
+    const cases = ["foo", "2026-02-30T00:00:00Z", "2026-05-23T00:00:00"];
+
+    for (const before of cases) {
+      const res = await app.inject({
+        method: "DELETE",
+        url: `/v1/cache?before=${encodeURIComponent(before)}`,
+        headers: authHeaders(),
+      });
+      expect(res.statusCode).toBe(400);
+      expect(asRecord(res.json(), "error")["error"]).toBe("invalid before timestamp");
+    }
+
+    const after = rowCounts(ctx.cacheDbPath);
+    expect(after.runs).toBe(3);
+    expect(after.observations).toBe(9);
+  });
+
   it("DELETE /v1/cache combines detector_id AND before", async () => {
     seedGoldDb(ctx.goldDbPath);
     seedCacheDb(ctx.cacheDbPath, defaultRuns);

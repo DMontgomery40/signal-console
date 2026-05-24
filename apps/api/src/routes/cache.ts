@@ -10,7 +10,7 @@ import { CACHE_DB_PATH } from "@signal-console/db";
 import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 
-import { clearCache } from "../services/cache";
+import { CacheError, clearCache } from "../services/cache";
 
 export interface CacheRoutesOptions {
   readonly cacheDbPath?: string;
@@ -75,11 +75,19 @@ const cacheRoutes: FastifyPluginAsync<CacheRoutesOptions> = (app, opts) => {
         return;
       }
       const { detector_id, before } = parsed.data;
-      const result = clearCache(cacheDbPath, {
-        ...(detector_id !== undefined ? { detectorId: detector_id } : {}),
-        ...(before !== undefined ? { before } : {}),
-      });
-      reply.send(result);
+      try {
+        const result = clearCache(cacheDbPath, {
+          ...(detector_id !== undefined ? { detectorId: detector_id } : {}),
+          ...(before !== undefined ? { before } : {}),
+        });
+        reply.send(result);
+      } catch (err) {
+        if (err instanceof CacheError) {
+          reply.code(400).send({ error: err.message });
+          return;
+        }
+        throw err;
+      }
     },
   );
 

@@ -1,8 +1,4 @@
-import type {
-  CanonicalGame,
-  LatestSourceView,
-  MarketInstrument,
-} from "@signal-console/domain";
+import type { CanonicalGame, LatestSourceView, MarketInstrument } from "@signal-console/domain";
 
 import { normalizeBoardText } from "./board-anomaly-support";
 
@@ -27,10 +23,7 @@ export function timestampValue(value: Date | string | null | undefined) {
   return Number.isFinite(timestamp) ? timestamp : -1;
 }
 
-export function lineValuesMatch(
-  left: number | null | undefined,
-  right: number | null | undefined
-) {
+export function lineValuesMatch(left: number | null | undefined, right: number | null | undefined) {
   if (left == null || right == null) {
     return true;
   }
@@ -54,7 +47,7 @@ function tokenPartsContainAll(tokens: string[], expected: string[]) {
 
 function participantAliases(
   participant: CanonicalGame["homeParticipant"],
-  opponent?: CanonicalGame["awayParticipant"]
+  opponent?: CanonicalGame["awayParticipant"],
 ) {
   const aliases = new Set<string>();
   const directAliases = [
@@ -72,7 +65,7 @@ function participantAliases(
   const opponentTokens = new Set(
     [opponent?.key, opponent?.abbreviation, opponent?.shortName, opponent?.name]
       .flatMap((value) => selectionTokenParts(value))
-      .filter(Boolean)
+      .filter(Boolean),
   );
   for (const token of selectionTokenParts(participant.name)) {
     if (token.length >= 3 && !opponentTokens.has(token)) {
@@ -85,21 +78,15 @@ function participantAliases(
 
 function resolveGameParticipantAliases(
   game: CanonicalGame | undefined,
-  participantKey: string | null | undefined
+  participantKey: string | null | undefined,
 ) {
   if (!game || !participantKey) {
     return null;
   }
 
   const normalizedParticipant = normalizeSelectionToken(participantKey);
-  const homeAliases = participantAliases(
-    game.homeParticipant,
-    game.awayParticipant
-  );
-  const awayAliases = participantAliases(
-    game.awayParticipant,
-    game.homeParticipant
-  );
+  const homeAliases = participantAliases(game.homeParticipant, game.awayParticipant);
+  const awayAliases = participantAliases(game.awayParticipant, game.homeParticipant);
 
   if (homeAliases.has(normalizedParticipant)) {
     return {
@@ -128,9 +115,7 @@ function textMatchesAlias(sourceMarket: string, alias: string) {
 
   const sourceTokens = sourceMarket.split(/\s+/).filter(Boolean);
   const aliasParts = alias.split(/\s+/).filter(Boolean);
-  return (
-    aliasParts.length > 0 && tokenPartsContainAll(sourceTokens, aliasParts)
-  );
+  return aliasParts.length > 0 && tokenPartsContainAll(sourceTokens, aliasParts);
 }
 
 function sourceTextMatchesAliases(sourceMarket: string, aliases: Set<string>) {
@@ -140,39 +125,29 @@ function sourceTextMatchesAliases(sourceMarket: string, aliases: Set<string>) {
 export function sourceSelectionMatchesInstrument(
   instrument: MarketInstrument,
   source: LatestSourceView,
-  game?: CanonicalGame
+  game?: CanonicalGame,
 ) {
   const sourceMarket = normalizeSelectionToken(
-    `${source.raw.selectionKey ?? ""} ${source.raw.label ?? ""}`
+    `${source.raw.selectionKey ?? ""} ${source.raw.label ?? ""}`,
   );
   if (!sourceMarket) {
     return true;
   }
 
-  const expected = normalizeSelectionToken(
-    instrument.participantKey ?? instrument.selection
-  );
+  const expected = normalizeSelectionToken(instrument.participantKey ?? instrument.selection);
   const selection = normalizeSelectionToken(instrument.selection);
   const tokens = sourceMarket.split(/\s+/).filter(Boolean);
-  const expectedParts = selectionTokenParts(
-    instrument.participantKey ?? instrument.selection
-  );
+  const expectedParts = selectionTokenParts(instrument.participantKey ?? instrument.selection);
   const hasExpectedParts =
     expectedParts.length === 0 || tokenPartsContainAll(tokens, expectedParts);
 
   const participantAliases = resolveGameParticipantAliases(
     game,
-    instrument.participantKey ?? instrument.selection
+    instrument.participantKey ?? instrument.selection,
   );
   if (participantAliases) {
-    const matchesCanonical = sourceTextMatchesAliases(
-      sourceMarket,
-      participantAliases.canonical
-    );
-    const matchesOpposing = sourceTextMatchesAliases(
-      sourceMarket,
-      participantAliases.opposing
-    );
+    const matchesCanonical = sourceTextMatchesAliases(sourceMarket, participantAliases.canonical);
+    const matchesOpposing = sourceTextMatchesAliases(sourceMarket, participantAliases.opposing);
     if (matchesCanonical) {
       return true;
     }
@@ -190,17 +165,13 @@ export function sourceSelectionMatchesInstrument(
   }
 
   if (
-    (instrument.family === "player-prop" ||
-      instrument.family === "team-prop") &&
+    (instrument.family === "player-prop" || instrument.family === "team-prop") &&
     (selection === "over" || selection === "under")
   ) {
     return hasExpectedParts && tokens.includes(selection);
   }
 
-  if (
-    instrument.family === "total" &&
-    (selection === "over" || selection === "under")
-  ) {
+  if (instrument.family === "total" && (selection === "over" || selection === "under")) {
     return tokens.includes(selection);
   }
 
@@ -228,11 +199,7 @@ export function clampAlertLimit(value: number | undefined) {
   return Math.min(100, Math.max(1, Math.floor(value)));
 }
 
-export function normalizeAlertNumber(
-  value: number | undefined,
-  fallback: number,
-  min: number
-) {
+export function normalizeAlertNumber(value: number | undefined, fallback: number, min: number) {
   if (value == null || !Number.isFinite(value)) {
     return fallback;
   }

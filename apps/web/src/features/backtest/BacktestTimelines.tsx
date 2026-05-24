@@ -361,7 +361,9 @@ function FiredBucketRow({
         data-testid="backtest-fired-bucket-toggle"
         className="grid w-full grid-cols-[1.4fr_1fr_1fr_1fr_1.6fr] gap-x-6 px-2 py-3 text-left transition-colors duration-fast ease-out hover:bg-surface-2 focus:outline-none focus-visible:bg-surface-2"
       >
-        <span className="tabular font-mono text-sm text-text-md">{formatBucket(obs.bucketStart)}</span>
+        <span className="tabular font-mono text-sm text-text-md">
+          {formatBucket(obs.bucketStart)}
+        </span>
         <span className="tabular font-mono text-sm text-text-hi">
           {formatNumber(obs.intensity, 3)}
         </span>
@@ -441,12 +443,18 @@ function GameCard({
       </div>
 
       {isOpen ? (
-        <div className="border-t border-surface-2 bg-surface-1 px-5 py-5" data-testid="backtest-timeline-drilldown">
+        <div
+          className="border-t border-surface-2 bg-surface-1 px-5 py-5"
+          data-testid="backtest-timeline-drilldown"
+        >
           <h4 className="text-sm font-semibold text-text-hi">
             Past fires in this game at K={k.toFixed(2)}
           </h4>
           {fires.length === 0 ? (
-            <p className="mt-3 font-mono text-sm text-text-lo" data-testid="backtest-no-fires-empty">
+            <p
+              className="mt-3 font-mono text-sm text-text-lo"
+              data-testid="backtest-no-fires-empty"
+            >
               No fires for this game at K={k.toFixed(2)}.
             </p>
           ) : (
@@ -469,7 +477,9 @@ function GameCard({
                     obs={obs}
                     isExpanded={expandedFire === obs.bucketStart}
                     onToggle={() => {
-                      setExpandedFire((prev) => (prev === obs.bucketStart ? null : obs.bucketStart));
+                      setExpandedFire((prev) =>
+                        prev === obs.bucketStart ? null : obs.bucketStart,
+                      );
                     }}
                     contextSeries={buildContextSeries(group.recomputedRows, obs.bucketStart)}
                     k={k}
@@ -508,10 +518,7 @@ export function BacktestTimelines({
     );
   }
   return (
-    <div
-      data-testid="backtest-timelines"
-      className="mt-6 flex flex-col gap-y-8"
-    >
+    <div data-testid="backtest-timelines" className="mt-6 flex flex-col gap-y-8">
       {groups.map((g) => (
         <GameCard key={g.gameId} group={g} fromRecompute={fromRecompute} k={k} />
       ))}

@@ -4,13 +4,13 @@
 // (K_MAD_LIVE) — no K override; Backtest is the override surface.
 //
 // Cache semantics (PRD §9 freshness model):
-//   1. Compute the per-game source watermark (counts and max ids/timestamps
-//      over quote_ticks (via the game's source_markets), market_microstructure_events,
-//      PBP, game_states).
-//   2. Look up detector_runs by (detector_id, detector_version, params_hash,
+//   1. Resolve the same PBP-anchored in-play window the detector will read.
+//   2. Compute the per-game source watermark from that effective tick window
+//      and quote_ticks in that window.
+//   3. Look up detector_runs by (detector_id, detector_version, params_hash,
 //      source_watermark_hash, scope='game', game_id).
-//   3. Cache hit: SELECT detector_observations for the matched run_id.
-//   4. Cache miss: resolve the in-play window (PBP MIN/MAX(time_actual) with
+//   4. Cache hit: SELECT detector_observations for the matched run_id.
+//   5. Cache miss: resolve the in-play window (PBP MIN/MAX(time_actual) with
 //      a 5-min pre-buffer + 1-min post-buffer; fallback to the game's entire
 //      quote_ticks captured_at range when PBP is empty), load ticks for the
 //      window, run board-mad, INSERT detector_runs + detector_observations in
@@ -81,7 +81,8 @@ export function getOrComputeBoard(args: GetOrComputeBoardArgs): BoardResult {
   try {
     const goldDb = openGoldDb(args.goldDbPath);
     try {
-      const watermarkHash = computeGameWatermarkHash(goldDb, args.gameId);
+      const window = resolveInPlayWindow(goldDb, args.gameId, pbpPreMs, pbpPostMs);
+      const watermarkHash = computeGameWatermarkHash(goldDb, args.gameId, window);
       const hit = lookupRun(cacheDb, {
         detectorVersion,
         paramsHash,
@@ -97,7 +98,6 @@ export function getOrComputeBoard(args: GetOrComputeBoardArgs): BoardResult {
         };
       }
       const startNs = process.hrtime.bigint();
-      const window = resolveInPlayWindow(goldDb, args.gameId, pbpPreMs, pbpPostMs);
       const ticks: readonly Tick[] =
         window === null ? [] : loadTicks(goldDb, args.gameId, window.start, window.end);
       const result = boardMad.run(
@@ -207,7 +207,7 @@ interface PersistArgs {
 
 function persistRun(cacheDb: Database.Database, args: PersistArgs): number {
   const insertRun = cacheDb.prepare(
-    `INSERT INTO detector_runs (
+    `INSERT OR IGNORE INTO detector_runs (
        detector_id, detector_version, params_hash, params_json,
        source_db_path, source_watermark_hash, scope, game_id,
        window_start, window_end, computed_at, compute_ms
@@ -231,6 +231,18 @@ function persistRun(cacheDb: Database.Database, args: PersistArgs): number {
       args.computedAt,
       args.computeMs,
     );
+    if (result.changes === 0) {
+      const existing = lookupRun(cacheDb, {
+        detectorVersion: args.detectorVersion,
+        gameId: args.gameId,
+        paramsHash: args.paramsHash,
+        watermarkHash: args.watermarkHash,
+      });
+      if (existing === null) {
+        throw new Error("detector run insert was ignored but no cache row was found");
+      }
+      return existing.runId;
+    }
     const runId = Number(result.lastInsertRowid);
     for (const obs of args.observations) {
       insertObs.run(
@@ -262,13 +274,18 @@ function resolveInPlayWindow(
 ): InPlayWindow | null {
   // Primary path: PBP MIN/MAX(time_actual). Pre-buffer seeds the warmup
   // trailing baseline; post-buffer captures the watcher confirmation tail.
-  const pbp = goldDb
-    .prepare(
-      `SELECT MIN(time_actual) AS lo, MAX(time_actual) AS hi
-       FROM nba_play_by_play_actions
-       WHERE game_id = ?`,
-    )
-    .get(gameId);
+  let pbp: unknown;
+  try {
+    pbp = goldDb
+      .prepare(
+        `SELECT MIN(time_actual) AS lo, MAX(time_actual) AS hi
+         FROM nba_play_by_play_actions
+         WHERE game_id = ?`,
+      )
+      .get(gameId);
+  } catch {
+    pbp = null;
+  }
   if (isRecord(pbp)) {
     const lo = pbp["lo"];
     const hi = pbp["hi"];
@@ -333,48 +350,36 @@ function loadTicks(goldDb: GoldDbHandle, gameId: string, start: Date, end: Date)
   });
 }
 
-function computeGameWatermarkHash(goldDb: GoldDbHandle, gameId: string): string {
-  const qt = goldDb
-    .prepare(
-      `SELECT COUNT(*) AS cnt,
-              COALESCE(MAX(qt.id), 0) AS max_id,
-              COALESCE(MAX(qt.captured_at), '') AS max_captured_at
-       FROM quote_ticks qt
-       JOIN source_markets sm ON sm.id = qt.source_market_id
-       WHERE sm.game_id = ?`,
-    )
-    .get(gameId);
-  const mme = goldDb
-    .prepare(
-      `SELECT COUNT(*) AS cnt,
-              COALESCE(MAX(id), 0) AS max_id,
-              COALESCE(MAX(event_timestamp), '') AS max_event_timestamp
-       FROM market_microstructure_events
-       WHERE game_id = ?`,
-    )
-    .get(gameId);
-  const pbp = goldDb
-    .prepare(
-      `SELECT COALESCE(MAX(time_actual), '') AS max_time_actual
-       FROM nba_play_by_play_actions
-       WHERE game_id = ?`,
-    )
-    .get(gameId);
-  const gs = goldDb
-    .prepare(
-      `SELECT COALESCE(MAX(captured_at), '') AS max_captured_at
-       FROM game_states
-       WHERE game_id = ?`,
-    )
-    .get(gameId);
+function computeGameWatermarkHash(
+  goldDb: GoldDbHandle,
+  gameId: string,
+  tickWindow: InPlayWindow | null,
+): string {
+  const qt =
+    tickWindow === null
+      ? null
+      : goldDb
+          .prepare(
+            `SELECT COUNT(*) AS cnt,
+                    COALESCE(MAX(qt.id), 0) AS max_id,
+                    COALESCE(MAX(qt.captured_at), '') AS max_captured_at
+             FROM quote_ticks qt
+             JOIN source_markets sm ON sm.id = qt.source_market_id
+             WHERE sm.game_id = ?
+               AND qt.captured_at >= ?
+               AND qt.captured_at <= ?`,
+          )
+          .get(gameId, tickWindow.start.toISOString(), tickWindow.end.toISOString());
+  const pbp = readPbpBounds(goldDb, gameId);
   const tuple = {
-    game_states: { max_captured_at: getString(gs, "max_captured_at") },
-    market_microstructure_events: {
-      cnt: getNumber(mme, "cnt"),
-      max_event_timestamp: getString(mme, "max_event_timestamp"),
-      max_id: getNumber(mme, "max_id"),
+    in_play_window:
+      tickWindow === null
+        ? null
+        : { end: tickWindow.end.toISOString(), start: tickWindow.start.toISOString() },
+    nba_play_by_play_actions: {
+      max_time_actual: getString(pbp, "max_time_actual"),
+      min_time_actual: getString(pbp, "min_time_actual"),
     },
-    nba_play_by_play_actions: { max_time_actual: getString(pbp, "max_time_actual") },
     quote_ticks: {
       cnt: getNumber(qt, "cnt"),
       max_captured_at: getString(qt, "max_captured_at"),
@@ -382,6 +387,30 @@ function computeGameWatermarkHash(goldDb: GoldDbHandle, gameId: string): string 
     },
   };
   return sha256Hex(canonicalJson(tuple));
+}
+
+function readPbpBounds(
+  goldDb: GoldDbHandle,
+  gameId: string,
+): { readonly max_time_actual: string; readonly min_time_actual: string } {
+  let row: unknown;
+  try {
+    row = goldDb
+      .prepare(
+        `SELECT COALESCE(MIN(time_actual), '') AS min_time_actual,
+                COALESCE(MAX(time_actual), '') AS max_time_actual
+         FROM nba_play_by_play_actions
+         WHERE game_id = ?`,
+      )
+      .get(gameId);
+  } catch {
+    row = null;
+  }
+
+  return {
+    max_time_actual: getString(row, "max_time_actual"),
+    min_time_actual: getString(row, "min_time_actual"),
+  };
 }
 
 function sha256Hex(input: string): string {

@@ -4,7 +4,7 @@ import {
 } from "@signal-console/domain";
 
 export function resolveBoardAnomalyConfig(
-  partial?: Partial<BoardAnomalyDetectorConfig>
+  partial?: Partial<BoardAnomalyDetectorConfig>,
 ): BoardAnomalyDetectorConfig {
   if (!partial) {
     return defaultBoardAnomalyDetectorConfig;

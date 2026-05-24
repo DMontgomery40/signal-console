@@ -74,22 +74,21 @@ export function quoteRowToObservation(
   row: QuoteRow,
   gameStates: GameStateRow[],
   scheduledStartMs: number,
-  previousProbabilityByMarket: Map<string, number | null>
+  previousProbabilityByMarket: Map<string, number | null>,
 ): BoardObservation | null {
   const capturedMs = parseTimestampMs(row.capturedAt);
   if (capturedMs == null) return null;
-  const previousProbability =
-    previousProbabilityByMarket.get(row.sourceMarketId) ?? null;
+  const previousProbability = previousProbabilityByMarket.get(row.sourceMarketId) ?? null;
   const impliedProbability = row.impliedProbability ?? null;
   const logitMove =
     previousProbability != null && impliedProbability != null
       ? Math.log(
           Math.min(0.999, Math.max(0.001, impliedProbability)) /
-            (1 - Math.min(0.999, Math.max(0.001, impliedProbability)))
+            (1 - Math.min(0.999, Math.max(0.001, impliedProbability))),
         ) -
         Math.log(
           Math.min(0.999, Math.max(0.001, previousProbability)) /
-            (1 - Math.min(0.999, Math.max(0.001, previousProbability)))
+            (1 - Math.min(0.999, Math.max(0.001, previousProbability))),
         )
       : 0;
   previousProbabilityByMarket.set(row.sourceMarketId, impliedProbability);
@@ -129,7 +128,7 @@ export function quoteRowToObservation(
       row.rawFamily,
       row.rawLabel,
       row.participantKey,
-      row.displayLabel
+      row.displayLabel,
     ),
     eventTimestamp: row.capturedAt,
     capturedAt: row.capturedAt,
@@ -142,9 +141,7 @@ export function quoteRowToObservation(
     bestBid: row.bestBid,
     bestAsk: row.bestAsk,
     spread:
-      row.bestBid != null && row.bestAsk != null
-        ? Math.max(0, row.bestAsk - row.bestBid)
-        : null,
+      row.bestBid != null && row.bestAsk != null ? Math.max(0, row.bestAsk - row.bestBid) : null,
     depthScore: row.depthScore,
     volume: row.volume,
     volumeSource: row.volumeSource,
@@ -162,10 +159,9 @@ export function quoteRowToObservation(
 export function microstructureRowToObservation(
   row: MicrostructureRow,
   gameStates: GameStateRow[],
-  scheduledStartMs: number
+  scheduledStartMs: number,
 ): BoardObservation | null {
-  const eventMs =
-    parseTimestampMs(row.eventTimestamp) ?? parseTimestampMs(row.capturedAt);
+  const eventMs = parseTimestampMs(row.eventTimestamp) ?? parseTimestampMs(row.capturedAt);
   if (eventMs == null) return null;
   const impliedProbability = row.price ?? row.tradePrice ?? null;
   const previousImpliedProbability = row.previousPrice ?? null;
@@ -173,11 +169,11 @@ export function microstructureRowToObservation(
     impliedProbability != null && previousImpliedProbability != null
       ? Math.log(
           Math.min(0.999, Math.max(0.001, impliedProbability)) /
-            (1 - Math.min(0.999, Math.max(0.001, impliedProbability)))
+            (1 - Math.min(0.999, Math.max(0.001, impliedProbability))),
         ) -
         Math.log(
           Math.min(0.999, Math.max(0.001, previousImpliedProbability)) /
-            (1 - Math.min(0.999, Math.max(0.001, previousImpliedProbability)))
+            (1 - Math.min(0.999, Math.max(0.001, previousImpliedProbability))),
         )
       : 0;
   const flags: BoardObservationFlags = {
@@ -214,14 +210,11 @@ export function microstructureRowToObservation(
       row.rawFamily,
       row.rawLabel,
       row.participantKey,
-      row.displayLabel
+      row.displayLabel,
     ),
     eventTimestamp: row.eventTimestamp,
     capturedAt: row.capturedAt,
-    quoteAgeMs: Math.max(
-      0,
-      (parseTimestampMs(row.capturedAt) ?? eventMs) - eventMs
-    ),
+    quoteAgeMs: Math.max(0, (parseTimestampMs(row.capturedAt) ?? eventMs) - eventMs),
     impliedProbability,
     previousImpliedProbability,
     priceMove: 0,

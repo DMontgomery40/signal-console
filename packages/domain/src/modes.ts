@@ -6,12 +6,7 @@ export const sourceIds = ["bet365", "kalshi", "polymarket", "model"] as const;
 
 export type SourceId = (typeof sourceIds)[number];
 
-export const freshnessStatuses = [
-  "fresh",
-  "aging",
-  "stale",
-  "offline",
-] as const;
+export const freshnessStatuses = ["fresh", "aging", "stale", "offline"] as const;
 
 export type FreshnessStatus = (typeof freshnessStatuses)[number];
 

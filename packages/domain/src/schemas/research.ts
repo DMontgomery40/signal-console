@@ -65,11 +65,9 @@ const isoTimestampQueryParamSchema = z
     message: "Expected an ISO-8601 timestamp.",
   });
 
-const ymdDateQueryParamSchema = z
-  .string()
-  .refine((value) => isStrictYmdDate(value), {
-    message: "Expected a real YYYY-MM-DD date.",
-  });
+const ymdDateQueryParamSchema = z.string().refine((value) => isStrictYmdDate(value), {
+  message: "Expected a real YYYY-MM-DD date.",
+});
 
 export const coverageSummarySchema = z.object({
   activeSourceCount: z.number().int().nonnegative(),
@@ -93,14 +91,10 @@ export const divergenceSummarySchema = z.object({
       latestComparisonAt: z.string().nullable().optional(),
       latestGap: z.number().nonnegative().nullable().optional(),
       latestSignedGap: z.number().nullable().optional(),
-      latestSourceProbabilities: z
-        .record(z.string(), z.number().nullable())
-        .optional(),
+      latestSourceProbabilities: z.record(z.string(), z.number().nullable()).optional(),
       maxGap: z.number().nonnegative().nullable().optional(),
       maxGapAt: z.string().nullable().optional(),
-      maxGapSourceProbabilities: z
-        .record(z.string(), z.number().nullable())
-        .optional(),
+      maxGapSourceProbabilities: z.record(z.string(), z.number().nullable()).optional(),
       minGap: z.number().nonnegative().nullable().optional(),
       firstAboveThresholdAt: z.string().nullable().optional(),
       aboveThresholdDurationMs: z.number().nonnegative(),
@@ -160,7 +154,7 @@ export const researchGameDetailSchema = z.object({
     z.object({
       family: marketFamilySchema,
       count: z.number().int().nonnegative(),
-    })
+    }),
   ),
 });
 
@@ -179,7 +173,7 @@ export const instrumentComparisonViewSchema = z.object({
       source: researchSourceIdSchema,
       payloadId: z.number().int().nonnegative(),
       capturedAt: z.string(),
-    })
+    }),
   ),
 });
 
@@ -208,17 +202,15 @@ export const instrumentTimelineSchema = z.object({
       capturedAt: z.string(),
       label: z.string(),
       detail: z.string(),
-      source: z
-        .enum(["bet365", "kalshi", "polymarket", "nba", "system"])
-        .optional(),
-    })
+      source: z.enum(["bet365", "kalshi", "polymarket", "nba", "system"]).optional(),
+    }),
   ),
   lineMismatchWindows: z.array(
     z.object({
       start: z.string(),
       end: z.string().nullable().optional(),
       sources: z.array(researchSourceIdSchema),
-    })
+    }),
   ),
 });
 
@@ -446,15 +438,7 @@ export const adminRuntimeConfigItemSchema = z.object({
   configured: z.boolean(),
   defaultValue: z.string().nullable().optional(),
   description: z.string(),
-  inputType: z.enum([
-    "boolean",
-    "number",
-    "password",
-    "path",
-    "select",
-    "text",
-    "url",
-  ]),
+  inputType: z.enum(["boolean", "number", "password", "path", "select", "text", "url"]),
   key: z.string(),
   label: z.string(),
   options: z.array(z.string()).optional(),
@@ -517,13 +501,7 @@ export const researchDivergenceQuerySchema = z.object({
   limit: positiveIntegerQueryParamSchema.optional(),
   mappedState: comparableStateSchema.optional(),
   sort: z
-    .enum([
-      "divergence",
-      "freshness",
-      "captureRecency",
-      "lineMismatch",
-      "signalPriority",
-    ])
+    .enum(["divergence", "freshness", "captureRecency", "lineMismatch", "signalPriority"])
     .optional(),
 });
 

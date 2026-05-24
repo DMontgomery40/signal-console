@@ -87,6 +87,25 @@ const DETECTORS_RESPONSE = {
   ],
 };
 
+const ENSEMBLE_DETECTORS_RESPONSE = {
+  detectors: [
+    ...DETECTORS_RESPONSE.detectors,
+    {
+      id: "ensemble-or",
+      version: "1.0.0",
+      displayName: "Stage 1 (board OR off-price-print)",
+      sources: ["bet365", "kalshi", "polymarket"],
+      paramsSchema: {
+        type: "object",
+        properties: {
+          board: { type: "object", default: {} },
+          offprice: { type: "object", default: {} },
+        },
+      },
+    },
+  ],
+};
+
 // Synthetic observations that mimic the prebucket+sweep contract: per-game
 // chronological intensity series with baseline median + mad. We can predict
 // what the client recompute will produce for a given (kMad, warmupBuckets,
@@ -293,11 +312,14 @@ describe("BacktestPage", () => {
     };
   }
 
-  function mockDetectorsAndBacktest(backtestBody: unknown): void {
+  function mockDetectorsAndBacktest(
+    backtestBody: unknown,
+    detectorsBody: unknown = DETECTORS_RESPONSE,
+  ): void {
     fetchMock.mockImplementation(async (input, init) => {
       await Promise.resolve();
       const url = urlOf(input);
-      if (url.startsWith("/v1/detectors")) return jsonResponse(DETECTORS_RESPONSE);
+      if (url.startsWith("/v1/detectors")) return jsonResponse(detectorsBody);
       if (url.startsWith("/v1/backtest") && init?.method === "POST") {
         return jsonResponse(backtestBody);
       }
@@ -345,24 +367,7 @@ describe("BacktestPage", () => {
   it("defaults the detector selector to ensemble-or when it is registered (report §8.1 Stage 1)", async () => {
     // Mock detectors response that includes ensemble-or, matching the new
     // registry. selectInitialDetector should pick it over board-mad.
-    mockDetectors({
-      detectors: [
-        ...DETECTORS_RESPONSE.detectors,
-        {
-          id: "ensemble-or",
-          version: "1.0.0",
-          displayName: "Stage 1 (board OR off-price-print)",
-          sources: ["bet365", "kalshi", "polymarket"],
-          paramsSchema: {
-            type: "object",
-            properties: {
-              board: { type: "object", default: {} },
-              offprice: { type: "object", default: {} },
-            },
-          },
-        },
-      ],
-    });
+    mockDetectors(ENSEMBLE_DETECTORS_RESPONSE);
     render(<BacktestPage />, { wrapper: makeWrapper() });
     await waitFor(() => {
       const sel = screen.getByTestId("backtest-detector-select");
@@ -384,8 +389,8 @@ describe("BacktestPage", () => {
     // saw bare "BOARD —" / "OFFPRICE —" lines and called it out.
     const paramForm = screen.queryByTestId("backtest-param-form");
     if (paramForm !== null) {
-      expect(paramForm.textContent ?? "").not.toMatch(/BOARD\s*—/i);
-      expect(paramForm.textContent ?? "").not.toMatch(/OFFPRICE\s*—/i);
+      expect(paramForm.textContent).not.toMatch(/BOARD\s*—/i);
+      expect(paramForm.textContent).not.toMatch(/OFFPRICE\s*—/i);
     }
   });
 
@@ -885,6 +890,58 @@ describe("BacktestPage", () => {
     expect(Object.is(rowsBefore[1], rowsAfter[1])).toBe(true);
     expect(Object.is(chartNodesBefore[0], chartNodesAfter[0])).toBe(true);
     expect(Object.is(chartNodesBefore[1], chartNodesAfter[1])).toBe(true);
+
+    fireEvent.click(screen.getAllByTestId("backtest-timeline-row-toggle")[0]!);
+    expect(screen.getByText("Past fires in this game at K=6.00")).not.toBeNull();
+  });
+
+  it("keeps ensemble timeline K tied to the snapshot params that produced the rows", async () => {
+    mockDetectorsAndBacktest(
+      buildMultiGameKSensitiveBacktest(["nba-ensemble"]),
+      ENSEMBLE_DETECTORS_RESPONSE,
+    );
+    render(<BacktestPage />, { wrapper: makeWrapper() });
+    await waitFor(() => {
+      const sel = screen.getByTestId("backtest-detector-select");
+      if (!(sel instanceof HTMLSelectElement)) throw new Error("not a select");
+      expect(sel.value).toBe("ensemble-or");
+    });
+
+    const dial = screen.getByTestId("cry-wolf-dial");
+    act(() => {
+      for (let i = 0; i < 12; i++) {
+        fireEvent.keyDown(dial, { key: "ArrowRight" });
+      }
+    });
+    expect(dial.getAttribute("aria-valuenow")).toBe("6");
+
+    fireEvent.click(screen.getByTestId("backtest-run-button"));
+    await waitFor(() => {
+      expect(screen.getByTestId("backtest-run-id").textContent).toBe("138");
+    });
+
+    const postCalls = fetchMock.mock.calls.filter(([input, init]) => {
+      const url = urlOf(input);
+      return url.startsWith("/v1/backtest") && init?.method === "POST";
+    });
+    expect(postCalls.length).toBe(1);
+    const [, init] = postCalls[0]!;
+    const body = parsePostBody(init?.body);
+    expect(body.detector_id).toBe("ensemble-or");
+    expect(body.params["board"]).toMatchObject({ kMad: 6 });
+
+    fireEvent.click(screen.getByTestId("backtest-timeline-row-toggle"));
+    expect(screen.getByText("Past fires in this game at K=6.00")).not.toBeNull();
+
+    act(() => {
+      for (let i = 0; i < 12; i++) {
+        fireEvent.keyDown(dial, { key: "ArrowLeft" });
+      }
+    });
+    expect(dial.getAttribute("aria-valuenow")).toBe("3");
+    expect(screen.getByTestId("backtest-stale-warning")).not.toBeNull();
+    expect(screen.getByText("Past fires in this game at K=6.00")).not.toBeNull();
+    expect(screen.queryByText("Past fires in this game at K=3.00")).toBeNull();
   });
 
   it("flips data-from-recompute canary after dial-driven K change (US-038)", async () => {

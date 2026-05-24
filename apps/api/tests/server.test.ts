@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { buildServer } from "../src/server";
+import { buildServer, resolvePort } from "../src/server";
 
 type FastifyApp = Awaited<ReturnType<typeof buildServer>>;
 
@@ -77,5 +77,23 @@ describe("Fastify server scaffold (US-015)", () => {
       headers: authHeaders(),
     });
     expect([200, 302]).toContain(res.statusCode);
+  });
+
+  it("rejects non-integer SIGNAL_CONSOLE_API_PORT values before listen()", () => {
+    const previousPort = process.env.SIGNAL_CONSOLE_API_PORT;
+    try {
+      for (const value of ["4100.5", "1e2", "0", "65536"]) {
+        process.env.SIGNAL_CONSOLE_API_PORT = value;
+        expect(() => resolvePort()).toThrow(`invalid SIGNAL_CONSOLE_API_PORT: ${value}`);
+      }
+      process.env.SIGNAL_CONSOLE_API_PORT = "4100";
+      expect(resolvePort()).toBe(4100);
+    } finally {
+      if (previousPort === undefined) {
+        delete process.env.SIGNAL_CONSOLE_API_PORT;
+      } else {
+        process.env.SIGNAL_CONSOLE_API_PORT = previousPort;
+      }
+    }
   });
 });

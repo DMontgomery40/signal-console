@@ -120,7 +120,7 @@ function buildKalshiHeaders() {
 async function fetchWithRateLimit(
   fetchImpl: FetchLike,
   url: string,
-  options?: { headers?: Record<string, string>; interRequestMs?: number }
+  options?: { headers?: Record<string, string>; interRequestMs?: number },
 ) {
   const interRequestMs = options?.interRequestMs ?? DEFAULT_INTER_REQUEST_MS;
   let attempt = 0;
@@ -138,9 +138,7 @@ async function fetchWithRateLimit(
 
     const retryAfterHeader = response.headers?.get?.("retry-after");
     const retryAfterSeconds = retryAfterHeader ? Number(retryAfterHeader) : NaN;
-    const delay = Number.isFinite(retryAfterSeconds)
-      ? retryAfterSeconds * 1000
-      : waitMs;
+    const delay = Number.isFinite(retryAfterSeconds) ? retryAfterSeconds * 1000 : waitMs;
 
     await sleep(delay);
     waitMs = Math.min(waitMs * 2, 30_000);
@@ -214,9 +212,7 @@ function resolveKalshiQuoteVolume(market: KalshiDirectMarket) {
 }
 
 function resolveKalshiDepthScore(market: KalshiDirectMarket) {
-  return (
-    toNumber(market.liquidity_dollars) ?? toNumber(market.liquidity) ?? null
-  );
+  return toNumber(market.liquidity_dollars) ?? toNumber(market.liquidity) ?? null;
 }
 
 function buildStableId(parts: Array<string | number | null | undefined>) {
@@ -248,10 +244,8 @@ function buildGameIndex(games: ResearchGameCard[]) {
 
   for (const gameCard of games) {
     const teamKeys = [
-      gameCard.game.awayParticipant.abbreviation ??
-        gameCard.game.awayParticipant.key,
-      gameCard.game.homeParticipant.abbreviation ??
-        gameCard.game.homeParticipant.key,
+      gameCard.game.awayParticipant.abbreviation ?? gameCard.game.awayParticipant.key,
+      gameCard.game.homeParticipant.abbreviation ?? gameCard.game.homeParticipant.key,
     ];
     const date = gameCard.game.scheduledStart.slice(0, 10);
     for (const delta of [0, -1, 1]) {
@@ -266,10 +260,10 @@ function buildGameIndex(games: ResearchGameCard[]) {
 }
 
 function parseKalshiEventParts(
-  eventTicker: string
+  eventTicker: string,
 ): { away: string; date: string; home: string; series: string } | null {
   const match = eventTicker.match(
-    /^(KXNBA[A-Z0-9]*)-(\d{2})([A-Z]{3})(\d{2})([A-Z]{3})([A-Z]{3})(?:-|$)/
+    /^(KXNBA[A-Z0-9]*)-(\d{2})([A-Z]{3})(\d{2})([A-Z]{3})([A-Z]{3})(?:-|$)/,
   );
   if (!match) return null;
 
@@ -284,21 +278,13 @@ function parseKalshiEventParts(
   return { away, date, home, series };
 }
 
-function resolveGameByTicker(
-  eventTicker: string,
-  gameIndex: Map<string, ResearchGameCard>
-) {
+function resolveGameByTicker(eventTicker: string, gameIndex: Map<string, ResearchGameCard>) {
   const parts = parseKalshiEventParts(eventTicker);
   if (!parts) return null;
-  return (
-    gameIndex.get(buildGameKey(parts.date, [parts.away, parts.home])) ?? null
-  );
+  return gameIndex.get(buildGameKey(parts.date, [parts.away, parts.home])) ?? null;
 }
 
-function resolveTeamKeyFromMarket(
-  market: KalshiDirectMarket,
-  game: ResearchGameCard
-) {
+function resolveTeamKeyFromMarket(market: KalshiDirectMarket, game: ResearchGameCard) {
   const tickerSuffix = normalizeToken(market.ticker.split("-").pop() ?? "");
   const yesLabel = normalizeToken(market.yes_sub_title ?? market.title ?? "");
 
@@ -328,9 +314,7 @@ function resolveTeamKeyFromMarket(
       candidate.labels.some(
         (label) =>
           label &&
-          (tickerSuffix === label ||
-            tickerSuffix.startsWith(label) ||
-            yesLabel.includes(label))
+          (tickerSuffix === label || tickerSuffix.startsWith(label) || yesLabel.includes(label)),
       )
     ) {
       return candidate.key;
@@ -364,7 +348,7 @@ function inferLine(market: KalshiDirectMarket) {
 function inferMarketShape(
   event: KalshiDirectEvent,
   market: KalshiDirectMarket,
-  game: ResearchGameCard
+  game: ResearchGameCard,
 ): {
   displayLabel: string;
   family: MarketFamily;
@@ -374,8 +358,7 @@ function inferMarketShape(
   rawFamily: string;
   selection: string;
 } {
-  const series =
-    parseKalshiEventParts(event.event_ticker)?.series ?? event.series_ticker;
+  const series = parseKalshiEventParts(event.event_ticker)?.series ?? event.series_ticker;
   const metric = KALSHI_DIRECT_SERIES_METRICS[series];
   const line = inferLine(market);
   const rawLabel = market.title ?? market.yes_sub_title ?? market.ticker;
@@ -385,23 +368,14 @@ function inferMarketShape(
     const playerName = parsePlayerName(market);
     const participantKey = playerName ? normalizeToken(playerName) : null;
     const binaryMetric =
-      metric === "double-double" ||
-      metric === "triple-double" ||
-      metric === "points-leader";
+      metric === "double-double" || metric === "triple-double" || metric === "points-leader";
     const selection = binaryMetric ? "yes" : "over";
     return {
       displayLabel: playerName
         ? `${playerName} ${selection}${line == null ? "" : ` ${line}`} ${metric}`
         : rawLabel,
       family: "player-prop",
-      instrumentKeyParts: [
-        game.game.id,
-        "player-prop",
-        metric,
-        participantKey,
-        selection,
-        line,
-      ],
+      instrumentKeyParts: [game.game.id, "player-prop", metric, participantKey, selection, line],
       line: binaryMetric ? null : line,
       participantKey,
       rawFamily: metric,
@@ -449,14 +423,7 @@ function inferMarketShape(
     return {
       displayLabel: rawLabel,
       family: "team-prop",
-      instrumentKeyParts: [
-        game.game.id,
-        "team-prop",
-        "team-total",
-        teamKey,
-        "over",
-        line,
-      ],
+      instrumentKeyParts: [game.game.id, "team-prop", "team-total", teamKey, "over", line],
       line,
       participantKey: teamKey,
       rawFamily: "team-total",
@@ -521,9 +488,7 @@ export async function fetchKalshiNbaMilestones(options?: {
       headers,
     });
     if (!response.ok) {
-      throw new Error(
-        `Kalshi milestones request failed with status ${response.status}.`
-      );
+      throw new Error(`Kalshi milestones request failed with status ${response.status}.`);
     }
     const payload = (await response.json()) as KalshiDirectMilestonesResponse;
     milestones.push(...(payload.milestones ?? []));
@@ -549,7 +514,7 @@ export async function fetchKalshiDirectEvent(options: {
   if (response.status === 404) return null;
   if (!response.ok) {
     throw new Error(
-      `Kalshi event request failed with status ${response.status} for ${options.eventTicker}.`
+      `Kalshi event request failed with status ${response.status} for ${options.eventTicker}.`,
     );
   }
   const payload = (await response.json()) as { event?: KalshiDirectEvent };
@@ -597,10 +562,7 @@ export async function syncKalshiNbaDirect(options?: {
       }
     }
 
-    const limitedEventTickers = [...eventTickers].slice(
-      0,
-      options?.maxEvents ?? eventTickers.size
-    );
+    const limitedEventTickers = [...eventTickers].slice(0, options?.maxEvents ?? eventTickers.size);
     const matchedGameIds = new Set<string>();
     const unmatchedEventTickers: string[] = [];
     const marketErrors: KalshiDirectSyncSummary["marketErrors"] = [];

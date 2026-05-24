@@ -1,11 +1,5 @@
 import { execSync } from "node:child_process";
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 import process from "node:process";
@@ -41,11 +35,7 @@ const BUGFIX_META_PATTERNS = [
   /\bdeveloper docs\b/i,
 ];
 
-const TEST_FILE_PATTERNS = [
-  /(^|\/)__tests__\//,
-  /(^|\/)tests\//,
-  /\.(test|spec)\.[cm]?[jt]sx?$/,
-];
+const TEST_FILE_PATTERNS = [/(^|\/)__tests__\//, /(^|\/)tests\//, /\.(test|spec)\.[cm]?[jt]sx?$/];
 
 const TEST_COMMAND_PATTERNS = [
   /\bvitest\b/i,
@@ -128,7 +118,7 @@ interface HookOutput {
 }
 
 function buildEmptyState(
-  input: Pick<UserPromptSubmitInput, "prompt" | "turn_id">
+  input: Pick<UserPromptSubmitInput, "prompt" | "turn_id">,
 ): RegressionTurnState {
   return {
     version: 1,
@@ -155,24 +145,17 @@ export function buildBugfixPolicyContext(): string {
 }
 
 export function detectBugfixIntent(prompt: string): boolean {
-  const hasConcreteSignal = BUGFIX_CONCRETE_PATTERNS.some((pattern) =>
-    pattern.test(prompt)
-  );
+  const hasConcreteSignal = BUGFIX_CONCRETE_PATTERNS.some((pattern) => pattern.test(prompt));
   if (!hasConcreteSignal) {
     return false;
   }
-  const hasMetaSignal = BUGFIX_META_PATTERNS.some((pattern) =>
-    pattern.test(prompt)
-  );
+  const hasMetaSignal = BUGFIX_META_PATTERNS.some((pattern) => pattern.test(prompt));
   return !hasMetaSignal;
 }
 
 export function extractPatchedFiles(command: string): string[] {
   const files = new Set<string>();
-  const patterns = [
-    /^\*\*\* (?:Add|Update|Delete) File: (.+)$/gm,
-    /^\*\*\* Move to: (.+)$/gm,
-  ];
+  const patterns = [/^\*\*\* (?:Add|Update|Delete) File: (.+)$/gm, /^\*\*\* Move to: (.+)$/gm];
   for (const pattern of patterns) {
     for (const match of command.matchAll(pattern)) {
       const filePath = match[1]?.trim();
@@ -194,12 +177,8 @@ export function classifyBashCommand(command: string): {
   isVerifyCommand: boolean;
 } {
   return {
-    isTestCommand: TEST_COMMAND_PATTERNS.some((pattern) =>
-      pattern.test(command)
-    ),
-    isVerifyCommand: VERIFY_COMMAND_PATTERNS.some((pattern) =>
-      pattern.test(command)
-    ),
+    isTestCommand: TEST_COMMAND_PATTERNS.some((pattern) => pattern.test(command)),
+    isVerifyCommand: VERIFY_COMMAND_PATTERNS.some((pattern) => pattern.test(command)),
   };
 }
 
@@ -209,7 +188,7 @@ function slugPath(value: string): string {
 
 function resolveRepoRoot(
   cwd: string,
-  repoRootResolver?: HookPersistenceOptions["repoRootResolver"]
+  repoRootResolver?: HookPersistenceOptions["repoRootResolver"],
 ): string {
   if (repoRootResolver) {
     return repoRootResolver(cwd);
@@ -229,42 +208,32 @@ function resolveStateRoot(options?: HookPersistenceOptions): string {
   if (options?.stateRoot) {
     return options.stateRoot;
   }
-  return path.join(
-    homedir(),
-    ".codex",
-    "hook-state",
-    "bugfix-regression-guard"
-  );
+  return path.join(homedir(), ".codex", "hook-state", "bugfix-regression-guard");
 }
 
 function resolveStatePath(
   input: Pick<UserPromptSubmitInput, "cwd" | "session_id" | "turn_id">,
-  options?: HookPersistenceOptions
+  options?: HookPersistenceOptions,
 ): string {
   const repoRoot = resolveRepoRoot(input.cwd, options?.repoRootResolver);
   return path.join(
     resolveStateRoot(options),
     slugPath(repoRoot),
     slugPath(input.session_id),
-    `${slugPath(input.turn_id)}.json`
+    `${slugPath(input.turn_id)}.json`,
   );
 }
 
 function readState(
-  input: Pick<
-    UserPromptSubmitInput,
-    "cwd" | "prompt" | "session_id" | "turn_id"
-  >,
-  options?: HookPersistenceOptions
+  input: Pick<UserPromptSubmitInput, "cwd" | "prompt" | "session_id" | "turn_id">,
+  options?: HookPersistenceOptions,
 ): RegressionTurnState {
   const statePath = resolveStatePath(input, options);
   if (!existsSync(statePath)) {
     return buildEmptyState(input);
   }
   try {
-    const parsed = JSON.parse(
-      readFileSync(statePath, "utf8")
-    ) as RegressionTurnState;
+    const parsed = JSON.parse(readFileSync(statePath, "utf8")) as RegressionTurnState;
     return {
       ...buildEmptyState(input),
       ...parsed,
@@ -279,7 +248,7 @@ function readState(
 function writeState(
   input: Pick<UserPromptSubmitInput, "cwd" | "session_id" | "turn_id">,
   state: RegressionTurnState,
-  options?: HookPersistenceOptions
+  options?: HookPersistenceOptions,
 ): void {
   const statePath = resolveStatePath(input, options);
   mkdirSync(path.dirname(statePath), { recursive: true });
@@ -288,7 +257,7 @@ function writeState(
 
 function deleteState(
   input: Pick<UserPromptSubmitInput, "cwd" | "session_id" | "turn_id">,
-  options?: HookPersistenceOptions
+  options?: HookPersistenceOptions,
 ): void {
   const statePath = resolveStatePath(input, options);
   if (existsSync(statePath)) {
@@ -327,7 +296,7 @@ function extractExitCode(toolResponse: unknown): number | null {
 
 function updateStateFromPatch(
   state: RegressionTurnState,
-  patchCommand: string
+  patchCommand: string,
 ): RegressionTurnState {
   const files = extractPatchedFiles(patchCommand);
   let nextState = { ...state, sawEdit: state.sawEdit || files.length > 0 };
@@ -354,26 +323,20 @@ function updateStateFromPatch(
 function updateStateFromBash(
   state: RegressionTurnState,
   command: string,
-  exitCode: number | null
+  exitCode: number | null,
 ): RegressionTurnState {
   const classification = classifyBashCommand(command);
   let nextState = { ...state };
   if (classification.isTestCommand) {
     nextState = {
       ...nextState,
-      testCommandAttempts: [
-        ...nextState.testCommandAttempts,
-        { command, exitCode },
-      ],
+      testCommandAttempts: [...nextState.testCommandAttempts, { command, exitCode }],
     };
   }
   if (classification.isVerifyCommand) {
     nextState = {
       ...nextState,
-      verifyCommandAttempts: [
-        ...nextState.verifyCommandAttempts,
-        { command, exitCode },
-      ],
+      verifyCommandAttempts: [...nextState.verifyCommandAttempts, { command, exitCode }],
     };
   }
   return nextState;
@@ -382,9 +345,7 @@ function updateStateFromBash(
 function summarizeMissingCoverage(state: RegressionTurnState): string[] {
   const missing: string[] = [];
   if (state.touchedTestFiles.length === 0) {
-    missing.push(
-      "add or update a behavior-level regression test for the broken behavior"
-    );
+    missing.push("add or update a behavior-level regression test for the broken behavior");
   }
   if (state.testCommandAttempts.length === 0) {
     missing.push("run at least one changed-surface test command");
@@ -396,9 +357,7 @@ function summarizeMissingCoverage(state: RegressionTurnState): string[] {
 }
 
 function shouldGateStop(state: RegressionTurnState): boolean {
-  return (
-    state.bugfixRequired && state.sawEdit && state.editedNonTestFiles.length > 0
-  );
+  return state.bugfixRequired && state.sawEdit && state.editedNonTestFiles.length > 0;
 }
 
 function buildStopReason(missing: string[]): string {
@@ -411,7 +370,7 @@ function buildStopReason(missing: string[]): string {
 
 export function applyUserPromptEvent(
   input: UserPromptSubmitInput,
-  options?: HookPersistenceOptions
+  options?: HookPersistenceOptions,
 ): HookOutput | null {
   const state = buildEmptyState(input);
   state.bugfixRequired = detectBugfixIntent(input.prompt);
@@ -429,7 +388,7 @@ export function applyUserPromptEvent(
 
 export function applyPostToolUseEvent(
   input: PostToolUseInput,
-  options?: HookPersistenceOptions
+  options?: HookPersistenceOptions,
 ): void {
   const state = readState(
     {
@@ -438,7 +397,7 @@ export function applyPostToolUseEvent(
       session_id: input.session_id,
       turn_id: input.turn_id,
     },
-    options
+    options,
   );
   let nextState = { ...state };
   if (input.tool_name === "apply_patch") {
@@ -450,11 +409,7 @@ export function applyPostToolUseEvent(
   if (input.tool_name === "Bash") {
     const command = extractCommandInput(input.tool_input);
     if (command) {
-      nextState = updateStateFromBash(
-        nextState,
-        command,
-        extractExitCode(input.tool_response)
-      );
+      nextState = updateStateFromBash(nextState, command, extractExitCode(input.tool_response));
     }
   }
   writeState(
@@ -464,13 +419,13 @@ export function applyPostToolUseEvent(
       turn_id: input.turn_id,
     },
     nextState,
-    options
+    options,
   );
 }
 
 export function applyStopEvent(
   input: StopHookInput,
-  options?: HookPersistenceOptions
+  options?: HookPersistenceOptions,
 ): HookOutput | null {
   const state = readState(
     {
@@ -479,7 +434,7 @@ export function applyStopEvent(
       session_id: input.session_id,
       turn_id: input.turn_id,
     },
-    options
+    options,
   );
   if (!shouldGateStop(state)) {
     deleteState(
@@ -488,7 +443,7 @@ export function applyStopEvent(
         session_id: input.session_id,
         turn_id: input.turn_id,
       },
-      options
+      options,
     );
     return null;
   }
@@ -500,7 +455,7 @@ export function applyStopEvent(
         session_id: input.session_id,
         turn_id: input.turn_id,
       },
-      options
+      options,
     );
     return null;
   }
@@ -556,10 +511,7 @@ async function main(): Promise<void> {
   }
 }
 
-if (
-  process.argv[1] &&
-  import.meta.url === pathToFileURL(process.argv[1]).href
-) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   main().catch((error: unknown) => {
     const message = error instanceof Error ? error.message : String(error);
     process.stderr.write(`${message}\n`);

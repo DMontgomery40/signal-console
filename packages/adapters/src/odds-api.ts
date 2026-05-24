@@ -1,9 +1,6 @@
 import { createHash } from "node:crypto";
 
-import type {
-  ResearchGameCard,
-  ResearchSourceId,
-} from "@signal-console/domain";
+import type { ResearchGameCard, ResearchSourceId } from "@signal-console/domain";
 import {
   listResearchGames,
   recordAdapterRun,
@@ -116,10 +113,7 @@ function normalizeWords(value: string | null | undefined) {
     .filter(Boolean);
 }
 
-function namesCompatible(
-  left: string | null | undefined,
-  right: string | null | undefined
-) {
+function namesCompatible(left: string | null | undefined, right: string | null | undefined) {
   const leftToken = normalizeToken(left);
   const rightToken = normalizeToken(right);
 
@@ -142,9 +136,7 @@ function namesCompatible(
   }
 
   const [smaller, larger] =
-    leftWords.size <= rightWords.size
-      ? [leftWords, rightWords]
-      : [rightWords, leftWords];
+    leftWords.size <= rightWords.size ? [leftWords, rightWords] : [rightWords, leftWords];
 
   return [...smaller].every((word) => larger.has(word));
 }
@@ -204,7 +196,7 @@ function buildSourceMarketId(
   eventId: string | number,
   marketName: string,
   selectionKey: string,
-  line: number | null
+  line: number | null,
 ) {
   return buildStableId([source, "oa", eventId, marketName, selectionKey, line]);
 }
@@ -228,12 +220,7 @@ function getTargetLookbackMinutes() {
 }
 
 function getOddsApiKey(options?: { apiKey?: string }) {
-  return (
-    options?.apiKey ??
-    process.env.ODDS_API_KEY ??
-    process.env.ODDS_API_IO_KEY ??
-    null
-  );
+  return options?.apiKey ?? process.env.ODDS_API_KEY ?? process.env.ODDS_API_IO_KEY ?? null;
 }
 
 function isLiveGameStatus(status: string | null | undefined) {
@@ -258,14 +245,11 @@ function selectTargetGames(
     lookaheadHours?: number;
     lookbackMinutes?: number;
     now: Date;
-  }
+  },
 ) {
   const lookaheadMs =
-    Math.max(0, options.lookaheadHours ?? getTargetLookaheadHours()) *
-    60 *
-    60_000;
-  const lookbackMs =
-    Math.max(0, options.lookbackMinutes ?? getTargetLookbackMinutes()) * 60_000;
+    Math.max(0, options.lookaheadHours ?? getTargetLookaheadHours()) * 60 * 60_000;
+  const lookbackMs = Math.max(0, options.lookbackMinutes ?? getTargetLookbackMinutes()) * 60_000;
   const nowMs = options.now.getTime();
   const windowStart = nowMs - lookbackMs;
   const windowEnd = nowMs + lookaheadMs;
@@ -295,8 +279,7 @@ function selectTargetGames(
       }
 
       return (
-        new Date(left.game.scheduledStart).getTime() -
-        new Date(right.game.scheduledStart).getTime()
+        new Date(left.game.scheduledStart).getTime() - new Date(right.game.scheduledStart).getTime()
       );
     });
 }
@@ -307,7 +290,7 @@ function buildTargetEventRange(
     now: Date;
     lookaheadHours?: number;
     lookbackMinutes?: number;
-  }
+  },
 ) {
   const targetGames = selectTargetGames(games, options);
   if (targetGames.length === 0) {
@@ -315,11 +298,8 @@ function buildTargetEventRange(
   }
 
   const lookaheadMs =
-    Math.max(0, options.lookaheadHours ?? getTargetLookaheadHours()) *
-    60 *
-    60_000;
-  const lookbackMs =
-    Math.max(0, options.lookbackMinutes ?? getTargetLookbackMinutes()) * 60_000;
+    Math.max(0, options.lookaheadHours ?? getTargetLookaheadHours()) * 60 * 60_000;
+  const lookbackMs = Math.max(0, options.lookbackMinutes ?? getTargetLookbackMinutes()) * 60_000;
   const starts = targetGames
     .map((game) => new Date(game.game.scheduledStart).getTime())
     .filter((value) => Number.isFinite(value));
@@ -354,12 +334,8 @@ function findMatchingGame(games: ResearchGameCard[], event: OddsApiEvent) {
       ];
 
       return (
-        awayCandidates.some((candidate) =>
-          namesCompatible(candidate, event.away)
-        ) &&
-        homeCandidates.some((candidate) =>
-          namesCompatible(candidate, event.home)
-        )
+        awayCandidates.some((candidate) => namesCompatible(candidate, event.away)) &&
+        homeCandidates.some((candidate) => namesCompatible(candidate, event.home))
       );
     }) ?? null
   );
@@ -367,11 +343,7 @@ function findMatchingGame(games: ResearchGameCard[], event: OddsApiEvent) {
 
 function extractLine(row: OddsApiMarketOddsRow) {
   return (
-    toNumber(row.hdp) ??
-    toNumber(row.max) ??
-    toNumber(row.line) ??
-    toNumber(row.total) ??
-    null
+    toNumber(row.hdp) ?? toNumber(row.max) ?? toNumber(row.line) ?? toNumber(row.total) ?? null
   );
 }
 
@@ -391,8 +363,7 @@ function normalizeMarketName(name: string) {
     normalized.includes("half-time") ||
     normalized.includes("halftime");
 
-  const hasUnsupportedScope =
-    normalized.includes("team-total") || normalized.includes("race-to");
+  const hasUnsupportedScope = normalized.includes("team-total") || normalized.includes("race-to");
 
   if (playerPropMetric) {
     return {
@@ -476,12 +447,8 @@ function formatPlayerPropMetric(metric: string) {
   return metric.split("-").join(" ");
 }
 
-function selectionLabelForParticipant(
-  game: ResearchGameCard,
-  side: "home" | "away"
-) {
-  const participant =
-    side === "home" ? game.game.homeParticipant : game.game.awayParticipant;
+function selectionLabelForParticipant(game: ResearchGameCard, side: "home" | "away") {
+  const participant = side === "home" ? game.game.homeParticipant : game.game.awayParticipant;
 
   return {
     key: participant.key,
@@ -519,7 +486,7 @@ function makeSelectionRecord(options: {
     options.event.id,
     options.market.name,
     options.sourceSelectionKey,
-    options.line
+    options.line,
   );
 
   const rawPayloadJson = {
@@ -570,9 +537,7 @@ function makeSelectionRecord(options: {
 
 function parsePlayerPropLabel(rawLabel: unknown) {
   const label = String(rawLabel ?? "").trim();
-  const parentheticals = [...label.matchAll(/\(([^)]*)\)/g)].map((match) =>
-    match[1].trim()
-  );
+  const parentheticals = [...label.matchAll(/\(([^)]*)\)/g)].map((match) => match[1].trim());
   const player = label.replace(/\s*\([^)]*\)\s*/g, " ").trim();
   const labelSelection =
     parentheticals
@@ -600,7 +565,7 @@ function buildPlayerPropRecords(
   autoMap: boolean,
   source: OddsApiSourceId,
   capturedAt: string,
-  playerPropMetric: string
+  playerPropMetric: string,
 ) {
   const bookmakerId = event.bookmakerIds?.[bookmaker] ?? null;
 
@@ -662,18 +627,9 @@ function buildPlayerPropRecords(
       return selections.map(({ oddsValue, rawSelection, selection }) => {
         const metricLabel = formatPlayerPropMetric(playerPropMetric);
         const lineLabel = line == null ? "" : ` ${line}`;
-        const displayLabel =
-          `${parsedLabel.player} ${metricLabel} ${selection}${lineLabel}`.trim();
-        const sourceSelectionKey = buildStableId([
-          parsedLabel.playerKey,
-          selection,
-        ]);
-        const sourceMarketKey = buildStableId([
-          event.id,
-          market.name,
-          parsedLabel.playerKey,
-          line,
-        ]);
+        const displayLabel = `${parsedLabel.player} ${metricLabel} ${selection}${lineLabel}`.trim();
+        const sourceSelectionKey = buildStableId([parsedLabel.playerKey, selection]);
+        const sourceMarketKey = buildStableId([event.id, market.name, parsedLabel.playerKey, line]);
 
         return {
           ...makeSelectionRecord({
@@ -721,7 +677,7 @@ function buildMoneylineRecords(
   market: OddsApiMarket,
   autoMap: boolean,
   source: OddsApiSourceId,
-  capturedAt: string
+  capturedAt: string,
 ) {
   const [row] = market.odds ?? [];
   if (!row) {
@@ -764,12 +720,7 @@ function buildMoneylineRecords(
         sourceSelectionKey: homeSelection.key,
       }),
       instrumentId: autoMap
-        ? buildStableId([
-            game.game.id,
-            "moneyline",
-            homeSelection.label,
-            "moneyline",
-          ])
+        ? buildStableId([game.game.id, "moneyline", homeSelection.label, "moneyline"])
         : null,
     },
     {
@@ -803,12 +754,7 @@ function buildMoneylineRecords(
         sourceSelectionKey: awaySelection.key,
       }),
       instrumentId: autoMap
-        ? buildStableId([
-            game.game.id,
-            "moneyline",
-            awaySelection.label,
-            "moneyline",
-          ])
+        ? buildStableId([game.game.id, "moneyline", awaySelection.label, "moneyline"])
         : null,
     },
   ].filter((record) => record.priceRaw != null);
@@ -821,7 +767,7 @@ function buildSpreadRecords(
   market: OddsApiMarket,
   autoMap: boolean,
   source: OddsApiSourceId,
-  capturedAt: string
+  capturedAt: string,
 ) {
   const bookmakerId = event.bookmakerIds?.[bookmaker] ?? null;
   const homeSelection = selectionLabelForParticipant(game, "home");
@@ -867,12 +813,7 @@ function buildSpreadRecords(
             sourceSelectionKey: homeSelection.key,
           }),
           instrumentId: autoMap
-            ? buildStableId([
-                game.game.id,
-                "spreads",
-                homeSelection.label,
-                baseLine,
-              ])
+            ? buildStableId([game.game.id, "spreads", homeSelection.label, baseLine])
             : null,
         },
         {
@@ -907,12 +848,7 @@ function buildSpreadRecords(
             sourceSelectionKey: awaySelection.key,
           }),
           instrumentId: autoMap
-            ? buildStableId([
-                game.game.id,
-                "spreads",
-                awaySelection.label,
-                baseLine * -1,
-              ])
+            ? buildStableId([game.game.id, "spreads", awaySelection.label, baseLine * -1])
             : null,
         },
       ];
@@ -927,7 +863,7 @@ function buildTotalRecords(
   market: OddsApiMarket,
   autoMap: boolean,
   source: OddsApiSourceId,
-  capturedAt: string
+  capturedAt: string,
 ) {
   const bookmakerId = event.bookmakerIds?.[bookmaker] ?? null;
 
@@ -969,9 +905,7 @@ function buildTotalRecords(
             sourceMarketKey: buildStableId([event.id, market.name, line]),
             sourceSelectionKey: "over",
           }),
-          instrumentId: autoMap
-            ? buildStableId([game.game.id, "totals", "over", line])
-            : null,
+          instrumentId: autoMap ? buildStableId([game.game.id, "totals", "over", line]) : null,
         },
         {
           ...makeSelectionRecord({
@@ -1003,9 +937,7 @@ function buildTotalRecords(
             sourceMarketKey: buildStableId([event.id, market.name, line]),
             sourceSelectionKey: "under",
           }),
-          instrumentId: autoMap
-            ? buildStableId([game.game.id, "totals", "under", line])
-            : null,
+          instrumentId: autoMap ? buildStableId([game.game.id, "totals", "under", line]) : null,
         },
       ];
     })
@@ -1015,7 +947,7 @@ function buildTotalRecords(
 export function buildOddsApiSelectionRecords(
   bookmaker: OddsApiBookmakerName,
   event: OddsApiEventOdds,
-  game: ResearchGameCard
+  game: ResearchGameCard,
 ) {
   const source = bookmakerSourceMap[bookmaker];
   const markets = event.bookmakers?.[bookmaker] ?? [];
@@ -1036,7 +968,7 @@ export function buildOddsApiSelectionRecords(
           market,
           normalizedMarket.autoMap,
           source,
-          capturedAt
+          capturedAt,
         );
       case "spread":
         return buildSpreadRecords(
@@ -1046,7 +978,7 @@ export function buildOddsApiSelectionRecords(
           market,
           normalizedMarket.autoMap,
           source,
-          capturedAt
+          capturedAt,
         );
       case "total":
         return buildTotalRecords(
@@ -1056,7 +988,7 @@ export function buildOddsApiSelectionRecords(
           market,
           normalizedMarket.autoMap,
           source,
-          capturedAt
+          capturedAt,
         );
       case "player-prop":
         return buildPlayerPropRecords(
@@ -1067,7 +999,7 @@ export function buildOddsApiSelectionRecords(
           normalizedMarket.autoMap,
           source,
           capturedAt,
-          normalizedMarket.playerPropMetric
+          normalizedMarket.playerPropMetric,
         );
       default:
         return [];
@@ -1127,7 +1059,7 @@ export async function fetchOddsApiNbaEvents(options: {
       `limit=${url.searchParams.get("limit")}`,
     ].join(" ");
     throw new Error(
-      `Odds-API events request for ${options.bookmaker} failed with status ${response.status} (${context}).`
+      `Odds-API events request for ${options.bookmaker} failed with status ${response.status} (${context}).`,
     );
   }
 
@@ -1154,15 +1086,12 @@ export async function fetchOddsApiEventOdds(options: {
     const url = buildOddsApiUrl(baseUrl, "odds/multi");
     url.searchParams.set("apiKey", options.apiKey);
     url.searchParams.set("bookmakers", options.bookmaker);
-    url.searchParams.set(
-      "eventIds",
-      group.map((value) => String(value)).join(",")
-    );
+    url.searchParams.set("eventIds", group.map((value) => String(value)).join(","));
 
     const response = await fetchImpl(url.toString());
     if (!response.ok) {
       throw new Error(
-        `Odds-API multi-odds request for ${options.bookmaker} failed with status ${response.status}.`
+        `Odds-API multi-odds request for ${options.bookmaker} failed with status ${response.status}.`,
       );
     }
 
@@ -1189,9 +1118,7 @@ async function syncOddsApiBookmaker(options: {
   const apiKey = getOddsApiKey({ apiKey: options.apiKey });
 
   if (!apiKey) {
-    throw new Error(
-      `Missing ODDS_API_KEY for ${options.bookmaker} backup ingestion.`
-    );
+    throw new Error(`Missing ODDS_API_KEY for ${options.bookmaker} backup ingestion.`);
   }
 
   try {
@@ -1274,11 +1201,11 @@ async function syncOddsApiBookmaker(options: {
       }))
       .filter(
         (
-          value
+          value,
         ): value is {
           event: OddsApiEvent;
           game: ResearchGameCard;
-        } => value.game !== null
+        } => value.game !== null,
       );
 
     const oddsByEventId = new Map<string, OddsApiEventOdds>();
@@ -1306,18 +1233,13 @@ async function syncOddsApiBookmaker(options: {
         continue;
       }
 
-      const records = buildOddsApiSelectionRecords(
-        options.bookmaker,
-        eventOddsPayload,
-        game
-      );
+      const records = buildOddsApiSelectionRecords(options.bookmaker, eventOddsPayload, game);
       if (records.length === 0) {
         continue;
       }
 
       matchedGameIds.add(game.game.id);
-      marketsSeen += new Set(records.map((record) => record.sourceMarketKey))
-        .size;
+      marketsSeen += new Set(records.map((record) => record.sourceMarketKey)).size;
 
       for (const record of records) {
         if (record.instrumentId) {
@@ -1342,8 +1264,7 @@ async function syncOddsApiBookmaker(options: {
           rawLabel: record.rawLabel,
           rawMetadata: {
             bookmaker: options.bookmaker,
-            bookmakerId:
-              eventOddsPayload.bookmakerIds?.[options.bookmaker] ?? null,
+            bookmakerId: eventOddsPayload.bookmakerIds?.[options.bookmaker] ?? null,
             bookmakerUrl: eventOddsPayload.urls?.[options.bookmaker] ?? null,
             eventId: eventOddsPayload.id,
             eventStatus: eventOddsPayload.status ?? null,
@@ -1388,8 +1309,7 @@ async function syncOddsApiBookmaker(options: {
 
     const finishedAt = now().toISOString();
     const recordsSeen = sourceMarketsObserved;
-    const recordsWritten =
-      sourceMarketsObserved + quoteObservationsWritten + rawPayloadsWritten;
+    const recordsWritten = sourceMarketsObserved + quoteObservationsWritten + rawPayloadsWritten;
 
     recordAdapterRun({
       finishedAt,

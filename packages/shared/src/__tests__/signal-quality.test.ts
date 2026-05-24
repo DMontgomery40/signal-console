@@ -113,9 +113,7 @@ function seedClosedGameWithCrossSource() {
       });
 
       for (let minute = 0; minute < 30; minute += 1) {
-        const ts = new Date(
-          Date.parse("2026-04-22T01:00:00.000Z") + minute * 60_000
-        ).toISOString();
+        const ts = new Date(Date.parse("2026-04-22T01:00:00.000Z") + minute * 60_000).toISOString();
         const p = baseP + (drift * minute) / 29;
         appendHistoricalTick({
           bestAsk: null,
@@ -166,24 +164,18 @@ describe("signal quality analytics", () => {
     const summaries = listClosedGameSummaries({ closingCutoff: "pregame" });
     expect(summaries).toHaveLength(1);
     const game = summaries[0];
-    const lal = game.moneylineByParticipant.find(
-      (i) => i.participantKey === "lal"
-    );
+    const lal = game.moneylineByParticipant.find((i) => i.participantKey === "lal");
     expect(lal?.outcome.winnerProbability).toBe(1);
     for (const source of lal?.sources ?? []) {
       expect(source.impliedProbability).not.toBe(1);
-      expect((source.capturedAt ?? "") <= "2026-04-22T02:00:00.000Z").toBe(
-        true
-      );
+      expect((source.capturedAt ?? "") <= "2026-04-22T02:00:00.000Z").toBe(true);
     }
   });
 
   it("live-final cutoff includes ticks up to the captured final_at", () => {
     seedClosedGameWithCrossSource();
     const summaries = listClosedGameSummaries({ closingCutoff: "live-final" });
-    const lal = summaries[0].moneylineByParticipant.find(
-      (i) => i.participantKey === "lal"
-    );
+    const lal = summaries[0].moneylineByParticipant.find((i) => i.participantKey === "lal");
     expect(lal).toBeDefined();
     expect(lal?.sources.every((s) => s.capturedAt != null)).toBe(true);
   });
@@ -211,8 +203,7 @@ describe("signal quality analytics", () => {
     });
     expect(series.length).toBeGreaterThan(10);
     const overlapping = series.filter(
-      (point) =>
-        point.perSource.kalshi != null && point.perSource.polymarket != null
+      (point) => point.perSource.kalshi != null && point.perSource.polymarket != null,
     );
     expect(overlapping.length).toBeGreaterThan(5);
   });
@@ -270,10 +261,7 @@ describe("signal quality analytics", () => {
     const valid = series.offsetSeries.filter((pt) => pt.lagBuckets != null);
     expect(valid.length).toBeGreaterThan(0);
     // Histogram bucket counts must sum to the number of valid rolling windows.
-    const histSum = series.offsetHistogram.reduce(
-      (sum, bin) => sum + bin.count,
-      0
-    );
+    const histSum = series.offsetHistogram.reduce((sum, bin) => sum + bin.count, 0);
     expect(histSum).toBe(valid.length);
     // Each histogram entry must point back to a lag observed in the series.
     for (const bin of series.offsetHistogram) {

@@ -1,7 +1,4 @@
-import type {
-  BoardVolatilityPhaseKind,
-  ResearchGameStatus,
-} from "@signal-console/domain";
+import type { BoardVolatilityPhaseKind, ResearchGameStatus } from "@signal-console/domain";
 
 import { parseTimestampMs } from "../board-anomaly-support";
 
@@ -34,10 +31,7 @@ function parseClockSeconds(clock?: string | null) {
   return Number.isFinite(minutes + seconds) ? minutes * 60 + seconds : null;
 }
 
-function periodStartWindowSeconds(
-  period?: number | null,
-  clock?: string | null
-) {
+function periodStartWindowSeconds(period?: number | null, clock?: string | null) {
   const clockSeconds = parseClockSeconds(clock);
   if (clockSeconds == null || period == null || period <= 0) return false;
   const periodLengthSeconds = period <= 4 ? 12 * 60 : 5 * 60;
@@ -47,7 +41,7 @@ function periodStartWindowSeconds(
 function secondsSinceLastScoreChange(
   timeline: GameStateRow[] | undefined,
   nowMs: number,
-  status: string
+  status: string,
 ) {
   if (!timeline || timeline.length === 0 || status !== "in-play") return null;
 
@@ -85,22 +79,17 @@ export function deriveBoardVolatilityPhase(input: PhaseInput): {
       : null;
   const secondsFromTip =
     scheduledSecondsFromTip ??
-    (input.minutesToTip != null
-      ? -Math.round(Math.max(0, input.minutesToTip) * 60)
-      : null);
+    (input.minutesToTip != null ? -Math.round(Math.max(0, input.minutesToTip) * 60) : null);
   const secondsSinceScore = secondsSinceLastScoreChange(
     input.timeline,
     nowMs ?? Number.NaN,
-    input.status
+    input.status,
   );
   const status = input.status.toLowerCase();
 
   if (status === "scheduled") {
     return {
-      kind:
-        secondsFromTip != null && secondsFromTip >= -5 * 60
-          ? "near-tip"
-          : "pregame",
+      kind: secondsFromTip != null && secondsFromTip >= -5 * 60 ? "near-tip" : "pregame",
       period: input.period ?? null,
       clock: input.clock ?? null,
       secondsFromTip,
@@ -132,17 +121,9 @@ export function deriveBoardVolatilityPhase(input: PhaseInput): {
   const margin = Math.abs(input.scoreMargin ?? Number.NaN);
 
   let kind: BoardVolatilityPhaseKind = "settled-live";
-  if (
-    input.period === 1 &&
-    clockSeconds != null &&
-    12 * 60 - clockSeconds <= 90
-  ) {
+  if (input.period === 1 && clockSeconds != null && 12 * 60 - clockSeconds <= 90) {
     kind = "tip-burst";
-  } else if (
-    secondsFromTip != null &&
-    secondsFromTip >= 0 &&
-    secondsFromTip <= 90
-  ) {
+  } else if (secondsFromTip != null && secondsFromTip >= 0 && secondsFromTip <= 90) {
     kind = "tip-burst";
   } else if (periodStartWindowSeconds(input.period, input.clock)) {
     kind = "restart-burst";

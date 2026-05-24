@@ -25,13 +25,11 @@ function createOptions() {
 
 describe("bugfix regression guard hook", () => {
   it("treats concrete broken-behavior prompts as bug fixes and ignores meta policy prompts", () => {
-    expect(
-      detectBugfixIntent("this won't even load, fix the loading bug")
-    ).toBe(true);
+    expect(detectBugfixIntent("this won't even load, fix the loading bug")).toBe(true);
     expect(
       detectBugfixIntent(
-        "Add a hook rule that enforces regression test coverage after any bug fix"
-      )
+        "Add a hook rule that enforces regression test coverage after any bug fix",
+      ),
     ).toBe(false);
   });
 
@@ -56,8 +54,8 @@ describe("bugfix regression guard hook", () => {
   it("classifies changed-surface tests separately from the repo verify command", () => {
     expect(
       classifyBashCommand(
-        "pnpm --filter @signal-console/web exec vitest run src/app/AppRoutes.test.tsx --config ../../vitest.config.ts"
-      )
+        "pnpm --filter @signal-console/web exec vitest run src/app/AppRoutes.test.tsx --config ../../vitest.config.ts",
+      ),
     ).toEqual({ isTestCommand: true, isVerifyCommand: false });
     expect(classifyBashCommand("pnpm verify")).toEqual({
       isTestCommand: false,
@@ -74,7 +72,7 @@ describe("bugfix regression guard hook", () => {
         session_id: "session-1",
         turn_id: "turn-1",
       },
-      options
+      options,
     );
 
     expect(output).toEqual({
@@ -94,7 +92,7 @@ describe("bugfix regression guard hook", () => {
         session_id: "session-2",
         turn_id: "turn-2",
       },
-      options
+      options,
     );
 
     applyPostToolUseEvent(
@@ -114,7 +112,7 @@ describe("bugfix regression guard hook", () => {
         tool_name: "apply_patch",
         turn_id: "turn-2",
       },
-      options
+      options,
     );
 
     const output = applyStopEvent(
@@ -124,7 +122,7 @@ describe("bugfix regression guard hook", () => {
         stop_hook_active: false,
         turn_id: "turn-2",
       },
-      options
+      options,
     );
 
     expect(output).toEqual({
@@ -143,7 +141,7 @@ describe("bugfix regression guard hook", () => {
         session_id: "session-3",
         turn_id: "turn-3",
       },
-      options
+      options,
     );
 
     applyPostToolUseEvent(
@@ -167,7 +165,7 @@ describe("bugfix regression guard hook", () => {
         tool_name: "apply_patch",
         turn_id: "turn-3",
       },
-      options
+      options,
     );
 
     applyPostToolUseEvent(
@@ -182,7 +180,7 @@ describe("bugfix regression guard hook", () => {
         tool_response: { exit_code: 0 },
         turn_id: "turn-3",
       },
-      options
+      options,
     );
 
     applyPostToolUseEvent(
@@ -196,7 +194,7 @@ describe("bugfix regression guard hook", () => {
         tool_response: { exit_code: 1 },
         turn_id: "turn-3",
       },
-      options
+      options,
     );
 
     const output = applyStopEvent(
@@ -206,7 +204,7 @@ describe("bugfix regression guard hook", () => {
         stop_hook_active: false,
         turn_id: "turn-3",
       },
-      options
+      options,
     );
 
     expect(output).toBeNull();
@@ -215,21 +213,16 @@ describe("bugfix regression guard hook", () => {
   it("ships the repo-local hook wiring for prompt, post-tool, and stop events", () => {
     const hooksPath = new URL("../../../../.codex/hooks.json", import.meta.url);
     const config = JSON.parse(readFileSync(hooksPath, "utf8")) as {
-      hooks: Record<
-        string,
-        Array<{ matcher?: string; hooks: Array<{ command: string }> }>
-      >;
+      hooks: Record<string, Array<{ matcher?: string; hooks: Array<{ command: string }> }>>;
     };
 
     expect(config.hooks.UserPromptSubmit[0]?.hooks[0]?.command).toContain(
-      'bugfix-regression-guard.ts" user-prompt-submit'
+      'bugfix-regression-guard.ts" user-prompt-submit',
     );
     expect(config.hooks.PostToolUse.map((entry) => entry.matcher)).toEqual([
       "^Bash$",
       "^(apply_patch|Edit|Write)$",
     ]);
-    expect(config.hooks.Stop[0]?.hooks[0]?.command).toContain(
-      'bugfix-regression-guard.ts" stop'
-    );
+    expect(config.hooks.Stop[0]?.hooks[0]?.command).toContain('bugfix-regression-guard.ts" stop');
   });
 });

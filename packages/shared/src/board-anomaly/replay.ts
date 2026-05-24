@@ -18,9 +18,7 @@ function dedupeKey(alert: BoardAnomalyAlert): string {
   return `${alert.shockKind}::${alert.primaryEntityKey ?? "no-entity"}`;
 }
 
-export function replayBoardAnomalies(
-  input: BoardAnomalyReplayInput
-): BoardAnomalyReplayOutput {
+export function replayBoardAnomalies(input: BoardAnomalyReplayInput): BoardAnomalyReplayOutput {
   const config = resolveBoardAnomalyConfig(input.config);
 
   const startMs = Date.parse(input.windowStart);
@@ -28,11 +26,7 @@ export function replayBoardAnomalies(
   const bufferMs = (input.ingestionLatencyBufferSeconds ?? 60) * 1000;
   const stepMs = Math.max(1_000, (input.stepSeconds ?? 30) * 1000);
 
-  if (
-    !Number.isFinite(startMs) ||
-    !Number.isFinite(endMs) ||
-    endMs <= startMs
-  ) {
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
     return {
       gameId: input.gameId,
       gameLabel: input.gameLabel,
@@ -48,10 +42,7 @@ export function replayBoardAnomalies(
     .filter((observation) => {
       const ts = observationTimestampMs(observation);
       if (!Number.isFinite(ts)) return false;
-      return (
-        ts >= startMs - config.contextWindowMinutes * 60 * 1000 &&
-        ts <= cappedEndMs
-      );
+      return ts >= startMs - config.contextWindowMinutes * 60 * 1000 && ts <= cappedEndMs;
     })
     .sort((a, b) => observationTimestampMs(a) - observationTimestampMs(b));
 
@@ -74,22 +65,20 @@ export function replayBoardAnomalies(
   for (let clockMs = startMs; clockMs <= cappedEndMs; clockMs += stepMs) {
     while (
       nextObservationIndex < inOperationalWindow.length &&
-      observationTimestampMs(inOperationalWindow[nextObservationIndex]) <=
-        clockMs
+      observationTimestampMs(inOperationalWindow[nextObservationIndex]) <= clockMs
     ) {
       nextObservationIndex += 1;
     }
     if (nextObservationIndex < 2) continue;
     while (
       firstObservationIndex < nextObservationIndex &&
-      observationTimestampMs(inOperationalWindow[firstObservationIndex]) <
-        clockMs - contextWindowMs
+      observationTimestampMs(inOperationalWindow[firstObservationIndex]) < clockMs - contextWindowMs
     ) {
       firstObservationIndex += 1;
     }
     const observationsUpToClock = inOperationalWindow.slice(
       firstObservationIndex,
-      nextObservationIndex
+      nextObservationIndex,
     );
     if (observationsUpToClock.length < 2) continue;
 
@@ -109,8 +98,7 @@ export function replayBoardAnomalies(
       const previous = lastEmittedByKey.get(key);
       if (previous) {
         const isMaterial =
-          alert.confidence - previous.confidence >=
-            config.suppression.materialConfidenceJump ||
+          alert.confidence - previous.confidence >= config.suppression.materialConfidenceJump ||
           alert.score - previous.score >= 15 ||
           alert.primaryEntityKey !== previous.primaryEntityKey;
         if (!isMaterial) {

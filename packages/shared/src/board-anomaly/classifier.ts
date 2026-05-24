@@ -60,13 +60,13 @@ function hasCompoundFanout(cluster: CoherenceCluster): boolean {
   const families = new Set(
     cluster.participants
       .map((participant) => participant.observation.family)
-      .filter((value): value is NonNullable<typeof value> => value != null)
+      .filter((value): value is NonNullable<typeof value> => value != null),
   );
   if (families.size >= 2) return true;
   const statFamilies = new Set(
     cluster.participants
       .flatMap((participant) => participant.observation.labels.statFamilyHints)
-      .filter((value) => value.length > 0)
+      .filter((value) => value.length > 0),
   );
   return statFamilies.size >= 2;
 }
@@ -75,30 +75,21 @@ function hasCrossSurfaceDisagreement(cluster: CoherenceCluster): boolean {
   if (cluster.sportsbookContribution <= 0) return false;
   if (cluster.predictionMarketContribution <= 0) return false;
   const ratio =
-    Math.min(
-      cluster.sportsbookContribution,
-      cluster.predictionMarketContribution
-    ) /
-    Math.max(
-      cluster.sportsbookContribution,
-      cluster.predictionMarketContribution
-    );
+    Math.min(cluster.sportsbookContribution, cluster.predictionMarketContribution) /
+    Math.max(cluster.sportsbookContribution, cluster.predictionMarketContribution);
   return ratio >= 0.4;
 }
 
-function hasMissingExpectedSource(
-  participants: BoardObservationScored[]
-): boolean {
+function hasMissingExpectedSource(participants: BoardObservationScored[]): boolean {
   return participants.some(
     (participant) =>
-      participant.observation.flags.isStale ||
-      participant.observation.missing.impliedProbability
+      participant.observation.flags.isStale || participant.observation.missing.impliedProbability,
   );
 }
 
 export function classifyShock(
   cluster: CoherenceCluster,
-  config: BoardAnomalyDetectorConfig
+  config: BoardAnomalyDetectorConfig,
 ): ShockClassification {
   const status = gameStatusSummary(cluster.participants);
   const primaryEntityKey = dominantParticipantKey(cluster);
@@ -109,22 +100,16 @@ export function classifyShock(
       status.minMinutesToTip != null &&
       status.minMinutesToTip <= config.classification.nearTipMinutesToTip;
     if (isNearTip) {
-      reasonParts.push(
-        `near-tip board repricing across ${cluster.relationFamilies.join(", ")}`
-      );
-      if (primaryEntityKey)
-        reasonParts.push(`primary entity ${primaryEntityKey}`);
+      reasonParts.push(`near-tip board repricing across ${cluster.relationFamilies.join(", ")}`);
+      if (primaryEntityKey) reasonParts.push(`primary entity ${primaryEntityKey}`);
       return {
         kind: "near-tip-availability",
         reason: reasonParts.join("; "),
         primaryEntityKey,
       };
     }
-    reasonParts.push(
-      `pregame board repricing across ${cluster.relationFamilies.join(", ")}`
-    );
-    if (primaryEntityKey)
-      reasonParts.push(`primary entity ${primaryEntityKey}`);
+    reasonParts.push(`pregame board repricing across ${cluster.relationFamilies.join(", ")}`);
+    if (primaryEntityKey) reasonParts.push(`primary entity ${primaryEntityKey}`);
     return {
       kind: "pregame-availability",
       reason: reasonParts.join("; "),
@@ -136,11 +121,10 @@ export function classifyShock(
     status.hasInPlay &&
     primaryEntityKey &&
     hasCompoundFanout(cluster) &&
-    cluster.participants.length >=
-      config.classification.attributionMinComponents
+    cluster.participants.length >= config.classification.attributionMinComponents
   ) {
     reasonParts.push(
-      `attribution-shaped fanout on ${primaryEntityKey} across ${cluster.relationFamilies.join(", ")}`
+      `attribution-shaped fanout on ${primaryEntityKey} across ${cluster.relationFamilies.join(", ")}`,
     );
     if (status.closeMargin) reasonParts.push("close margin context");
     return {
@@ -152,7 +136,7 @@ export function classifyShock(
 
   if (hasCrossSurfaceDisagreement(cluster)) {
     reasonParts.push(
-      `sportsbook vs prediction-market disagreement (sportsbook ${cluster.sportsbookContribution.toFixed(2)}, prediction-market ${cluster.predictionMarketContribution.toFixed(2)})`
+      `sportsbook vs prediction-market disagreement (sportsbook ${cluster.sportsbookContribution.toFixed(2)}, prediction-market ${cluster.predictionMarketContribution.toFixed(2)})`,
     );
     return {
       kind: "cross-surface-disagreement",
@@ -170,19 +154,16 @@ export function classifyShock(
     };
   }
 
-  const microstructureTotal = cluster.participants.reduce(
-    (sum, participant) => {
-      return (
-        sum +
-        participant.microstructure.offPrice +
-        participant.microstructure.volumeShare +
-        participant.microstructure.liquidity
-      );
-    },
-    0
-  );
+  const microstructureTotal = cluster.participants.reduce((sum, participant) => {
+    return (
+      sum +
+      participant.microstructure.offPrice +
+      participant.microstructure.volumeShare +
+      participant.microstructure.liquidity
+    );
+  }, 0);
   reasonParts.push(
-    `market-structure activity (microstructure total ${microstructureTotal.toFixed(2)})`
+    `market-structure activity (microstructure total ${microstructureTotal.toFixed(2)})`,
   );
   return {
     kind: "market-structure",

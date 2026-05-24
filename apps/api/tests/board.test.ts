@@ -182,6 +182,49 @@ function countRunsForGame(cacheDbPath: string, gameId: string): number {
   }
 }
 
+function updateEarliestPbp(path: string, gameId: string, nextTimeActual: string): void {
+  const db = new Database(path);
+  try {
+    db.prepare(
+      `UPDATE nba_play_by_play_actions
+       SET time_actual = ?
+       WHERE id = (
+         SELECT id FROM nba_play_by_play_actions
+         WHERE game_id = ?
+         ORDER BY time_actual ASC
+         LIMIT 1
+       )`,
+    ).run(nextTimeActual, gameId);
+  } finally {
+    db.close();
+  }
+}
+
+function seedBoardIrrelevantRows(path: string, gameId: string): void {
+  const db = new Database(path);
+  try {
+    db.prepare(
+      `INSERT INTO market_microstructure_events (game_id, event_timestamp)
+       VALUES (?, ?)`,
+    ).run(gameId, "2026-05-23T03:42:00.000Z");
+    db.prepare(
+      `INSERT INTO game_states (game_id, captured_at, status)
+       VALUES (?, ?, ?)`,
+    ).run(gameId, "2026-05-23T03:42:00.000Z", "in_progress");
+  } finally {
+    db.close();
+  }
+}
+
+function dropPbpTable(path: string): void {
+  const db = new Database(path);
+  try {
+    db.exec(`DROP TABLE nba_play_by_play_actions`);
+  } finally {
+    db.close();
+  }
+}
+
 async function timedInject(app: FastifyApp, url: string): Promise<{ res: unknown; ms: number }> {
   const start = process.hrtime.bigint();
   const res = await app.inject({ method: "GET", url, headers: authHeaders() });
@@ -226,6 +269,79 @@ describe("board route (US-021)", () => {
     const secondBody = asRecord(second.json(), "second body");
     expect(secondBody["runId"]).toBe(firstBody["runId"]);
     expect(readObservations(secondBody)).toEqual(readObservations(firstBody));
+  });
+
+  it("invalidates cached board runs when the PBP minimum bound changes", async () => {
+    seedGoldDb(ctx.goldDbPath, [{ id: "nba-pbp-min-1", tickCount: 1200 }]);
+    const app = await startApp();
+    const first = await app.inject({
+      method: "GET",
+      url: "/v1/board/nba-pbp-min-1",
+      headers: authHeaders(),
+    });
+    expect(first.statusCode).toBe(200);
+    const firstBody = asRecord(first.json(), "first body");
+
+    updateEarliestPbp(ctx.goldDbPath, "nba-pbp-min-1", "2026-05-23T03:30:00.000Z");
+
+    const second = await app.inject({
+      method: "GET",
+      url: "/v1/board/nba-pbp-min-1",
+      headers: authHeaders(),
+    });
+    expect(second.statusCode).toBe(200);
+    const secondBody = asRecord(second.json(), "second body");
+    expect(secondBody["runId"]).not.toBe(firstBody["runId"]);
+    expect(countRunsForGame(ctx.cacheDbPath, "nba-pbp-min-1")).toBe(2);
+  });
+
+  it("keeps cached board runs when non-tick context rows change", async () => {
+    seedGoldDb(ctx.goldDbPath, [{ id: "nba-board-input-1", tickCount: 1200 }]);
+    const app = await startApp();
+    const first = await app.inject({
+      method: "GET",
+      url: "/v1/board/nba-board-input-1",
+      headers: authHeaders(),
+    });
+    expect(first.statusCode).toBe(200);
+    const firstBody = asRecord(first.json(), "first body");
+
+    seedBoardIrrelevantRows(ctx.goldDbPath, "nba-board-input-1");
+
+    const second = await app.inject({
+      method: "GET",
+      url: "/v1/board/nba-board-input-1",
+      headers: authHeaders(),
+    });
+    expect(second.statusCode).toBe(200);
+    const secondBody = asRecord(second.json(), "second body");
+    expect(secondBody["runId"]).toBe(firstBody["runId"]);
+    expect(countRunsForGame(ctx.cacheDbPath, "nba-board-input-1")).toBe(1);
+  });
+
+  it("falls back to quote ticks when the PBP table is missing", async () => {
+    seedGoldDb(ctx.goldDbPath, [{ id: "nba-no-pbp-table-1", seedPbp: false, tickCount: 1200 }]);
+    dropPbpTable(ctx.goldDbPath);
+    const app = await startApp();
+
+    const first = await app.inject({
+      method: "GET",
+      url: "/v1/board/nba-no-pbp-table-1",
+      headers: authHeaders(),
+    });
+    const second = await app.inject({
+      method: "GET",
+      url: "/v1/board/nba-no-pbp-table-1",
+      headers: authHeaders(),
+    });
+
+    expect(first.statusCode).toBe(200);
+    expect(second.statusCode).toBe(200);
+    const firstBody = asRecord(first.json(), "first body");
+    const secondBody = asRecord(second.json(), "second body");
+    expect(secondBody["runId"]).toBe(firstBody["runId"]);
+    expect(readObservations(firstBody).length).toBeGreaterThan(0);
+    expect(countRunsForGame(ctx.cacheDbPath, "nba-no-pbp-table-1")).toBe(1);
   });
 
   it("warm call is at least 5x faster than the cold call (proxy for cache hit vs compute)", async () => {

@@ -22,9 +22,7 @@ export const comparableStateSchema = z.enum(comparableStates);
 export const adapterRunStatusSchema = z.enum(adapterRunStatuses);
 export const adapterCaptureModeSchema = z.enum(adapterCaptureModes);
 export const adminActionStatusSchema = z.enum(adminActionStatuses);
-export const marketMicrostructureEventTypeSchema = z.enum(
-  marketMicrostructureEventTypes
-);
+export const marketMicrostructureEventTypeSchema = z.enum(marketMicrostructureEventTypes);
 
 export const gameParticipantSchema = z.object({
   key: z.string(),

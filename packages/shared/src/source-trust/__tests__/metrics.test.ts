@@ -55,41 +55,31 @@ describe("spread settlement (sign + push)", () => {
     finalAway: 100,
   };
   it("home favorite covers -1.5 when winning by 10", () => {
-    expect(
-      settleSpread({ ...base, participantKey: "nyk", line: -1.5 })
-    ).toEqual({
+    expect(settleSpread({ ...base, participantKey: "nyk", line: -1.5 })).toEqual({
       actual: 1,
       push: false,
     });
   });
   it("away dog with +1.5 loses when losing by 10", () => {
-    expect(settleSpread({ ...base, participantKey: "bos", line: 1.5 })).toEqual(
-      {
-        actual: 0,
-        push: false,
-      }
-    );
+    expect(settleSpread({ ...base, participantKey: "bos", line: 1.5 })).toEqual({
+      actual: 0,
+      push: false,
+    });
   });
   it("favorite does NOT cover a too-large spread", () => {
-    expect(
-      settleSpread({ ...base, participantKey: "nyk", line: -12.5 })
-    ).toEqual({
+    expect(settleSpread({ ...base, participantKey: "nyk", line: -12.5 })).toEqual({
       actual: 0,
       push: false,
     });
   });
   it("integer line produces a push at the exact margin", () => {
-    expect(settleSpread({ ...base, participantKey: "nyk", line: -10 })).toEqual(
-      {
-        actual: 0,
-        push: true,
-      }
-    );
+    expect(settleSpread({ ...base, participantKey: "nyk", line: -10 })).toEqual({
+      actual: 0,
+      push: true,
+    });
   });
   it("returns null when participant is neither side", () => {
-    expect(
-      settleSpread({ ...base, participantKey: "lal", line: -1.5 })
-    ).toBeNull();
+    expect(settleSpread({ ...base, participantKey: "lal", line: -1.5 })).toBeNull();
   });
 
   it("settles kalshi 'wins by over' as a margin threshold, not a handicap", () => {
@@ -100,7 +90,7 @@ describe("spread settlement (sign + push)", () => {
         participantKey: "nyk",
         line: 1.5,
         displayLabel: "Knicks wins by over 1.5 points?",
-      })
+      }),
     ).toEqual({ actual: 1, push: false });
     expect(
       settleSpread({
@@ -108,7 +98,7 @@ describe("spread settlement (sign + push)", () => {
         participantKey: "nyk",
         line: 16.5,
         displayLabel: "Knicks wins by over 16.5 points?",
-      })
+      }),
     ).toEqual({ actual: 0, push: false });
     // signed-handicap formula would WRONGLY say cover at line 16.5 (10+16.5>0):
     // this asserts the threshold branch overrides that.
@@ -117,21 +107,15 @@ describe("spread settlement (sign + push)", () => {
 
 describe("total settlement", () => {
   it("over wins above the line, under below, push at equality", () => {
-    expect(
-      settleTotal({ selection: "over", line: 210.5, finalTotal: 218 })
-    ).toEqual({
+    expect(settleTotal({ selection: "over", line: 210.5, finalTotal: 218 })).toEqual({
       actual: 1,
       push: false,
     });
-    expect(
-      settleTotal({ selection: "under", line: 210.5, finalTotal: 218 })
-    ).toEqual({
+    expect(settleTotal({ selection: "under", line: 210.5, finalTotal: 218 })).toEqual({
       actual: 0,
       push: false,
     });
-    expect(
-      settleTotal({ selection: "over", line: 218, finalTotal: 218 })
-    ).toEqual({
+    expect(settleTotal({ selection: "over", line: 218, finalTotal: 218 })).toEqual({
       actual: 0,
       push: true,
     });
@@ -140,15 +124,11 @@ describe("total settlement", () => {
 
 describe("player stat-line settlement", () => {
   it("over/under half-point lines never push", () => {
-    expect(settleStatLine({ selection: "over", line: 24.5, stat: 27 })).toEqual(
-      {
-        actual: 1,
-        push: false,
-      }
-    );
-    expect(
-      settleStatLine({ selection: "under", line: 24.5, stat: 27 })
-    ).toEqual({
+    expect(settleStatLine({ selection: "over", line: 24.5, stat: 27 })).toEqual({
+      actual: 1,
+      push: false,
+    });
+    expect(settleStatLine({ selection: "under", line: 24.5, stat: 27 })).toEqual({
       actual: 0,
       push: false,
     });
@@ -208,18 +188,11 @@ describe("normalizeStatFamily", () => {
 describe("PBP name matching", () => {
   it("matches initial + last within a roster, returns null on ambiguity", () => {
     const roster = ["cade-cunningham", "tobias-harris", "kelly-oubre-jr"];
-    expect(matchPbpNameToParticipant("C. Cunningham", roster)).toBe(
-      "cade-cunningham"
-    );
-    expect(matchPbpNameToParticipant("K. Oubre", roster)).toBe(
-      "kelly-oubre-jr"
-    );
+    expect(matchPbpNameToParticipant("C. Cunningham", roster)).toBe("cade-cunningham");
+    expect(matchPbpNameToParticipant("K. Oubre", roster)).toBe("kelly-oubre-jr");
     expect(matchPbpNameToParticipant("Z. Nobody", roster)).toBeNull();
     expect(
-      matchPbpNameToParticipant("C. Cunningham", [
-        "cade-cunningham",
-        "cole-cunningham",
-      ])
+      matchPbpNameToParticipant("C. Cunningham", ["cade-cunningham", "cole-cunningham"]),
     ).toBeNull();
   });
 });
@@ -267,9 +240,9 @@ describe("PBP stat reconstruction", () => {
     ]);
     expect(stats.get("N. Jokić")!.points).toBe(2);
     expect(stats.get("L. Dončić")!.points).toBe(3);
-    expect(
-      matchPbpNameToParticipant("N. Jokić", ["nikola-jokic", "jamal-murray"])
-    ).toBe("nikola-jokic");
+    expect(matchPbpNameToParticipant("N. Jokić", ["nikola-jokic", "jamal-murray"])).toBe(
+      "nikola-jokic",
+    );
   });
 
   it("statForFamily composes combined families and double-double", () => {

@@ -14,10 +14,7 @@ type LegacyPlayerPropDisagreementAlert = PlayerPropDisagreementAlert & {
   };
 };
 
-type LegacyPlayerPropAlertPlaybackFrame = Omit<
-  PlayerPropAlertPlaybackFrame,
-  "alerts" | "poll"
-> & {
+type LegacyPlayerPropAlertPlaybackFrame = Omit<PlayerPropAlertPlaybackFrame, "alerts" | "poll"> & {
   alerts: LegacyPlayerPropDisagreementAlert[];
   poll: Omit<PlayerPropAlertPlaybackFrame["poll"], "maxQuoteTimeGapMinutes"> & {
     maxPairGapMinutes?: number;
@@ -26,9 +23,7 @@ type LegacyPlayerPropAlertPlaybackFrame = Omit<
 };
 
 const defaultPlaybackDirectory = resolve(
-  fileURLToPath(
-    new URL("../../../data/player-prop-alert-playback", import.meta.url)
-  )
+  fileURLToPath(new URL("../../../data/player-prop-alert-playback", import.meta.url)),
 );
 
 const defaultPlaybackTimeZone = "America/Denver";
@@ -59,7 +54,7 @@ export function getPlayerPropAlertPlaybackDirectory() {
 export function resolvePlayerPropAlertPlaybackDate(
   date?: string,
   now = new Date(),
-  timeZone = process.env.PLAYER_PROP_ALERT_TIME_ZONE ?? defaultPlaybackTimeZone
+  timeZone = process.env.PLAYER_PROP_ALERT_TIME_ZONE ?? defaultPlaybackTimeZone,
 ) {
   if (date) {
     assertPlaybackDate(date);
@@ -76,23 +71,16 @@ export function resolvePlayerPropAlertPlaybackDate(
   return `${byType.get("year")}-${byType.get("month")}-${byType.get("day")}`;
 }
 
-export function getPlayerPropAlertPlaybackPath(
-  date?: string,
-  now = new Date()
-) {
+export function getPlayerPropAlertPlaybackPath(date?: string, now = new Date()) {
   const resolvedDate = resolvePlayerPropAlertPlaybackDate(date, now);
-  return resolve(
-    getPlayerPropAlertPlaybackDirectory(),
-    `${resolvedDate}.jsonl`
-  );
+  return resolve(getPlayerPropAlertPlaybackDirectory(), `${resolvedDate}.jsonl`);
 }
 
 function parsePlaybackLine(line: string): PlayerPropAlertPlaybackFrame | null {
   try {
     const frame = JSON.parse(line) as LegacyPlayerPropAlertPlaybackFrame;
     const alerts = frame.alerts.map((alert) => {
-      const quoteTimeGapMs =
-        alert.freshness.quoteTimeGapMs ?? alert.freshness.pairGapMs;
+      const quoteTimeGapMs = alert.freshness.quoteTimeGapMs ?? alert.freshness.pairGapMs;
       return {
         ...alert,
         freshness: {
@@ -110,9 +98,7 @@ function parsePlaybackLine(line: string): PlayerPropAlertPlaybackFrame | null {
         limit: frame.poll.limit,
         maxQuoteAgeMinutes: frame.poll.maxQuoteAgeMinutes,
         maxQuoteTimeGapMinutes:
-          frame.poll.maxQuoteTimeGapMinutes ??
-          frame.poll.maxPairGapMinutes ??
-          10,
+          frame.poll.maxQuoteTimeGapMinutes ?? frame.poll.maxPairGapMinutes ?? 10,
         minDelta: frame.poll.minDelta,
       },
     } satisfies PlayerPropAlertPlaybackFrame;
@@ -121,9 +107,7 @@ function parsePlaybackLine(line: string): PlayerPropAlertPlaybackFrame | null {
   }
 }
 
-export function listPlayerPropAlertPlaybackFrames(
-  query: PlayerPropAlertPlaybackQuery = {}
-) {
+export function listPlayerPropAlertPlaybackFrames(query: PlayerPropAlertPlaybackQuery = {}) {
   const date = resolvePlayerPropAlertPlaybackDate(query.date);
   const playbackPath = getPlayerPropAlertPlaybackPath(date);
   if (!existsSync(playbackPath)) {
@@ -142,13 +126,8 @@ export function listPlayerPropAlertPlaybackFrames(
     .filter((frame): frame is PlayerPropAlertPlaybackFrame => frame != null);
 }
 
-export function writePlayerPropAlertPlaybackFrame(
-  frame: PlayerPropAlertPlaybackFrame
-) {
-  const playbackPath = getPlayerPropAlertPlaybackPath(
-    undefined,
-    new Date(frame.capturedAt)
-  );
+export function writePlayerPropAlertPlaybackFrame(frame: PlayerPropAlertPlaybackFrame) {
+  const playbackPath = getPlayerPropAlertPlaybackPath(undefined, new Date(frame.capturedAt));
   mkdirSync(dirname(playbackPath), { recursive: true });
   appendFileSync(playbackPath, `${JSON.stringify(frame)}\n`, "utf8");
   return playbackPath;

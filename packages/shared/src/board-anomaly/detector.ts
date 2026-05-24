@@ -25,10 +25,7 @@ import {
 import { classifyShock } from "./classifier";
 import { clamp01, resolveBoardAnomalyConfig, scoreToSeverity } from "./config";
 import { buildCoherenceClusters, type CoherenceCluster } from "./fanout";
-import {
-  buildGameStateVolatilityAlert,
-  measureGameStateVolatility,
-} from "./game-state-volatility";
+import { buildGameStateVolatilityAlert, measureGameStateVolatility } from "./game-state-volatility";
 import { computeH0Adjustment } from "./h0";
 import { scoreObservation } from "./residual";
 
@@ -45,17 +42,13 @@ const ALERT_KIND_PRIORITY: Record<BoardAnomalyShockKind, number> = {
 function trustedLiveStateWindow(scored: BoardObservationScored[]) {
   if (scored.length < 20) return false;
   const inPlayCount = scored.filter(
-    (item) => item.observation.gameState.status === "in-play"
+    (item) => item.observation.gameState.status === "in-play",
   ).length;
   return inPlayCount / scored.length >= 0.8;
 }
 
-export function compareBoardAnomalyAlerts(
-  a: BoardAnomalyAlert,
-  b: BoardAnomalyAlert
-): number {
-  const priorityDelta =
-    ALERT_KIND_PRIORITY[b.shockKind] - ALERT_KIND_PRIORITY[a.shockKind];
+export function compareBoardAnomalyAlerts(a: BoardAnomalyAlert, b: BoardAnomalyAlert): number {
+  const priorityDelta = ALERT_KIND_PRIORITY[b.shockKind] - ALERT_KIND_PRIORITY[a.shockKind];
   if (priorityDelta !== 0) return priorityDelta;
   return b.score - a.score;
 }
@@ -72,18 +65,14 @@ function isWholeBoardTripwire(alert: BoardAnomalyAlert) {
 function suppressForWholeGameTripwire(
   alert: BoardAnomalyAlert,
   gameStateVolatilityAlert: BoardAnomalyAlert | undefined,
-  shockWindowMs: number
+  shockWindowMs: number,
 ): boolean {
   if (!gameStateVolatilityAlert) return false;
   if (alert.shockKind === "game-state-volatility") return false;
 
   const alertFirstPopMs = Date.parse(alert.firstPopAt);
   const wholeGameFirstPopMs = Date.parse(gameStateVolatilityAlert.firstPopAt);
-  if (
-    !Number.isFinite(alertFirstPopMs) ||
-    !Number.isFinite(wholeGameFirstPopMs)
-  )
-    return false;
+  if (!Number.isFinite(alertFirstPopMs) || !Number.isFinite(wholeGameFirstPopMs)) return false;
 
   if (alertFirstPopMs < wholeGameFirstPopMs) return false;
   return alertFirstPopMs - wholeGameFirstPopMs <= shockWindowMs;
@@ -94,7 +83,7 @@ function clusterToAlert(
   config: BoardAnomalyDetectorConfig,
   gameId: string,
   gameLabel: string,
-  detectedAtIso: string
+  detectedAtIso: string,
 ): BoardAnomalyAlert | null {
   if (cluster.participants.length < 2) return null;
 
@@ -117,8 +106,7 @@ function clusterToAlert(
   const coverage = clamp01(coverageRatio(cluster.participants));
 
   const sportsbookPredictionBoost =
-    cluster.sportsbookContribution > 0 &&
-    cluster.predictionMarketContribution > 0
+    cluster.sportsbookContribution > 0 && cluster.predictionMarketContribution > 0
       ? config.fanout.sportsbookPredictionDisagreementBoost
       : 0;
 
@@ -132,11 +120,11 @@ function clusterToAlert(
 
   const confidenceBase = Math.min(
     0.95,
-    0.55 + coherence * 0.25 + Math.min(0.15, cluster.participants.length * 0.03)
+    0.55 + coherence * 0.25 + Math.min(0.15, cluster.participants.length * 0.03),
   );
   const confidence = Math.max(
     0,
-    confidenceBase - unmappedRatio(cluster.participants) * 0.2 - coverage * 0.3
+    confidenceBase - unmappedRatio(cluster.participants) * 0.2 - coverage * 0.3,
   );
 
   if (score < config.minScore || confidence < config.minConfidence) {
@@ -144,10 +132,8 @@ function clusterToAlert(
   }
 
   const firstPopAt = firstPopAtFromScored(
-    firstPopParticipants.length > 0
-      ? firstPopParticipants
-      : cluster.participants,
-    detectedAtIso
+    firstPopParticipants.length > 0 ? firstPopParticipants : cluster.participants,
+    detectedAtIso,
   );
   const evidence = evidenceFromScored(cluster.participants);
   const missingDataNotes = missingDataNotesFromScored(cluster.participants);
@@ -171,8 +157,8 @@ function clusterToAlert(
     reason: classification.reason,
     primaryEntityKey: classification.primaryEntityKey,
     primaryFamily:
-      cluster.participants.find((participant) => participant.observation.family)
-        ?.observation.family ?? null,
+      cluster.participants.find((participant) => participant.observation.family)?.observation
+        .family ?? null,
     components: {
       residual: Number(baseContribution.toFixed(3)),
       microstructure: Number(microstructureAverage.toFixed(3)),
@@ -180,9 +166,7 @@ function clusterToAlert(
       coverage: Number(coverage.toFixed(3)),
     },
     h0Adjustments: {
-      appliedSuppression: Number(
-        averageH0Suppression(cluster.participants).toFixed(3)
-      ),
+      appliedSuppression: Number(averageH0Suppression(cluster.participants).toFixed(3)),
       drivers: h0DriversFromScored(cluster.participants),
     },
     evidence,
@@ -196,9 +180,7 @@ function clusterToAlert(
   };
 }
 
-export function detectBoardAnomalies(
-  input: BoardAnomalyDetectorInput
-): BoardAnomalyAlert[] {
+export function detectBoardAnomalies(input: BoardAnomalyDetectorInput): BoardAnomalyAlert[] {
   const config = resolveBoardAnomalyConfig(input.config);
   const nowMs = Date.parse(input.now);
   if (!Number.isFinite(nowMs)) {
@@ -218,11 +200,7 @@ export function detectBoardAnomalies(
   if (inWindow.length === 0) return [];
 
   const scored: BoardObservationScored[] = inWindow.map((observation) =>
-    scoreObservation(
-      observation,
-      computeH0Adjustment(observation, config),
-      config
-    )
+    scoreObservation(observation, computeH0Adjustment(observation, config), config),
   );
 
   const shockSet = scored.filter(
@@ -230,7 +208,7 @@ export function detectBoardAnomalies(
       withinShockWindow(item.observation, nowMs, shockWindowMs) ||
       item.contribution > 0 ||
       item.observation.flags.isStale ||
-      item.observation.missing.impliedProbability
+      item.observation.missing.impliedProbability,
   );
 
   if (shockSet.length < 2) {
@@ -255,13 +233,7 @@ export function detectBoardAnomalies(
     alerts.push(gameStateVolatilityAlert);
   }
   for (const cluster of clusters) {
-    const alert = clusterToAlert(
-      cluster,
-      config,
-      input.gameId,
-      input.gameLabel,
-      input.now
-    );
+    const alert = clusterToAlert(cluster, config, input.gameId, input.gameLabel, input.now);
     if (alert) {
       if (!isWholeBoardTripwire(alert) && !trustedStateGate) {
         continue;
@@ -287,22 +259,17 @@ export function detectBoardAnomalies(
   }
   const result = Array.from(dedupedByKind.values());
   const gameStateVolatilityTripwire = result.find(
-    (alert) => alert.shockKind === "game-state-volatility"
+    (alert) => alert.shockKind === "game-state-volatility",
   );
   const filtered = result.filter(
-    (alert) =>
-      !suppressForWholeGameTripwire(
-        alert,
-        gameStateVolatilityTripwire,
-        shockWindowMs
-      )
+    (alert) => !suppressForWholeGameTripwire(alert, gameStateVolatilityTripwire, shockWindowMs),
   );
   filtered.sort(compareBoardAnomalyAlerts);
   return filtered;
 }
 
 export function measureBoardGameStateVolatility(
-  input: BoardAnomalyDetectorInput
+  input: BoardAnomalyDetectorInput,
 ): BoardGameStateVolatility | null {
   const config = resolveBoardAnomalyConfig(input.config);
   const nowMs = Date.parse(input.now);
@@ -320,11 +287,7 @@ export function measureBoardGameStateVolatility(
   });
 
   const scored: BoardObservationScored[] = inWindow.map((observation) =>
-    scoreObservation(
-      observation,
-      computeH0Adjustment(observation, config),
-      config
-    )
+    scoreObservation(observation, computeH0Adjustment(observation, config), config),
   );
 
   return measureGameStateVolatility({

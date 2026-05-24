@@ -2,6 +2,7 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
 export default defineConfig({
+  envPrefix: ["VITE_", "SIGNAL_CONSOLE_"],
   plugins: [react()],
   server: {
     host: "localhost",

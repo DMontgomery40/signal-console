@@ -3,10 +3,7 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = resolve(fileURLToPath(new URL("../../..", import.meta.url)));
-const runtimeEnvFiles = [
-  resolve(repoRoot, ".env.local"),
-  resolve(repoRoot, ".env"),
-];
+const runtimeEnvFiles = [resolve(repoRoot, ".env.local"), resolve(repoRoot, ".env")];
 
 let runtimeEnvLoaded = false;
 let lastLoadSummary: {

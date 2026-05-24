@@ -80,6 +80,34 @@ describe("board-mad detector", () => {
     expect(result.stats.firesPerGame).toBe(result.fires.length);
   });
 
+  it("treats duplicate gameIds as one game for bucketing and stats", () => {
+    const ticks: readonly Tick[] = [
+      {
+        gameId: "synth-dedupe",
+        sourceMarketId: "m1",
+        capturedAt: new Date(0),
+        impliedProbability: 0.4,
+        volume: 10,
+        isHeartbeat: false,
+      },
+      {
+        gameId: "synth-dedupe",
+        sourceMarketId: "m1",
+        capturedAt: new Date(60_000),
+        impliedProbability: 0.42,
+        volume: 10,
+        isHeartbeat: false,
+      },
+    ];
+    const unique = detector.run(windowOf(["synth-dedupe"], ticks), defaults());
+    const duplicate = detector.run(windowOf(["synth-dedupe", "synth-dedupe"], ticks), defaults());
+
+    expect(duplicate.buckets).toEqual(unique.buckets);
+    expect(duplicate.fires).toEqual(unique.fires);
+    expect(duplicate.stats.gamesInWindow).toBe(1);
+    expect(duplicate.stats.firesPerGame).toBe(unique.stats.firesPerGame);
+  });
+
   it("is_heartbeat and 0.500 opening-anchor ticks are sanitised", () => {
     // Two heartbeat ticks and two opening-anchor (IP=0.5) ticks. After
     // sanitisation, no qualifying pairs remain, so no fires.

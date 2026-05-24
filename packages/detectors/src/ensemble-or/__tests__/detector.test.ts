@@ -19,25 +19,22 @@ function ticksWithJump(): readonly Tick[] {
   // 30 that beats median+K*MAD on the prior 20 buckets.
   // Note: board-mad strips 0.500 opening-anchor ticks, so we deliberately
   // pick 0.40/0.60 as the baselines.
-  const out: Tick[] = [];
   const market = (mid: string, basePrice: number, jumpAt: number, jumpTo: number) => {
-    for (let i = 0; i < 60; i += 1) {
+    return Array.from({ length: 60 }, (_, i): Tick => {
       // small +/- 0.005 noise so the baseline isn't degenerate-zero
-      const noise = (i % 2 === 0 ? 0.005 : -0.005);
+      const noise = i % 2 === 0 ? 0.005 : -0.005;
       const price = i < jumpAt ? basePrice + noise : jumpTo;
-      out.push({
+      return {
         gameId: "nba-test-1",
         sourceMarketId: mid,
         capturedAt: new Date(baseTime.getTime() + i * 60_000),
         impliedProbability: price,
         volume: 1000,
         isHeartbeat: false,
-      });
-    }
+      };
+    });
   };
-  market("mkt-a", 0.4, 30, 0.95);
-  market("mkt-b", 0.6, 30, 0.05);
-  return out;
+  return [...market("mkt-a", 0.4, 30, 0.95), ...market("mkt-b", 0.6, 30, 0.05)];
 }
 
 function offPriceEvent(): MicrostructureEvent {
@@ -95,9 +92,7 @@ describe("ensemble-or detector", () => {
       minOffPriceDistance: 0.4,
     });
     const ensemble = ensembleOr.run(window, Params.parse({}));
-    expect(ensemble.stats.totalFires).toBe(
-      boardOnly.fires.length + offOnly.fires.length,
-    );
+    expect(ensemble.stats.totalFires).toBe(boardOnly.fires.length + offOnly.fires.length);
   });
 
   it("emits buckets from the board lane (off-price has no per-bucket aggregate)", () => {
@@ -116,5 +111,13 @@ describe("ensemble-or detector", () => {
     };
     const ensemble = ensembleOr.run(window, Params.parse({}));
     expect(ensemble.stats.totalFires).toBe(0);
+  });
+
+  it("treats duplicate gameIds as one game for combined stats", () => {
+    const window = { ...buildWindow(), gameIds: ["nba-test-1", "nba-test-1"] };
+    const ensemble = ensembleOr.run(window, Params.parse({}));
+
+    expect(ensemble.stats.gamesInWindow).toBe(1);
+    expect(ensemble.stats.firesPerGame).toBe(ensemble.stats.totalFires);
   });
 });

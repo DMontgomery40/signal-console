@@ -19,6 +19,10 @@ dev = [
 pythonpath = ["src"]
 testpaths = ["tests"]
 
+[tool.signal-console.scripts]
+typecheck = "python -m compileall -q src tests"
+verify = "python -m pip install --disable-pip-version-check -e '.[dev]' && python -m pytest"
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

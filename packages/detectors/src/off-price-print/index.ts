@@ -40,6 +40,9 @@ const eventToFire = (e: MicrostructureEvent): DetectorFire => ({
   baselineMad: 0,
 });
 
+const uniqueGameIds = (gameIds: readonly string[]): readonly string[] =>
+  Array.from(new Set(gameIds));
+
 export const detector: Detector<typeof Params> = {
   id: "off-price-print",
   version: "1.0.0",
@@ -48,13 +51,14 @@ export const detector: Detector<typeof Params> = {
   paramsSchema: Params,
   run(window: DetectorWindow, params: ParamsResolved): DetectorResult {
     const events = window.microstructureEvents ?? [];
-    const gameIdSet = new Set(window.gameIds);
+    const gameIds = uniqueGameIds(window.gameIds);
+    const gameIdSet = new Set(gameIds);
     const fires: readonly DetectorFire[] = events
       .filter((e) => gameIdSet.has(e.gameId))
       .filter((e) => passesThresholds(e, params))
       .map(eventToFire);
     const buckets: readonly DetectorBucket[] = [];
-    const games = window.gameIds.length;
+    const games = gameIds.length;
     const stats: DetectorStats = {
       firesPerGame: games === 0 ? 0 : fires.length / games,
       totalFires: fires.length,

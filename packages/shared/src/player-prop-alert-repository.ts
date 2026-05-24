@@ -6,11 +6,7 @@ import type {
   PlayerPropDisagreementAlert,
 } from "@signal-console/domain";
 
-import {
-  currentTimestamp,
-  executeDatabaseOperation,
-  getDatabase,
-} from "./db-core";
+import { currentTimestamp, executeDatabaseOperation, getDatabase } from "./db-core";
 import {
   clampAlertLimit,
   gapToSeverity,
@@ -33,7 +29,7 @@ export type PlayerPropAlertFilters = {
 
 function playerPropAlertSourceFromRow(
   row: Record<string, unknown>,
-  prefix: "bet365" | "external"
+  prefix: "bet365" | "external",
 ): PlayerPropAlertSource {
   return {
     bestAsk: nullableNumber(row[`${prefix}BestAsk`]),
@@ -42,13 +38,9 @@ function playerPropAlertSourceFromRow(
     impliedProbability: Number(row[`${prefix}ImpliedProbability`]),
     lineRaw: nullableNumber(row[`${prefix}LineRaw`]),
     mappingStatus: String(row[`${prefix}MappingStatus`]) as MappingStatus,
-    oddsRaw:
-      row[`${prefix}OddsRaw`] == null ? null : String(row[`${prefix}OddsRaw`]),
+    oddsRaw: row[`${prefix}OddsRaw`] == null ? null : String(row[`${prefix}OddsRaw`]),
     priceRaw: nullableNumber(row[`${prefix}PriceRaw`]),
-    rawLabel:
-      row[`${prefix}RawLabel`] == null
-        ? null
-        : String(row[`${prefix}RawLabel`]),
+    rawLabel: row[`${prefix}RawLabel`] == null ? null : String(row[`${prefix}RawLabel`]),
     source: String(row[`${prefix}Source`]) as PlayerPropAlertSource["source"],
     sourceMarketId: String(row[`${prefix}SourceMarketId`]),
     sourceMarketKey: String(row[`${prefix}SourceMarketKey`]),
@@ -65,13 +57,9 @@ function buildPlayerPropAlert(
   options: Required<
     Pick<
       PlayerPropAlertFilters,
-      | "includeStale"
-      | "limit"
-      | "maxQuoteTimeGapMinutes"
-      | "maxQuoteAgeMinutes"
-      | "minDelta"
+      "includeStale" | "limit" | "maxQuoteTimeGapMinutes" | "maxQuoteAgeMinutes" | "minDelta"
     >
-  > & { nowIso: string }
+  > & { nowIso: string },
 ): PlayerPropDisagreementAlert | null {
   const bet365 = playerPropAlertSourceFromRow(row, "bet365");
   const predictionMarket = playerPropAlertSourceFromRow(row, "external");
@@ -89,9 +77,7 @@ function buildPlayerPropAlert(
     return null;
   }
 
-  const absoluteDelta = Math.abs(
-    predictionMarket.impliedProbability - bet365.impliedProbability
-  );
+  const absoluteDelta = Math.abs(predictionMarket.impliedProbability - bet365.impliedProbability);
   if (absoluteDelta < options.minDelta) {
     return null;
   }
@@ -122,8 +108,7 @@ function buildPlayerPropAlert(
     id: instrumentId,
     inPlay,
     line,
-    participantKey:
-      row.participantKey == null ? null : String(row.participantKey),
+    participantKey: row.participantKey == null ? null : String(row.participantKey),
     selection: String(row.selection),
   } satisfies MarketInstrument;
   const bet365View = {
@@ -165,13 +150,9 @@ function buildPlayerPropAlert(
   if (lineMismatch) {
     return null;
   }
-  const detectedAt = new Date(
-    Math.max(bet365Timestamp, predictionTimestamp)
-  ).toISOString();
-  const signedDelta =
-    predictionMarket.impliedProbability - bet365.impliedProbability;
-  const direction =
-    signedDelta > 0 ? "prediction-market-higher" : "bet365-higher";
+  const detectedAt = new Date(Math.max(bet365Timestamp, predictionTimestamp)).toISOString();
+  const signedDelta = predictionMarket.impliedProbability - bet365.impliedProbability;
+  const direction = signedDelta > 0 ? "prediction-market-higher" : "bet365-higher";
   const severity = gapToSeverity(absoluteDelta, lineMismatch);
   const riskScore = Math.max(
     0,
@@ -180,8 +161,8 @@ function buildPlayerPropAlert(
         (lineMismatch ? 120 : 0) +
         (inPlay ? 40 : 0) -
         quoteTimeGapMs / 60_000 -
-        Math.min(bet365AgeMs, predictionMarketAgeMs) / 600_000
-    )
+        Math.min(bet365AgeMs, predictionMarketAgeMs) / 600_000,
+    ),
   );
   return {
     absoluteDelta,
@@ -210,8 +191,7 @@ function buildPlayerPropAlert(
     league: String(row.league),
     line,
     lineMismatch,
-    participantKey:
-      row.participantKey == null ? null : String(row.participantKey),
+    participantKey: row.participantKey == null ? null : String(row.participantKey),
     predictionMarket,
     riskScore,
     scheduledStart: String(row.scheduledStart),
@@ -222,9 +202,7 @@ function buildPlayerPropAlert(
   } satisfies PlayerPropDisagreementAlert;
 }
 
-export function listPlayerPropDisagreementAlerts(
-  filters: PlayerPropAlertFilters = {}
-) {
+export function listPlayerPropDisagreementAlerts(filters: PlayerPropAlertFilters = {}) {
   return executeDatabaseOperation(
     "research.playerPropDisagreementAlerts.list",
     () => {
@@ -236,16 +214,8 @@ export function listPlayerPropDisagreementAlerts(
       const options = {
         includeStale: filters.includeStale ?? false,
         limit: clampAlertLimit(filters.limit),
-        maxQuoteTimeGapMinutes: normalizeAlertNumber(
-          filters.maxQuoteTimeGapMinutes,
-          10,
-          0
-        ),
-        maxQuoteAgeMinutes: normalizeAlertNumber(
-          filters.maxQuoteAgeMinutes,
-          10,
-          0
-        ),
+        maxQuoteTimeGapMinutes: normalizeAlertNumber(filters.maxQuoteTimeGapMinutes, 10, 0),
+        maxQuoteAgeMinutes: normalizeAlertNumber(filters.maxQuoteAgeMinutes, 10, 0),
         minDelta: normalizeAlertNumber(filters.minDelta, 0.15, 0),
         nowIso,
       };
@@ -375,7 +345,7 @@ export function listPlayerPropDisagreementAlerts(
               e.volume AS externalVolume
             FROM bet365_latest b
             JOIN external_latest e ON e.instrumentId = b.instrumentId
-          `
+          `,
         )
         .all(options.nowIso) as Record<string, unknown>[];
 
@@ -390,6 +360,6 @@ export function listPlayerPropDisagreementAlerts(
         })
         .slice(0, options.limit);
     },
-    filters
+    filters,
   );
 }

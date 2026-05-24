@@ -7,10 +7,7 @@ import {
   syncPolymarketNbaHistorical,
   syncPolymarketNbaTrades,
 } from "@signal-console/adapters";
-import {
-  backfillGamesBodySchema,
-  backfillMarketsBodySchema,
-} from "@signal-console/domain";
+import { backfillGamesBodySchema, backfillMarketsBodySchema } from "@signal-console/domain";
 import {
   checkDatabaseHealth,
   claimNextQueuedAdminAction,
@@ -31,32 +28,50 @@ import { syncNbaSidecarWindow } from "./nba-sidecar";
 
 const workerLogger = createAppLogger({ component: "worker" });
 
+interface NumberEnvOptions {
+  readonly integer?: boolean;
+  readonly min?: number;
+}
+
+function numberFromEnv(name: string, defaultValue: number, options: NumberEnvOptions = {}) {
+  const rawValue = process.env[name];
+  if (rawValue == null || rawValue.trim().length === 0) {
+    return defaultValue;
+  }
+
+  const value = Number(rawValue);
+  if (!Number.isFinite(value)) return defaultValue;
+  if (options.integer === true && !Number.isInteger(value)) return defaultValue;
+  if (options.min !== undefined && value < options.min) return defaultValue;
+  return value;
+}
+
 function getDefaultIntervalMs() {
-  return Number(process.env.WORKER_INTERVAL_MS ?? "30000");
+  return numberFromEnv("WORKER_INTERVAL_MS", 30_000, { integer: true, min: 1 });
 }
 
 function getDefaultMaxBackoffMs(intervalMs = getDefaultIntervalMs()) {
-  return Number(process.env.WORKER_MAX_BACKOFF_MS ?? String(intervalMs * 4));
+  return numberFromEnv("WORKER_MAX_BACKOFF_MS", intervalMs * 4, { integer: true, min: 1 });
 }
 
 function getBet365RateLimitCooldownMs() {
-  return Number(process.env.BET365_RATE_LIMIT_COOLDOWN_MS ?? "300000");
+  return numberFromEnv("BET365_RATE_LIMIT_COOLDOWN_MS", 300_000, { integer: true, min: 0 });
 }
 
 function getSidecarLookbackDays() {
-  return Number(process.env.NBA_SIDECAR_LOOKBACK_DAYS ?? "1");
+  return numberFromEnv("NBA_SIDECAR_LOOKBACK_DAYS", 1, { integer: true, min: 0 });
 }
 
 function getSidecarLookaheadDays() {
-  return Number(process.env.NBA_SIDECAR_LOOKAHEAD_DAYS ?? "3");
+  return numberFromEnv("NBA_SIDECAR_LOOKAHEAD_DAYS", 3, { integer: true, min: 0 });
 }
 
 function getKalshiLiveMaxEvents() {
-  return Number(process.env.KALSHI_LIVE_MAX_EVENTS ?? "200");
+  return numberFromEnv("KALSHI_LIVE_MAX_EVENTS", 200, { integer: true, min: 1 });
 }
 
 function getKalshiLiveLookbackDays() {
-  return Number(process.env.KALSHI_LIVE_LOOKBACK_DAYS ?? "2");
+  return numberFromEnv("KALSHI_LIVE_LOOKBACK_DAYS", 2, { integer: true, min: 0 });
 }
 
 function getKalshiLiveMinimumStartDate(now: Date) {
@@ -66,11 +81,11 @@ function getKalshiLiveMinimumStartDate(now: Date) {
 }
 
 function getPolymarketTradesLookbackMinutes() {
-  return Number(process.env.POLYMARKET_TRADES_LOOKBACK_MINUTES ?? "120");
+  return numberFromEnv("POLYMARKET_TRADES_LOOKBACK_MINUTES", 120, { integer: true, min: 0 });
 }
 
 function getPolymarketTradesMaxMarkets() {
-  return Number(process.env.POLYMARKET_TRADES_MAX_MARKETS ?? "250");
+  return numberFromEnv("POLYMARKET_TRADES_MAX_MARKETS", 250, { integer: true, min: 1 });
 }
 
 type ProviderCooldownState = {
@@ -78,15 +93,9 @@ type ProviderCooldownState = {
 };
 
 type GamesBackfillPayload = ReturnType<typeof backfillGamesBodySchema.parse>;
-type MarketsBackfillPayload = ReturnType<
-  typeof backfillMarketsBodySchema.parse
->;
+type MarketsBackfillPayload = ReturnType<typeof backfillMarketsBodySchema.parse>;
 
-function isWithinBackfillDateRange(
-  scheduledStart: string,
-  dateFrom?: string,
-  dateTo?: string
-) {
+function isWithinBackfillDateRange(scheduledStart: string, dateFrom?: string, dateTo?: string) {
   const scheduledDate = scheduledStart.slice(0, 10);
   if (dateFrom && scheduledDate < dateFrom) return false;
   if (dateTo && scheduledDate > dateTo) return false;
@@ -101,9 +110,7 @@ function selectScopedMarketBackfillGames(payload: MarketsBackfillPayload) {
     sport: "basketball",
   });
   if (payload.gameId) {
-    const game = allGames.find(
-      (candidate) => candidate.game.id === payload.gameId
-    );
+    const game = allGames.find((candidate) => candidate.game.id === payload.gameId);
     if (!game) {
       throw new Error(`Unknown gameId for market backfill: ${payload.gameId}`);
     }
@@ -115,17 +122,13 @@ function selectScopedMarketBackfillGames(payload: MarketsBackfillPayload) {
   }
 
   return allGames.filter((game) =>
-    isWithinBackfillDateRange(
-      game.game.scheduledStart,
-      payload.dateFrom,
-      payload.dateTo
-    )
+    isWithinBackfillDateRange(game.game.scheduledStart, payload.dateFrom, payload.dateTo),
   );
 }
 
 function deriveScopedMarketBackfillDates(
   payload: MarketsBackfillPayload,
-  games: ReturnType<typeof selectScopedMarketBackfillGames>
+  games: ReturnType<typeof selectScopedMarketBackfillGames>,
 ) {
   const scheduledDates =
     games == null
@@ -142,9 +145,7 @@ function deriveScopedMarketBackfillDates(
 function isRateLimitFailure(error: ReturnType<typeof serializeErrorForLog>) {
   const message = [
     error.message,
-    typeof error.cause === "object" &&
-    error.cause != null &&
-    "message" in error.cause
+    typeof error.cause === "object" && error.cause != null && "message" in error.cause
       ? String(error.cause.message)
       : "",
   ].join(" ");
@@ -181,13 +182,10 @@ function daysBetweenUtcDates(leftIsoDate: string, rightIsoDate: string) {
 async function executeQueuedGamesBackfill(
   payload: GamesBackfillPayload,
   now: Date,
-  syncNbaSidecar: typeof syncNbaSidecarWindow
+  syncNbaSidecar: typeof syncNbaSidecarWindow,
 ) {
   const today = now.toISOString().slice(0, 10);
-  const lookbackDays = Math.max(
-    0,
-    daysBetweenUtcDates(today, payload.dateFrom)
-  );
+  const lookbackDays = Math.max(0, daysBetweenUtcDates(today, payload.dateFrom));
   const lookaheadDays = Math.max(0, daysBetweenUtcDates(payload.dateTo, today));
   await syncNbaSidecar({
     lookaheadDays,
@@ -201,7 +199,7 @@ async function executeQueuedMarketsBackfill(
     syncBet365Historical: typeof syncBet365Historical;
     syncKalshiHistorical: typeof syncKalshiNbaHistorical;
     syncPolymarketHistorical: typeof syncPolymarketNbaHistorical;
-  }
+  },
 ) {
   const scopedGames = selectScopedMarketBackfillGames(payload);
   if (scopedGames?.length === 0) {
@@ -257,7 +255,7 @@ async function drainQueuedAdminActions(options: {
   executeGamesBackfill: (
     payload: GamesBackfillPayload,
     now: Date,
-    syncNbaSidecar: typeof syncNbaSidecarWindow
+    syncNbaSidecar: typeof syncNbaSidecarWindow,
   ) => Promise<void>;
   executeMarketsBackfill: (
     payload: MarketsBackfillPayload,
@@ -265,7 +263,7 @@ async function drainQueuedAdminActions(options: {
       syncBet365Historical: typeof syncBet365Historical;
       syncKalshiHistorical: typeof syncKalshiNbaHistorical;
       syncPolymarketHistorical: typeof syncPolymarketNbaHistorical;
-    }
+    },
   ) => Promise<void>;
   logger: AppLogger;
   now: Date;
@@ -283,11 +281,7 @@ async function drainQueuedAdminActions(options: {
     try {
       if (action.actionType === "games-backfill") {
         const payload = backfillGamesBodySchema.parse(action.payloadJson);
-        await options.executeGamesBackfill(
-          payload,
-          options.now,
-          options.syncNbaSidecar
-        );
+        await options.executeGamesBackfill(payload, options.now, options.syncNbaSidecar);
       } else if (action.actionType === "markets-backfill") {
         const payload = backfillMarketsBodySchema.parse(action.payloadJson);
         await options.executeMarketsBackfill(payload, {
@@ -310,7 +304,7 @@ async function drainQueuedAdminActions(options: {
           action,
           error: serializeErrorForLog(error),
         },
-        "Admin action failed."
+        "Admin action failed.",
       );
     }
   }
@@ -319,7 +313,7 @@ async function drainQueuedAdminActions(options: {
 export function calculateBackoffDelay(
   intervalMs: number,
   consecutiveFailures: number,
-  maxBackoffMs = getDefaultMaxBackoffMs(intervalMs)
+  maxBackoffMs = getDefaultMaxBackoffMs(intervalMs),
 ) {
   return Math.min(intervalMs * 2 ** consecutiveFailures, maxBackoffMs);
 }
@@ -349,11 +343,9 @@ export function buildWorkerHeartbeatSummary(options?: {
     kalshiSourceMarketsObserved: options?.kalshiSourceMarketsObserved ?? 0,
     nbaGamesObserved: options?.nbaGameCount ?? 0,
     nbaSidecarConfigured:
-      options?.nbaSidecarConfigured ??
-      Boolean(process.env.NBA_SIDECAR_BASE_URL),
+      options?.nbaSidecarConfigured ?? Boolean(process.env.NBA_SIDECAR_BASE_URL),
     polymarketGamesMatched: options?.polymarketGamesMatched ?? 0,
-    polymarketSourceMarketsObserved:
-      options?.polymarketSourceMarketsObserved ?? 0,
+    polymarketSourceMarketsObserved: options?.polymarketSourceMarketsObserved ?? 0,
     providerFailures: options?.providerFailures ?? [],
   } satisfies WorkerHeartbeatSummary;
 }
@@ -363,7 +355,7 @@ export async function runWorkerCycle(options?: {
   executeGamesBackfill?: (
     payload: GamesBackfillPayload,
     now: Date,
-    syncNbaSidecar: typeof syncNbaSidecarWindow
+    syncNbaSidecar: typeof syncNbaSidecarWindow,
   ) => Promise<void>;
   executeMarketsBackfill?: (
     payload: MarketsBackfillPayload,
@@ -371,7 +363,7 @@ export async function runWorkerCycle(options?: {
       syncBet365Historical: typeof syncBet365Historical;
       syncKalshiHistorical: typeof syncKalshiNbaHistorical;
       syncPolymarketHistorical: typeof syncPolymarketNbaHistorical;
-    }
+    },
   ) => Promise<void>;
   intervalMs?: number;
   logger?: AppLogger;
@@ -391,26 +383,19 @@ export async function runWorkerCycle(options?: {
   loadRuntimeEnv();
   const intervalMs = options?.intervalMs ?? getDefaultIntervalMs();
   const logger = options?.logger ?? workerLogger;
-  const maxBackoffMs =
-    options?.maxBackoffMs ?? getDefaultMaxBackoffMs(intervalMs);
+  const maxBackoffMs = options?.maxBackoffMs ?? getDefaultMaxBackoffMs(intervalMs);
   const consecutiveFailures = options?.consecutiveFailures ?? 0;
   const now = options?.now ?? (() => new Date());
   const syncBet365 = options?.syncBet365 ?? syncOddsApiBet365NbaMarkets;
-  const syncBet365HistoricalRange =
-    options?.syncBet365Historical ?? syncBet365Historical;
+  const syncBet365HistoricalRange = options?.syncBet365Historical ?? syncBet365Historical;
   const syncKalshi = options?.syncKalshi ?? syncKalshiNbaDirect;
-  const syncKalshiHistorical =
-    options?.syncKalshiHistorical ?? syncKalshiNbaHistorical;
+  const syncKalshiHistorical = options?.syncKalshiHistorical ?? syncKalshiNbaHistorical;
   const syncNbaSidecar = options?.syncNbaSidecar ?? syncNbaSidecarWindow;
   const syncPolymarket = options?.syncPolymarket ?? syncPolymarketNbaMarkets;
-  const syncPolymarketHistorical =
-    options?.syncPolymarketHistorical ?? syncPolymarketNbaHistorical;
-  const syncPolymarketTrades =
-    options?.syncPolymarketTrades ?? syncPolymarketNbaTrades;
-  const queuedGamesBackfill =
-    options?.executeGamesBackfill ?? executeQueuedGamesBackfill;
-  const queuedMarketsBackfill =
-    options?.executeMarketsBackfill ?? executeQueuedMarketsBackfill;
+  const syncPolymarketHistorical = options?.syncPolymarketHistorical ?? syncPolymarketNbaHistorical;
+  const syncPolymarketTrades = options?.syncPolymarketTrades ?? syncPolymarketNbaTrades;
+  const queuedGamesBackfill = options?.executeGamesBackfill ?? executeQueuedGamesBackfill;
+  const queuedMarketsBackfill = options?.executeMarketsBackfill ?? executeQueuedMarketsBackfill;
 
   try {
     let bet365GamesMatched = 0;
@@ -422,9 +407,7 @@ export async function runWorkerCycle(options?: {
     let polymarketSourceMarketsObserved = 0;
     const providerFailures: WorkerHeartbeatSummary["providerFailures"] = [];
     const nbaSidecarConfigured = Boolean(process.env.NBA_SIDECAR_BASE_URL);
-    const oddsApiConfigured = Boolean(
-      process.env.ODDS_API_KEY ?? process.env.ODDS_API_IO_KEY
-    );
+    const oddsApiConfigured = Boolean(process.env.ODDS_API_KEY ?? process.env.ODDS_API_IO_KEY);
     const kalshiDirectConfigured = Boolean(process.env.KALSHI_API_KEY);
     let marketProviderAttempts = 0;
 
@@ -438,10 +421,7 @@ export async function runWorkerCycle(options?: {
       if (syncResult.ok) {
         logger.info(syncResult, "NBA sidecar sync completed.");
       } else {
-        logger.warn(
-          syncResult,
-          "NBA sidecar sync completed with partial play-by-play gaps."
-        );
+        logger.warn(syncResult, "NBA sidecar sync completed with partial play-by-play gaps.");
       }
     }
 
@@ -458,7 +438,7 @@ export async function runWorkerCycle(options?: {
             retryAt: new Date(bet365CooldownUntilMs).toISOString(),
             remainingMs: Math.max(0, bet365CooldownUntilMs - nowMs),
           },
-          "Skipping Bet365 sync during rate-limit cooldown."
+          "Skipping Bet365 sync during rate-limit cooldown.",
         );
       } else {
         marketProviderAttempts += 1;
@@ -475,8 +455,7 @@ export async function runWorkerCycle(options?: {
         } catch (error) {
           const serialized = serializeErrorForLog(error);
           if (isRateLimitFailure(serialized) && options?.providerCooldowns) {
-            options.providerCooldowns.bet365UntilMs =
-              nowMs + getBet365RateLimitCooldownMs();
+            options.providerCooldowns.bet365UntilMs = nowMs + getBet365RateLimitCooldownMs();
           }
           providerFailures.push({ error: serialized, source: "bet365" });
           logger.error({ error: serialized }, "Bet365 sync failed.");
@@ -514,7 +493,7 @@ export async function runWorkerCycle(options?: {
       try {
         const until = now().toISOString();
         const since = new Date(
-          now().getTime() - getPolymarketTradesLookbackMinutes() * 60_000
+          now().getTime() - getPolymarketTradesLookbackMinutes() * 60_000,
         ).toISOString();
         const tradesResult = await syncPolymarketTrades({
           since,
@@ -526,8 +505,8 @@ export async function runWorkerCycle(options?: {
           providerFailures.push({
             error: serializeErrorForLog(
               new Error(
-                `Polymarket trades sync had ${tradesResult.errors.length} partial failure(s).`
-              )
+                `Polymarket trades sync had ${tradesResult.errors.length} partial failure(s).`,
+              ),
             ),
             source: "polymarket",
           });
@@ -540,7 +519,7 @@ export async function runWorkerCycle(options?: {
         });
         logger.error(
           { error: serializeErrorForLog(tradeError) },
-          "Polymarket trades sync failed after market discovery."
+          "Polymarket trades sync failed after market discovery.",
         );
       }
     } catch (error) {
@@ -549,14 +528,11 @@ export async function runWorkerCycle(options?: {
       logger.error({ error: serialized }, "Polymarket sync failed.");
     }
 
-    if (
-      marketProviderAttempts > 0 &&
-      providerFailures.length === marketProviderAttempts
-    ) {
+    if (marketProviderAttempts > 0 && providerFailures.length === marketProviderAttempts) {
       throw new Error(
         `All configured market providers failed: ${providerFailures
           .map((failure) => failure.source)
-          .join(", ")}`
+          .join(", ")}`,
       );
     }
 
@@ -593,18 +569,14 @@ export async function runWorkerCycle(options?: {
       summary,
     };
   } catch (error) {
-    const nextDelayMs = calculateBackoffDelay(
-      intervalMs,
-      consecutiveFailures + 1,
-      maxBackoffMs
-    );
+    const nextDelayMs = calculateBackoffDelay(intervalMs, consecutiveFailures + 1, maxBackoffMs);
 
     logger.error(
       {
         error: serializeErrorForLog(error),
         nextDelayMs,
       },
-      "Worker cycle failed."
+      "Worker cycle failed.",
     );
 
     return {
@@ -623,8 +595,7 @@ export function startWorker(options?: {
   loadRuntimeEnv();
   const intervalMs = options?.intervalMs ?? getDefaultIntervalMs();
   const logger = options?.logger ?? workerLogger;
-  const maxBackoffMs =
-    options?.maxBackoffMs ?? getDefaultMaxBackoffMs(intervalMs);
+  const maxBackoffMs = options?.maxBackoffMs ?? getDefaultMaxBackoffMs(intervalMs);
   let stopped = false;
   let consecutiveFailures = 0;
   const providerCooldowns: ProviderCooldownState = {};
@@ -660,10 +631,7 @@ export function startWorker(options?: {
           try {
             writeHeartbeatJson({ providerFailures: summary.providerFailures });
           } catch (err) {
-            cycleLogger.warn(
-              { error: serializeErrorForLog(err) },
-              "heartbeat.json write failed",
-            );
+            cycleLogger.warn({ error: serializeErrorForLog(err) }, "heartbeat.json write failed");
           }
         },
         providerCooldowns,
@@ -682,7 +650,7 @@ export function startWorker(options?: {
       intervalMs,
       maxBackoffMs,
     },
-    "Worker started."
+    "Worker started.",
   );
 
   scheduleNext(0);

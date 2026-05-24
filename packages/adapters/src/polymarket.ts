@@ -1,9 +1,6 @@
 import { createHash } from "node:crypto";
 
-import type {
-  ResearchGameCard,
-  ResearchSourceId,
-} from "@signal-console/domain";
+import type { ResearchGameCard, ResearchSourceId } from "@signal-console/domain";
 import {
   listResearchGames,
   recordAdapterRun,
@@ -102,21 +99,17 @@ export type PolymarketSyncSummary = {
 
 function parseJsonArray(
   value: string,
-  fallback: Array<number | string> = []
+  fallback: Array<number | string> = [],
 ): Array<number | string> {
   try {
     const parsed = JSON.parse(value) as unknown;
-    return Array.isArray(parsed)
-      ? (parsed as Array<number | string>)
-      : fallback;
+    return Array.isArray(parsed) ? (parsed as Array<number | string>) : fallback;
   } catch {
     return fallback;
   }
 }
 
-function parseOptionalJsonArray(
-  value: string | string[] | null | undefined
-): string[] {
+function parseOptionalJsonArray(value: string | string[] | null | undefined): string[] {
   if (!value) return [];
   if (Array.isArray(value)) return value.map(String);
   try {
@@ -136,7 +129,7 @@ function normalizeToken(value: string | null | undefined) {
 }
 
 function marketTypeSupported(
-  marketType: string | null | undefined
+  marketType: string | null | undefined,
 ): marketType is SupportedPolymarketMarketType {
   return [
     "assists",
@@ -191,10 +184,8 @@ function buildGameIndex(games: ResearchGameCard[]) {
 
   for (const gameCard of games) {
     const teamKeys = [
-      gameCard.game.awayParticipant.abbreviation ??
-        gameCard.game.awayParticipant.key,
-      gameCard.game.homeParticipant.abbreviation ??
-        gameCard.game.homeParticipant.key,
+      gameCard.game.awayParticipant.abbreviation ?? gameCard.game.awayParticipant.key,
+      gameCard.game.homeParticipant.abbreviation ?? gameCard.game.homeParticipant.key,
     ];
     const date = gameCard.game.scheduledStart.slice(0, 10);
     index.set(buildGameKey(date, teamKeys), gameCard);
@@ -208,23 +199,19 @@ function buildEventKeys(event: PolymarketEvent) {
     return [];
   }
 
-  const teamKeys = event.teams.map(
-    (team) => team.abbreviation ?? team.alias ?? team.name
-  );
+  const teamKeys = event.teams.map((team) => team.abbreviation ?? team.alias ?? team.name);
   const dateCandidates = [
     event.eventDate ?? null,
     event.startTime ? event.startTime.slice(0, 10) : null,
   ].filter((value): value is string => Boolean(value));
 
-  return Array.from(
-    new Set(dateCandidates.map((date) => buildGameKey(date, teamKeys)))
-  );
+  return Array.from(new Set(dateCandidates.map((date) => buildGameKey(date, teamKeys))));
 }
 
 function resolveParticipantKey(
   game: ResearchGameCard,
   event: PolymarketEvent,
-  selectionLabel: string
+  selectionLabel: string,
 ) {
   const normalizedSelection = normalizeToken(selectionLabel);
   const candidates = [
@@ -260,7 +247,7 @@ function resolveParticipantKey(
     }
 
     const match = candidates.find((candidate) =>
-      candidate.abbreviations.some((token) => eventTokens.includes(token))
+      candidate.abbreviations.some((token) => eventTokens.includes(token)),
     );
     if (match) {
       return match.key;
@@ -303,15 +290,10 @@ function buildMoneylineSelectionRecords(
   game: ResearchGameCard,
   market: PolymarketMarket,
   capturedAt: string,
-  marketType: Extract<
-    SupportedPolymarketMarketType,
-    "first_half_moneyline" | "moneyline"
-  >
+  marketType: Extract<SupportedPolymarketMarketType, "first_half_moneyline" | "moneyline">,
 ) {
   const outcomes = parseJsonArray(market.outcomes).map(String);
-  const prices = parseJsonArray(market.outcomePrices).map((price) =>
-    toNumber(price)
-  );
+  const prices = parseJsonArray(market.outcomePrices).map((price) => toNumber(price));
   const clobTokenIds = parseOptionalJsonArray(market.clobTokenIds);
 
   return outcomes
@@ -381,15 +363,10 @@ function buildSpreadSelectionRecords(
   game: ResearchGameCard,
   market: PolymarketMarket,
   capturedAt: string,
-  marketType: Extract<
-    SupportedPolymarketMarketType,
-    "first_half_spreads" | "spreads"
-  >
+  marketType: Extract<SupportedPolymarketMarketType, "first_half_spreads" | "spreads">,
 ) {
   const outcomes = parseJsonArray(market.outcomes).map(String);
-  const prices = parseJsonArray(market.outcomePrices).map((price) =>
-    toNumber(price)
-  );
+  const prices = parseJsonArray(market.outcomePrices).map((price) => toNumber(price));
   const clobTokenIds = parseOptionalJsonArray(market.clobTokenIds);
   const baseLine = toNumber(market.line);
 
@@ -400,15 +377,9 @@ function buildSpreadSelectionRecords(
         return null;
       }
 
-      const signedLine =
-        baseLine == null ? null : index === 0 ? baseLine : baseLine * -1;
+      const signedLine = baseLine == null ? null : index === 0 ? baseLine : baseLine * -1;
       const displayLabel = `${marketWindowPrefix(marketType)}${outcome} ${formatLine(signedLine)}`;
-      const instrumentId = buildStableId([
-        game.game.id,
-        marketType,
-        outcome,
-        signedLine,
-      ]);
+      const instrumentId = buildStableId([game.game.id, marketType, outcome, signedLine]);
       const sourceSelectionKey = participantKey;
       const sourceMarketId = buildSourceMarketId(market.id, sourceSelectionKey);
       const rawPayloadJson = {
@@ -463,15 +434,10 @@ function buildTotalSelectionRecords(
   game: ResearchGameCard,
   market: PolymarketMarket,
   capturedAt: string,
-  marketType: Extract<
-    SupportedPolymarketMarketType,
-    "first_half_totals" | "totals"
-  >
+  marketType: Extract<SupportedPolymarketMarketType, "first_half_totals" | "totals">,
 ) {
   const outcomes = parseJsonArray(market.outcomes).map(String);
-  const prices = parseJsonArray(market.outcomePrices).map((price) =>
-    toNumber(price)
-  );
+  const prices = parseJsonArray(market.outcomePrices).map((price) => toNumber(price));
   const clobTokenIds = parseOptionalJsonArray(market.clobTokenIds);
   const line = toNumber(market.line);
 
@@ -483,16 +449,8 @@ function buildTotalSelectionRecords(
       }
 
       const displayLabel = `${marketWindowPrefix(marketType)}${outcome} ${line ?? "n/a"} total`;
-      const instrumentId = buildStableId([
-        game.game.id,
-        marketType,
-        normalizedSelection,
-        line,
-      ]);
-      const sourceMarketId = buildSourceMarketId(
-        market.id,
-        normalizedSelection
-      );
+      const instrumentId = buildStableId([game.game.id, marketType, normalizedSelection, line]);
+      const sourceMarketId = buildSourceMarketId(market.id, normalizedSelection);
       const rawPayloadJson = {
         event: {
           eventDate: event.eventDate,
@@ -544,10 +502,7 @@ function buildPlayerPropSelectionRecords(
   game: ResearchGameCard,
   market: PolymarketMarket,
   capturedAt: string,
-  marketType: Extract<
-    SupportedPolymarketMarketType,
-    "assists" | "points" | "rebounds" | "threes"
-  >
+  marketType: Extract<SupportedPolymarketMarketType, "assists" | "points" | "rebounds" | "threes">,
 ) {
   if (!market.question.includes(" O/U ")) {
     return [];
@@ -555,9 +510,7 @@ function buildPlayerPropSelectionRecords(
 
   const [subject] = market.question.split(":");
   const outcomes = parseJsonArray(market.outcomes).map(String);
-  const prices = parseJsonArray(market.outcomePrices).map((price) =>
-    toNumber(price)
-  );
+  const prices = parseJsonArray(market.outcomePrices).map((price) => toNumber(price));
   const clobTokenIds = parseOptionalJsonArray(market.clobTokenIds);
   const line = toNumber(market.line);
 
@@ -643,7 +596,7 @@ export function buildPolymarketSelectionRecords(
   event: PolymarketEvent,
   game: ResearchGameCard,
   market: PolymarketMarket,
-  capturedAt: string
+  capturedAt: string,
 ) {
   if (!marketTypeSupported(market.sportsMarketType)) {
     return [];
@@ -657,26 +610,14 @@ export function buildPolymarketSelectionRecords(
         game,
         market,
         capturedAt,
-        market.sportsMarketType
+        market.sportsMarketType,
       );
     case "spreads":
     case "first_half_spreads":
-      return buildSpreadSelectionRecords(
-        event,
-        game,
-        market,
-        capturedAt,
-        market.sportsMarketType
-      );
+      return buildSpreadSelectionRecords(event, game, market, capturedAt, market.sportsMarketType);
     case "totals":
     case "first_half_totals":
-      return buildTotalSelectionRecords(
-        event,
-        game,
-        market,
-        capturedAt,
-        market.sportsMarketType
-      );
+      return buildTotalSelectionRecords(event, game, market, capturedAt, market.sportsMarketType);
     case "assists":
     case "points":
     case "rebounds":
@@ -686,7 +627,7 @@ export function buildPolymarketSelectionRecords(
         game,
         market,
         capturedAt,
-        market.sportsMarketType
+        market.sportsMarketType,
       );
     default:
       return [];
@@ -710,9 +651,7 @@ export async function fetchPolymarketNbaEvents(options?: {
 
   const response = await fetchImpl(url.toString());
   if (!response.ok) {
-    throw new Error(
-      `Polymarket events request failed with status ${response.status}.`
-    );
+    throw new Error(`Polymarket events request failed with status ${response.status}.`);
   }
 
   const payload = (await response.json()) as unknown;
@@ -766,7 +705,7 @@ export async function syncPolymarketNbaMarkets(options?: {
           event,
           game,
           market,
-          now().toISOString()
+          now().toISOString(),
         );
 
         if (selectionRecords.length === 0) {
@@ -866,8 +805,7 @@ export async function syncPolymarketNbaMarkets(options?: {
 
     const finishedAt = now().toISOString();
     const recordsSeen = sourceMarketsObserved;
-    const recordsWritten =
-      sourceMarketsObserved + quoteObservationsWritten + rawPayloadsWritten;
+    const recordsWritten = sourceMarketsObserved + quoteObservationsWritten + rawPayloadsWritten;
 
     recordAdapterRun({
       finishedAt,

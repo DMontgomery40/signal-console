@@ -12,9 +12,7 @@ function titleCase(text: string): string {
     .join(" ");
 }
 
-function participantKeyFromDisplayLabel(
-  displayLabel: string | null | undefined
-): string | null {
+function participantKeyFromDisplayLabel(displayLabel: string | null | undefined): string | null {
   if (!displayLabel) return null;
   const tokens = normalizeBoardText(displayLabel)
     .replace(/[^\p{L}0-9. ]+/gu, " ")
@@ -78,11 +76,7 @@ function statFamilyFromLabel(label: string | null | undefined): string {
   if (!label) return "other";
   const lower = normalizeBoardText(label);
   if (lower.includes("assist") && lower.includes("rebound")) return "ra";
-  if (
-    lower.includes("points") &&
-    lower.includes("assist") &&
-    lower.includes("rebound")
-  ) {
+  if (lower.includes("points") && lower.includes("assist") && lower.includes("rebound")) {
     return "pra";
   }
   if (lower.includes("points") && lower.includes("rebound")) return "pr";
@@ -91,11 +85,7 @@ function statFamilyFromLabel(label: string | null | undefined): string {
   if (lower.includes("assist")) return "assists";
   if (lower.includes("steal")) return "steals";
   if (lower.includes("block")) return "blocks";
-  if (
-    lower.includes("three") ||
-    lower.includes("3pt") ||
-    lower.includes("3s")
-  ) {
+  if (lower.includes("three") || lower.includes("3pt") || lower.includes("3s")) {
     return "threes";
   }
   if (lower.includes("points") || lower.includes("pts")) return "points";
@@ -108,9 +98,4 @@ function statFamilyFromLabel(label: string | null | undefined): string {
   return "other";
 }
 
-export {
-  formatNumber,
-  participantKeyFromDisplayLabel,
-  statFamilyFromLabel,
-  titleCase,
-};
+export { formatNumber, participantKeyFromDisplayLabel, statFamilyFromLabel, titleCase };

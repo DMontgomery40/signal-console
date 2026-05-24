@@ -79,11 +79,14 @@ export async function buildServer(options: BuildServerOptions = {}): Promise<Fas
   return await app;
 }
 
-function resolvePort(): number {
+export function resolvePort(): number {
   const raw = process.env["SIGNAL_CONSOLE_API_PORT"];
   if (raw === undefined || raw === "") return DEFAULT_PORT;
+  if (!/^\d+$/.test(raw)) {
+    throw new Error(`invalid SIGNAL_CONSOLE_API_PORT: ${raw}`);
+  }
   const parsed = Number(raw);
-  if (!Number.isFinite(parsed) || parsed <= 0 || parsed > 65535) {
+  if (!Number.isFinite(parsed) || !Number.isInteger(parsed) || parsed <= 0 || parsed > 65535) {
     throw new Error(`invalid SIGNAL_CONSOLE_API_PORT: ${raw}`);
   }
   return parsed;

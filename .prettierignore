@@ -8,8 +8,13 @@ data/
 *.sqlite
 *.sqlite-wal
 *.sqlite-shm
+.gitnexus/
+.claude/skills/
 
 # Owner-maintained docs / Ralph runtime state
+AGENTS.md
+CLAUDE.md
+HANDOFF-*.md
 PRD.md
 scripts/ralph/progress.txt
 scripts/ralph/ralph.log

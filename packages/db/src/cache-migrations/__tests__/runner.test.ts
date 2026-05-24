@@ -1,7 +1,10 @@
 import Database from "better-sqlite3";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { runMigrations } from "../runner";
+import { openCacheDb, runMigrations } from "../runner";
 
 function newInMemoryDb(): Database.Database {
   const db = new Database(":memory:");
@@ -20,6 +23,7 @@ function countObjects(db: Database.Database, type: "table" | "index", name: stri
 }
 
 interface RunOverrides {
+  readonly computed_at?: string;
   readonly params_hash?: string;
   readonly scope?: "game" | "window";
   readonly game_id?: string | null;
@@ -46,7 +50,7 @@ function insertRun(db: Database.Database, overrides: RunOverrides = {}): Databas
     overrides.game_id === undefined ? "nba-0042500222" : overrides.game_id,
     overrides.window_start === undefined ? null : overrides.window_start,
     overrides.window_end === undefined ? null : overrides.window_end,
-    "2026-05-23T00:00:00Z",
+    overrides.computed_at ?? "2026-05-23T00:00:00Z",
     10,
   );
 }
@@ -68,30 +72,127 @@ describe("cache-migrations/runner", () => {
     db.close();
   });
 
-  it("enforces the UNIQUE constraint on detector_runs", () => {
+  it("enforces detector_runs identity for production nullable cache shapes", () => {
     const db = newInMemoryDb();
     runMigrations(db);
-    // SQLite treats NULLs as distinct under UNIQUE, so the collision must use
-    // a row where every key column is non-NULL. Filling both game_id and the
-    // window bounds (despite scope='window') is enough to prove the
-    // constraint actually exists and fires.
-    const collidingRow: RunOverrides = {
-      scope: "window",
+
+    const gameScopedRow: RunOverrides = {
+      scope: "game",
       game_id: "nba-0042500222",
+      window_start: null,
+      window_end: null,
+    };
+    insertRun(db, gameScopedRow);
+    expect(() => insertRun(db, gameScopedRow)).toThrow(/UNIQUE/i);
+
+    const windowScopedRow: RunOverrides = {
+      scope: "window",
+      game_id: null,
       window_start: "2026-05-08T00:00:00Z",
       window_end: "2026-05-09T00:00:00Z",
+      params_hash: "params-hash-2",
     };
-    insertRun(db, collidingRow);
-    expect(() => insertRun(db, collidingRow)).toThrow(/UNIQUE/i);
+    insertRun(db, windowScopedRow);
+    expect(() => insertRun(db, windowScopedRow)).toThrow(/UNIQUE/i);
 
-    // Also assert the constraint surface schema-side: SQLite auto-creates an
-    // index for every UNIQUE constraint declared on a table.
     const idxCount = db.prepare(
-      "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND tbl_name = 'detector_runs' AND sql IS NULL",
+      "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = 'idx_detector_runs_identity_normalized'",
     );
     idxCount.pluck();
     expect(idxCount.get()).toBe(1);
 
+    db.close();
+  });
+
+  it("initial schema enforces detector_runs identity for nullable cache shapes", () => {
+    const db = newInMemoryDb();
+    db.exec(readFileSync(new URL("../0001-init.sql", import.meta.url), "utf8"));
+
+    const gameScopedRow: RunOverrides = {
+      scope: "game",
+      game_id: "nba-0042500222",
+      window_start: null,
+      window_end: null,
+    };
+    insertRun(db, gameScopedRow);
+    expect(() => insertRun(db, gameScopedRow)).toThrow(/UNIQUE/i);
+
+    const windowScopedRow: RunOverrides = {
+      scope: "window",
+      game_id: null,
+      window_start: "2026-05-08T00:00:00Z",
+      window_end: "2026-05-09T00:00:00Z",
+      params_hash: "params-hash-2",
+    };
+    insertRun(db, windowScopedRow);
+    expect(() => insertRun(db, windowScopedRow)).toThrow(/UNIQUE/i);
+    expect(countObjects(db, "index", "idx_detector_runs_identity_normalized")).toBe(1);
+    db.close();
+  });
+
+  it("deduplicates legacy rows before adding the normalized identity index", () => {
+    const db = newInMemoryDb();
+    db.exec(`
+      CREATE TABLE detector_runs (
+        id INTEGER PRIMARY KEY,
+        detector_id TEXT NOT NULL,
+        detector_version TEXT NOT NULL,
+        params_hash TEXT NOT NULL,
+        params_json TEXT NOT NULL,
+        source_db_path TEXT NOT NULL,
+        source_watermark_hash TEXT NOT NULL,
+        scope TEXT NOT NULL CHECK (scope IN ('game','window')),
+        game_id TEXT,
+        window_start TEXT,
+        window_end TEXT,
+        computed_at TEXT NOT NULL,
+        compute_ms INTEGER NOT NULL
+      );
+      CREATE TABLE detector_observations (
+        id INTEGER PRIMARY KEY,
+        run_id INTEGER NOT NULL REFERENCES detector_runs(id) ON DELETE CASCADE,
+        game_id TEXT NOT NULL,
+        bucket_start TEXT NOT NULL,
+        bucket_end TEXT NOT NULL,
+        fired INTEGER NOT NULL,
+        intensity REAL,
+        baseline_median REAL,
+        baseline_mad REAL,
+        detail_json TEXT
+      );
+    `);
+
+    const newest = insertRun(db, {
+      computed_at: "2026-05-23T02:00:00Z",
+      game_id: "nba-legacy-1",
+      scope: "game",
+    });
+    insertRun(db, {
+      computed_at: "2026-05-23T01:00:00Z",
+      game_id: "nba-legacy-1",
+      scope: "game",
+    });
+    db.prepare(
+      `INSERT INTO detector_observations
+         (run_id, game_id, bucket_start, bucket_end, fired, intensity)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    ).run(
+      Number(newest.lastInsertRowid),
+      "nba-legacy-1",
+      "2026-05-08T03:12:00Z",
+      "2026-05-08T03:13:00Z",
+      1,
+      1.5,
+    );
+
+    runMigrations(db);
+
+    const runs = db.prepare("SELECT id FROM detector_runs ORDER BY id ASC").all();
+    expect(runs).toEqual([{ id: Number(newest.lastInsertRowid) }]);
+    const obsCount = db.prepare("SELECT COUNT(*) FROM detector_observations");
+    obsCount.pluck();
+    expect(obsCount.get()).toBe(1);
+    expect(() => insertRun(db, { scope: "game", game_id: "nba-legacy-1" })).toThrow(/UNIQUE/i);
     db.close();
   });
 
@@ -124,9 +225,96 @@ describe("cache-migrations/runner", () => {
     expect(stmt.get()).toBe(1);
     expect(countObjects(db, "table", "detector_runs")).toBe(1);
     expect(countObjects(db, "table", "detector_observations")).toBe(1);
+    expect(countObjects(db, "table", "cache_schema_migrations")).toBe(1);
     expect(countObjects(db, "index", "idx_detector_obs_run_game")).toBe(1);
     expect(countObjects(db, "index", "idx_detector_obs_fired")).toBe(1);
+    const migrationCount = db.prepare("SELECT COUNT(*) FROM cache_schema_migrations");
+    migrationCount.pluck();
+    expect(migrationCount.get()).toBe(2);
     db.close();
+  });
+
+  it("openCacheDb skips already recorded migration files on later opens", () => {
+    const tempDir = mkdtempSync(join(tmpdir(), "signal-console-cache-migrations-"));
+    const dbPath = join(tempDir, "cache.sqlite");
+    try {
+      openCacheDb(dbPath).close();
+
+      const tampered = new Database(dbPath);
+      const firstLedgerAppliedAt = tampered
+        .prepare(
+          "SELECT applied_at FROM cache_schema_migrations WHERE id = '0002-detector-run-identity'",
+        )
+        .pluck()
+        .get();
+      tampered.exec("DROP INDEX idx_detector_runs_identity_normalized");
+      insertRun(tampered, { scope: "game", game_id: "nba-ledger-1" });
+      insertRun(tampered, { scope: "game", game_id: "nba-ledger-1" });
+      tampered.close();
+
+      const reopened = openCacheDb(dbPath);
+      const runCount = reopened.prepare("SELECT COUNT(*) FROM detector_runs");
+      runCount.pluck();
+      expect(runCount.get()).toBe(2);
+      expect(countObjects(reopened, "index", "idx_detector_runs_identity_normalized")).toBe(0);
+      const migrationCount = reopened.prepare("SELECT COUNT(*) FROM cache_schema_migrations");
+      migrationCount.pluck();
+      expect(migrationCount.get()).toBe(2);
+      const secondLedgerAppliedAt = reopened
+        .prepare(
+          "SELECT applied_at FROM cache_schema_migrations WHERE id = '0002-detector-run-identity'",
+        )
+        .pluck()
+        .get();
+      expect(secondLedgerAppliedAt).toBe(firstLedgerAppliedAt);
+      reopened.close();
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("openCacheDb creates missing parent directories before opening a file cache", () => {
+    const tempDir = mkdtempSync(join(tmpdir(), "signal-console-cache-migrations-"));
+    const dbPath = join(tempDir, "fresh", "nested", "cache.sqlite");
+    try {
+      const db = openCacheDb(dbPath);
+      try {
+        expect(existsSync(dbPath)).toBe(true);
+        expect(countObjects(db, "table", "detector_runs")).toBe(1);
+        expect(countObjects(db, "table", "cache_schema_migrations")).toBe(1);
+      } finally {
+        db.close();
+      }
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("openCacheDb reruns migrations when a previously opened file has its schema reset", () => {
+    const tempDir = mkdtempSync(join(tmpdir(), "signal-console-cache-migrations-"));
+    const dbPath = join(tempDir, "cache.sqlite");
+    try {
+      openCacheDb(dbPath).close();
+
+      const reset = new Database(dbPath);
+      reset.exec(`
+        DROP TABLE IF EXISTS detector_observations;
+        DROP TABLE IF EXISTS detector_runs;
+        DROP TABLE IF EXISTS cache_schema_migrations;
+      `);
+      reset.close();
+
+      const reopened = openCacheDb(dbPath);
+      expect(countObjects(reopened, "table", "detector_runs")).toBe(1);
+      expect(countObjects(reopened, "table", "detector_observations")).toBe(1);
+      expect(countObjects(reopened, "table", "cache_schema_migrations")).toBe(1);
+      const migrationCount = reopened.prepare("SELECT COUNT(*) FROM cache_schema_migrations");
+      migrationCount.pluck();
+      expect(migrationCount.get()).toBe(2);
+      reopened.close();
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 
   it("rejects scope values outside ('game','window') via the CHECK constraint", () => {

@@ -14,6 +14,7 @@ import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 
 import { BacktestError, discoverGameIdsInWindow, runBacktest } from "../services/backtest";
+import { parseStrictIsoTimestamp } from "../services/timestamps";
 
 export interface BacktestRoutesOptions {
   readonly goldDbPath?: string;
@@ -53,7 +54,7 @@ const bodyJsonSchema = {
         end: { type: "string", minLength: 1 },
       },
     },
-    game_ids: { type: "array", items: { type: "string" } },
+    game_ids: { type: "array", items: { type: "string", minLength: 1 } },
   },
 } as const;
 
@@ -109,16 +110,33 @@ const errorResponseSchema = {
   properties: { error: { type: "string" } },
 } as const;
 
-interface WindowMs {
+interface ParsedWindow {
+  readonly start: string;
+  readonly end: string;
   readonly startMs: number;
   readonly endMs: number;
 }
 
-function parseWindow(window: { start: string; end: string }): WindowMs | null {
-  const startMs = Date.parse(window.start);
-  const endMs = Date.parse(window.end);
-  if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) return null;
-  return { startMs, endMs };
+function parseTimestamp(input: string): number | null {
+  return parseStrictIsoTimestamp(input, { requireExplicitTimezone: true });
+}
+
+function parseWindow(window: { start: string; end: string }): ParsedWindow | null {
+  const startMs = parseTimestamp(window.start);
+  const endMs = parseTimestamp(window.end);
+  if (startMs === null || endMs === null) return null;
+  return {
+    start: new Date(startMs).toISOString(),
+    end: new Date(endMs).toISOString(),
+    startMs,
+    endMs,
+  };
+}
+
+function normalizeGameIds(gameIds: readonly string[]): readonly string[] | null {
+  const trimmed = gameIds.map((id) => id.trim());
+  if (trimmed.some((id) => id.length === 0)) return null;
+  return Array.from(new Set(trimmed));
 }
 
 const backtestRoutes: FastifyPluginAsync<BacktestRoutesOptions> = (app, opts) => {
@@ -162,24 +180,23 @@ const backtestRoutes: FastifyPluginAsync<BacktestRoutesOptions> = (app, opts) =>
         reply.code(400).send({ error: "window exceeds 28 days" });
         return;
       }
-      if (body.game_ids !== undefined && body.game_ids.length > MAX_GAMES) {
-        reply.code(400).send({ error: "too many games" });
-        return;
-      }
-
       let gameIds: readonly string[];
       if (body.game_ids !== undefined) {
-        gameIds = body.game_ids;
+        const normalized = normalizeGameIds(body.game_ids);
+        if (normalized === null) {
+          reply.code(400).send({ error: "invalid game_ids" });
+          return;
+        }
+        if (normalized.length > MAX_GAMES) {
+          reply.code(400).send({ error: "too many games" });
+          return;
+        }
+        gameIds = normalized;
       } else {
         // Discovery: pull up to MAX_GAMES+1 games — if the window has more
         // than the cap, we 400 rather than silently truncating, matching the
         // explicit-list path.
-        const discovered = discoverGameIdsInWindow(
-          goldDbPath,
-          body.window.start,
-          body.window.end,
-          MAX_GAMES + 1,
-        );
+        const discovered = discoverGameIdsInWindow(goldDbPath, win.start, win.end, MAX_GAMES + 1);
         if (discovered.length > MAX_GAMES) {
           reply.code(400).send({ error: "too many games" });
           return;
@@ -193,8 +210,8 @@ const backtestRoutes: FastifyPluginAsync<BacktestRoutesOptions> = (app, opts) =>
           cacheDbPath,
           detectorId: body.detector_id,
           params: body.params,
-          windowStart: body.window.start,
-          windowEnd: body.window.end,
+          windowStart: win.start,
+          windowEnd: win.end,
           gameIds,
         });
         reply.send(result);

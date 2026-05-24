@@ -93,7 +93,7 @@ function trimTrailingSlash(value: string) {
 export function buildNbaSidecarUrl(
   baseUrl: string,
   pathname: string,
-  query?: Record<string, string | undefined>
+  query?: Record<string, string | undefined>,
 ) {
   const url = new URL(`${trimTrailingSlash(baseUrl)}${pathname}`);
   for (const [key, value] of Object.entries(query ?? {})) {
@@ -123,11 +123,7 @@ function deriveFinalSidecarResultFromPlayByPlay(input: {
   outcome?: SidecarGameOutcome | null;
   payload: NbaSidecarPlayByPlayPayload;
 }) {
-  if (
-    input.outcome ||
-    input.gameState.isFinal ||
-    input.gameState.status === "final"
-  ) {
+  if (input.outcome || input.gameState.isFinal || input.gameState.status === "final") {
     return null;
   }
 
@@ -140,7 +136,7 @@ function deriveFinalSidecarResultFromPlayByPlay(input: {
           action.actionType === "game" ||
           String(action.description ?? "")
             .toLowerCase()
-            .includes("game end")
+            .includes("game end"),
       ) ?? null;
   if (!finalAction) {
     return null;
@@ -192,7 +188,7 @@ export function buildNbaSidecarDateWindow(options?: {
   const start = Date.UTC(
     anchorDate.getUTCFullYear(),
     anchorDate.getUTCMonth(),
-    anchorDate.getUTCDate()
+    anchorDate.getUTCDate(),
   );
   const dates: string[] = [];
 
@@ -217,13 +213,11 @@ export async function fetchNbaSidecarScoreboard(options?: {
   const response = await fetchImpl(
     buildNbaSidecarUrl(baseUrl, "/api/v1/scoreboard", {
       date: options?.date,
-    })
+    }),
   );
 
   if (!response.ok) {
-    throw new Error(
-      `NBA sidecar scoreboard request failed with status ${response.status}.`
-    );
+    throw new Error(`NBA sidecar scoreboard request failed with status ${response.status}.`);
   }
 
   const payload = (await response.json()) as {
@@ -246,16 +240,11 @@ export async function fetchNbaSidecarPlayByPlay(options: {
 
   const fetchImpl = options.fetchImpl ?? fetch;
   const response = await fetchImpl(
-    buildNbaSidecarUrl(
-      baseUrl,
-      `/api/v1/games/${options.nbaGameId}/play-by-play`
-    )
+    buildNbaSidecarUrl(baseUrl, `/api/v1/games/${options.nbaGameId}/play-by-play`),
   );
 
   if (!response.ok) {
-    throw new Error(
-      `NBA sidecar play-by-play request failed with status ${response.status}.`
-    );
+    throw new Error(`NBA sidecar play-by-play request failed with status ${response.status}.`);
   }
 
   const payload = (await response.json()) as {
@@ -266,9 +255,7 @@ export async function fetchNbaSidecarPlayByPlay(options: {
   return payload.data;
 }
 
-export function ingestNbaSidecarScoreboard(
-  payload: NbaSidecarScoreboardPayload
-) {
+export function ingestNbaSidecarScoreboard(payload: NbaSidecarScoreboardPayload) {
   let statesWritten = 0;
   let outcomesWritten = 0;
 
@@ -305,10 +292,8 @@ export function ingestNbaSidecarPlayByPlay(options: {
   const result = recordNbaPlayByPlayActions({
     actions: options.payload.actions
       .filter(
-        (
-          action
-        ): action is SidecarPlayByPlayAction & { actionNumber: number } =>
-          action.actionNumber != null && Number.isFinite(action.actionNumber)
+        (action): action is SidecarPlayByPlayAction & { actionNumber: number } =>
+          action.actionNumber != null && Number.isFinite(action.actionNumber),
       )
       .map((action) => ({
         ...action,
@@ -444,9 +429,7 @@ export async function syncNbaSidecarWindow(options?: {
             dateErrors.push({
               date,
               error: `play-by-play ${nbaGameId}: ${
-                playByPlayError instanceof Error
-                  ? playByPlayError.message
-                  : String(playByPlayError)
+                playByPlayError instanceof Error ? playByPlayError.message : String(playByPlayError)
               }`,
             });
           }
@@ -454,8 +437,7 @@ export async function syncNbaSidecarWindow(options?: {
       } catch (dateError) {
         dateErrors.push({
           date,
-          error:
-            dateError instanceof Error ? dateError.message : String(dateError),
+          error: dateError instanceof Error ? dateError.message : String(dateError),
         });
       }
     }
@@ -464,7 +446,7 @@ export async function syncNbaSidecarWindow(options?: {
       throw new Error(
         `NBA sidecar window failed for every requested date: ${dateErrors
           .map((entry) => `${entry.date}: ${entry.error}`)
-          .join(" | ")}`
+          .join(" | ")}`,
       );
     }
 
@@ -473,13 +455,10 @@ export async function syncNbaSidecarWindow(options?: {
     recordAdapterRun({
       errorMessage: ok
         ? undefined
-        : dateErrors
-            .map((entry) => `${entry.date}: ${entry.error}`)
-            .join(" | "),
+        : dateErrors.map((entry) => `${entry.date}: ${entry.error}`).join(" | "),
       finishedAt,
       recordsSeen: gamesSeen,
-      recordsWritten:
-        statesWritten + outcomesWritten + playByPlayActionsWritten,
+      recordsWritten: statesWritten + outcomesWritten + playByPlayActionsWritten,
       source: "nba",
       startedAt,
       status: ok ? "ok" : "error",

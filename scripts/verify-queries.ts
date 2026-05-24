@@ -21,15 +21,14 @@
 // "USING INDEX" qualifier — i.e. the planner is doing a full table scan on a
 // table that should always be hit via an index.
 //
-// Per PRD §FR-29 this script is NOT chained into `pnpm verify`. It is the
-// `pnpm verify:gold` smoke and presupposes the gold DB is present locally
-// (post-Phase-0: `~/signal-console/data/signal-console.sqlite`). To run before
-// the Phase-0 relocation, set GOLD_DB_PATH in the environment to point at the
-// pre-cutover location.
+// This script is chained into `pnpm verify`, so the standard gate also guards
+// query-plan drift. Set GOLD_DB_PATH if the gold DB is not at the default
+// post-Phase-0 location (`~/signal-console/data/signal-console.sqlite`).
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import process from "node:process";
+import { pathToFileURL } from "node:url";
 
 import { GOLD_DB_PATH, openGoldDb } from "../packages/db/src/open";
 import { v_games } from "../packages/db/src/sport-views";
@@ -176,7 +175,14 @@ function renderPlan(rows: readonly PlanRow[]): string {
   return lines.join("\n") + "\n";
 }
 
-function offendingScans(
+function scannedIdentifier(detail: string): string | null {
+  const tokens = detail.split(/\s+/u);
+  if (tokens[0] !== "SCAN") return null;
+  if (tokens[1] === "TABLE") return tokens[2] ?? null;
+  return tokens[1] ?? null;
+}
+
+export function offendingScans(
   rows: readonly PlanRow[],
   aliases: Readonly<Record<string, string>>,
 ): string[] {
@@ -185,8 +191,8 @@ function offendingScans(
     const detail = row.detail;
     if (!detail.startsWith("SCAN ")) continue;
     if (detail.includes("USING ")) continue;
-    const firstToken = detail.slice(5).split(/\s/)[0];
-    if (firstToken === undefined) continue;
+    const firstToken = scannedIdentifier(detail);
+    if (firstToken === null) continue;
     const resolved = aliases[firstToken] ?? firstToken;
     if (NON_TRIVIAL_TABLES.includes(resolved)) {
       offenders.push(`full SCAN of '${resolved}' — plan row: "${detail}"`);
@@ -280,4 +286,6 @@ function main(): number {
   return 1;
 }
 
-process.exit(main());
+if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  process.exit(main());
+}

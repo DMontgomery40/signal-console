@@ -223,10 +223,10 @@ describe("live repository", () => {
       (
         db
           .prepare(
-            "SELECT COUNT(*) AS count FROM game_states WHERE game_id = 'nba-bos-nyk-2026-04-21'"
+            "SELECT COUNT(*) AS count FROM game_states WHERE game_id = 'nba-bos-nyk-2026-04-21'",
           )
           .get() as { count: number }
-      ).count
+      ).count,
     );
 
     const regressedInPlay = recordGameStateObservation({
@@ -244,9 +244,7 @@ describe("live repository", () => {
 
     expect(regressedInPlay.wrote).toBe(false);
     expect(regressedInPlay.reason).toBe("regressed");
-    expect(getResearchGame("nba-bos-nyk-2026-04-21")?.gameState?.status).toBe(
-      "in-play"
-    );
+    expect(getResearchGame("nba-bos-nyk-2026-04-21")?.gameState?.status).toBe("in-play");
 
     recordGameStateObservation({
       awayScore: 101,
@@ -278,17 +276,15 @@ describe("live repository", () => {
       (
         db
           .prepare(
-            "SELECT COUNT(*) AS count FROM game_states WHERE game_id = 'nba-bos-nyk-2026-04-21'"
+            "SELECT COUNT(*) AS count FROM game_states WHERE game_id = 'nba-bos-nyk-2026-04-21'",
           )
           .get() as { count: number }
-      ).count
+      ).count,
     );
 
     expect(regressedFinal.wrote).toBe(false);
     expect(regressedFinal.reason).toBe("regressed");
-    expect(getResearchGame("nba-bos-nyk-2026-04-21")?.gameState?.status).toBe(
-      "final"
-    );
+    expect(getResearchGame("nba-bos-nyk-2026-04-21")?.gameState?.status).toBe("final");
     expect(finalCount).toBe(initialCount + 1);
   });
 
@@ -330,7 +326,7 @@ describe("live repository", () => {
             final_at
           )
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `
+        `,
       )
       .run(
         "nba-bos-nyk-2026-04-21",
@@ -342,7 +338,7 @@ describe("live repository", () => {
         null,
         0,
         null,
-        null
+        null,
       );
 
     const game = getResearchGame("nba-bos-nyk-2026-04-21");
@@ -709,10 +705,7 @@ describe("live repository", () => {
       wrote: true,
     });
 
-    const timeline = getInstrumentTimeline(
-      "nba-bos-nyk-2026-04-21",
-      "bos-moneyline"
-    );
+    const timeline = getInstrumentTimeline("nba-bos-nyk-2026-04-21", "bos-moneyline");
 
     expect(timeline?.quoteSeriesBySource.bet365).toHaveLength(3);
     expect(timeline?.quoteSeriesBySource.bet365).toEqual(
@@ -722,7 +715,7 @@ describe("live repository", () => {
           impliedProbability: 0.64,
           isHeartbeat: false,
         }),
-      ])
+      ]),
     );
   });
 
@@ -813,19 +806,18 @@ describe("live repository", () => {
       sport: "basketball",
     });
 
-    expect(listResearchGames({ limit: 1 })[0]?.game.id).toBe(
-      "nba-live-slate-game"
-    );
+    expect(listResearchGames({ limit: 1 })[0]?.game.id).toBe("nba-live-slate-game");
     expect(listResearchGames({ limit: 1 })[0]?.gameState).toMatchObject({
       awayScore: 88,
       homeScore: 91,
     });
-    expect(listResearchGames({ limit: 2 }).map((card) => card.game.id)).toEqual(
-      ["nba-live-slate-game", "nba-current-slate-game"]
+    expect(listResearchGames({ limit: 2 }).map((card) => card.game.id)).toEqual([
+      "nba-live-slate-game",
+      "nba-current-slate-game",
+    ]);
+    expect(listResearchGames({ date: "2025-10-25", limit: 1 })[0]?.game.id).toBe(
+      "nba-old-history-game",
     );
-    expect(
-      listResearchGames({ date: "2025-10-25", limit: 1 })[0]?.game.id
-    ).toBe("nba-old-history-game");
   });
 
   it("does not let stale historical in-play state outrank an imminent game", () => {
@@ -949,7 +941,7 @@ describe("live repository", () => {
     });
 
     const singleSourceCard = listResearchGames({ date: "2026-04-21" }).find(
-      (card) => card.game.id === "nba-single-source-game"
+      (card) => card.game.id === "nba-single-source-game",
     );
 
     expect(singleSourceCard).toMatchObject({
@@ -996,8 +988,8 @@ describe("live repository", () => {
         (row) =>
           row.source === "bet365" &&
           row.gameId === "nba-bos-nyk-2026-04-21" &&
-          row.family === "moneyline"
-      )
+          row.family === "moneyline",
+      ),
     ).toMatchObject({
       quoteTickCount: 2,
       rawPayloadCount: 2,
@@ -1009,12 +1001,8 @@ describe("live repository", () => {
     seedLiveRepositoryGame();
 
     const markets = listGameMarkets("nba-bos-nyk-2026-04-21");
-    const moneyline = markets.find(
-      (market) => market.instrument.id === "bos-moneyline"
-    );
-    const spread = markets.find(
-      (market) => market.instrument.id === "bos-spread-4_5"
-    );
+    const moneyline = markets.find((market) => market.instrument.id === "bos-moneyline");
+    const spread = markets.find((market) => market.instrument.id === "bos-spread-4_5");
 
     expect(moneyline).toMatchObject({
       comparableState: "comparable",
@@ -1055,7 +1043,7 @@ describe("live repository", () => {
     });
 
     const moneyline = listGameMarkets("nba-bos-nyk-2026-04-21").find(
-      (market) => market.instrument.id === "bos-moneyline"
+      (market) => market.instrument.id === "bos-moneyline",
     );
 
     expect(moneyline).toMatchObject({
@@ -1069,7 +1057,7 @@ describe("live repository", () => {
           displayLabel: "Boston moneyline",
           impliedProbabilityGap: expect.closeTo(0.07, 5),
         }),
-      ])
+      ]),
     );
   });
 
@@ -1090,9 +1078,7 @@ describe("live repository", () => {
     });
 
     const markets = listGameMarkets("nba-bos-nyk-2026-04-21");
-    const moneyline = markets.find(
-      (market) => market.instrument.id === "bos-moneyline"
-    );
+    const moneyline = markets.find((market) => market.instrument.id === "bos-moneyline");
 
     expect(moneyline).toMatchObject({
       comparableState: "selection-mismatch",
@@ -1100,16 +1086,15 @@ describe("live repository", () => {
       lineMismatch: false,
     });
     expect(
-      getInstrumentComparison("nba-bos-nyk-2026-04-21", "bos-moneyline")
-        ?.derivedComparison
+      getInstrumentComparison("nba-bos-nyk-2026-04-21", "bos-moneyline")?.derivedComparison,
     ).toMatchObject({
       comparableState: "selection-mismatch",
       impliedProbabilityGap: null,
     });
     expect(
       listResearchDivergence({ date: "2026-04-21" }).some(
-        (row) => row.instrumentId === "bos-moneyline"
-      )
+        (row) => row.instrumentId === "bos-moneyline",
+      ),
     ).toBe(false);
   });
 
@@ -1143,7 +1128,7 @@ describe("live repository", () => {
     });
 
     const moneyline = listGameMarkets("nba-bos-nyk-2026-04-21").find(
-      (market) => market.instrument.id === "bos-moneyline"
+      (market) => market.instrument.id === "bos-moneyline",
     );
 
     expect(moneyline).toMatchObject({
@@ -1215,16 +1200,14 @@ describe("live repository", () => {
 
     expect(
       listGameMarkets("nba-bos-nyk-2026-04-21").find(
-        (market) => market.instrument.id === "nyk-moneyline-external-only"
-      )
+        (market) => market.instrument.id === "nyk-moneyline-external-only",
+      ),
     ).toMatchObject({
       comparableState: "comparable",
       impliedProbabilityGap: null,
     });
     expect(
-      listResearchDivergence({}).some(
-        (row) => row.instrumentId === "nyk-moneyline-external-only"
-      )
+      listResearchDivergence({}).some((row) => row.instrumentId === "nyk-moneyline-external-only"),
     ).toBe(false);
   });
 
@@ -1296,8 +1279,8 @@ describe("live repository", () => {
 
     expect(
       listGameMarkets("nba-bos-nyk-2026-04-21").find(
-        (market) => market.instrument.id === "wemby-steals-over"
-      )
+        (market) => market.instrument.id === "wemby-steals-over",
+      ),
     ).toMatchObject({
       comparableState: "comparable",
       impliedProbabilityGap: expect.closeTo(0.02, 5),
@@ -1331,8 +1314,8 @@ describe("live repository", () => {
 
     expect(
       listGameMarkets("nba-bos-nyk-2026-04-21").find(
-        (market) => market.instrument.id === "wemby-steals-over"
-      )
+        (market) => market.instrument.id === "wemby-steals-over",
+      ),
     ).toMatchObject({
       comparableState: "selection-mismatch",
       impliedProbabilityGap: null,
@@ -1407,8 +1390,8 @@ describe("live repository", () => {
 
     expect(
       listGameMarkets("nba-bos-nyk-2026-04-21").find(
-        (market) => market.instrument.id === "jokic-assists-over"
-      )
+        (market) => market.instrument.id === "jokic-assists-over",
+      ),
     ).toMatchObject({
       comparableState: "comparable",
       impliedProbabilityGap: expect.closeTo(0.03, 5),
@@ -1479,8 +1462,8 @@ describe("live repository", () => {
 
     expect(
       listGameMarkets("nba-bos-nyk-2026-04-21").find(
-        (market) => market.instrument.id === "oneale-rebounds-over"
-      )
+        (market) => market.instrument.id === "oneale-rebounds-over",
+      ),
     ).toMatchObject({
       comparableState: "comparable",
       impliedProbabilityGap: expect.closeTo(0.03, 5),
@@ -1517,15 +1500,10 @@ describe("live repository", () => {
       volume: 104,
     });
 
-    const comparison = getInstrumentComparison(
-      "nba-bos-nyk-2026-04-21",
-      "bos-moneyline"
-    );
+    const comparison = getInstrumentComparison("nba-bos-nyk-2026-04-21", "bos-moneyline");
 
     expect(
-      comparison?.latestQuotesBySource.filter(
-        (quote) => quote.source === "bet365"
-      )
+      comparison?.latestQuotesBySource.filter((quote) => quote.source === "bet365"),
     ).toHaveLength(1);
     expect(comparison?.latestQuotesBySource).toEqual(
       expect.arrayContaining([
@@ -1538,15 +1516,11 @@ describe("live repository", () => {
           impliedProbability: 0.68,
           source: "kalshi",
         }),
-      ])
+      ]),
     );
 
     expect(
-      getInstrumentRawSource(
-        "nba-bos-nyk-2026-04-21",
-        "bos-moneyline",
-        "bet365"
-      )
+      getInstrumentRawSource("nba-bos-nyk-2026-04-21", "bos-moneyline", "bet365"),
     ).toMatchObject({
       parserOutput: {
         impliedProbability: 0.64,
@@ -1574,19 +1548,13 @@ describe("live repository", () => {
       sourceSelectionKey: "over",
     });
 
-    const coverage = getResearchCoverage().filter(
-      (row) => row.gameId === "nba-bos-nyk-2026-04-21"
-    );
+    const coverage = getResearchCoverage().filter((row) => row.gameId === "nba-bos-nyk-2026-04-21");
 
-    expect(
-      coverage.find((row) => row.instrumentId == null && row.family == null)
-    ).toMatchObject({
+    expect(coverage.find((row) => row.instrumentId == null && row.family == null)).toMatchObject({
       unmappedSources: ["polymarket"],
     });
     expect(
-      coverage.find(
-        (row) => row.instrumentId == null && row.family === "player-prop"
-      )
+      coverage.find((row) => row.instrumentId == null && row.family === "player-prop"),
     ).toMatchObject({
       availableSources: ["polymarket"],
       missingSources: ["bet365", "fanduel", "draftkings", "kalshi"],
@@ -1674,7 +1642,7 @@ describe("live repository", () => {
           polymarketImpliedProbability: 0.48,
           scheduledStart: "2026-04-21T23:00:00.000Z",
         }),
-      ])
+      ]),
     );
     expect(listSignalMismatches({ date: "2026-04-21" })).toEqual(
       expect.arrayContaining([
@@ -1682,7 +1650,7 @@ describe("live repository", () => {
           displayLabel: "Boston moneyline",
           scheduledStart: "2026-04-21T23:00:00.000Z",
         }),
-      ])
+      ]),
     );
     expect(listSignalMismatches({ date: "2026-04-22" })).toEqual([]);
 
@@ -1778,11 +1746,9 @@ describe("live repository", () => {
           displayLabel: "Denver moneyline",
           gameId: "nba-lal-den-2026-04-21",
         }),
-      ])
+      ]),
     );
-    expect(
-      denOnlyRows.every((row) => row.gameId === "nba-lal-den-2026-04-21")
-    ).toBe(true);
+    expect(denOnlyRows.every((row) => row.gameId === "nba-lal-den-2026-04-21")).toBe(true);
   });
 
   it("applies signal mismatch limits after filtering non-mismatches", () => {
@@ -1872,10 +1838,7 @@ describe("live repository", () => {
     expect(alerts[0]).toMatchObject({
       apiSurface: "data-api/trades",
       displayLabel: "Boston moneyline",
-      labels: expect.arrayContaining([
-        "isolated off-price print",
-        "volume-share anomaly",
-      ]),
+      labels: expect.arrayContaining(["isolated off-price print", "volume-share anomaly"]),
       metrics: expect.objectContaining({
         notional: 105.66,
         tradeDistance: expect.closeTo(0.48, 6),
@@ -1928,9 +1891,7 @@ describe("live repository", () => {
     });
 
     expect(
-      getDatabase()
-        .prepare("SELECT COUNT(*) AS count FROM market_microstructure_events")
-        .get()
+      getDatabase().prepare("SELECT COUNT(*) AS count FROM market_microstructure_events").get(),
     ).toEqual({ count: 2 });
   });
 
@@ -1971,13 +1932,13 @@ describe("live repository", () => {
         minScore: 10,
         now: "2026-04-21T23:45:00.000Z",
         requireBet365: false,
-      })
+      }),
     ).not.toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           sourceMarketId: "sm-polymarket-bad-volume-share",
         }),
-      ])
+      ]),
     );
   });
 
@@ -2012,7 +1973,7 @@ describe("live repository", () => {
           eventType: "candlestick",
           labels: expect.arrayContaining(["sustained repricing"]),
         }),
-      ])
+      ]),
     );
   });
 
@@ -2053,7 +2014,7 @@ describe("live repository", () => {
         minConfidence: 0.4,
         minScore: 40,
         now: "2026-04-21T23:45:00.000Z",
-      })
+      }),
     ).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -2061,7 +2022,7 @@ describe("live repository", () => {
           labels: expect.arrayContaining(["coverage gap"]),
           mappingStatus: "unmapped",
         }),
-      ])
+      ]),
     );
 
     expect(
@@ -2070,7 +2031,7 @@ describe("live repository", () => {
         minConfidence: 0.4,
         minScore: 40,
         now: "2026-04-21T23:45:00.000Z",
-      })
+      }),
     ).toEqual([]);
   });
 
@@ -2113,7 +2074,7 @@ describe("live repository", () => {
         minConfidence: 0.4,
         minScore: 40,
         now: "2026-04-22T00:15:00.000Z",
-      })
+      }),
     ).toEqual([]);
 
     expect(
@@ -2123,14 +2084,14 @@ describe("live repository", () => {
         minConfidence: 0.4,
         minScore: 40,
         now: "2026-04-22T00:15:00.000Z",
-      })
+      }),
     ).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           displayLabel: "Boston moneyline",
           source: "polymarket",
         }),
-      ])
+      ]),
     );
   });
 
@@ -2203,9 +2164,7 @@ describe("live repository", () => {
       requireBet365: false,
     });
     expect(withoutBet365Requirement).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ displayLabel: "Unmapped scorer prop" }),
-      ])
+      expect.arrayContaining([expect.objectContaining({ displayLabel: "Unmapped scorer prop" })]),
     );
 
     const requiringBet365 = listMarketAnomalyAlerts({
@@ -2216,14 +2175,10 @@ describe("live repository", () => {
       requireBet365: true,
     });
     expect(requiringBet365).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ displayLabel: "Boston moneyline" }),
-      ])
+      expect.arrayContaining([expect.objectContaining({ displayLabel: "Boston moneyline" })]),
     );
     expect(requiringBet365).not.toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ displayLabel: "Unmapped scorer prop" }),
-      ])
+      expect.arrayContaining([expect.objectContaining({ displayLabel: "Unmapped scorer prop" })]),
     );
   });
 
@@ -2384,7 +2339,7 @@ describe("live repository", () => {
         expect.objectContaining({
           displayLabel: "Tyrese Maxey points over 27.5",
         }),
-      ])
+      ]),
     );
     expect(initialAlerts).toEqual([
       expect.objectContaining({
@@ -2444,14 +2399,14 @@ describe("live repository", () => {
     expect(
       listPlayerPropDisagreementAlerts({
         now: "2026-04-22T00:30:00.000Z",
-      })
+      }),
     ).toEqual([]);
 
     expect(
       listPlayerPropDisagreementAlerts({
         includeStale: true,
         now: "2026-04-22T00:30:00.000Z",
-      })
+      }),
     ).toHaveLength(1);
 
     upsertSourceMarket({
@@ -2483,7 +2438,7 @@ describe("live repository", () => {
     expect(
       listPlayerPropDisagreementAlerts({
         now: "2026-04-21T23:43:30.000Z",
-      })
+      }),
     ).toEqual([]);
 
     upsertSourceMarket({
@@ -2515,14 +2470,14 @@ describe("live repository", () => {
     expect(
       listPlayerPropDisagreementAlerts({
         now: "2026-04-21T23:44:30.000Z",
-      })
+      }),
     ).toEqual([]);
 
     expect(
       listPlayerPropDisagreementAlerts({
         minDelta: 0.3,
         now: "2026-04-21T23:41:00.000Z",
-      })
+      }),
     ).toEqual([]);
   });
 
@@ -2530,9 +2485,7 @@ describe("live repository", () => {
     const sessionStatePath = join(tempDir, "bet365-session-state.json");
     process.env.BET365_SESSION_STATE_PATH = sessionStatePath;
 
-    expect(
-      listAdminSources().find((source) => source.source === "bet365")
-    ).toMatchObject({
+    expect(listAdminSources().find((source) => source.source === "bet365")).toMatchObject({
       authState: "invalid",
       bootstrapState: "invalid",
       configured: false,
@@ -2541,9 +2494,7 @@ describe("live repository", () => {
 
     writeFileSync(sessionStatePath, JSON.stringify({ cookies: [] }));
 
-    expect(
-      listAdminSources().find((source) => source.source === "bet365")
-    ).toMatchObject({
+    expect(listAdminSources().find((source) => source.source === "bet365")).toMatchObject({
       authState: "configured",
       bootstrapState: "ready",
       configured: true,

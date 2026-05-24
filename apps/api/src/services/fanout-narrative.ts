@@ -121,11 +121,6 @@ function formatTimeLabel(bucketStart: string): string {
   return bucketStart.slice(11, 19);
 }
 
-function formatDeltaLabel(deltaSec: number): string {
-  const sign = deltaSec >= 0 ? "+" : "";
-  return `${sign}${deltaSec.toFixed(0)}s`;
-}
-
 // Phrase a signed seconds-from-alert delta in plain English so the trader
 // doesn't have to interpret "+/-Ns" twice. Negative = play before alert
 // (system reacted N seconds after the play). Positive = play after alert

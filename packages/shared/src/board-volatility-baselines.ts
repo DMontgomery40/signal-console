@@ -13,11 +13,7 @@ import { computeH0Adjustment } from "./board-anomaly/h0";
 import { scoreObservation } from "./board-anomaly/residual";
 import { materializeBoardObservations } from "./board-anomaly-observations";
 import { parseTimestampMs } from "./board-anomaly-support";
-import {
-  executeDatabaseOperation,
-  getDatabase,
-  currentTimestamp,
-} from "./db-core";
+import { executeDatabaseOperation, getDatabase, currentTimestamp } from "./db-core";
 
 export type BoardVolatilityBaselineExpectedRange = {
   p50: number;
@@ -58,10 +54,7 @@ type CohortAccumulator = {
   sourceBucket: string;
 };
 
-const FALLBACK_BASELINES: Record<
-  BoardVolatilityPhaseKind,
-  BoardVolatilityBaselineExpectedRange
-> = {
+const FALLBACK_BASELINES: Record<BoardVolatilityPhaseKind, BoardVolatilityBaselineExpectedRange> = {
   pregame: { p50: 0.08, p75: 0.15, p90: 0.25, p99: 0.4 },
   "near-tip": { p50: 0.18, p75: 0.28, p90: 0.42, p99: 0.62 },
   "tip-burst": { p50: 0.28, p75: 0.4, p90: 0.56, p99: 0.76 },
@@ -150,7 +143,7 @@ function buildCohortKey(input: BoardVolatilityBaselineLookupInput) {
 }
 
 export function resolveFallbackBoardVolatilityBaseline(
-  input: BoardVolatilityBaselineLookupInput
+  input: BoardVolatilityBaselineLookupInput,
 ): BoardVolatilityBaselineResolved {
   const buckets = buildCohortKey(input);
   return {
@@ -171,7 +164,7 @@ function queryBaselineRow(
   db: ReturnType<typeof getDatabase>,
   version: string,
   input: BoardVolatilityBaselineLookupInput,
-  mode: "exact" | "phase-source-core" | "phase-only"
+  mode: "exact" | "phase-source-core" | "phase-only",
 ) {
   const buckets = buildCohortKey(input);
   if (mode === "exact") {
@@ -184,7 +177,7 @@ function queryBaselineRow(
            AND seconds_from_tip_bucket = ?
            AND margin_bucket = ?
            AND source_bucket = ?
-           AND core_family_bucket = ?`
+           AND core_family_bucket = ?`,
       )
       .get(
         version,
@@ -193,7 +186,7 @@ function queryBaselineRow(
         buckets.secondsFromTipBucket,
         buckets.marginBucket,
         buckets.sourceBucket,
-        buckets.coreFamilyBucket
+        buckets.coreFamilyBucket,
       ) as Record<string, unknown> | undefined;
   }
   if (mode === "phase-source-core") {
@@ -205,14 +198,11 @@ function queryBaselineRow(
            AND source_bucket = ?
            AND core_family_bucket = ?
          ORDER BY sample_size DESC
-         LIMIT 1`
+         LIMIT 1`,
       )
-      .get(
-        version,
-        input.phaseKind,
-        buckets.sourceBucket,
-        buckets.coreFamilyBucket
-      ) as Record<string, unknown> | undefined;
+      .get(version, input.phaseKind, buckets.sourceBucket, buckets.coreFamilyBucket) as
+      | Record<string, unknown>
+      | undefined;
   }
   return db
     .prepare(
@@ -220,31 +210,28 @@ function queryBaselineRow(
        WHERE baseline_version = ?
          AND phase_kind = ?
        ORDER BY sample_size DESC
-       LIMIT 1`
+       LIMIT 1`,
     )
     .get(version, input.phaseKind) as Record<string, unknown> | undefined;
 }
 
 export function getLatestBoardVolatilityBaselineVersion() {
-  return executeDatabaseOperation(
-    "boardVolatilityBaselines.latestVersion",
-    () => {
-      const db = getDatabase();
-      const row = db
-        .prepare(
-          `SELECT baseline_version AS baselineVersion
+  return executeDatabaseOperation("boardVolatilityBaselines.latestVersion", () => {
+    const db = getDatabase();
+    const row = db
+      .prepare(
+        `SELECT baseline_version AS baselineVersion
          FROM board_volatility_baselines
          ORDER BY updated_at DESC, baseline_version DESC
-         LIMIT 1`
-        )
-        .get() as { baselineVersion: string } | undefined;
-      return row?.baselineVersion ?? null;
-    }
-  );
+         LIMIT 1`,
+      )
+      .get() as { baselineVersion: string } | undefined;
+    return row?.baselineVersion ?? null;
+  });
 }
 
 export function resolveBoardVolatilityBaseline(
-  input: BoardVolatilityBaselineLookupInput
+  input: BoardVolatilityBaselineLookupInput,
 ): BoardVolatilityBaselineResolved {
   return executeDatabaseOperation(
     "boardVolatilityBaselines.resolve",
@@ -286,7 +273,7 @@ export function resolveBoardVolatilityBaseline(
         sourceBucket: String(row.source_bucket),
       };
     },
-    input
+    input,
   );
 }
 
@@ -301,7 +288,7 @@ export function rebuildBoardVolatilityBaselines() {
         `SELECT DISTINCT id, scheduled_start AS scheduledStart
          FROM games
          WHERE league = 'NBA'
-         ORDER BY scheduled_start ASC`
+         ORDER BY scheduled_start ASC`,
       )
       .all() as Array<{ id: string; scheduledStart: string }>;
 
@@ -323,7 +310,7 @@ export function rebuildBoardVolatilityBaselines() {
              SELECT mme.event_timestamp AS observed_at
              FROM market_microstructure_events mme
              WHERE mme.game_id = ?
-           )`
+           )`,
         )
         .get(game.id, game.id) as
         | { maxObservedAt: string | null; minObservedAt: string | null }
@@ -343,11 +330,7 @@ export function rebuildBoardVolatilityBaselines() {
 
       const scoredRows = materialized.observations
         .map((observation) =>
-          scoreObservation(
-            observation,
-            computeH0Adjustment(observation, config),
-            config
-          )
+          scoreObservation(observation, computeH0Adjustment(observation, config), config),
         )
         .sort(
           (left, right) =>
@@ -356,7 +339,7 @@ export function rebuildBoardVolatilityBaselines() {
               0) -
             (parseTimestampMs(right.observation.eventTimestamp) ??
               parseTimestampMs(right.observation.capturedAt) ??
-              0)
+              0),
         );
 
       const bucketMs = 15_000;
@@ -382,9 +365,7 @@ export function rebuildBoardVolatilityBaselines() {
           timeline: materialized.gameStates,
         });
         const transitionBoost =
-          phase.kind === "tip-burst" || phase.kind === "restart-burst"
-            ? 0.1
-            : 0;
+          phase.kind === "tip-burst" || phase.kind === "restart-burst" ? 0.1 : 0;
         const snapshot = buildBoardVolatilityFeatureSnapshot({
           baseline: resolveFallbackBoardVolatilityBaseline(
             buildBoardVolatilityBaselineLookupInput({
@@ -394,7 +375,7 @@ export function rebuildBoardVolatilityBaselines() {
               phaseKind: phase.kind,
               secondsFromTip: phase.secondsFromTip,
               sourceCount: 0,
-            })
+            }),
           ),
           config,
           persistenceSeconds: 0,
@@ -405,8 +386,7 @@ export function rebuildBoardVolatilityBaselines() {
           transitionBoost,
         });
         if (
-          snapshot.predictionMarketRows <
-            config.gameStateVolatility.minPredictionMarketRows ||
+          snapshot.predictionMarketRows < config.gameStateVolatility.minPredictionMarketRows ||
           snapshot.coreFamilies.length === 0 ||
           snapshot.distinctCoreSources.length === 0
         ) {
@@ -452,13 +432,11 @@ export function rebuildBoardVolatilityBaselines() {
            p90,
            p99,
            updated_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       );
 
       for (const [cohortKey, cohort] of cohorts.entries()) {
-        const sorted = cohort.scores
-          .slice()
-          .sort((left, right) => left - right);
+        const sorted = cohort.scores.slice().sort((left, right) => left - right);
         if (sorted.length === 0) continue;
         insert.run(
           baselineVersion,
@@ -474,7 +452,7 @@ export function rebuildBoardVolatilityBaselines() {
           quantile(sorted, 0.75),
           quantile(sorted, 0.9),
           quantile(sorted, 0.99),
-          nowIso
+          nowIso,
         );
       }
     })();

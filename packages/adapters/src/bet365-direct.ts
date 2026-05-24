@@ -27,10 +27,7 @@ type PlaywrightContext = {
 type PlaywrightPage = {
   close: () => Promise<void>;
   content: () => Promise<string>;
-  goto: (
-    url: string,
-    options?: { waitUntil?: string; timeout?: number }
-  ) => Promise<unknown>;
+  goto: (url: string, options?: { waitUntil?: string; timeout?: number }) => Promise<unknown>;
   waitForTimeout: (ms: number) => Promise<void>;
   url: () => string;
 };
@@ -126,7 +123,7 @@ export function parseBet365HtmlSnapshot(
     homeTeamShort: string;
     awayParticipantKey: string;
     homeParticipantKey: string;
-  }
+  },
 ): Bet365DirectOffering[] {
   const offerings: Bet365DirectOffering[] = [];
   const moneylinePattern =
@@ -170,22 +167,19 @@ export async function openBet365Browser(options?: {
   context: PlaywrightContext;
   page: PlaywrightPage;
 }> {
-  const storageStatePath =
-    options?.storageStatePath ?? process.env.BET365_SESSION_STATE_PATH;
+  const storageStatePath = options?.storageStatePath ?? process.env.BET365_SESSION_STATE_PATH;
   if (!storageStatePath) {
     throw new Error(
-      "BET365_SESSION_STATE_PATH is not configured; provide a Playwright storageState.json."
+      "BET365_SESSION_STATE_PATH is not configured; provide a Playwright storageState.json.",
     );
   }
   if (!existsSync(storageStatePath)) {
-    throw new Error(
-      `Bet365 session state file does not exist: ${storageStatePath}`
-    );
+    throw new Error(`Bet365 session state file does not exist: ${storageStatePath}`);
   }
 
   const imported = (await import("playwright").catch((err) => {
     throw new Error(
-      `playwright is not installed in this environment: ${err instanceof Error ? err.message : String(err)}`
+      `playwright is not installed in this environment: ${err instanceof Error ? err.message : String(err)}`,
     );
   })) as {
     chromium: {
@@ -290,10 +284,7 @@ export function persistBet365Snapshot(snapshot: Bet365DirectGameSnapshot) {
       heartbeatAfterMs: 5 * 60_000,
       impliedProbability: implied,
       lineRaw: offering.line ?? null,
-      oddsRaw:
-        typeof offering.oddsAmerican === "number"
-          ? String(offering.oddsAmerican)
-          : null,
+      oddsRaw: typeof offering.oddsAmerican === "number" ? String(offering.oddsAmerican) : null,
       priceRaw: offering.priceDecimal ?? implied,
       sourceMarketId,
       volume: null,
@@ -302,9 +293,7 @@ export function persistBet365Snapshot(snapshot: Bet365DirectGameSnapshot) {
 
     recordRawPayload({
       capturedAt: snapshot.capturedAt,
-      contentHash: buildRawPayloadHash(
-        offering as unknown as Record<string, unknown>
-      ),
+      contentHash: buildRawPayloadHash(offering as unknown as Record<string, unknown>),
       entityId: sourceMarketId,
       entityType: "source_market",
       payloadJson: offering as unknown as Record<string, unknown>,
@@ -322,7 +311,7 @@ export async function syncBet365DirectLive(options?: {
     metadata: {
       awayTeamShort: string;
       homeTeamShort: string;
-    }
+    },
   ) => string;
   gameLimit?: number;
   headless?: boolean;
@@ -342,8 +331,7 @@ export async function syncBet365DirectLive(options?: {
   let rawPayloadsWritten = 0;
   const matchedGameIds = new Set<string>();
 
-  let browserHandle: Awaited<ReturnType<typeof openBet365Browser>> | null =
-    null;
+  let browserHandle: Awaited<ReturnType<typeof openBet365Browser>> | null = null;
 
   try {
     const games = listResearchGames({
@@ -351,13 +339,9 @@ export async function syncBet365DirectLive(options?: {
       referenceNow: now().toISOString(),
       sport: "basketball",
     }).filter(
-      (card) =>
-        card.gameState?.status === "in-play" ||
-        card.gameState?.status === "scheduled"
+      (card) => card.gameState?.status === "in-play" || card.gameState?.status === "scheduled",
     );
-    const limited = options?.gameLimit
-      ? games.slice(0, options.gameLimit)
-      : games;
+    const limited = options?.gameLimit ? games.slice(0, options.gameLimit) : games;
 
     if (limited.length === 0) {
       const finishedAt = now().toISOString();
@@ -413,8 +397,7 @@ export async function syncBet365DirectLive(options?: {
         }
       } catch (gameError) {
         gameErrors.push({
-          error:
-            gameError instanceof Error ? gameError.message : String(gameError),
+          error: gameError instanceof Error ? gameError.message : String(gameError),
           gameId: game.game.id,
         });
       }

@@ -1,8 +1,4 @@
-import type {
-  ComparableState,
-  LatestSourceView,
-  ResearchSourceId,
-} from "./live-types";
+import type { ComparableState, LatestSourceView, ResearchSourceId } from "./live-types";
 
 export const marketSourceIds = ["bet365", "kalshi", "polymarket"] as const;
 export const predictionMarketSourceIds = ["kalshi", "polymarket"] as const;
@@ -52,24 +48,21 @@ export function quotedMarketSourcesFromLatest(
   latestSources: Array<{
     impliedProbability?: number | null;
     source: ResearchSourceId | string;
-  }>
+  }>,
 ) {
   const quoted = new Set(
     latestSources
       .filter((source) => typeof source.impliedProbability === "number")
-      .map((source) => source.source)
+      .map((source) => source.source),
   );
 
   return marketSourceIds.filter((source) => quoted.has(source));
 }
 
-export function hasBet365PlusPredictionMarket(
-  sources: Iterable<ResearchSourceId | string>
-) {
+export function hasBet365PlusPredictionMarket(sources: Iterable<ResearchSourceId | string>) {
   const sourceSet = new Set(sources);
   return (
-    sourceSet.has("bet365") &&
-    predictionMarketSourceIds.some((source) => sourceSet.has(source))
+    sourceSet.has("bet365") && predictionMarketSourceIds.some((source) => sourceSet.has(source))
   );
 }
 
@@ -78,7 +71,7 @@ function pricedSourceTimes(
     Pick<LatestSourceView, "capturedAt" | "impliedProbability"> & {
       source: ResearchSourceId | string;
     }
-  >
+  >,
 ) {
   return sources
     .filter((source) => typeof source.impliedProbability === "number")
@@ -87,8 +80,7 @@ function pricedSourceTimes(
       source: source.source,
     }))
     .filter(
-      (source): source is { capturedAt: number; source: string } =>
-        source.capturedAt != null
+      (source): source is { capturedAt: number; source: string } => source.capturedAt != null,
     );
 }
 
@@ -99,21 +91,20 @@ function hasSameTimeQuoteWindow(
     }
   >,
   requireBet365PlusPredictionMarket: boolean,
-  maxQuoteTimeGapMs: number
+  maxQuoteTimeGapMs: number,
 ) {
   const priced = pricedSourceTimes(sources);
   if (requireBet365PlusPredictionMarket) {
     const bet365 = priced.filter((source) => source.source === "bet365");
     const externals = priced.filter((source) =>
       predictionMarketSourceIds.includes(
-        source.source as (typeof predictionMarketSourceIds)[number]
-      )
+        source.source as (typeof predictionMarketSourceIds)[number],
+      ),
     );
     return bet365.some((book) =>
       externals.some(
-        (external) =>
-          Math.abs(book.capturedAt - external.capturedAt) <= maxQuoteTimeGapMs
-      )
+        (external) => Math.abs(book.capturedAt - external.capturedAt) <= maxQuoteTimeGapMs,
+      ),
     );
   }
 
@@ -122,15 +113,12 @@ function hasSameTimeQuoteWindow(
       (right, rightIndex) =>
         rightIndex > leftIndex &&
         left.source !== right.source &&
-        Math.abs(left.capturedAt - right.capturedAt) <= maxQuoteTimeGapMs
-    )
+        Math.abs(left.capturedAt - right.capturedAt) <= maxQuoteTimeGapMs,
+    ),
   );
 }
 
-export function classifyGameLifecycle(
-  input: GameLifecycleInput,
-  now = new Date()
-): GameLifecycle {
+export function classifyGameLifecycle(input: GameLifecycleInput, now = new Date()): GameLifecycle {
   const nowMs = now.getTime();
   const scheduledAt = parseTime(input.scheduledStart);
   const capturedAt = parseTime(input.gameState?.capturedAt);
@@ -138,19 +126,14 @@ export function classifyGameLifecycle(
   const startsInMs = scheduledAt == null ? null : scheduledAt - nowMs;
   const startedAgoMs = scheduledAt == null ? null : nowMs - scheduledAt;
   const status = input.gameState?.status.toLowerCase() ?? "missing";
-  const isFinal =
-    Boolean(input.outcome) ||
-    input.gameState?.isFinal === true ||
-    status === "final";
+  const isFinal = Boolean(input.outcome) || input.gameState?.isFinal === true || status === "final";
 
   if (isFinal) {
     return {
       detail:
         stateAgeMs == null
           ? "Final score is persisted."
-          : `Final score persisted; last NBA update ${formatDuration(
-              stateAgeMs
-            )} ago.`,
+          : `Final score persisted; last NBA update ${formatDuration(stateAgeMs)} ago.`,
       kind: "final",
       label: "Final",
       stateAgeMs,
@@ -163,8 +146,7 @@ export function classifyGameLifecycle(
     startedAgoMs >= scheduledScoreGraceMs &&
     startedAgoMs <= 4 * 60 * 60_000;
   const finalLikelyDue = startedAgoMs != null && startedAgoMs > 4 * 60 * 60_000;
-  const stateIsFresh =
-    stateAgeMs != null && stateAgeMs >= 0 && stateAgeMs <= 5 * 60_000;
+  const stateIsFresh = stateAgeMs != null && stateAgeMs >= 0 && stateAgeMs <= 5 * 60_000;
 
   if (status === "in-play" || status === "live") {
     if (stateIsFresh) {
@@ -182,7 +164,7 @@ export function classifyGameLifecycle(
         stateAgeMs == null
           ? "NBA says the game is in progress, but no update time is attached."
           : `NBA says the game is in progress; last score update ${formatDuration(
-              stateAgeMs
+              stateAgeMs,
             )} ago.`,
       kind: "missing-fresh-score-state",
       label: "Score update missing",
@@ -197,7 +179,7 @@ export function classifyGameLifecycle(
         stateAgeMs == null
           ? "The expected game window has elapsed, but no final score is persisted."
           : `The expected game window has elapsed; last NBA update ${formatDuration(
-              stateAgeMs
+              stateAgeMs,
             )} ago.`,
       kind: "missing-final-confirmation",
       label: "Final confirmation missing",
@@ -212,7 +194,7 @@ export function classifyGameLifecycle(
         stateAgeMs == null
           ? "Tip window is open, but no score update is attached yet."
           : `Tip window is open; NBA still has this as scheduled from ${formatDuration(
-              stateAgeMs
+              stateAgeMs,
             )} ago.`,
       kind: "missing-fresh-score-state",
       label: "Score update missing",
@@ -237,10 +219,7 @@ type MarketSignalInput = {
   comparableState?: ComparableState | string;
   gameLifecycle: Pick<GameLifecycle, "kind">;
   latestSources: Array<
-    Pick<
-      LatestSourceView,
-      "capturedAt" | "freshnessMs" | "impliedProbability"
-    > & {
+    Pick<LatestSourceView, "capturedAt" | "freshnessMs" | "impliedProbability"> & {
       source: ResearchSourceId | string;
     }
   >;
@@ -249,29 +228,17 @@ type MarketSignalInput = {
   sourceCount?: number;
 };
 
-export type MarketSignalState =
-  | "actionable-now"
-  | "historical"
-  | "invalid"
-  | "stale";
+export type MarketSignalState = "actionable-now" | "historical" | "invalid" | "stale";
 
-export function classifyMarketSignal(
-  input: MarketSignalInput,
-  now = new Date()
-) {
+export function classifyMarketSignal(input: MarketSignalInput, now = new Date()) {
   const quotedSources = quotedMarketSourcesFromLatest(input.latestSources);
   const pricedCount = input.sourceCount ?? quotedSources.length;
   const maxQuoteTimeGapMs = input.maxQuoteTimeGapMs ?? sameTimeQuoteWindowMs;
   const freshSources = input.latestSources.filter((source) => {
-    const sourceAgeMs =
-      typeof source.freshnessMs === "number" ? source.freshnessMs : null;
+    const sourceAgeMs = typeof source.freshnessMs === "number" ? source.freshnessMs : null;
     const capturedAt = parseTime(source.capturedAt);
     const ageMs =
-      sourceAgeMs != null
-        ? sourceAgeMs
-        : capturedAt == null
-          ? null
-          : now.getTime() - capturedAt;
+      sourceAgeMs != null ? sourceAgeMs : capturedAt == null ? null : now.getTime() - capturedAt;
 
     return (
       typeof source.impliedProbability === "number" &&
@@ -322,13 +289,12 @@ export function classifyMarketSignal(
   const hasSameTimeQuotes = hasSameTimeQuoteWindow(
     input.latestSources,
     input.requireBet365PlusPredictionMarket === true,
-    maxQuoteTimeGapMs
+    maxQuoteTimeGapMs,
   );
   if (!hasSameTimeQuotes) {
     return {
       label: "No comparison yet",
-      reason:
-        "Bet365 and exchange quotes are not available in the same time window.",
+      reason: "Bet365 and exchange quotes are not available in the same time window.",
       state: "invalid" as const,
     };
   }
@@ -336,8 +302,7 @@ export function classifyMarketSignal(
   if (input.gameLifecycle.kind === "final") {
     return {
       label: "Past comparison",
-      reason:
-        "Game is final, so this is review evidence, not a live trading signal.",
+      reason: "Game is final, so this is review evidence, not a live trading signal.",
       state: "historical" as const,
     };
   }
@@ -348,7 +313,7 @@ export function classifyMarketSignal(
   const freshSameTimeEnough = hasSameTimeQuoteWindow(
     freshSources,
     input.requireBet365PlusPredictionMarket === true,
-    maxQuoteTimeGapMs
+    maxQuoteTimeGapMs,
   );
 
   if (!freshEnough || !freshSameTimeEnough) {

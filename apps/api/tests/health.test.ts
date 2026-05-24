@@ -22,12 +22,125 @@ interface TestCtx {
 
 const ctx: TestCtx = { app: null, tempDir: "", tokenPath: "", goldDbPath: "" };
 
-function seedRealGoldDb(path: string): void {
-  // Build a tiny on-disk SQLite that openGoldDb() can read.
-  // openGoldDb requires fileMustExist + a successful query_only=ON readback,
-  // so any file produced by better-sqlite3 itself satisfies the open path.
+function seedReadyGoldDb(path: string): void {
+  const db = new Database(path);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS games (
+      id TEXT PRIMARY KEY,
+      sport TEXT NOT NULL,
+      league TEXT NOT NULL,
+      scheduled_start TEXT NOT NULL,
+      home_participant_json TEXT NOT NULL,
+      away_participant_json TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS source_markets (
+      id TEXT PRIMARY KEY,
+      source TEXT NOT NULL,
+      game_id TEXT NOT NULL,
+      instrument_id TEXT,
+      raw_family TEXT,
+      raw_label TEXT
+    );
+    CREATE TABLE IF NOT EXISTS quote_ticks (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      source_market_id TEXT NOT NULL,
+      captured_at TEXT NOT NULL,
+      implied_probability REAL,
+      volume REAL,
+      is_heartbeat INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE TABLE IF NOT EXISTS game_states (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      game_id TEXT NOT NULL,
+      captured_at TEXT NOT NULL,
+      status TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS market_microstructure_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      game_id TEXT NOT NULL,
+      source_market_id TEXT NOT NULL,
+      event_timestamp TEXT NOT NULL,
+      captured_at TEXT NOT NULL,
+      instrument_id TEXT,
+      event_type TEXT NOT NULL,
+      api_surface TEXT NOT NULL,
+      price REAL,
+      previous_price REAL,
+      source TEXT NOT NULL,
+      volume_share REAL,
+      trade_price REAL,
+      size REAL,
+      notional REAL,
+      volume REAL,
+      final_market_volume REAL,
+      best_bid REAL,
+      best_ask REAL,
+      spread REAL,
+      depth_score REAL
+    );
+    CREATE TABLE IF NOT EXISTS nba_play_by_play_actions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      game_id TEXT NOT NULL,
+      time_actual TEXT
+    );
+  `);
+  db.close();
+}
+
+function seedOpenableButNotReadyGoldDb(path: string): void {
   const db = new Database(path);
   db.exec("CREATE TABLE IF NOT EXISTS sentinel (id INTEGER PRIMARY KEY)");
+  db.close();
+}
+
+function seedGoldDbWithLegacyMicrostructureSchema(path: string): void {
+  const db = new Database(path);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS games (
+      id TEXT PRIMARY KEY,
+      sport TEXT NOT NULL,
+      league TEXT NOT NULL,
+      scheduled_start TEXT NOT NULL,
+      home_participant_json TEXT NOT NULL,
+      away_participant_json TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS source_markets (
+      id TEXT PRIMARY KEY,
+      source TEXT NOT NULL,
+      game_id TEXT NOT NULL,
+      instrument_id TEXT,
+      raw_family TEXT,
+      raw_label TEXT
+    );
+    CREATE TABLE IF NOT EXISTS quote_ticks (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      source_market_id TEXT NOT NULL,
+      captured_at TEXT NOT NULL,
+      implied_probability REAL,
+      volume REAL,
+      is_heartbeat INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE TABLE IF NOT EXISTS game_states (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      game_id TEXT NOT NULL,
+      captured_at TEXT NOT NULL,
+      status TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS market_microstructure_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      game_id TEXT NOT NULL,
+      source_market_id TEXT NOT NULL,
+      event_timestamp TEXT NOT NULL,
+      source TEXT NOT NULL,
+      volume_share REAL,
+      trade_price REAL
+    );
+    CREATE TABLE IF NOT EXISTS nba_play_by_play_actions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      game_id TEXT NOT NULL,
+      time_actual TEXT
+    );
+  `);
   db.close();
 }
 
@@ -75,7 +188,7 @@ describe("health routes (US-017)", () => {
   });
 
   it("GET /v1/health/ready returns 200 { ok: true } when the gold DB opens", async () => {
-    seedRealGoldDb(ctx.goldDbPath);
+    seedReadyGoldDb(ctx.goldDbPath);
     const app = await startApp(ctx.goldDbPath);
     const res = await app.inject({
       method: "GET",
@@ -84,6 +197,46 @@ describe("health routes (US-017)", () => {
     });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({ ok: true });
+  });
+
+  it("GET /v1/health/ready returns 503 when an openable DB is missing app tables", async () => {
+    seedOpenableButNotReadyGoldDb(ctx.goldDbPath);
+    const app = await startApp(ctx.goldDbPath);
+    const res = await app.inject({
+      method: "GET",
+      url: "/v1/health/ready",
+      headers: { "x-signal-token": TEST_TOKEN },
+    });
+    expect(res.statusCode).toBe(503);
+    const body: unknown = res.json();
+    expect(typeof body).toBe("object");
+    expect(body).not.toBeNull();
+    if (typeof body !== "object" || body === null) {
+      throw new Error("body not an object");
+    }
+    expect("ok" in body && body.ok === false).toBe(true);
+    expect("reason" in body && typeof body.reason === "string").toBe(true);
+  });
+
+  it("GET /v1/health/ready returns 503 when microstructure runtime columns are missing", async () => {
+    seedGoldDbWithLegacyMicrostructureSchema(ctx.goldDbPath);
+    const app = await startApp(ctx.goldDbPath);
+    const res = await app.inject({
+      method: "GET",
+      url: "/v1/health/ready",
+      headers: { "x-signal-token": TEST_TOKEN },
+    });
+    expect(res.statusCode).toBe(503);
+    const body: unknown = res.json();
+    expect(typeof body).toBe("object");
+    expect(body).not.toBeNull();
+    if (typeof body !== "object" || body === null) {
+      throw new Error("body not an object");
+    }
+    expect("ok" in body && body.ok === false).toBe(true);
+    expect("reason" in body && typeof body.reason === "string" && body.reason).toMatch(
+      /instrument_id|event_type|api_surface|captured_at|size|notional/i,
+    );
   });
 
   it("GET /v1/health/ready returns 503 { ok: false, reason } when GOLD_DB_PATH points at a missing file", async () => {

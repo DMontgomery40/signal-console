@@ -7,8 +7,7 @@ import { buildFanouts } from "../board-anomaly-live-fanouts";
 import { buildObservationLabels } from "../board-anomaly-observation-context";
 
 function makeMarketAlert(
-  overrides: Partial<MarketAnomalyAlert> &
-    Pick<MarketAnomalyAlert, "displayLabel" | "id">
+  overrides: Partial<MarketAnomalyAlert> & Pick<MarketAnomalyAlert, "displayLabel" | "id">,
 ): MarketAnomalyAlert {
   return {
     id: overrides.id,
@@ -31,8 +30,7 @@ function makeMarketAlert(
     severity: overrides.severity ?? "high",
     source: overrides.source ?? "polymarket",
     sourceMarketId: overrides.sourceMarketId ?? `${overrides.id}-source-market`,
-    sourceMarketKey:
-      overrides.sourceMarketKey ?? `${overrides.id}-source-market-key`,
+    sourceMarketKey: overrides.sourceMarketKey ?? `${overrides.id}-source-market-key`,
     sourceSelectionKey: overrides.sourceSelectionKey ?? "over",
     sport: overrides.sport ?? "basketball",
     components: overrides.components ?? {
@@ -53,18 +51,12 @@ function makeMarketAlert(
 
 describe("board anomaly runtime name normalization", () => {
   it("normalizes accented and punctuation-heavy display labels into the same participant key", () => {
-    expect(
-      participantKeyFromDisplayLabel("Nikola Jokić points over 29.5")
-    ).toBe("nikola jokic");
-    expect(
-      participantKeyFromDisplayLabel("Royce O'Neale: Points O/U 6.5")
-    ).toBe("royce oneale");
-    expect(
-      participantKeyFromDisplayLabel("Shai Gilgeous-Alexander: Assists O/U 7.5")
-    ).toBe("shai gilgeous alexander");
-    expect(
-      participantKeyFromDisplayLabel("Pistons Team Total Over 112.5")
-    ).toBeNull();
+    expect(participantKeyFromDisplayLabel("Nikola Jokić points over 29.5")).toBe("nikola jokic");
+    expect(participantKeyFromDisplayLabel("Royce O'Neale: Points O/U 6.5")).toBe("royce oneale");
+    expect(participantKeyFromDisplayLabel("Shai Gilgeous-Alexander: Assists O/U 7.5")).toBe(
+      "shai gilgeous alexander",
+    );
+    expect(participantKeyFromDisplayLabel("Pistons Team Total Over 112.5")).toBeNull();
   });
 
   it("keeps normalized observation labels usable when source labels contain accents", () => {
@@ -73,13 +65,13 @@ describe("board anomaly runtime name normalization", () => {
         "player-prop",
         "Nikola Jokić: Points O/U 29.5",
         null,
-        "Nikola Jokić points over 29.5"
-      )
+        "Nikola Jokić points over 29.5",
+      ),
     ).toEqual(
       expect.objectContaining({
         normalizedTokens: expect.arrayContaining(["nikola", "jokic", "points"]),
         statFamilyHints: expect.arrayContaining(["points"]),
-      })
+      }),
     );
   });
 
@@ -115,15 +107,10 @@ describe("board anomaly runtime name normalization", () => {
     expect(fanouts[0]).toEqual(
       expect.objectContaining({
         participantKey: "nikola jokic",
-      })
+      }),
     );
-    expect(
-      fanouts[0].members.map((member) => member.alert.displayLabel)
-    ).toEqual(
-      expect.arrayContaining([
-        "Nikola Jokić points over 29.5",
-        "Nikola Jokic rebounds over 13.5",
-      ])
+    expect(fanouts[0].members.map((member) => member.alert.displayLabel)).toEqual(
+      expect.arrayContaining(["Nikola Jokić points over 29.5", "Nikola Jokic rebounds over 13.5"]),
     );
   });
 });

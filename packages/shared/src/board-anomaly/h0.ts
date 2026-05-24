@@ -20,13 +20,10 @@ function probDriftToLogitCap(probDrift: number, baseProb: number): number {
 
 export function computeH0Adjustment(
   observation: BoardObservation,
-  config: BoardAnomalyDetectorConfig
+  config: BoardAnomalyDetectorConfig,
 ): H0Adjustment {
   const reasons: string[] = [];
-  const baseProb =
-    observation.previousImpliedProbability ??
-    observation.impliedProbability ??
-    0.5;
+  const baseProb = observation.previousImpliedProbability ?? observation.impliedProbability ?? 0.5;
   let expectedProbDrift = 0;
   let expectedAbsLineMove = 0;
   const expectedAbsTradeDistance =
@@ -42,8 +39,7 @@ export function computeH0Adjustment(
   if (observation.gameState.status === "scheduled") {
     const minutesToTip = observation.gameState.minutesToTip ?? 0;
     const hoursToTip = Math.max(0, minutesToTip) / 60;
-    pregameDriftCap =
-      PREGAME_BASE_PROB_PER_HOUR * Math.max(1, Math.min(hoursToTip, 24));
+    pregameDriftCap = PREGAME_BASE_PROB_PER_HOUR * Math.max(1, Math.min(hoursToTip, 24));
     expectedProbDrift += pregameDriftCap;
     if (minutesToTip <= config.thresholds.nearTipMinutes) {
       expectedProbDrift += NEAR_TIP_BASE_PROB_BOOST;
@@ -92,10 +88,7 @@ export function computeH0Adjustment(
 
   const expectedAbsLogitMove = probDriftToLogitCap(expectedProbDrift, baseProb);
   const pregameDriftLogitCap = probDriftToLogitCap(pregameDriftCap, baseProb);
-  const closeGameRepricingLogitCap = probDriftToLogitCap(
-    closeGameRepricingCap,
-    baseProb
-  );
+  const closeGameRepricingLogitCap = probDriftToLogitCap(closeGameRepricingCap, baseProb);
 
   return {
     expectedAbsLogitMove,

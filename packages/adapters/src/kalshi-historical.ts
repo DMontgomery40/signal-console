@@ -15,10 +15,7 @@ type FetchLike = typeof fetch;
 
 const KALSHI_DEFAULT_BASE_URL = "https://api.elections.kalshi.com/trade-api/v2";
 const KALSHI_NBA_SERIES_TICKER = "KXNBAGAME";
-const CANDLESTICK_MAX_WINDOW_SECONDS_BY_INTERVAL: Record<
-  1 | 60 | 1440,
-  number
-> = {
+const CANDLESTICK_MAX_WINDOW_SECONDS_BY_INTERVAL: Record<1 | 60 | 1440, number> = {
   1: 60 * 60, // 1-minute candles: 1-hour windows (Kalshi caps tight)
   60: 60 * 60 * 24 * 7, // 1-hour candles: 7-day windows
   1440: 60 * 60 * 24 * 365, // 1-day candles: 1-year window
@@ -35,7 +32,7 @@ function sleep(ms: number) {
 async function fetchWithRateLimit(
   fetchImpl: FetchLike,
   url: string,
-  options?: { interRequestMs?: number }
+  options?: { interRequestMs?: number },
 ): Promise<Response> {
   const interRequestMs = options?.interRequestMs ?? DEFAULT_INTER_REQUEST_MS;
   let attempt = 0;
@@ -52,9 +49,7 @@ async function fetchWithRateLimit(
 
     const retryAfterHeader = response.headers?.get?.("retry-after");
     const retryAfterSeconds = retryAfterHeader ? Number(retryAfterHeader) : NaN;
-    const delay = Number.isFinite(retryAfterSeconds)
-      ? retryAfterSeconds * 1000
-      : waitMs;
+    const delay = Number.isFinite(retryAfterSeconds) ? retryAfterSeconds * 1000 : waitMs;
 
     await sleep(delay);
     waitMs = Math.min(waitMs * 2, 30_000);
@@ -177,9 +172,7 @@ function buildGameKey(date: string, teamKeys: string[]) {
 }
 
 function parseKalshiEventDate(eventTicker: string): string | null {
-  const match = eventTicker.match(
-    /KXNBAGAME-(\d{2})([A-Z]{3})(\d{2})[A-Z]{3}[A-Z]{3}$/
-  );
+  const match = eventTicker.match(/KXNBAGAME-(\d{2})([A-Z]{3})(\d{2})[A-Z]{3}[A-Z]{3}$/);
   if (!match) {
     return null;
   }
@@ -196,12 +189,8 @@ function parseKalshiEventDate(eventTicker: string): string | null {
   return utc.toISOString().slice(0, 10);
 }
 
-function parseKalshiTeamAbbreviations(
-  eventTicker: string
-): { away: string; home: string } | null {
-  const match = eventTicker.match(
-    /KXNBAGAME-\d{2}[A-Z]{3}\d{2}([A-Z]{3})([A-Z]{3})$/
-  );
+function parseKalshiTeamAbbreviations(eventTicker: string): { away: string; home: string } | null {
+  const match = eventTicker.match(/KXNBAGAME-\d{2}[A-Z]{3}\d{2}([A-Z]{3})([A-Z]{3})$/);
   if (!match) {
     return null;
   }
@@ -229,10 +218,8 @@ function buildGameIndex(games: ResearchGameCard[]) {
 
   for (const gameCard of games) {
     const teamKeys = [
-      gameCard.game.awayParticipant.abbreviation ??
-        gameCard.game.awayParticipant.key,
-      gameCard.game.homeParticipant.abbreviation ??
-        gameCard.game.homeParticipant.key,
+      gameCard.game.awayParticipant.abbreviation ?? gameCard.game.awayParticipant.key,
+      gameCard.game.homeParticipant.abbreviation ?? gameCard.game.homeParticipant.key,
     ];
     const date = gameCard.game.scheduledStart.slice(0, 10);
     for (const delta of [0, -1, 1]) {
@@ -246,10 +233,7 @@ function buildGameIndex(games: ResearchGameCard[]) {
   return index;
 }
 
-function resolveKalshiGame(
-  event: KalshiEvent,
-  gameIndex: Map<string, ResearchGameCard>
-) {
+function resolveKalshiGame(event: KalshiEvent, gameIndex: Map<string, ResearchGameCard>) {
   const teams = parseKalshiTeamAbbreviations(event.event_ticker);
   const date = parseKalshiEventDate(event.event_ticker);
   if (!teams || !date) {
@@ -287,11 +271,7 @@ function resolveParticipantKey(market: KalshiMarket, game: ResearchGameCard) {
   ];
 
   for (const candidate of candidates) {
-    if (
-      candidate.labels.some(
-        (label) => label && (label === tickerKey || label === yesLabel)
-      )
-    ) {
+    if (candidate.labels.some((label) => label && (label === tickerKey || label === yesLabel))) {
       return candidate.key;
     }
   }
@@ -326,12 +306,8 @@ function chooseHistoricalWindow(target: KalshiHistoricalTarget) {
   const scheduledMs = Date.parse(target.scheduledStart);
   const openMs = Date.parse(target.openTime ?? "");
   const closeMs = Date.parse(target.closeTime ?? "");
-  const fallbackStart = Number.isFinite(scheduledMs)
-    ? scheduledMs - 24 * 60 * 60_000
-    : Number.NaN;
-  const fallbackEnd = Number.isFinite(scheduledMs)
-    ? scheduledMs + 6 * 60 * 60_000
-    : Number.NaN;
+  const fallbackStart = Number.isFinite(scheduledMs) ? scheduledMs - 24 * 60 * 60_000 : Number.NaN;
+  const fallbackEnd = Number.isFinite(scheduledMs) ? scheduledMs + 6 * 60 * 60_000 : Number.NaN;
 
   const startMs = Number.isFinite(openMs)
     ? openMs
@@ -344,11 +320,7 @@ function chooseHistoricalWindow(target: KalshiHistoricalTarget) {
       ? fallbackEnd
       : Number.NaN;
 
-  if (
-    !Number.isFinite(startMs) ||
-    !Number.isFinite(endMs) ||
-    endMs <= startMs
-  ) {
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
     return null;
   }
 
@@ -385,44 +357,33 @@ function selectExistingKalshiHistoricalTargets(games: ResearchGameCard[]) {
        JOIN games g ON g.id = sm.game_id
        LEFT JOIN market_instruments mi ON mi.id = sm.instrument_id
        WHERE sm.source = 'kalshi'
-         AND sm.game_id IN (${placeholders})`
+         AND sm.game_id IN (${placeholders})`,
     )
     .all(...gameIds) as Array<Record<string, unknown>>;
 
   return rows
     .map((row) => {
       const metadata = parseJsonObject(
-        row.rawMetadataJson == null ? null : String(row.rawMetadataJson)
+        row.rawMetadataJson == null ? null : String(row.rawMetadataJson),
       );
-      const seriesTicker =
-        typeof metadata.seriesTicker === "string"
-          ? metadata.seriesTicker
-          : null;
+      const seriesTicker = typeof metadata.seriesTicker === "string" ? metadata.seriesTicker : null;
       if (!seriesTicker) return null;
 
       return {
-        closeTime:
-          typeof metadata.closeTime === "string" ? metadata.closeTime : null,
+        closeTime: typeof metadata.closeTime === "string" ? metadata.closeTime : null,
         displayLabel:
           row.displayLabel == null
             ? String(row.rawLabel ?? row.marketTicker ?? "")
             : String(row.displayLabel),
-        eventTicker:
-          typeof metadata.eventTicker === "string"
-            ? metadata.eventTicker
-            : null,
-        family:
-          row.family == null ? null : (String(row.family) as MarketFamily),
+        eventTicker: typeof metadata.eventTicker === "string" ? metadata.eventTicker : null,
+        family: row.family == null ? null : (String(row.family) as MarketFamily),
         gameId: String(row.gameId),
-        instrumentId:
-          row.instrumentId == null ? null : String(row.instrumentId),
+        instrumentId: row.instrumentId == null ? null : String(row.instrumentId),
         line: row.line == null ? null : Number(row.line),
         mappingStatus: String(row.mappingStatus ?? "auto"),
         marketTicker: String(row.marketTicker),
-        openTime:
-          typeof metadata.openTime === "string" ? metadata.openTime : null,
-        participantKey:
-          row.participantKey == null ? null : String(row.participantKey),
+        openTime: typeof metadata.openTime === "string" ? metadata.openTime : null,
+        participantKey: row.participantKey == null ? null : String(row.participantKey),
         rawFamily: row.rawFamily == null ? null : String(row.rawFamily),
         rawLabel: row.rawLabel == null ? null : String(row.rawLabel),
         scheduledStart: String(row.scheduledStart),
@@ -460,9 +421,7 @@ export async function fetchKalshiSettledNbaEvents(options?: {
 
     const response = await fetchWithRateLimit(fetchImpl, url.toString());
     if (!response.ok) {
-      throw new Error(
-        `Kalshi events request failed with status ${response.status}.`
-      );
+      throw new Error(`Kalshi events request failed with status ${response.status}.`);
     }
 
     const payload = (await response.json()) as KalshiEventsResponse;
@@ -494,20 +453,16 @@ export async function fetchKalshiCandlesticks(options: {
   const candles: KalshiCandlestick[] = [];
   let cursorStart = options.startTs;
   const maxWindowSeconds =
-    CANDLESTICK_MAX_WINDOW_SECONDS_BY_INTERVAL[options.periodIntervalMinutes] ??
-    60 * 60 * 24 * 7;
+    CANDLESTICK_MAX_WINDOW_SECONDS_BY_INTERVAL[options.periodIntervalMinutes] ?? 60 * 60 * 24 * 7;
 
   while (cursorStart < options.endTs) {
     const windowEnd = Math.min(cursorStart + maxWindowSeconds, options.endTs);
     const url = new URL(
-      `${baseUrl}/series/${seriesTicker}/markets/${options.marketTicker}/candlesticks`
+      `${baseUrl}/series/${seriesTicker}/markets/${options.marketTicker}/candlesticks`,
     );
     url.searchParams.set("start_ts", String(cursorStart));
     url.searchParams.set("end_ts", String(windowEnd));
-    url.searchParams.set(
-      "period_interval",
-      String(options.periodIntervalMinutes)
-    );
+    url.searchParams.set("period_interval", String(options.periodIntervalMinutes));
 
     const response = await fetchWithRateLimit(fetchImpl, url.toString());
     if (response.status === 404) {
@@ -515,7 +470,7 @@ export async function fetchKalshiCandlesticks(options: {
     }
     if (!response.ok) {
       throw new Error(
-        `Kalshi candlestick request failed with status ${response.status} for ${options.marketTicker}.`
+        `Kalshi candlestick request failed with status ${response.status} for ${options.marketTicker}.`,
       );
     }
 
@@ -686,11 +641,7 @@ export async function syncKalshiNbaHistorical(options?: {
 
         const startTs = Math.floor(new Date(market.open_time).getTime() / 1000);
         const endTs = Math.floor(new Date(market.close_time).getTime() / 1000);
-        if (
-          !Number.isFinite(startTs) ||
-          !Number.isFinite(endTs) ||
-          endTs <= startTs
-        ) {
+        if (!Number.isFinite(startTs) || !Number.isFinite(endTs) || endTs <= startTs) {
           continue;
         }
 
@@ -717,11 +668,7 @@ export async function syncKalshiNbaHistorical(options?: {
           continue;
         }
 
-        const instrumentId = buildStableId([
-          game.game.id,
-          "moneyline",
-          participantKey,
-        ]);
+        const instrumentId = buildStableId([game.game.id, "moneyline", participantKey]);
         const sourceMarketId = `kalshi-${market.ticker.toLowerCase()}`;
         const displayLabel = `${market.yes_sub_title ?? participantKey} moneyline`;
 
@@ -758,9 +705,7 @@ export async function syncKalshiNbaHistorical(options?: {
         processedSourceMarketIds.add(sourceMarketId);
 
         for (const candle of candles) {
-          const capturedAt = new Date(
-            candle.end_period_ts * 1000
-          ).toISOString();
+          const capturedAt = new Date(candle.end_period_ts * 1000).toISOString();
 
           const closePrice =
             toNumberFromDollars(candle.price?.close_dollars) ??
@@ -830,12 +775,10 @@ export async function syncKalshiNbaHistorical(options?: {
     const selectedGameIds = options?.games
       ? new Set(games.map((game) => game.game.id))
       : matchedGameIds;
-    const selectedGames = games.filter((game) =>
-      selectedGameIds.has(game.game.id)
+    const selectedGames = games.filter((game) => selectedGameIds.has(game.game.id));
+    const existingTargets = selectExistingKalshiHistoricalTargets(selectedGames).filter(
+      (target) => !processedSourceMarketIds.has(target.sourceMarketId),
     );
-    const existingTargets = selectExistingKalshiHistoricalTargets(
-      selectedGames
-    ).filter((target) => !processedSourceMarketIds.has(target.sourceMarketId));
 
     for (const target of existingTargets) {
       marketsConsidered += 1;

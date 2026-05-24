@@ -64,7 +64,7 @@ export function loadGameContext(gameId: string): LoadedGameContext | null {
          g.away_participant_json AS awayJson,
          g.scheduled_start AS scheduledStart
        FROM games g
-       WHERE g.id = ?`
+       WHERE g.id = ?`,
     )
     .get(gameId) as
     | {
@@ -99,7 +99,7 @@ export function loadGameContext(gameId: string): LoadedGameContext | null {
          away_score AS awayScore
        FROM game_states
        WHERE game_id = ?
-       ORDER BY datetime(captured_at) ASC, id ASC`
+       ORDER BY datetime(captured_at) ASC, id ASC`,
     )
     .all(gameId)
     .map((row) => {
@@ -126,7 +126,7 @@ export function loadGameContext(gameId: string): LoadedGameContext | null {
 export function gameStateAt(
   gameStates: GameStateRow[],
   timestampMs: number,
-  scheduledStartMs: number
+  scheduledStartMs: number,
 ): BoardObservationGameState {
   let active: GameStateRow | null = null;
   let low = 0;
@@ -183,7 +183,7 @@ export function buildObservationLabels(
   rawFamily: string | null,
   rawLabel: string | null,
   participantKey: string | null,
-  displayLabel: string | null
+  displayLabel: string | null,
 ): BoardObservationLabelTokens {
   const labelTokens = tokenize(rawLabel ?? displayLabel ?? "");
   const participantHints = participantKey

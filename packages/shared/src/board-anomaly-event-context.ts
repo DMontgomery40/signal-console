@@ -75,9 +75,7 @@ export type EventContextOutput = {
   playByPlay: EventContextPbpRow[];
 };
 
-function observationKind(
-  observation: BoardObservation
-): EventContextPredictionMarketRow["kind"] {
+function observationKind(observation: BoardObservation): EventContextPredictionMarketRow["kind"] {
   return observation.tradePrice != null ||
     observation.tradeSize != null ||
     observation.notional != null ||
@@ -91,7 +89,7 @@ function observationSignalStrength(observation: BoardObservation) {
     Math.abs(observation.logitMove ?? 0),
     Math.abs(observation.priceMove ?? 0) * 4,
     observation.volumeShare ?? 0,
-    Math.min(1, (observation.notional ?? 0) / 200)
+    Math.min(1, (observation.notional ?? 0) / 200),
   );
 }
 
@@ -115,8 +113,7 @@ function toPredictionMarketRow(input: {
     notional: observation.notional ?? null,
     observationId: observation.observationId,
     offsetSeconds: Math.round(
-      ((parseTimestampMs(observation.eventTimestamp) ?? anchorMs) - anchorMs) /
-        1000
+      ((parseTimestampMs(observation.eventTimestamp) ?? anchorMs) - anchorMs) / 1000,
     ),
     participantKey: observation.participantKey ?? null,
     previousImpliedProbability: observation.previousImpliedProbability ?? null,
@@ -133,13 +130,12 @@ function toPredictionMarketRow(input: {
 
 function comparePredictionMarketRows(
   left: EventContextPredictionMarketRow,
-  right: EventContextPredictionMarketRow
+  right: EventContextPredictionMarketRow,
 ) {
   if (right.signalStrength !== left.signalStrength) {
     return right.signalStrength - left.signalStrength;
   }
-  const offsetDelta =
-    Math.abs(left.offsetSeconds) - Math.abs(right.offsetSeconds);
+  const offsetDelta = Math.abs(left.offsetSeconds) - Math.abs(right.offsetSeconds);
   if (offsetDelta !== 0) return offsetDelta;
   const rightShare = right.volumeShare ?? 0;
   const leftShare = left.volumeShare ?? 0;
@@ -172,38 +168,30 @@ function buildPredictionMarketContext(input: {
 
   const rows = Array.from(bySource.values())
     .flat()
-    .map((observation) =>
-      toPredictionMarketRow({ anchorMs: input.anchorMs, observation })
-    )
+    .map((observation) => toPredictionMarketRow({ anchorMs: input.anchorMs, observation }))
     .sort(comparePredictionMarketRows)
     .slice(0, input.limit);
 
   const bySourceRows = Array.from(bySource.entries())
     .map(([source, observations]) => {
       const sourceRows = observations
-        .map((observation) =>
-          toPredictionMarketRow({ anchorMs: input.anchorMs, observation })
-        )
+        .map((observation) => toPredictionMarketRow({ anchorMs: input.anchorMs, observation }))
         .sort(comparePredictionMarketRows);
-      const quoteCount = sourceRows.filter(
-        (row) => row.kind === "quote"
-      ).length;
+      const quoteCount = sourceRows.filter((row) => row.kind === "quote").length;
       const tradeCount = sourceRows.length - quoteCount;
       const nearest =
         sourceRows
           .slice()
-          .sort(
-            (left, right) =>
-              Math.abs(left.offsetSeconds) - Math.abs(right.offsetSeconds)
-          )[0] ?? null;
+          .sort((left, right) => Math.abs(left.offsetSeconds) - Math.abs(right.offsetSeconds))[0] ??
+        null;
 
       return {
         families: Array.from(
           new Set(
             sourceRows
               .map((row) => row.family)
-              .filter((family): family is string => Boolean(family))
-          )
+              .filter((family): family is string => Boolean(family)),
+          ),
         ).sort(),
         nearestOffsetSeconds: nearest?.offsetSeconds ?? null,
         nearestTimestamp: nearest?.eventTimestamp ?? null,
@@ -212,10 +200,8 @@ function buildPredictionMarketContext(input: {
           new Set(
             sourceRows
               .map((row) => row.participantKey)
-              .filter((participantKey): participantKey is string =>
-                Boolean(participantKey)
-              )
-          )
+              .filter((participantKey): participantKey is string => Boolean(participantKey)),
+          ),
         ).sort(),
         quoteCount,
         source,
@@ -237,17 +223,12 @@ function buildPredictionMarketContext(input: {
   };
 }
 
-function parseHistoricalParticipantAlertId(
-  alertId: string | undefined,
-  gameId: string
-) {
+function parseHistoricalParticipantAlertId(alertId: string | undefined, gameId: string) {
   if (!alertId) return null;
   const prefix = `historic-participant:${gameId}:`;
   if (!alertId.startsWith(prefix)) return null;
   const suffix = alertId.slice(prefix.length);
-  const match = suffix.match(
-    /^(.+):(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z)$/
-  );
+  const match = suffix.match(/^(.+):(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z)$/);
   if (!match) return null;
   const participantKey = match[1]
     .trim()
@@ -284,11 +265,7 @@ function resolveHistoricalParticipantIncident(input: {
       const startMs = Date.parse(fanout.windowStartIso);
       const endMs = Date.parse(fanout.windowEndIso);
       const anchorMs = Date.parse(parsed.windowStartIso);
-      if (
-        !Number.isFinite(startMs) ||
-        !Number.isFinite(endMs) ||
-        !Number.isFinite(anchorMs)
-      ) {
+      if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || !Number.isFinite(anchorMs)) {
         return false;
       }
       return anchorMs >= startMs && anchorMs <= endMs;
@@ -308,7 +285,7 @@ function loadGameLabel(gameId: string): string {
          g.home_participant_json AS homeJson,
          g.away_participant_json AS awayJson
        FROM games g
-       WHERE g.id = ?`
+       WHERE g.id = ?`,
     )
     .get(gameId) as { homeJson: string; awayJson: string } | undefined;
   if (!gameRow) return gameId;
@@ -320,9 +297,7 @@ function loadGameLabel(gameId: string): string {
     shortName?: string;
     name?: string;
   };
-  return `${away.shortName ?? away.name ?? "Away"} @ ${
-    home.shortName ?? home.name ?? "Home"
-  }`;
+  return `${away.shortName ?? away.name ?? "Away"} @ ${home.shortName ?? home.name ?? "Home"}`;
 }
 
 export function getBoardAlertEventContext(input: {
@@ -383,7 +358,7 @@ export function getBoardAlertEventContext(input: {
              AND datetime(time_actual) >= datetime(?)
              AND datetime(time_actual) <= datetime(?)
            ORDER BY anchorDistanceSeconds ASC, action_number ASC
-           LIMIT ?`
+           LIMIT ?`,
         )
         .all(input.anchorAt, input.gameId, startIso, endIso, limit) as Array<{
         actionNumber: number;
@@ -412,6 +387,6 @@ export function getBoardAlertEventContext(input: {
         playByPlay,
       };
     },
-    input
+    input,
   );
 }

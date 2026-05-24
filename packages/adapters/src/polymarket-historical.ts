@@ -54,12 +54,7 @@ type PolymarketPricePoint = {
   p: number;
 };
 
-type HistoricalMarketType =
-  | "assists"
-  | "moneyline"
-  | "points"
-  | "rebounds"
-  | "threes";
+type HistoricalMarketType = "assists" | "moneyline" | "points" | "rebounds" | "threes";
 
 export type PolymarketHistoricalSyncSummary = {
   eventsSeen: number;
@@ -88,10 +83,7 @@ function buildGameKey(date: string, teamKeys: string[]) {
     .join("::")}`;
 }
 
-function buildEventDateCandidates(event: {
-  eventDate?: string | null;
-  startTime?: string | null;
-}) {
+function buildEventDateCandidates(event: { eventDate?: string | null; startTime?: string | null }) {
   const candidates = new Set<string>();
   const eventDate = event.eventDate?.slice(0, 10);
   const startDate = event.startTime?.slice(0, 10);
@@ -106,9 +98,7 @@ function shiftIsoDate(iso: string, deltaDays: number) {
   return shifted.toISOString().slice(0, 10);
 }
 
-function parseJsonArray(
-  value: string | null | undefined
-): Array<number | string> {
+function parseJsonArray(value: string | null | undefined): Array<number | string> {
   if (!value) {
     return [];
   }
@@ -120,9 +110,7 @@ function parseJsonArray(
   }
 }
 
-function parseClobTokenIds(
-  raw: string | string[] | null | undefined
-): string[] {
+function parseClobTokenIds(raw: string | string[] | null | undefined): string[] {
   if (!raw) return [];
   if (Array.isArray(raw)) return raw.map(String);
   try {
@@ -150,17 +138,11 @@ function buildRawPayloadHash(payload: Record<string, unknown>) {
   return createHash("sha256").update(JSON.stringify(payload)).digest("hex");
 }
 
-function isHistoricalMarketType(
-  value: string | null | undefined
-): value is HistoricalMarketType {
-  return ["assists", "moneyline", "points", "rebounds", "threes"].includes(
-    value ?? ""
-  );
+function isHistoricalMarketType(value: string | null | undefined): value is HistoricalMarketType {
+  return ["assists", "moneyline", "points", "rebounds", "threes"].includes(value ?? "");
 }
 
-function describePlayerPropMetric(
-  marketType: Exclude<HistoricalMarketType, "moneyline">
-) {
+function describePlayerPropMetric(marketType: Exclude<HistoricalMarketType, "moneyline">) {
   switch (marketType) {
     case "assists":
       return "assists";
@@ -202,10 +184,8 @@ function buildGameIndex(games: ResearchGameCard[]) {
 
   for (const gameCard of games) {
     const teamKeys = [
-      gameCard.game.awayParticipant.abbreviation ??
-        gameCard.game.awayParticipant.key,
-      gameCard.game.homeParticipant.abbreviation ??
-        gameCard.game.homeParticipant.key,
+      gameCard.game.awayParticipant.abbreviation ?? gameCard.game.awayParticipant.key,
+      gameCard.game.homeParticipant.abbreviation ?? gameCard.game.homeParticipant.key,
     ];
     const date = gameCard.game.scheduledStart.slice(0, 10);
     for (const delta of [0, -1, 1]) {
@@ -219,17 +199,12 @@ function buildGameIndex(games: ResearchGameCard[]) {
   return index;
 }
 
-function resolveEventGame(
-  event: PolymarketEvent,
-  gameIndex: Map<string, ResearchGameCard>
-) {
+function resolveEventGame(event: PolymarketEvent, gameIndex: Map<string, ResearchGameCard>) {
   if (!event.teams || event.teams.length !== 2) {
     return null;
   }
 
-  const teamKeys = event.teams.map(
-    (team) => team.abbreviation ?? team.alias ?? team.name
-  );
+  const teamKeys = event.teams.map((team) => team.abbreviation ?? team.alias ?? team.name);
   for (const date of buildEventDateCandidates(event)) {
     const key = buildGameKey(date, teamKeys);
     const game = gameIndex.get(key);
@@ -243,7 +218,7 @@ function resolveEventGame(
 function resolveOutcomeParticipantKey(
   event: PolymarketEvent,
   outcomeLabel: string,
-  game: ResearchGameCard
+  game: ResearchGameCard,
 ) {
   const normalized = normalizeToken(outcomeLabel);
 
@@ -280,7 +255,7 @@ function resolveOutcomeParticipantKey(
     }
 
     const match = candidates.find((candidate) =>
-      candidate.abbreviations.some((token) => teamTokens.includes(token))
+      candidate.abbreviations.some((token) => teamTokens.includes(token)),
     );
     if (match) {
       return match.key;
@@ -315,9 +290,7 @@ export async function fetchPolymarketClosedNbaEvents(options?: {
 
     const response = await fetchImpl(url.toString());
     if (!response.ok) {
-      throw new Error(
-        `Polymarket events request failed with status ${response.status}.`
-      );
+      throw new Error(`Polymarket events request failed with status ${response.status}.`);
     }
 
     const payload = (await response.json()) as unknown;
@@ -329,7 +302,7 @@ export async function fetchPolymarketClosedNbaEvents(options?: {
 
     const filtered = options?.since
       ? events.filter((event) =>
-          buildEventDateCandidates(event).some((date) => date >= options.since!)
+          buildEventDateCandidates(event).some((date) => date >= options.since!),
         )
       : events;
 
@@ -342,7 +315,7 @@ export async function fetchPolymarketClosedNbaEvents(options?: {
     if (
       options?.since &&
       events.every((event) =>
-        buildEventDateCandidates(event).every((date) => date < options.since!)
+        buildEventDateCandidates(event).every((date) => date < options.since!),
       )
     ) {
       break;
@@ -372,9 +345,7 @@ export async function fetchPolymarketPricesHistory(options: {
 
   const response = await fetchImpl(url.toString());
   if (!response.ok) {
-    throw new Error(
-      `Polymarket prices-history failed with status ${response.status}.`
-    );
+    throw new Error(`Polymarket prices-history failed with status ${response.status}.`);
   }
 
   const payload = (await response.json()) as {
@@ -435,10 +406,10 @@ export async function syncPolymarketNbaHistorical(options?: {
       if (!Number.isFinite(gameStartMs)) continue;
 
       const windowStartTs = Math.floor(
-        (gameStartMs - DEFAULT_WINDOW_SECONDS_BEFORE_GAME * 1000) / 1000
+        (gameStartMs - DEFAULT_WINDOW_SECONDS_BEFORE_GAME * 1000) / 1000,
       );
       const windowEndTs = Math.floor(
-        (gameStartMs + DEFAULT_WINDOW_SECONDS_AFTER_GAME * 1000) / 1000
+        (gameStartMs + DEFAULT_WINDOW_SECONDS_AFTER_GAME * 1000) / 1000,
       );
 
       for (const market of event.markets ?? []) {
@@ -462,18 +433,10 @@ export async function syncPolymarketNbaHistorical(options?: {
           let sourceSelectionKey = "";
 
           if (market.sportsMarketType === "moneyline") {
-            participantKey = resolveOutcomeParticipantKey(
-              event,
-              outcomeLabel,
-              game
-            );
+            participantKey = resolveOutcomeParticipantKey(event, outcomeLabel, game);
             if (!participantKey) continue;
 
-            instrumentId = buildStableId([
-              game.game.id,
-              "moneyline",
-              participantKey,
-            ]);
+            instrumentId = buildStableId([game.game.id, "moneyline", participantKey]);
             displayLabel = `${outcomeLabel} moneyline`;
             rawFamily = "moneyline";
             selection = participantKey;
@@ -515,10 +478,7 @@ export async function syncPolymarketNbaHistorical(options?: {
 
           upsertMarketInstrument({
             displayLabel,
-            family:
-              market.sportsMarketType === "moneyline"
-                ? "moneyline"
-                : "player-prop",
+            family: market.sportsMarketType === "moneyline" ? "moneyline" : "player-prop",
             gameId: game.game.id,
             id: instrumentId,
             inPlay: false,

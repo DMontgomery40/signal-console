@@ -30,7 +30,7 @@ describe("live domain contracts", () => {
         scheduledStart: "2026-04-22T02:00:00.000Z",
         sourceGameKeyNba: "0022600001",
         sport: "basketball",
-      })
+      }),
     ).toMatchObject({
       id: "nba-0022600001",
       league: "NBA",
@@ -48,7 +48,7 @@ describe("live domain contracts", () => {
         isFinal: false,
         period: 4,
         status: "in-play",
-      })
+      }),
     ).toMatchObject({
       awayScore: 108,
       homeScore: 112,
@@ -109,7 +109,7 @@ describe("live domain contracts", () => {
             severity: "high",
           },
         ],
-      })
+      }),
     ).toBeTruthy();
 
     expect(
@@ -154,7 +154,7 @@ describe("live domain contracts", () => {
           },
         ],
         latestRawReferences: [],
-      })
+      }),
     ).toBeTruthy();
   });
 });

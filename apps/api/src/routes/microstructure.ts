@@ -15,8 +15,19 @@ export interface MicrostructureRoutesOptions {
 
 const paramSchema = z.object({ gameId: z.string().min(1) });
 
+function parseRequiredQueryNumber(value: unknown): number | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value === "number") return value;
+  if (typeof value !== "string") return Number.NaN;
+  const trimmed = value.trim();
+  if (trimmed.length === 0) return Number.NaN;
+  return Number(trimmed);
+}
+
 const querySchema = z.object({
-  theta: z.coerce.number().min(0).max(1).default(DEFAULT_THETA),
+  theta: z
+    .preprocess(parseRequiredQueryNumber, z.number().finite().min(0).max(1))
+    .default(DEFAULT_THETA),
 });
 
 const paramsJsonSchema = {
@@ -98,6 +109,15 @@ const errorResponseSchema = {
   properties: { error: { type: "string" } },
 } as const;
 
+function hasBlankRawQueryParam(request: FastifyRequest, name: string): boolean {
+  const rawUrl = request.raw.url;
+  if (rawUrl === undefined) return false;
+  const queryStart = rawUrl.indexOf("?");
+  if (queryStart === -1) return false;
+  const params = new URLSearchParams(rawUrl.slice(queryStart + 1));
+  return params.getAll(name).some((value) => value.trim().length === 0);
+}
+
 const microstructureRoutes: FastifyPluginAsync<MicrostructureRoutesOptions> = (app, opts) => {
   const goldDbPath = opts.goldDbPath ?? GOLD_DB_PATH;
 
@@ -121,6 +141,10 @@ const microstructureRoutes: FastifyPluginAsync<MicrostructureRoutesOptions> = (a
       const parsedParams = paramSchema.safeParse(request.params);
       if (!parsedParams.success) {
         reply.code(400).send({ error: "invalid params" });
+        return;
+      }
+      if (hasBlankRawQueryParam(request, "theta")) {
+        reply.code(400).send({ error: "invalid query" });
         return;
       }
       const parsedQuery = querySchema.safeParse(request.query);

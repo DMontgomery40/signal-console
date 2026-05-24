@@ -175,7 +175,7 @@ function buildFetchImpl() {
 
 function buildFetchImplWithPayload(
   eventsPayload: unknown,
-  pricesHistory: Record<string, Array<{ t: number; p: number }>>
+  pricesHistory: Record<string, Array<{ t: number; p: number }>>,
 ) {
   return (async (input: string | URL) => {
     const url = typeof input === "string" ? new URL(input) : input;
@@ -244,7 +244,7 @@ describe("polymarket historical adapter", () => {
           WHERE sm.source = 'polymarket'
             AND mi.family = 'moneyline'
           ORDER BY q.captured_at ASC, participantKey ASC
-        `
+        `,
       )
       .all() as Array<{
       capturedAt: string;
@@ -254,13 +254,9 @@ describe("polymarket historical adapter", () => {
     }>;
 
     expect(rows).toHaveLength(6);
-    expect(new Set(rows.map((row) => row.participantKey))).toEqual(
-      new Set(["phx", "okc"])
-    );
+    expect(new Set(rows.map((row) => row.participantKey))).toEqual(new Set(["phx", "okc"]));
     const phx = rows.filter((row) => row.participantKey === "phx");
-    expect(phx.map((row) => Number(row.p.toFixed(2)))).toEqual([
-      0.45, 0.38, 0.21,
-    ]);
+    expect(phx.map((row) => Number(row.p.toFixed(2)))).toEqual([0.45, 0.38, 0.21]);
 
     const props = db
       .prepare(
@@ -276,7 +272,7 @@ describe("polymarket historical adapter", () => {
           JOIN market_instruments mi ON mi.id = sm.instrument_id
           WHERE mi.family = 'player-prop'
           ORDER BY mi.selection ASC, q.captured_at ASC
-        `
+        `,
       )
       .all() as Array<{
       displayLabel: string;
@@ -304,7 +300,7 @@ describe("polymarket historical adapter", () => {
           participantKey: "devin-booker",
           selection: "under",
         }),
-      ])
+      ]),
     );
   });
 
@@ -334,7 +330,7 @@ describe("polymarket historical adapter", () => {
             FROM quote_ticks q
             JOIN source_markets sm ON sm.id = q.source_market_id
             WHERE sm.source = 'polymarket'
-          `
+          `,
         )
         .get() as { total: number }
     ).total;
@@ -380,7 +376,7 @@ describe("polymarket historical adapter", () => {
             { t: 1779235200, p: 0.26 },
             { t: 1779235260, p: 0.19 },
           ],
-        }
+        },
       ),
       fidelityMinutes: 1,
       now: () => new Date("2026-05-20T12:00:00.000Z"),
@@ -399,7 +395,7 @@ describe("polymarket historical adapter", () => {
             JOIN source_markets sm ON sm.id = q.source_market_id
             WHERE sm.source = 'polymarket'
               AND sm.game_id = 'nba-0042500301'
-          `
+          `,
         )
         .get() as { total: number }
     ).total;

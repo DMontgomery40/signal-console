@@ -15,14 +15,7 @@ import { dirname, join } from "node:path";
 
 import { getDatabase, serializeErrorForLog } from "@signal-console/shared";
 
-const DEFAULT_OUT = join(
-  homedir(),
-  "signal-console",
-  "apps",
-  "worker",
-  "data",
-  "heartbeat.json",
-);
+const DEFAULT_OUT = join(homedir(), "signal-console", "apps", "worker", "data", "heartbeat.json");
 
 type ProviderFailure = {
   readonly error: ReturnType<typeof serializeErrorForLog>;

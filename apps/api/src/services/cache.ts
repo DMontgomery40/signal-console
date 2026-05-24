@@ -7,6 +7,8 @@
 
 import { openCacheDb } from "@signal-console/db";
 
+import { parseStrictIsoTimestamp } from "./timestamps";
+
 export interface ClearCacheArgs {
   readonly detectorId?: string;
   readonly before?: string;
@@ -14,6 +16,22 @@ export interface ClearCacheArgs {
 
 export interface ClearCacheResult {
   readonly deleted: number;
+}
+
+export class CacheError extends Error {
+  public readonly code: "invalid_before";
+  public constructor(code: "invalid_before", message: string) {
+    super(message);
+    this.code = code;
+  }
+}
+
+function canonicalTimestamp(input: string): string {
+  const ms = parseStrictIsoTimestamp(input);
+  if (ms === null) {
+    throw new CacheError("invalid_before", "invalid before timestamp");
+  }
+  return new Date(ms).toISOString();
 }
 
 export function clearCache(cacheDbPath: string, args: ClearCacheArgs): ClearCacheResult {
@@ -27,7 +45,7 @@ export function clearCache(cacheDbPath: string, args: ClearCacheArgs): ClearCach
     }
     if (args.before !== undefined) {
       clauses.push("computed_at < ?");
-      params.push(args.before);
+      params.push(canonicalTimestamp(args.before));
     }
     const where = clauses.length === 0 ? "" : `WHERE ${clauses.join(" AND ")}`;
     const stmt = db.prepare(`DELETE FROM detector_runs ${where}`);

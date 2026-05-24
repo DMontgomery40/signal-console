@@ -1,36 +1,15 @@
-import type {
-  BoardAnomalyDetectorConfig,
-  BoardObservationScored,
-} from "@signal-console/domain";
+import type { BoardAnomalyDetectorConfig, BoardObservationScored } from "@signal-console/domain";
 
 import { tokenizeBoardText } from "../board-anomaly-support";
 
-const SCORING_STAT_FAMILIES = new Set([
-  "points",
-  "threes",
-  "made-shot",
-  "scoring",
-]);
+const SCORING_STAT_FAMILIES = new Set(["points", "threes", "made-shot", "scoring"]);
 
-const POSSESSION_STAT_FAMILIES = new Set([
-  "rebounds",
-  "assists",
-  "blocks",
-  "steals",
-  "turnovers",
-]);
+const POSSESSION_STAT_FAMILIES = new Set(["rebounds", "assists", "blocks", "steals", "turnovers"]);
 
 const COMPOUND_PARENTS: Record<string, string[]> = {
   rebounds: ["pra", "ra", "double-double", "triple-double"],
   assists: ["pra", "pa", "double-double", "triple-double"],
-  points: [
-    "pra",
-    "pa",
-    "double-double",
-    "triple-double",
-    "team-total",
-    "race-to-x",
-  ],
+  points: ["pra", "pa", "double-double", "triple-double", "team-total", "race-to-x"],
   threes: ["points", "team-total", "race-to-x"],
 };
 
@@ -54,8 +33,7 @@ function statFamilyFromTokens(tokens: string[]): string | null {
     if (token.startsWith("assist")) return "assists";
     if (token.startsWith("steal")) return "steals";
     if (token.startsWith("block")) return "blocks";
-    if (token.startsWith("three") || token === "3pt" || token === "3s")
-      return "threes";
+    if (token.startsWith("three") || token === "3pt" || token === "3s") return "threes";
     if (token === "pts" || token.startsWith("point")) return "points";
     if (token === "pra") return "pra";
     if (token === "ra") return "ra";
@@ -65,9 +43,7 @@ function statFamilyFromTokens(tokens: string[]): string | null {
   return null;
 }
 
-export function deriveRelationKeys(
-  scored: BoardObservationScored
-): RelationKey[] {
+export function deriveRelationKeys(scored: BoardObservationScored): RelationKey[] {
   const observation = scored.observation;
   const tokens = [
     ...observation.labels.normalizedTokens,
@@ -90,8 +66,7 @@ export function deriveRelationKeys(
   }
 
   const statFamily =
-    statFamilyFromTokens(observation.labels.statFamilyHints) ??
-    statFamilyFromTokens(tokens);
+    statFamilyFromTokens(observation.labels.statFamilyHints) ?? statFamilyFromTokens(tokens);
   if (statFamily) {
     keys.push({ kind: "stat-family", key: statFamily });
     const parents = COMPOUND_PARENTS[statFamily];
@@ -130,10 +105,7 @@ export type CoherenceCluster = {
   relationFamilies: string[];
 };
 
-function relationBoost(
-  key: RelationKey,
-  config: BoardAnomalyDetectorConfig
-): number {
+function relationBoost(key: RelationKey, config: BoardAnomalyDetectorConfig): number {
   switch (key.kind) {
     case "game":
       return 0.7;
@@ -156,14 +128,11 @@ function relationBoost(
 
 export function buildCoherenceClusters(
   scoredObservations: BoardObservationScored[],
-  config: BoardAnomalyDetectorConfig
+  config: BoardAnomalyDetectorConfig,
 ): CoherenceCluster[] {
   const observationKeys = new Map<string, RelationKey[]>();
   for (const scored of scoredObservations) {
-    observationKeys.set(
-      scored.observation.observationId,
-      deriveRelationKeys(scored)
-    );
+    observationKeys.set(scored.observation.observationId, deriveRelationKeys(scored));
   }
 
   const groupByKey = new Map<
@@ -187,10 +156,7 @@ export function buildCoherenceClusters(
   }
 
   const scoredById = new Map(
-    scoredObservations.map((scored) => [
-      scored.observation.observationId,
-      scored,
-    ])
+    scoredObservations.map((scored) => [scored.observation.observationId, scored]),
   );
 
   const clusters: CoherenceCluster[] = [];
@@ -206,10 +172,7 @@ export function buildCoherenceClusters(
     if (group.items.size < 2) {
       continue;
     }
-    if (
-      group.kind === "label-token" &&
-      Array.from(group.items).every((id) => seen.has(id))
-    ) {
+    if (group.kind === "label-token" && Array.from(group.items).every((id) => seen.has(id))) {
       continue;
     }
 
@@ -221,10 +184,7 @@ export function buildCoherenceClusters(
       continue;
     }
 
-    const totalContribution = participants.reduce(
-      (sum, item) => sum + item.contribution,
-      0
-    );
+    const totalContribution = participants.reduce((sum, item) => sum + item.contribution, 0);
     if (totalContribution === 0) {
       continue;
     }
@@ -247,9 +207,7 @@ export function buildCoherenceClusters(
       .reduce((sum, item) => sum + item.contribution, 0);
 
     const hasUnmappedEvidence = participants.some(
-      (item) =>
-        item.observation.mappingStatus === "unmapped" ||
-        item.observation.flags.isUnmapped
+      (item) => item.observation.mappingStatus === "unmapped" || item.observation.flags.isUnmapped,
     );
 
     const relationFamilies = participants

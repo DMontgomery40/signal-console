@@ -55,9 +55,7 @@ export function buildIncidentReason(row: SignalMismatchRow): string {
   const summary = row.comparisonSummary;
   const aboveMs = summary?.aboveThresholdDurationMs ?? 0;
   const aboveText =
-    aboveMs > 60_000
-      ? ` and stayed above the threshold for ${formatDuration(aboveMs)}`
-      : "";
+    aboveMs > 60_000 ? ` and stayed above the threshold for ${formatDuration(aboveMs)}` : "";
   const sides: string[] = [];
   if (row.bet365ImpliedProbability != null) {
     sides.push(`Bet365 ${(row.bet365ImpliedProbability * 100).toFixed(1)}%`);
@@ -66,16 +64,12 @@ export function buildIncidentReason(row: SignalMismatchRow): string {
     sides.push(`Kalshi ${(row.kalshiImpliedProbability * 100).toFixed(1)}%`);
   }
   if (row.polymarketImpliedProbability != null) {
-    sides.push(
-      `Polymarket ${(row.polymarketImpliedProbability * 100).toFixed(1)}%`
-    );
+    sides.push(`Polymarket ${(row.polymarketImpliedProbability * 100).toFixed(1)}%`);
   }
-  const directional = row.directionalDisagreement
-    ? " · directional disagreement"
-    : "";
+  const directional = row.directionalDisagreement ? " · directional disagreement" : "";
   const lineMismatch = row.lineMismatch ? " · line mismatch" : "";
   return `${row.displayLabel}: ${gapPp.toFixed(1)}pp peak (${sides.join(
-    " vs "
+    " vs ",
   )})${directional}${lineMismatch}${aboveText}.`;
 }
 
@@ -91,7 +85,7 @@ function formatDuration(ms: number): string {
 export function classifyIncidentKind(
   row: SignalMismatchRow,
   anchorAt: string,
-  pbp: PlayByPlayContext
+  pbp: PlayByPlayContext,
 ): BoardAnomalyShockKind {
   const timing = classifyPlayByPlayAnchorTiming(anchorAt, pbp);
   if (timing === "near-tip") return "near-tip-availability";
@@ -109,9 +103,7 @@ function findOppositeInstrumentId(instrumentId: string): string | null {
   const overIndex = instrumentId.lastIndexOf("-over-");
   if (overIndex !== -1) {
     return (
-      instrumentId.slice(0, overIndex) +
-      "-under-" +
-      instrumentId.slice(overIndex + "-over-".length)
+      instrumentId.slice(0, overIndex) + "-under-" + instrumentId.slice(overIndex + "-over-".length)
     );
   }
   const underIndex = instrumentId.lastIndexOf("-under-");
@@ -129,7 +121,7 @@ function latestImpliedProbability(
   db: ReturnType<typeof getDatabase>,
   instrumentId: string,
   source: MarketResearchSourceId,
-  beforeIso: string
+  beforeIso: string,
 ): number | null {
   const row = db
     .prepare(
@@ -142,7 +134,7 @@ function latestImpliedProbability(
          AND qt.implied_probability IS NOT NULL
          AND datetime(qt.captured_at) <= datetime(?)
        ORDER BY datetime(qt.captured_at) DESC, qt.id DESC
-       LIMIT 1`
+       LIMIT 1`,
     )
     .get(source, instrumentId, beforeIso) as { p: number } | undefined;
   return row?.p ?? null;
@@ -150,7 +142,7 @@ function latestImpliedProbability(
 
 export function buildVigAdjustedComparison(
   db: ReturnType<typeof getDatabase>,
-  row: SignalMismatchRow
+  row: SignalMismatchRow,
 ): VigAdjustedComparison | null {
   if (row.family !== "player-prop" && row.family !== "team-prop") {
     if (row.family !== "moneyline") return null;
@@ -172,12 +164,7 @@ export function buildVigAdjustedComparison(
   ];
 
   for (const source of sourcesToConsider) {
-    const overP = latestImpliedProbability(
-      db,
-      row.instrumentId,
-      source,
-      referenceTimestamp
-    );
+    const overP = latestImpliedProbability(db, row.instrumentId, source, referenceTimestamp);
     if (overP == null) continue;
     const underP = oppositeId
       ? latestImpliedProbability(db, oppositeId, source, referenceTimestamp)
@@ -212,25 +199,19 @@ export function buildVigAdjustedComparison(
 
   const fairSportsbook = sides.find(
     (side) =>
-      (side.source === "bet365" ||
-        side.source === "fanduel" ||
-        side.source === "draftkings") &&
-      side.fairProbability != null
+      (side.source === "bet365" || side.source === "fanduel" || side.source === "draftkings") &&
+      side.fairProbability != null,
   )?.fairProbability;
   const exchangeRefSide = sides.find(
     (side) =>
       (side.source === "polymarket" || side.source === "kalshi") &&
-      (side.fairProbability != null || side.rawAskProbability != null)
+      (side.fairProbability != null || side.rawAskProbability != null),
   );
   const exchangeRef =
-    exchangeRefSide?.fairProbability ??
-    exchangeRefSide?.rawAskProbability ??
-    null;
+    exchangeRefSide?.fairProbability ?? exchangeRefSide?.rawAskProbability ?? null;
 
   const fairGap =
-    fairSportsbook != null && exchangeRef != null
-      ? Math.abs(fairSportsbook - exchangeRef)
-      : null;
+    fairSportsbook != null && exchangeRef != null ? Math.abs(fairSportsbook - exchangeRef) : null;
 
   const rawGap = row.impliedProbabilityGap ?? 0;
 
@@ -260,7 +241,7 @@ export function buildVigAdjustedComparison(
 
 export function listFinishedGameReplayWindows(
   db: ReturnType<typeof getDatabase>,
-  input: ListFinishedGameIncidentsInput
+  input: ListFinishedGameIncidentsInput,
 ): FinishedGameReplayWindow[] {
   const limit = Math.max(1, Math.min(50, input.limit ?? 10));
   const candidateLimit = Math.min(100, Math.max(limit * 4, limit));
@@ -289,19 +270,17 @@ export function listFinishedGameReplayWindows(
            )
          )
        ORDER BY datetime(g.scheduled_start) ASC, g.id ASC
-       LIMIT ?`
+       LIMIT ?`,
     )
     .all(
       input.date,
       input.gameId ?? null,
       input.gameId ?? null,
-      candidateLimit
+      candidateLimit,
     ) as FinishedGameReplayWindow[];
 }
 
-export function replayAlertToFinishedIncident(
-  alert: BoardAnomalyAlert
-): FinishedGameIncident {
+export function replayAlertToFinishedIncident(alert: BoardAnomalyAlert): FinishedGameIncident {
   const pbp = getPlayByPlayContext(alert.gameId, alert.firstPopAt);
   return {
     ...alert,

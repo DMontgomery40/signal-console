@@ -28,9 +28,7 @@ export type SettledSummary = {
   meanActual: number | null;
 };
 
-export function clampProbability(
-  value: number | null | undefined
-): number | null {
+export function clampProbability(value: number | null | undefined): number | null {
   if (value == null || !Number.isFinite(value)) return null;
   if (value <= 0) return 0.0001;
   if (value >= 1) return 0.9999;
@@ -98,7 +96,7 @@ export type Settlement = { actual: 0 | 1; push: boolean } | null;
 /** Moneyline: did `participantKey` win? */
 export function settleMoneyline(
   participantKey: string | null,
-  winnerKey: string | null
+  winnerKey: string | null,
 ): Settlement {
   if (participantKey == null || winnerKey == null) return null;
   return { actual: participantKey === winnerKey ? 1 : 0, push: false };
@@ -127,12 +125,7 @@ export function settleSpread(args: {
   displayLabel?: string | null;
 }): Settlement {
   const { participantKey, line, homeKey, awayKey, finalHome, finalAway } = args;
-  if (
-    participantKey == null ||
-    line == null ||
-    finalHome == null ||
-    finalAway == null
-  ) {
+  if (participantKey == null || line == null || finalHome == null || finalAway == null) {
     return null;
   }
   let teamMargin: number;
@@ -144,8 +137,7 @@ export function settleSpread(args: {
   if (label.includes("wins by over") || label.includes("wins by under")) {
     if (teamMargin === line) return { actual: 0, push: true };
     const over = teamMargin > line;
-    if (label.includes("wins by under"))
-      return { actual: over ? 0 : 1, push: false };
+    if (label.includes("wins by under")) return { actual: over ? 0 : 1, push: false };
     return { actual: over ? 1 : 0, push: false };
   }
 
@@ -200,13 +192,10 @@ export function settleStatLine(args: {
 // Period / full-game detection
 // --------------------------------------------------------------------------
 
-const PERIOD_LABEL =
-  /\b(1H|2H|1Q|2Q|3Q|4Q|Q1|Q2|Q3|Q4|OT|[0-9]OT|quarter|half|overtime)\b/i;
+const PERIOD_LABEL = /\b(1H|2H|1Q|2Q|3Q|4Q|Q1|Q2|Q3|Q4|OT|[0-9]OT|quarter|half|overtime)\b/i;
 
 /** True when the display label denotes a period/half/quarter/OT sub-market. */
-export function isPeriodMarket(
-  displayLabel: string | null | undefined
-): boolean {
+export function isPeriodMarket(displayLabel: string | null | undefined): boolean {
   if (!displayLabel) return false;
   return PERIOD_LABEL.test(displayLabel);
 }
@@ -258,7 +247,7 @@ export const SETTLEABLE_FAMILIES: Record<string, true> = {
 /** Normalize a source's raw_family (and optional raw_label) to a canonical stat family. */
 export function normalizeStatFamily(
   rawFamily: string | null | undefined,
-  rawLabel?: string | null
+  rawLabel?: string | null,
 ): StatFamily {
   const t = `${rawFamily ?? ""} ${rawLabel ?? ""}`.toLowerCase();
   const has = (s: string) => t.includes(s);
@@ -321,9 +310,7 @@ export function emptyStatLine(): PbpStatLine {
 }
 
 /** "C. Cunningham" -> { initial: "c", last: "cunningham" } for in-roster matching. */
-export function splitPbpName(
-  name: string
-): { initial: string; last: string } | null {
+export function splitPbpName(name: string): { initial: string; last: string } | null {
   const m = name.trim().match(/^(\p{L})\.?\s+(.+)$/u);
   if (!m) return null;
   return {
@@ -338,10 +325,7 @@ export function splitPbpName(
  * candidate set so first-initial + last-name is reliable; returns null on
  * ambiguity (>1 candidate) or no match.
  */
-export function matchPbpNameToParticipant(
-  pbpName: string,
-  candidateKeys: string[]
-): string | null {
+export function matchPbpNameToParticipant(pbpName: string, candidateKeys: string[]): string | null {
   const parsed = splitPbpName(pbpName);
   if (!parsed) return null;
   const matches: string[] = [];
@@ -352,10 +336,7 @@ export function matchPbpNameToParticipant(
     const last = parts.slice(1).join("-").replace(/-/g, " ");
     const lastNoSuffix = last.replace(/\s+(jr|sr|ii|iii|iv|v)$/i, "").trim();
     const candLast = parsed.last.replace(/\s+(jr|sr|ii|iii|iv|v)$/i, "").trim();
-    if (
-      first.startsWith(parsed.initial) &&
-      (lastNoSuffix === candLast || last === parsed.last)
-    ) {
+    if (first.startsWith(parsed.initial) && (lastNoSuffix === candLast || last === parsed.last)) {
       matches.push(key);
     }
   }
@@ -369,7 +350,7 @@ export function matchPbpNameToParticipant(
  * attributed made-shot / steal / block actions. Keyed by raw PBP name.
  */
 export function reconstructStatsFromPbp(
-  actions: Array<{ actionType: string | null; description: string | null }>
+  actions: Array<{ actionType: string | null; description: string | null }>,
 ): Map<string, PbpStatLine> {
   const stats = new Map<string, PbpStatLine>();
   const get = (name: string) => {
@@ -390,17 +371,13 @@ export function reconstructStatsFromPbp(
     const desc = description;
 
     // cumulative points for the scorer
-    const ptsM = desc.match(
-      new RegExp(`^(\\p{L}\\.?\\s+${NAME}+?)\\s.*\\((\\d+)\\s+PTS\\)`, "u")
-    );
+    const ptsM = desc.match(new RegExp(`^(\\p{L}\\.?\\s+${NAME}+?)\\s.*\\((\\d+)\\s+PTS\\)`, "u"));
     if (ptsM) {
       const s = get(ptsM[1].trim());
       s.points = Math.max(s.points, Number(ptsM[2]));
     }
     // cumulative assists for the assister (appears in trailing paren group)
-    const astM = desc.match(
-      new RegExp(`\\((\\p{L}\\.?\\s+${NAME}+?)\\s+(\\d+)\\s+AST\\)`, "u")
-    );
+    const astM = desc.match(new RegExp(`\\((\\p{L}\\.?\\s+${NAME}+?)\\s+(\\d+)\\s+AST\\)`, "u"));
     if (astM) {
       const s = get(astM[1].trim());
       s.assists = Math.max(s.assists, Number(astM[2]));
@@ -426,9 +403,7 @@ export function reconstructStatsFromPbp(
     }
     if (actionType === "steal") {
       // "... STEAL (X.Lastname N STL)" or steal credited to leading name
-      const stlM = desc.match(
-        new RegExp(`\\((\\p{L}\\.?\\s+${NAME}+?)\\s+(\\d+)\\s+STL\\)`, "u")
-      );
+      const stlM = desc.match(new RegExp(`\\((\\p{L}\\.?\\s+${NAME}+?)\\s+(\\d+)\\s+STL\\)`, "u"));
       if (stlM) {
         const s = get(stlM[1].trim());
         s.steals = Math.max(s.steals, Number(stlM[2]));
@@ -438,9 +413,7 @@ export function reconstructStatsFromPbp(
       }
     }
     if (actionType === "block") {
-      const blkM = desc.match(
-        new RegExp(`\\((\\p{L}\\.?\\s+${NAME}+?)\\s+(\\d+)\\s+BLK\\)`, "u")
-      );
+      const blkM = desc.match(new RegExp(`\\((\\p{L}\\.?\\s+${NAME}+?)\\s+(\\d+)\\s+BLK\\)`, "u"));
       if (blkM) {
         const s = get(blkM[1].trim());
         s.blocks = Math.max(s.blocks, Number(blkM[2]));
@@ -454,10 +427,7 @@ export function reconstructStatsFromPbp(
 }
 
 /** Combined-stat value for a canonical family from a reconstructed stat line. */
-export function statForFamily(
-  family: StatFamily,
-  line: PbpStatLine
-): number | null {
+export function statForFamily(family: StatFamily, line: PbpStatLine): number | null {
   switch (family) {
     case "points":
       return line.points;
@@ -493,11 +463,6 @@ export function statForFamily(
 }
 
 function doubleTripleCount(line: PbpStatLine): number {
-  return [
-    line.points,
-    line.rebounds,
-    line.assists,
-    line.steals,
-    line.blocks,
-  ].filter((v) => v >= 10).length;
+  return [line.points, line.rebounds, line.assists, line.steals, line.blocks].filter((v) => v >= 10)
+    .length;
 }

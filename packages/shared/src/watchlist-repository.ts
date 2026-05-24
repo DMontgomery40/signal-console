@@ -1,10 +1,6 @@
 import type { WatchlistRecord } from "@signal-console/domain";
 
-import {
-  currentTimestamp,
-  executeDatabaseOperation,
-  getDatabase,
-} from "./db-core";
+import { currentTimestamp, executeDatabaseOperation, getDatabase } from "./db-core";
 
 export function getWatchlist(): WatchlistRecord[] {
   return executeDatabaseOperation("watchlist.list", () => {
@@ -20,7 +16,7 @@ export function getWatchlist(): WatchlistRecord[] {
             updated_at AS updatedAt
           FROM watchlist
           ORDER BY updated_at DESC
-        `
+        `,
       )
       .all() as WatchlistRecord[];
   });
@@ -46,7 +42,7 @@ export function upsertWatchlist(entry: {
             status = excluded.status,
             note = excluded.note,
             updated_at = excluded.updated_at
-        `
+        `,
       ).run({
         eventId: entry.eventId,
         priority: entry.priority ?? null,
@@ -58,7 +54,7 @@ export function upsertWatchlist(entry: {
     {
       eventId: entry.eventId,
       status: entry.status ?? "queued",
-    }
+    },
   );
 }
 
@@ -71,6 +67,6 @@ export function deleteWatchlist(eventId: string) {
     },
     {
       eventId,
-    }
+    },
   );
 }

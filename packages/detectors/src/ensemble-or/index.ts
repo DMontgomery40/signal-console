@@ -42,6 +42,9 @@ function dedupeKey(f: DetectorFire): string {
   return `${f.gameId}|${f.bucketStart.toISOString()}|${f.lane ?? ""}`;
 }
 
+const uniqueGameIds = (gameIds: readonly string[]): readonly string[] =>
+  Array.from(new Set(gameIds));
+
 export const detector: Detector<typeof Params> = {
   id: "ensemble-or",
   version: "1.0.0",
@@ -62,14 +65,20 @@ export const detector: Detector<typeof Params> = {
       lane: "offprice",
     }));
 
-    const seen = new Set<string>();
-    const fires: DetectorFire[] = [];
-    for (const f of [...boardFires, ...offFires]) {
-      const key = dedupeKey(f);
-      if (seen.has(key)) continue;
-      seen.add(key);
-      fires.push(f);
-    }
+    const fires = [...boardFires, ...offFires].reduce<{
+      readonly seen: ReadonlySet<string>;
+      readonly fires: readonly DetectorFire[];
+    }>(
+      (acc, f): { readonly seen: ReadonlySet<string>; readonly fires: readonly DetectorFire[] } => {
+        const key = dedupeKey(f);
+        if (acc.seen.has(key)) return acc;
+        return {
+          seen: new Set([...acc.seen, key]),
+          fires: [...acc.fires, f],
+        };
+      },
+      { seen: new Set<string>(), fires: [] },
+    ).fires;
 
     // Only the board lane has well-defined per-bucket observations (the
     // off-price-print detector intentionally emits no buckets — its events
@@ -78,7 +87,7 @@ export const detector: Detector<typeof Params> = {
     // fires themselves are the renderable surface.
     const buckets: readonly DetectorBucket[] = boardResult.buckets;
 
-    const gamesInWindow = window.gameIds.length;
+    const gamesInWindow = uniqueGameIds(window.gameIds).length;
     const stats: DetectorStats = {
       firesPerGame: gamesInWindow === 0 ? 0 : fires.length / gamesInWindow,
       totalFires: fires.length,

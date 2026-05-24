@@ -260,7 +260,7 @@ describe("board anomaly repository", () => {
           previousImpliedProbability: 0.45,
           source: "polymarket",
         }),
-      ])
+      ]),
     );
   });
 
@@ -354,11 +354,7 @@ describe("board anomaly repository", () => {
         lineRaw: instrument.line,
         sourceMarketId: `sm-${instrument.id}`,
         startProbability:
-          instrument.family === "moneyline"
-            ? 0.58
-            : instrument.family === "spread"
-              ? 0.46
-              : 0.55,
+          instrument.family === "moneyline" ? 0.58 : instrument.family === "spread" ? 0.46 : 0.55,
       });
     }
 
@@ -369,11 +365,9 @@ describe("board anomaly repository", () => {
     });
 
     expect(materialized?.observations).toHaveLength(30);
-    expect(
-      materialized?.observations.every(
-        (row) => row.sourceKind === "prediction-market"
-      )
-    ).toBe(true);
+    expect(materialized?.observations.every((row) => row.sourceKind === "prediction-market")).toBe(
+      true,
+    );
 
     const measurements = listGameStateVolatilityAcrossGames({
       contextWindowMinutes: 60,
@@ -741,11 +735,7 @@ describe("board anomaly repository", () => {
         lineRaw: instrument.line,
         sourceMarketId: `sm-${instrument.id}`,
         startProbability:
-          instrument.family === "moneyline"
-            ? 0.58
-            : instrument.family === "spread"
-              ? 0.46
-              : 0.55,
+          instrument.family === "moneyline" ? 0.58 : instrument.family === "spread" ? 0.46 : 0.55,
       });
     }
 
@@ -861,11 +851,7 @@ describe("board anomaly repository", () => {
         lineRaw: instrument.line,
         sourceMarketId: `sm-${instrument.id}`,
         startProbability:
-          instrument.family === "moneyline"
-            ? 0.58
-            : instrument.family === "spread"
-              ? 0.46
-              : 0.55,
+          instrument.family === "moneyline" ? 0.58 : instrument.family === "spread" ? 0.46 : 0.55,
       });
     }
 
@@ -940,10 +926,7 @@ describe("board anomaly repository", () => {
 
     const measurements = listGameStateVolatilityAcrossGames({
       contextWindowMinutes: 60,
-      gameIds: [
-        "nba-board-pregame-insufficient-test",
-        "nba-board-live-priority-test",
-      ],
+      gameIds: ["nba-board-pregame-insufficient-test", "nba-board-live-priority-test"],
       limit: 5,
       now: "2026-05-20T01:35:38.000Z",
     });
@@ -1076,7 +1059,7 @@ describe("board anomaly repository", () => {
           source: "polymarket",
           tradeCount: 1,
         }),
-      ])
+      ]),
     );
     expect(context.predictionMarketContext.rows).toEqual(
       expect.arrayContaining([
@@ -1088,7 +1071,7 @@ describe("board anomaly repository", () => {
           kind: "trade",
           source: "polymarket",
         }),
-      ])
+      ]),
     );
   });
 
@@ -1202,8 +1185,7 @@ describe("board anomaly repository", () => {
     });
 
     const context = getBoardAlertEventContext({
-      alertId:
-        "historic-participant:nba-board-replay-test:dean-wade:2026-05-15T23:35:50.000Z",
+      alertId: "historic-participant:nba-board-replay-test:dean-wade:2026-05-15T23:35:50.000Z",
       anchorAt: "2026-05-15T23:35:50.000Z",
       gameId: "nba-board-replay-test",
       limit: 10,
@@ -1216,7 +1198,7 @@ describe("board anomaly repository", () => {
         id: "historic-participant:nba-board-replay-test:dean-wade:2026-05-15T23:35:50.000Z",
         primaryEntityKey: "dean-wade",
         shockKind: "attribution-shaped",
-      })
+      }),
     );
     expect(context.resolvedIncident?.evidence).toEqual(
       expect.arrayContaining([
@@ -1226,7 +1208,7 @@ describe("board anomaly repository", () => {
         expect.objectContaining({
           displayLabel: "Dean Wade assists over 0.5",
         }),
-      ])
+      ]),
     );
   });
 
@@ -1248,10 +1230,7 @@ describe("board anomaly repository", () => {
       ],
     });
 
-    const context = getPlayByPlayContext(
-      "nba-board-replay-test",
-      "2026-05-15T17:18:26.000Z"
-    );
+    const context = getPlayByPlayContext("nba-board-replay-test", "2026-05-15T17:18:26.000Z");
 
     expect(context.available).toBe(true);
     expect(context.firstActionAt).toBe("2026-05-15T23:12:09.500Z");
@@ -1410,7 +1389,7 @@ describe("board anomaly repository", () => {
           primaryEntityKey: "cade cunningham",
           shockKind: "attribution-shaped",
         }),
-      ])
+      ]),
     );
   });
 
@@ -1587,7 +1566,7 @@ describe("board anomaly repository", () => {
           primaryEntityKey: "dean-wade",
           shockKind: "attribution-shaped",
         }),
-      ])
+      ]),
     );
   });
 
@@ -1719,8 +1698,8 @@ describe("board anomaly repository", () => {
       incidents.find(
         (incident) =>
           incident.primaryEntityKey === "cade cunningham" &&
-          incident.shockKind === "attribution-shaped"
-      )
+          incident.shockKind === "attribution-shaped",
+      ),
     ).toBeUndefined();
   });
 });

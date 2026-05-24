@@ -1,15 +1,8 @@
 import type { SeverityBand } from "./modes";
 
-export const sportsbookResearchSourceIds = [
-  "bet365",
-  "fanduel",
-  "draftkings",
-] as const;
+export const sportsbookResearchSourceIds = ["bet365", "fanduel", "draftkings"] as const;
 
-export const predictionMarketResearchSourceIds = [
-  "kalshi",
-  "polymarket",
-] as const;
+export const predictionMarketResearchSourceIds = ["kalshi", "polymarket"] as const;
 
 export const marketResearchSourceIds = [
   ...sportsbookResearchSourceIds,
@@ -63,12 +56,7 @@ export const adapterCaptureModes = ["discovery", "historical", "live"] as const;
 
 export type AdapterCaptureMode = (typeof adapterCaptureModes)[number];
 
-export const adminActionStatuses = [
-  "queued",
-  "accepted",
-  "completed",
-  "error",
-] as const;
+export const adminActionStatuses = ["queued", "accepted", "completed", "error"] as const;
 
 export type AdminActionStatus = (typeof adminActionStatuses)[number];
 
@@ -79,8 +67,7 @@ export const marketMicrostructureEventTypes = [
   "book-snapshot",
 ] as const;
 
-export type MarketMicrostructureEventType =
-  (typeof marketMicrostructureEventTypes)[number];
+export type MarketMicrostructureEventType = (typeof marketMicrostructureEventTypes)[number];
 
 export const marketAnomalyLabels = [
   "isolated off-price print",
@@ -604,14 +591,7 @@ export type AdminRuntimeConfigItem = {
   configured: boolean;
   defaultValue?: string | null;
   description: string;
-  inputType:
-    | "boolean"
-    | "number"
-    | "password"
-    | "path"
-    | "select"
-    | "text"
-    | "url";
+  inputType: "boolean" | "number" | "password" | "path" | "select" | "text" | "url";
   key: string;
   label: string;
   options?: string[];

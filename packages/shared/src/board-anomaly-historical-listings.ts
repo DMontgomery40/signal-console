@@ -31,10 +31,7 @@ import {
 import { getPlayByPlayContext } from "./board-anomaly-play-by-play";
 import { parseTimestampMs } from "./board-anomaly-support";
 import { executeDatabaseOperation, getDatabase } from "./db-core";
-import {
-  listMarketAnomalyAlerts,
-  listSignalMismatches,
-} from "./live-repository";
+import { listMarketAnomalyAlerts, listSignalMismatches } from "./live-repository";
 
 export type {
   FinishedGameIncident,
@@ -44,7 +41,7 @@ export type {
 };
 
 export function listFinishedGameIncidents(
-  input: ListFinishedGameIncidentsInput
+  input: ListFinishedGameIncidentsInput,
 ): FinishedGameIncident[] {
   return executeDatabaseOperation(
     "board-anomaly.listFinishedGameIncidents",
@@ -70,10 +67,7 @@ export function listFinishedGameIncidents(
           finalAtMs <= scheduledMs + 6 * 60 * 60_000;
         const finalAt = hasPlausibleFinalAt ? window.finalAt! : fallbackFinalAt;
         const finalMs = parseTimestampMs(finalAt);
-        const windowEnd =
-          finalMs == null
-            ? finalAt
-            : new Date(finalMs + 2 * 60_000).toISOString();
+        const windowEnd = finalMs == null ? finalAt : new Date(finalMs + 2 * 60_000).toISOString();
         const replay = replayBoardAnomaliesForGame({
           gameId: window.gameId,
           ingestionLatencyBufferSeconds: 0,
@@ -85,17 +79,15 @@ export function listFinishedGameIncidents(
         incidents.push(...replay.alertDeck.map(replayAlertToFinishedIncident));
       }
 
-      incidents.sort(
-        (a, b) => Date.parse(a.firstPopAt) - Date.parse(b.firstPopAt)
-      );
+      incidents.sort((a, b) => Date.parse(a.firstPopAt) - Date.parse(b.firstPopAt));
       return incidents.slice(0, limit);
     },
-    input
+    input,
   );
 }
 
 export function listForensicFinishedGameIncidents(
-  input: ListFinishedGameIncidentsInput
+  input: ListFinishedGameIncidentsInput,
 ): FinishedGameIncident[] {
   return executeDatabaseOperation(
     "board-anomaly.listForensicFinishedGameIncidents",
@@ -106,19 +98,17 @@ export function listForensicFinishedGameIncidents(
       const participantFanoutRows = listHistoricalParticipantReactionRows(
         db,
         input.date,
-        input.gameId
+        input.gameId,
       );
       const candidateGameIds = Array.from(
         new Set(
           [
             ...(input.gameId
               ? [input.gameId]
-              : candidateWindows
-                  .slice(0, maxGames)
-                  .map((window) => window.gameId)),
+              : candidateWindows.slice(0, maxGames).map((window) => window.gameId)),
             ...participantFanoutRows.map((row) => row.gameId),
-          ].filter(Boolean)
-        )
+          ].filter(Boolean),
+        ),
       );
       const mismatches = candidateGameIds.flatMap((gameId) =>
         listSignalMismatches({
@@ -126,13 +116,13 @@ export function listForensicFinishedGameIncidents(
           gameId,
           sort: "divergence",
           limit: 80,
-        })
+        }),
       );
       const minGap = input.minGap ?? 0.15;
       const filtered = mismatches.filter(
         (row) =>
           (row.impliedProbabilityGap ?? 0) >= minGap &&
-          (!input.gameId || row.gameId === input.gameId)
+          (!input.gameId || row.gameId === input.gameId),
       );
       const minMarketStructureNotional = 20;
 
@@ -145,43 +135,28 @@ export function listForensicFinishedGameIncidents(
 
       const incidents: FinishedGameIncident[] = [];
       for (const [gameId, rows] of byGame.entries()) {
-        rows.sort(
-          (a, b) =>
-            (b.impliedProbabilityGap ?? 0) - (a.impliedProbabilityGap ?? 0)
-        );
+        rows.sort((a, b) => (b.impliedProbabilityGap ?? 0) - (a.impliedProbabilityGap ?? 0));
         const headline = rows[0];
         const summary = headline.comparisonSummary;
         const firstPopAt =
-          summary?.firstAboveThresholdAt ??
-          summary?.maxGapAt ??
-          headline.scheduledStart;
+          summary?.firstAboveThresholdAt ?? summary?.maxGapAt ?? headline.scheduledStart;
         const pbp = getPlayByPlayContext(gameId, firstPopAt);
         const peakGap = headline.impliedProbabilityGap ?? 0;
         const aboveMs = summary?.aboveThresholdDurationMs ?? 0;
         const score = Math.min(
           100,
-          Math.max(
-            0,
-            Math.round(peakGap * 100 * 2 + Math.min(20, aboveMs / 60000))
-          )
+          Math.max(0, Math.round(peakGap * 100 * 2 + Math.min(20, aboveMs / 60000))),
         );
         const sustainedBonus = aboveMs >= 30 * 60_000 ? 0.05 : 0;
-        const confidence = Math.min(
-          0.95,
-          0.55 + peakGap * 0.6 + sustainedBonus
-        );
+        const confidence = Math.min(0.95, 0.55 + peakGap * 0.6 + sustainedBonus);
         const reason = buildIncidentReason(headline);
         const hasNearbyPbp =
-          pbp.nearestBefore?.timeActual != null ||
-          pbp.nearestAfter?.timeActual != null;
+          pbp.nearestBefore?.timeActual != null || pbp.nearestAfter?.timeActual != null;
         const shockKind = classifyIncidentKind(headline, firstPopAt, pbp);
 
         const evidence = rows.slice(0, 8).map((row) => ({
           observationId: `instrument:${row.instrumentId}`,
-          source: (row.sources?.[0] ?? "bet365") as
-            | "bet365"
-            | "kalshi"
-            | "polymarket",
+          source: (row.sources?.[0] ?? "bet365") as "bet365" | "kalshi" | "polymarket",
           sourceKind:
             row.sources?.[0] === "bet365"
               ? ("sportsbook" as const)
@@ -189,16 +164,14 @@ export function listForensicFinishedGameIncidents(
           family: row.family,
           participantKey: null,
           displayLabel: row.displayLabel,
-          contribution: Number(
-            Math.min(1, (row.impliedProbabilityGap ?? 0) * 2).toFixed(3)
-          ),
+          contribution: Number(Math.min(1, (row.impliedProbabilityGap ?? 0) * 2).toFixed(3)),
           reason: `${((row.impliedProbabilityGap ?? 0) * 100).toFixed(1)}pp gap`,
           evidenceUnmapped: row.mappingStatus === "unmapped",
         }));
 
         const inspectInstrumentIds = rows.map((row) => row.instrumentId);
         const inspectRelationFamilies = Array.from(
-          new Set(rows.map((row) => row.family ?? "other"))
+          new Set(rows.map((row) => row.family ?? "other")),
         );
 
         const alert: BoardAnomalyAlert = {
@@ -222,9 +195,7 @@ export function listForensicFinishedGameIncidents(
           },
           h0Adjustments: {
             appliedSuppression: 0,
-            drivers: hasNearbyPbp
-              ? []
-              : ["persisted NBA play-by-play missing for this snapshot"],
+            drivers: hasNearbyPbp ? [] : ["persisted NBA play-by-play missing for this snapshot"],
           },
           evidence,
           missingDataNotes: pbp.available
@@ -232,8 +203,7 @@ export function listForensicFinishedGameIncidents(
             : [
                 {
                   source: "nba" as const,
-                  reason:
-                    "persisted NBA play-by-play missing for this game snapshot",
+                  reason: "persisted NBA play-by-play missing for this game snapshot",
                 },
               ],
           inspect: {
@@ -264,40 +234,25 @@ export function listForensicFinishedGameIncidents(
         marketAnomaliesByGame.set(gameId, marketAnomalies);
         const fanouts = buildFanouts(marketAnomalies, 900, 2, 0.01);
         for (const fanout of fanouts) {
-          const pbp = getPlayByPlayContext(
-            fanout.gameId,
-            fanout.windowStartIso
-          );
-          if (
-            pbp.nearestBefore?.timeActual == null &&
-            pbp.nearestAfter?.timeActual == null
-          ) {
+          const pbp = getPlayByPlayContext(fanout.gameId, fanout.windowStartIso);
+          if (pbp.nearestBefore?.timeActual == null && pbp.nearestAfter?.timeActual == null) {
             continue;
           }
-          for (const member of fanout.members)
-            usedAlertIds.add(member.alert.id);
+          for (const member of fanout.members) usedAlertIds.add(member.alert.id);
           coveredParticipants.add(`${fanout.gameId}:${fanout.participantKey}`);
           incidents.push(fanoutToBoardCard(fanout, pbp));
         }
       }
 
-      const participantFanouts = buildHistoricalParticipantFanouts(
-        participantFanoutRows
-      );
+      const participantFanouts = buildHistoricalParticipantFanouts(participantFanoutRows);
       for (const fanout of participantFanouts) {
-        if (
-          candidateGameIds.length > 0 &&
-          !candidateGameIds.includes(fanout.gameId)
-        ) {
+        if (candidateGameIds.length > 0 && !candidateGameIds.includes(fanout.gameId)) {
           continue;
         }
         const coveredKey = `${fanout.gameId}:${fanout.participantKey}`;
         if (coveredParticipants.has(coveredKey)) continue;
         const pbp = getPlayByPlayContext(fanout.gameId, fanout.windowStartIso);
-        if (
-          pbp.nearestBefore?.timeActual == null &&
-          pbp.nearestAfter?.timeActual == null
-        ) {
+        if (pbp.nearestBefore?.timeActual == null && pbp.nearestAfter?.timeActual == null) {
           continue;
         }
         coveredParticipants.add(coveredKey);
@@ -315,7 +270,7 @@ export function listForensicFinishedGameIncidents(
       }
       for (const [gameId, anomalies] of leftoverByGame.entries()) {
         const sized = anomalies.filter(
-          (a) => (a.metrics.notional ?? 0) >= minMarketStructureNotional
+          (a) => (a.metrics.notional ?? 0) >= minMarketStructureNotional,
         );
         sized.sort((a, b) => {
           const aShare = a.metrics.volumeShare ?? 0;
@@ -339,6 +294,6 @@ export function listForensicFinishedGameIncidents(
       const limit = Math.max(1, Math.min(50, input.limit ?? 10));
       return incidents.slice(0, limit);
     },
-    input
+    input,
   );
 }

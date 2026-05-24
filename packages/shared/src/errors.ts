@@ -19,10 +19,7 @@ export type ValidationIssueDetail = {
   path: string;
 };
 
-export type AppErrorDetails =
-  | Record<string, unknown>
-  | ValidationIssueDetail[]
-  | undefined;
+export type AppErrorDetails = Record<string, unknown> | ValidationIssueDetail[] | undefined;
 
 type AppErrorOptions = {
   cause?: unknown;
@@ -70,8 +67,7 @@ export class ValidationAppError extends AppError {
       details,
       message: "Validation failed.",
       operatorHint:
-        operatorHint ??
-        "Check the request contract and enum values before retrying this route.",
+        operatorHint ?? "Check the request contract and enum values before retrying this route.",
       statusCode: 400,
     });
   }
@@ -129,10 +125,7 @@ export class InstrumentNotFoundError extends AppError {
 }
 
 export class DatabaseFailureError extends AppError {
-  constructor(
-    message: string,
-    options?: Omit<AppErrorOptions, "code" | "message" | "statusCode">
-  ) {
+  constructor(message: string, options?: Omit<AppErrorOptions, "code" | "message" | "statusCode">) {
     super({
       ...options,
       code: "DATABASE_FAILURE",
@@ -143,10 +136,7 @@ export class DatabaseFailureError extends AppError {
 }
 
 export class AdapterFailureError extends AppError {
-  constructor(
-    message: string,
-    options?: Omit<AppErrorOptions, "code" | "message" | "statusCode">
-  ) {
+  constructor(message: string, options?: Omit<AppErrorOptions, "code" | "message" | "statusCode">) {
     super({
       ...options,
       code: "ADAPTER_FAILURE",
@@ -169,9 +159,7 @@ export class InternalAppError extends AppError {
   }
 }
 
-export function formatValidationIssues(
-  issues: ZodIssue[]
-): ValidationIssueDetail[] {
+export function formatValidationIssues(issues: ZodIssue[]): ValidationIssueDetail[] {
   return issues.map((issue) => ({
     code: issue.code,
     message: issue.message,
@@ -191,10 +179,7 @@ export function toAppError(error: unknown): AppError {
   return new InternalAppError(error);
 }
 
-export function buildApiErrorEnvelope(
-  error: AppError,
-  requestId?: string
-): ApiErrorEnvelope {
+export function buildApiErrorEnvelope(error: AppError, requestId?: string): ApiErrorEnvelope {
   return {
     error: {
       code: error.code,

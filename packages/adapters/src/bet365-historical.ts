@@ -14,9 +14,7 @@ import { buildOddsApiSelectionRecords } from "./odds-api";
 
 type FetchLike = typeof fetch;
 
-type OddsApiHistoricalOddsPayload = Parameters<
-  typeof buildOddsApiSelectionRecords
->[1];
+type OddsApiHistoricalOddsPayload = Parameters<typeof buildOddsApiSelectionRecords>[1];
 type OddsApiHistoricalEvent = Pick<
   OddsApiHistoricalOddsPayload,
   "away" | "date" | "home" | "id" | "league" | "sport" | "status"
@@ -48,12 +46,7 @@ function buildOddsApiUrl(baseUrl: string, pathname: string) {
 }
 
 function getOddsApiKey(options?: { apiKey?: string }) {
-  return (
-    options?.apiKey ??
-    process.env.ODDS_API_KEY ??
-    process.env.ODDS_API_IO_KEY ??
-    null
-  );
+  return options?.apiKey ?? process.env.ODDS_API_KEY ?? process.env.ODDS_API_IO_KEY ?? null;
 }
 
 function normalizeToken(value: string | null | undefined) {
@@ -72,10 +65,7 @@ function normalizeWords(value: string | null | undefined) {
     .filter(Boolean);
 }
 
-function namesCompatible(
-  left: string | null | undefined,
-  right: string | null | undefined
-) {
+function namesCompatible(left: string | null | undefined, right: string | null | undefined) {
   const leftToken = normalizeToken(left);
   const rightToken = normalizeToken(right);
   if (!leftToken || !rightToken) {
@@ -96,9 +86,7 @@ function namesCompatible(
   }
 
   const [smaller, larger] =
-    leftWords.size <= rightWords.size
-      ? [leftWords, rightWords]
-      : [rightWords, leftWords];
+    leftWords.size <= rightWords.size ? [leftWords, rightWords] : [rightWords, leftWords];
 
   return [...smaller].every((word) => larger.has(word));
 }
@@ -108,15 +96,11 @@ function isRealGame(game: ResearchGameCard) {
     game.outcome ||
     game.gameState?.status !== "scheduled" ||
     game.activeInstrumentCount > 0 ||
-    game.coverage.availableSources.length > 0
+    game.coverage.availableSources.length > 0,
   );
 }
 
-function isWithinDateRange(
-  game: ResearchGameCard,
-  dateFrom?: string,
-  dateTo?: string
-) {
+function isWithinDateRange(game: ResearchGameCard, dateFrom?: string, dateTo?: string) {
   const scheduledDate = game.game.scheduledStart.slice(0, 10);
   if (dateFrom && scheduledDate < dateFrom) {
     return false;
@@ -157,7 +141,7 @@ function selectHistoricalGames(options: {
             limit: 200,
             scope: "all",
             sport: "basketball",
-          })
+          }),
         )
       : listResearchGames({
           league: "NBA",
@@ -168,15 +152,10 @@ function selectHistoricalGames(options: {
 
   return games
     .filter(isRealGame)
-    .filter((game) =>
-      isWithinDateRange(game, options.dateFrom, options.dateTo)
-    );
+    .filter((game) => isWithinDateRange(game, options.dateFrom, options.dateTo));
 }
 
-function findMatchingHistoricalGame(
-  games: ResearchGameCard[],
-  event: OddsApiHistoricalEvent
-) {
+function findMatchingHistoricalGame(games: ResearchGameCard[], event: OddsApiHistoricalEvent) {
   const eventMs = Date.parse(event.date);
   if (!Number.isFinite(eventMs)) {
     return null;
@@ -205,18 +184,14 @@ function findMatchingHistoricalGame(
       ];
 
       return (
-        awayCandidates.some((candidate) =>
-          namesCompatible(candidate, event.away)
-        ) &&
-        homeCandidates.some((candidate) =>
-          namesCompatible(candidate, event.home)
-        )
+        awayCandidates.some((candidate) => namesCompatible(candidate, event.away)) &&
+        homeCandidates.some((candidate) => namesCompatible(candidate, event.home))
       );
     })
     .sort(
       (left, right) =>
         Math.abs(Date.parse(left.game.scheduledStart) - eventMs) -
-        Math.abs(Date.parse(right.game.scheduledStart) - eventMs)
+        Math.abs(Date.parse(right.game.scheduledStart) - eventMs),
     );
 
   return matches[0] ?? null;
@@ -248,7 +223,7 @@ async function fetchOddsApiHistoricalEvents(options: {
   const response = await fetchImpl(url.toString());
   if (!response.ok) {
     throw new Error(
-      `Odds-API historical events request for Bet365 failed with status ${response.status}.`
+      `Odds-API historical events request for Bet365 failed with status ${response.status}.`,
     );
   }
 
@@ -272,7 +247,7 @@ async function fetchOddsApiHistoricalOdds(options: {
   const response = await fetchImpl(url.toString());
   if (!response.ok) {
     throw new Error(
-      `Odds-API historical odds request for Bet365 event ${options.eventId} failed with status ${response.status}.`
+      `Odds-API historical odds request for Bet365 event ${options.eventId} failed with status ${response.status}.`,
     );
   }
 
@@ -332,9 +307,7 @@ export async function syncBet365Historical(options?: {
       } satisfies Bet365HistoricalSyncSummary;
     }
 
-    const defaultDateFrom = games
-      .map((game) => game.game.scheduledStart.slice(0, 10))
-      .sort()[0];
+    const defaultDateFrom = games.map((game) => game.game.scheduledStart.slice(0, 10)).sort()[0];
     const defaultDateTo = games
       .map((game) => game.game.scheduledStart.slice(0, 10))
       .sort()
@@ -373,18 +346,13 @@ export async function syncBet365Historical(options?: {
         eventId: event.id,
         fetchImpl: options?.fetchImpl,
       });
-      const records = buildOddsApiSelectionRecords(
-        "Bet365",
-        historicalOdds,
-        game
-      );
+      const records = buildOddsApiSelectionRecords("Bet365", historicalOdds, game);
       if (records.length === 0) {
         continue;
       }
 
       matchedGameIds.add(game.game.id);
-      marketsSeen += new Set(records.map((record) => record.sourceMarketKey))
-        .size;
+      marketsSeen += new Set(records.map((record) => record.sourceMarketKey)).size;
 
       for (const record of records) {
         if (record.instrumentId) {
@@ -452,8 +420,7 @@ export async function syncBet365Historical(options?: {
 
     const finishedAt = now().toISOString();
     const recordsSeen = sourceMarketsObserved;
-    const recordsWritten =
-      sourceMarketsObserved + quoteObservationsWritten + rawPayloadsWritten;
+    const recordsWritten = sourceMarketsObserved + quoteObservationsWritten + rawPayloadsWritten;
 
     recordAdapterRun({
       captureMode: "historical",

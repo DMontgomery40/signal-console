@@ -21,8 +21,8 @@ describe("truth model", () => {
           },
           scheduledStart: "2026-05-13T02:30:00.000Z",
         },
-        now
-      )
+        now,
+      ),
     ).toMatchObject({
       kind: "scheduled",
       label: "Scheduled",
@@ -41,8 +41,8 @@ describe("truth model", () => {
           },
           scheduledStart: "2026-05-12T13:45:00.000Z",
         },
-        now
-      )
+        now,
+      ),
     ).toMatchObject({
       kind: "missing-fresh-score-state",
       label: "Score update missing",
@@ -59,8 +59,8 @@ describe("truth model", () => {
           },
           scheduledStart: "2026-05-12T03:00:00.000Z",
         },
-        now
-      )
+        now,
+      ),
     ).toMatchObject({
       kind: "missing-fresh-score-state",
       label: "Score update missing",
@@ -77,8 +77,8 @@ describe("truth model", () => {
           },
           scheduledStart: "2026-05-12T09:30:00.000Z",
         },
-        now
-      )
+        now,
+      ),
     ).toMatchObject({
       kind: "missing-final-confirmation",
       label: "Final confirmation missing",
@@ -94,9 +94,7 @@ describe("truth model", () => {
       },
       {
         expected: { kind: "scheduled", label: "Scheduled", tone: "neutral" },
-        scheduledStart: new Date(
-          now.getTime() - scheduledScoreGraceMs + 60_000
-        ).toISOString(),
+        scheduledStart: new Date(now.getTime() - scheduledScoreGraceMs + 60_000).toISOString(),
       },
       {
         expected: {
@@ -104,9 +102,7 @@ describe("truth model", () => {
           label: "Score update missing",
           tone: "critical",
         },
-        scheduledStart: new Date(
-          now.getTime() - scheduledScoreGraceMs - 60_000
-        ).toISOString(),
+        scheduledStart: new Date(now.getTime() - scheduledScoreGraceMs - 60_000).toISOString(),
       },
     ];
 
@@ -121,8 +117,8 @@ describe("truth model", () => {
             },
             scheduledStart: testCase.scheduledStart,
           },
-          now
-        )
+          now,
+        ),
       ).toMatchObject(testCase.expected);
     }
   });
@@ -138,8 +134,8 @@ describe("truth model", () => {
           },
           scheduledStart: "2026-05-12T09:30:00.000Z",
         },
-        now
-      )
+        now,
+      ),
     ).toMatchObject({
       kind: "live",
       label: "Live",
@@ -166,8 +162,8 @@ describe("truth model", () => {
           ],
           requireBet365PlusPredictionMarket: true,
         },
-        now
-      )
+        now,
+      ),
     ).toMatchObject({
       label: "Past comparison",
       state: "historical",
@@ -193,8 +189,8 @@ describe("truth model", () => {
           ],
           requireBet365PlusPredictionMarket: true,
         },
-        now
-      )
+        now,
+      ),
     ).toMatchObject({
       label: "No comparison yet",
       state: "invalid",
@@ -219,8 +215,8 @@ describe("truth model", () => {
           ],
           requireBet365PlusPredictionMarket: true,
         },
-        now
-      )
+        now,
+      ),
     ).toMatchObject({
       label: "Not actionable",
       state: "invalid",

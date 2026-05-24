@@ -430,6 +430,21 @@ describe("games routes (US-018)", () => {
     expect(body["error"]).toBeDefined();
   });
 
+  it("GET /v1/games returns 400 on an unbounded `since` duration", async () => {
+    seedGoldDb(ctx.goldDbPath, []);
+    const app = await startApp();
+
+    const res = await app.inject({
+      method: "GET",
+      url: "/v1/games?since=P999999999999999D",
+      headers: authHeaders(),
+    });
+    expect(res.statusCode).toBe(400);
+    const body: unknown = res.json();
+    if (!isRecord(body)) throw new Error("body not an object");
+    expect(body["error"]).toBeDefined();
+  });
+
   it("both games routes appear in /openapi.json tagged 'desk-stable'", async () => {
     seedGoldDb(ctx.goldDbPath, []);
     const app = await startApp();
