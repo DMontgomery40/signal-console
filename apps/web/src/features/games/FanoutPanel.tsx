@@ -18,7 +18,7 @@
 //   180 ≤ |Δt| < 300s → text-md        (acceptable)
 //   |Δt| ≥ 300s       → not rendered
 
-import type { JSX } from "react";
+import { Fragment, useState, type JSX } from "react";
 import {
   CartesianGrid,
   ReferenceLine,
@@ -305,11 +305,111 @@ function PbpTimelineChart({ events }: { readonly events: readonly FanoutPbpEvent
 // surface: market label, trade price, off-price distance (|trade_price −
 // surrounding sampled IP|), volume share, dollar notional, and timing
 // against the alert.
+//
+// Routine prints are collapsed on either side of the gold-highlighted
+// (concentrated off-price) rows so the strip doesn't drown the eye in
+// noise — typical buckets have 1-2 gold rows and ~50 routine ones, and
+// the gold rows are the ones the report's Stage-1 off-price-print
+// detector treats as the actual signal. User explicitly asked for this
+// after seeing the un-collapsed version.
+
+function isConcentratedOffPrice(e: FanoutMicroEvent): boolean {
+  // Report's canonical trigger shape: volumeShare ≥ 0.10 AND
+  // offPriceDistance ≥ 0.40 — same thresholds as the off-price-print
+  // detector defaults.
+  return (
+    e.volumeShare !== null &&
+    e.offPriceDistance !== null &&
+    e.volumeShare >= 0.1 &&
+    e.offPriceDistance >= 0.4
+  );
+}
+
+function formatVsAlert(deltaSec: number): string {
+  if (deltaSec < 0) return `${Math.abs(deltaSec).toFixed(0)}s before`;
+  if (deltaSec > 0) return `${deltaSec.toFixed(0)}s after`;
+  return "at alert";
+}
+
+function MicroRow({ e, gold }: { readonly e: FanoutMicroEvent; readonly gold: boolean }): JSX.Element {
+  return (
+    <tr
+      className={`border-t border-surface-1 ${gold ? "bg-accent-yellow/5" : ""}`}
+      data-testid={gold ? "fanout-microstructure-row-gold" : "fanout-microstructure-row"}
+    >
+      <td className="py-2 pr-4 font-mono text-text-md">{e.instrument}</td>
+      <td className="tabular py-2 pr-4 font-mono text-text-hi">
+        {e.tradePrice === null ? "—" : e.tradePrice.toFixed(3)}
+      </td>
+      <td
+        className={`tabular py-2 pr-4 font-mono ${
+          gold ? "text-accent-yellow" : "text-text-md"
+        }`}
+      >
+        {e.offPriceDistance === null ? "—" : e.offPriceDistance.toFixed(3)}
+      </td>
+      <td
+        className={`tabular py-2 pr-4 font-mono ${
+          gold ? "text-accent-yellow" : "text-text-md"
+        }`}
+      >
+        {e.volumeShare === null ? "—" : `${(e.volumeShare * 100).toFixed(1)}%`}
+      </td>
+      <td className="tabular py-2 pr-4 font-mono text-text-md">
+        {e.notional === null ? "—" : `$${e.notional.toFixed(2)}`}
+      </td>
+      <td className="tabular py-2 pr-2 font-mono text-text-md">
+        {formatVsAlert(e.deltaSecondsFromAlert)}
+      </td>
+    </tr>
+  );
+}
+
+interface MicroSegment {
+  readonly kind: "gold" | "routine";
+  readonly events: readonly FanoutMicroEvent[];
+}
+
+// Walk the event list and group consecutive same-kind events into segments
+// so the table layout alternates: routine (collapsible) | gold (always
+// visible) | routine | gold | routine ...
+function partitionByGold(events: readonly FanoutMicroEvent[]): readonly MicroSegment[] {
+  const out: MicroSegment[] = [];
+  let bufferKind: "gold" | "routine" | null = null;
+  let buffer: FanoutMicroEvent[] = [];
+  for (const e of events) {
+    const kind = isConcentratedOffPrice(e) ? "gold" : "routine";
+    if (bufferKind === null || kind === bufferKind) {
+      bufferKind = kind;
+      buffer.push(e);
+      continue;
+    }
+    out.push({ kind: bufferKind, events: buffer });
+    bufferKind = kind;
+    buffer = [e];
+  }
+  if (bufferKind !== null && buffer.length > 0) {
+    out.push({ kind: bufferKind, events: buffer });
+  }
+  return out;
+}
+
+// Threshold under which we inline the routine rows instead of collapsing
+// them. Below this, collapsing would hide so little that the toggle is
+// more noise than the rows themselves.
+const ROUTINE_INLINE_THRESHOLD = 2;
+
 function MicrostructureStrip({
   events,
 }: {
   readonly events: readonly FanoutMicroEvent[];
 }): JSX.Element {
+  // Hooks at top, before any early return — keeps React happy across
+  // empty/non-empty renders.
+  const [expandedSegments, setExpandedSegments] = useState<ReadonlySet<number>>(
+    () => new Set<number>(),
+  );
+
   if (events.length === 0) {
     return (
       <p
@@ -320,70 +420,94 @@ function MicrostructureStrip({
       </p>
     );
   }
+
+  const segments = partitionByGold(events);
+
+  function toggleSegment(idx: number): void {
+    setExpandedSegments((prev) => {
+      const next = new Set(prev);
+      if (next.has(idx)) next.delete(idx);
+      else next.add(idx);
+      return next;
+    });
+  }
+
   return (
-    <table className="w-full text-left text-sm" data-testid="fanout-microstructure-table">
-      <thead>
-        <tr className="text-xs uppercase tracking-[0.08em] text-text-lo">
-          <th className="py-2 font-normal">Market</th>
-          <th className="py-2 font-normal">Trade price</th>
-          <th className="py-2 font-normal">Off-price dist</th>
-          <th className="py-2 font-normal">Vol share</th>
-          <th className="py-2 font-normal">$ notional</th>
-          <th className="py-2 font-normal">vs Alert</th>
-        </tr>
-      </thead>
-      <tbody>
-        {events.map((e) => {
-          // Highlight "concentrated off-price prints" — the report's
-          // canonical trigger shape: volumeShare ≥ 0.10 AND offPriceDistance
-          // ≥ 0.40. Same thresholds as off-price-print detector defaults.
-          const isOffPrice =
-            e.volumeShare !== null &&
-            e.offPriceDistance !== null &&
-            e.volumeShare >= 0.1 &&
-            e.offPriceDistance >= 0.4;
-          const alertFrame = e.deltaSecondsFromAlert;
-          const phrase =
-            alertFrame < 0
-              ? `${Math.abs(alertFrame).toFixed(0)}s before`
-              : alertFrame > 0
-                ? `${alertFrame.toFixed(0)}s after`
-                : "at alert";
-          return (
-            <tr
-              key={`${e.eventTimestamp}-${e.sourceMarketId}`}
-              className={`border-t border-surface-1 ${
-                isOffPrice ? "bg-accent-yellow/5" : ""
-              }`}
-              data-testid="fanout-microstructure-row"
-            >
-              <td className="py-2 pr-4 font-mono text-text-md">{e.instrument}</td>
-              <td className="tabular py-2 pr-4 font-mono text-text-hi">
-                {e.tradePrice === null ? "—" : e.tradePrice.toFixed(3)}
-              </td>
-              <td
-                className={`tabular py-2 pr-4 font-mono ${
-                  isOffPrice ? "text-accent-yellow" : "text-text-md"
-                }`}
-              >
-                {e.offPriceDistance === null ? "—" : e.offPriceDistance.toFixed(3)}
-              </td>
-              <td
-                className={`tabular py-2 pr-4 font-mono ${
-                  isOffPrice ? "text-accent-yellow" : "text-text-md"
-                }`}
-              >
-                {e.volumeShare === null ? "—" : `${(e.volumeShare * 100).toFixed(1)}%`}
-              </td>
-              <td className="tabular py-2 pr-4 font-mono text-text-md">
-                {e.notional === null ? "—" : `$${e.notional.toFixed(2)}`}
-              </td>
-              <td className="tabular py-2 pr-2 font-mono text-text-md">{phrase}</td>
-            </tr>
-          );
-        })}
-      </tbody>
-    </table>
+    <div className="space-y-2">
+      <table className="w-full text-left text-sm" data-testid="fanout-microstructure-table">
+        <thead>
+          <tr className="text-xs uppercase tracking-[0.08em] text-text-lo">
+            <th className="py-2 font-normal">Market</th>
+            <th className="py-2 font-normal">Trade price</th>
+            <th className="py-2 font-normal">Off-price dist</th>
+            <th className="py-2 font-normal">Vol share</th>
+            <th className="py-2 font-normal">$ notional</th>
+            <th className="py-2 font-normal">vs Alert</th>
+          </tr>
+        </thead>
+        <tbody>
+          {segments.map((seg, idx) => {
+            if (seg.kind === "gold") {
+              return (
+                <Fragment key={`gold-${String(idx)}`}>
+                  {seg.events.map((e) => (
+                    <MicroRow key={`${e.eventTimestamp}-${e.sourceMarketId}`} e={e} gold />
+                  ))}
+                </Fragment>
+              );
+            }
+            // Routine segment. Inline if small; otherwise collapse behind a
+            // toggle row showing N hidden + "▸ show" / "▾ hide".
+            if (seg.events.length <= ROUTINE_INLINE_THRESHOLD) {
+              return (
+                <Fragment key={`routine-${String(idx)}`}>
+                  {seg.events.map((e) => (
+                    <MicroRow
+                      key={`${e.eventTimestamp}-${e.sourceMarketId}`}
+                      e={e}
+                      gold={false}
+                    />
+                  ))}
+                </Fragment>
+              );
+            }
+            const isOpen = expandedSegments.has(idx);
+            return (
+              <Fragment key={`routine-${String(idx)}`}>
+                <tr
+                  className="border-t border-surface-1"
+                  data-testid="fanout-microstructure-toggle"
+                >
+                  <td colSpan={6} className="py-1.5">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        toggleSegment(idx);
+                      }}
+                      className="font-mono text-[11px] text-text-lo hover:text-text-hi focus-visible:text-text-hi focus-visible:outline-1 focus-visible:outline-text-md"
+                      data-testid="fanout-microstructure-toggle-btn"
+                      aria-expanded={isOpen}
+                    >
+                      {isOpen ? "▾ hide" : "▸ show"} {String(seg.events.length)} routine
+                      print{seg.events.length === 1 ? "" : "s"}
+                    </button>
+                  </td>
+                </tr>
+                {isOpen
+                  ? seg.events.map((e) => (
+                      <MicroRow
+                        key={`${e.eventTimestamp}-${e.sourceMarketId}`}
+                        e={e}
+                        gold={false}
+                      />
+                    ))
+                  : null}
+              </Fragment>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -422,13 +546,18 @@ function MoversTable({ movers }: { readonly movers: readonly FanoutMover[] }): J
             <th className="py-2 font-normal">ipAfter</th>
             <th className="py-2 font-normal">ΔIP</th>
             <th
-              className="py-2 font-normal"
-              title="Cumulative market volume traded during the 60s bucket window"
+              className="py-2 font-normal cursor-help"
+              title="Cumulative market volume traded during the 60s bucket window. Gold = $5k+, gold-bold = $25k+. The 'show me the money' column — flags where dollars moved, separate from the intensity-weighted contribution %."
             >
               $ bucket vol
             </th>
             <th className="py-2 font-normal">Contribution</th>
-            <th className="py-2 font-normal">In bucket</th>
+            <th
+              className="py-2 font-normal cursor-help"
+              title="Offset within the 60s alert window (0–60s from bucket start). The alert itself confirms at the END of the window (+60s). This is NOT lead time over the trading desk."
+            >
+              In bucket
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -466,13 +595,6 @@ function MoversTable({ movers }: { readonly movers: readonly FanoutMover[] }): J
           })}
         </tbody>
       </table>
-      <p className="font-mono text-[11px] text-text-lo" data-testid="fanout-movers-caveat">
-        <span className="font-semibold text-text-md">In bucket</span> is when the market moved within
-        the 60s alert window (0–60s from bucket start). The alert itself confirms at the end of the
-        window. This is NOT lead time over the trading desk.{" "}
-        <span className="font-semibold text-text-md">$ bucket vol</span> highlights markets where
-        money actually flowed during the alert window — gold = $5k+, gold-bold = $25k+.
-      </p>
     </div>
   );
 }
@@ -506,8 +628,11 @@ export function FanoutPanel({ gameId, bucketStart }: FanoutPanelProps): JSX.Elem
       </div>
 
       <div>
-        <p className="mb-2 font-mono text-xs uppercase tracking-[0.08em] text-text-lo">
-          Play-by-play ±5 min  ·  hot = scoring/rebound/turnover, warm = foul/assist, cool = bookkeeping
+        <p
+          className="mb-2 font-mono text-xs uppercase tracking-[0.08em] text-text-lo cursor-help"
+          title="Play-by-play events within ±5 min of the alert bucket. Dot color is the play's significance: hot (yellow) = scoring/rebound/block/steal/turnover, warm (white) = foul/assist/jumpball, cool (dim) = substitutions/timeouts/period markers. Hover a dot for game-clock + description + vs-alert offset."
+        >
+          Play-by-play ±5 min
         </p>
         {pbp.length === 0 ? (
           <p className="font-mono text-xs text-text-lo" data-testid="fanout-pbp-empty">
@@ -519,16 +644,21 @@ export function FanoutPanel({ gameId, bucketStart }: FanoutPanelProps): JSX.Elem
       </div>
 
       <div>
-        <p className="mb-2 font-mono text-xs uppercase tracking-[0.08em] text-text-lo">
-          Top market movers  (board lane — markets repricing inside the 60s alert bucket)
+        <p
+          className="mb-2 font-mono text-xs uppercase tracking-[0.08em] text-text-lo cursor-help"
+          title="Board lane — markets that repriced inside the 60s alert bucket, ranked by intensity contribution (Σ log(1+v)·|Δp| per the board-mad detector)."
+        >
+          Top market movers
         </p>
         <MoversTable movers={movers} />
       </div>
 
       <div>
-        <p className="mb-2 font-mono text-xs uppercase tracking-[0.08em] text-text-lo">
-          Polymarket trade prints ±5 min  (off-price lane — gold rows are concentrated
-          off-price prints: vol_share ≥ 10% AND off-price-dist ≥ 0.40)
+        <p
+          className="mb-2 font-mono text-xs uppercase tracking-[0.08em] text-text-lo cursor-help"
+          title="Off-price lane — Polymarket trade prints in the ±5 min window. Gold-highlighted rows are concentrated off-price prints (vol_share ≥ 10% AND off-price-distance ≥ 0.40) — the report's canonical Stage-1 trigger shape. Routine prints are collapsed by default; click the show/hide toggles to expand them."
+        >
+          Polymarket trade prints ±5 min
         </p>
         <MicrostructureStrip events={microstructureEvents} />
       </div>
