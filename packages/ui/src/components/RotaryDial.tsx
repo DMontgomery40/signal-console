@@ -3,8 +3,8 @@
 // Generic circular-knob control. Trader mental model is a
 // Sennheiser/Yamaha-style analog potentiometer — drag vertically, scroll, or
 // keyboard to turn; snap to configured detents on release within threshold.
-// Visual contract is docs/design-language.md §"The Cry Wolf dial"; geometry
-// is shared across every configured instance (Cry Wolf K dial, Memory dial,
+// Visual contract is docs/design-language.md §"The Backtest Rotary Dials"; geometry
+// is shared across every configured instance (Sensitivity dial, future dials,
 // future dials) so the row of side-by-side dials reads as one family.
 //
 // What the caller configures:
@@ -16,6 +16,10 @@
 //   majorTickValues        — emphasized ticks (default = snapPoints)
 //   tickInterval           — spacing between minor ticks (default 1)
 //   formatValue            — headline text formatter
+//   formatValueDetail      — optional parenthetical detail shown under headline
+//   inlineValueText        — optional alternate metric shown inside the knob
+//   inlineDetailText       — optional alternate inline metric label/detail
+//   showInlineValue        — render the inline metric inside the knob when true
 //   testIdPrefix           — namespace for every data-testid emitted
 //   label                  — sr-only / aria-label and visible caption below
 
@@ -25,7 +29,7 @@ import type { CSSProperties, JSX, KeyboardEvent, MouseEvent as ReactMouseEvent }
 import { ExplainerCard } from "./ExplainerCard";
 import type { ExplainerId } from "../explainers";
 
-// Geometry — shared with docs/design-language.md §"The Cry Wolf dial".
+// Geometry — shared with docs/design-language.md §"The Backtest Rotary Dials".
 const KNOB_RADIUS = 80;
 const INNER_BEZEL_INSET = 4;
 const OUTER_BEZEL_RADIUS = 96;
@@ -38,9 +42,9 @@ const VIEWBOX_DIM = VIEWBOX_HALF * 2;
 const KNOB_SVG_PX = 220;
 
 const DRAG_PIXELS_FOR_FULL_TRAVEL = 200;
-// Default snap-magnetize window = 0.4× the small step. For the K dial
-// (smallStep 0.25) this is 0.1 — matches the original Cry Wolf threshold.
-// For the integer Memory dial (smallStep 1) this is 0.4, which is wider
+// Default snap-magnetize window = 0.4× the small step. For the Sensitivity dial
+// (smallStep 0.25) this is 0.1 — matches the original threshold.
+// For integer dials (smallStep 1) this is 0.4, which is wider
 // than the gap between integer values so the snap only ever fires on the
 // exact snap value — the right behavior for integer-only domains.
 const DEFAULT_SNAP_THRESHOLD_RATIO = 0.4;
@@ -101,6 +105,10 @@ export interface RotaryDialProps {
   readonly majorTickValues?: readonly number[];
   readonly tickInterval?: number;
   readonly formatValue?: (v: number) => string;
+  readonly formatValueDetail?: (v: number) => string | null;
+  readonly inlineValueText?: string;
+  readonly inlineDetailText?: string | null;
+  readonly showInlineValue?: boolean;
   readonly testIdPrefix: string;
   readonly label?: string;
   // Opt-in ExplainerCard hover on the visible label below the SVG. Yellow
@@ -108,8 +116,7 @@ export interface RotaryDialProps {
   // with the dial's role as a primary affordance.
   readonly labelExplainerId?: ExplainerId;
   // Absolute distance from a snap point at which magnetize fires. Default
-  // is 0.4× smallStep (≈ 0.1 for the K dial, 0.4 for the integer Memory
-  // dial). Caller can override for non-uniform domains.
+  // is 0.4× smallStep. Caller can override for non-uniform domains.
   readonly snapThreshold?: number;
 }
 
@@ -170,6 +177,10 @@ export function RotaryDial(props: RotaryDialProps): JSX.Element {
     majorTickValues,
     tickInterval,
     formatValue,
+    formatValueDetail,
+    inlineValueText,
+    inlineDetailText,
+    showInlineValue,
     testIdPrefix,
     label,
     labelExplainerId,
@@ -186,6 +197,11 @@ export function RotaryDial(props: RotaryDialProps): JSX.Element {
   const indicatorAngleDeg = compassDegFromValue(clamped, valueMin, valueMax);
   const dragValuePerPixel = (valueMax - valueMin) / DRAG_PIXELS_FOR_FULL_TRAVEL;
   const headlineText = (formatValue ?? defaultFormat)(clamped);
+  const detailText = formatValueDetail?.(clamped) ?? null;
+  const renderedInlineValueText = inlineValueText ?? headlineText;
+  const renderedInlineDetailText = inlineDetailText ?? detailText;
+  const ariaValueText = detailText === null ? headlineText : `${headlineText} ${detailText}`;
+  const shouldShowInlineValue = showInlineValue ?? true;
 
   const latestValueRef = useRef<number>(clamped);
   latestValueRef.current = clamped;
@@ -364,6 +380,14 @@ export function RotaryDial(props: RotaryDialProps): JSX.Element {
       >
         {headlineText}
       </div>
+      {detailText !== null ? (
+        <div
+          data-testid={`${testIdPrefix}-headline-detail`}
+          className="mt-1 tabular font-mono text-sm text-text-md"
+        >
+          {detailText}
+        </div>
+      ) : null}
 
       <svg
         ref={svgRef}
@@ -373,7 +397,7 @@ export function RotaryDial(props: RotaryDialProps): JSX.Element {
         aria-valuemin={valueMin}
         aria-valuemax={valueMax}
         aria-valuenow={ariaValueNow}
-        aria-valuetext={headlineText}
+        aria-valuetext={ariaValueText}
         data-testid={testIdPrefix}
         onKeyDown={handleKeyDown}
         viewBox={`${String(-VIEWBOX_HALF)} ${String(-VIEWBOX_HALF)} ${String(VIEWBOX_DIM)} ${String(VIEWBOX_DIM)}`}
@@ -490,17 +514,45 @@ export function RotaryDial(props: RotaryDialProps): JSX.Element {
           />
         </g>
 
-        <text
-          x={0}
-          y={0}
-          textAnchor="middle"
-          dominantBaseline="central"
-          className="fill-accent-yellow font-mono pointer-events-none tabular"
-          fontSize={32}
-          data-testid={`${testIdPrefix}-inline-value`}
-        >
-          {headlineText}
-        </text>
+        {shouldShowInlineValue ? (
+          <g className="pointer-events-none">
+            <rect
+              x={-54}
+              y={-31}
+              width={108}
+              height={70}
+              rx={4}
+              className="fill-surface-1 stroke-surface-2"
+              strokeWidth={1}
+              fillOpacity={0.92}
+              data-testid={`${testIdPrefix}-inline-window`}
+            />
+            <text
+              x={0}
+              y={renderedInlineDetailText === null ? 2 : -9}
+              textAnchor="middle"
+              dominantBaseline="central"
+              className="fill-accent-yellow font-mono tabular"
+              fontSize={30}
+              data-testid={`${testIdPrefix}-inline-value`}
+            >
+              {renderedInlineValueText}
+            </text>
+          </g>
+        ) : null}
+        {shouldShowInlineValue && renderedInlineDetailText !== null ? (
+          <text
+            x={0}
+            y={24}
+            textAnchor="middle"
+            dominantBaseline="central"
+            className="fill-text-md font-mono pointer-events-none tabular"
+            fontSize={13}
+            data-testid={`${testIdPrefix}-inline-detail`}
+          >
+            {renderedInlineDetailText}
+          </text>
+        ) : null}
       </svg>
 
       {label !== undefined && label.length > 0 ? (

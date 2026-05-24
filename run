@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$ROOT"
+
+if command -v pnpm >/dev/null 2>&1; then
+  PNPM_BIN="$(command -v pnpm)"
+elif [ -x /opt/homebrew/bin/pnpm ]; then
+  PNPM_BIN="/opt/homebrew/bin/pnpm"
+elif [ -x /tmp/codex-pnpm-bin/pnpm ]; then
+  PNPM_BIN="/tmp/codex-pnpm-bin/pnpm"
+else
+  echo "pnpm not found. Install pnpm or run: corepack enable" >&2
+  exit 127
+fi
+
+PNPM_DIR="$(dirname "$PNPM_BIN")"
+case ":$PATH:" in
+  *":$PNPM_DIR:"*) ;;
+  *) export PATH="$PATH:$PNPM_DIR" ;;
+esac
+export SIGNAL_CONSOLE_PNPM="$PNPM_BIN"
+
+if [ ! -x "$ROOT/node_modules/.bin/tsx" ]; then
+  "$PNPM_BIN" install --frozen-lockfile
+fi
+
+exec "$PNPM_BIN" exec tsx scripts/dev/run.ts "$@"

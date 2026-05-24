@@ -35,6 +35,36 @@ import { parseSchema, readBoolean, type ParsedProperty } from "../../lib/paramsS
 const isExplainerId = (id: string): id is ExplainerId =>
   Object.prototype.hasOwnProperty.call(explainers, id);
 
+const PARAM_DISPLAY_NAMES: Readonly<Record<string, string>> = {
+  bucketSeconds: "Bucket size",
+  baselineMode: "Prior sample",
+  freshCapSeconds: "Freshness cap",
+  kMad: "Sensitivity",
+  openingBaselineBuckets: "Opening sample",
+  openingRampCompleteBuckets: "Ramp complete",
+  trailingBuckets: "Volatility lookback",
+  warmupBuckets: "Opening holdoff",
+};
+
+const PARAM_EXPLAINER_IDS: Readonly<Record<string, ExplainerId>> = {
+  baselineMode: "baseline-source-mode",
+  bucketSeconds: "bucket-seconds",
+  freshCapSeconds: "fresh-cap-seconds",
+  kMad: "k-mad",
+  openingBaselineBuckets: "settings-opening-baseline-buckets",
+  openingRampCompleteBuckets: "settings-opening-ramp-complete-buckets",
+  trailingBuckets: "trailing-buckets",
+  warmupBuckets: "warmup-buckets",
+};
+
+function displayParamName(name: string): string {
+  return PARAM_DISPLAY_NAMES[name] ?? name;
+}
+
+function paramExplainerId(name: string): string {
+  return PARAM_EXPLAINER_IDS[name] ?? name;
+}
+
 function MaybeExplain({ id, children }: { id: string; children: JSX.Element }): JSX.Element {
   if (isExplainerId(id)) {
     return <ExplainerCard id={id}>{children}</ExplainerCard>;
@@ -173,7 +203,9 @@ function ParamRow({
   readonly detectorId: string;
   readonly prop: ParsedProperty;
 }): JSX.Element {
-  const labelEl = <span className="tabular font-mono text-sm text-text-hi">{prop.name}</span>;
+  const labelEl = (
+    <span className="tabular font-mono text-sm text-text-hi">{displayParamName(prop.name)}</span>
+  );
   let control: JSX.Element;
   switch (prop.kind.kind) {
     case "number":
@@ -202,7 +234,7 @@ function ParamRow({
       className="contents"
     >
       <span className={`${FIELD_LABEL_CLASS} self-start py-2`}>
-        <MaybeExplain id={prop.name}>{labelEl}</MaybeExplain>
+        <MaybeExplain id={paramExplainerId(prop.name)}>{labelEl}</MaybeExplain>
       </span>
       <div className="py-2">{control}</div>
     </div>

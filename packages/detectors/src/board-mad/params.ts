@@ -4,15 +4,76 @@
 
 import { z } from "zod";
 
-import { K_MAD_LIVE } from "./config";
+import {
+  BOARD_MAD_BASELINE_MODE_DEFAULT,
+  BOARD_MAD_BASELINE_MODE_OPENING_RAMP,
+  BOARD_MAD_BASELINE_MODE_TRAILING,
+  BOARD_MAD_BUCKET_SECONDS_DEFAULT,
+  BOARD_MAD_BUCKET_SECONDS_MAX,
+  BOARD_MAD_BUCKET_SECONDS_MIN,
+  BOARD_MAD_FRESH_CAP_SECONDS_DEFAULT,
+  BOARD_MAD_FRESH_CAP_SECONDS_MAX,
+  BOARD_MAD_FRESH_CAP_SECONDS_MIN,
+  BOARD_MAD_K_MAD_MAX,
+  BOARD_MAD_K_MAD_MIN,
+  BOARD_MAD_OPENING_BASELINE_BUCKETS_DEFAULT,
+  BOARD_MAD_OPENING_BASELINE_BUCKETS_MAX,
+  BOARD_MAD_OPENING_BASELINE_BUCKETS_MIN,
+  BOARD_MAD_OPENING_RAMP_COMPLETE_BUCKETS_DEFAULT,
+  BOARD_MAD_OPENING_RAMP_COMPLETE_BUCKETS_MAX,
+  BOARD_MAD_OPENING_RAMP_COMPLETE_BUCKETS_MIN,
+  BOARD_MAD_TRAILING_BUCKETS_DEFAULT,
+  BOARD_MAD_TRAILING_BUCKETS_MAX,
+  BOARD_MAD_TRAILING_BUCKETS_MIN,
+  BOARD_MAD_WARMUP_BUCKETS_DEFAULT,
+  BOARD_MAD_WARMUP_BUCKETS_MAX,
+  BOARD_MAD_WARMUP_BUCKETS_MIN,
+  BOARD_MAD_WEIGHTING_DEFAULT,
+  K_MAD_LIVE,
+} from "./config";
 
 export const Params = z.object({
-  bucketSeconds: z.number().int().min(10).max(300).default(60),
-  kMad: z.number().min(1).max(12).default(K_MAD_LIVE),
-  weighting: z.enum(["volume", "equal"]).default("volume"),
-  trailingBuckets: z.number().int().min(5).max(60).default(20),
-  warmupBuckets: z.number().int().min(2).max(20).default(8),
-  freshCapSeconds: z.number().int().min(30).max(3600).default(300),
+  bucketSeconds: z
+    .number()
+    .int()
+    .min(BOARD_MAD_BUCKET_SECONDS_MIN)
+    .max(BOARD_MAD_BUCKET_SECONDS_MAX)
+    .default(BOARD_MAD_BUCKET_SECONDS_DEFAULT),
+  kMad: z.number().min(BOARD_MAD_K_MAD_MIN).max(BOARD_MAD_K_MAD_MAX).default(K_MAD_LIVE),
+  weighting: z.enum(["volume", "equal"]).default(BOARD_MAD_WEIGHTING_DEFAULT),
+  trailingBuckets: z
+    .number()
+    .int()
+    .min(BOARD_MAD_TRAILING_BUCKETS_MIN)
+    .max(BOARD_MAD_TRAILING_BUCKETS_MAX)
+    .default(BOARD_MAD_TRAILING_BUCKETS_DEFAULT),
+  warmupBuckets: z
+    .number()
+    .int()
+    .min(BOARD_MAD_WARMUP_BUCKETS_MIN)
+    .max(BOARD_MAD_WARMUP_BUCKETS_MAX)
+    .default(BOARD_MAD_WARMUP_BUCKETS_DEFAULT),
+  baselineMode: z
+    .enum([BOARD_MAD_BASELINE_MODE_TRAILING, BOARD_MAD_BASELINE_MODE_OPENING_RAMP])
+    .default(BOARD_MAD_BASELINE_MODE_DEFAULT),
+  openingBaselineBuckets: z
+    .number()
+    .int()
+    .min(BOARD_MAD_OPENING_BASELINE_BUCKETS_MIN)
+    .max(BOARD_MAD_OPENING_BASELINE_BUCKETS_MAX)
+    .default(BOARD_MAD_OPENING_BASELINE_BUCKETS_DEFAULT),
+  openingRampCompleteBuckets: z
+    .number()
+    .int()
+    .min(BOARD_MAD_OPENING_RAMP_COMPLETE_BUCKETS_MIN)
+    .max(BOARD_MAD_OPENING_RAMP_COMPLETE_BUCKETS_MAX)
+    .default(BOARD_MAD_OPENING_RAMP_COMPLETE_BUCKETS_DEFAULT),
+  freshCapSeconds: z
+    .number()
+    .int()
+    .min(BOARD_MAD_FRESH_CAP_SECONDS_MIN)
+    .max(BOARD_MAD_FRESH_CAP_SECONDS_MAX)
+    .default(BOARD_MAD_FRESH_CAP_SECONDS_DEFAULT),
 });
 
 export type ParamsResolved = z.infer<typeof Params>;

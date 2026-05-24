@@ -79,14 +79,17 @@ describe("ensemble-or detector", () => {
 
   it("totalFires equals the sum of the two lanes' fires (no double-count)", () => {
     const window = buildWindow();
-    const boardOnly = boardMad.run(window, {
-      bucketSeconds: 60,
-      kMad: 3,
-      weighting: "volume",
-      trailingBuckets: 20,
-      warmupBuckets: 8,
-      freshCapSeconds: 300,
-    });
+    const boardOnly = boardMad.run(
+      window,
+      boardMad.paramsSchema.parse({
+        bucketSeconds: 60,
+        kMad: 3,
+        weighting: "volume",
+        trailingBuckets: 20,
+        warmupBuckets: 8,
+        freshCapSeconds: 300,
+      }),
+    );
     const offOnly = offPricePrint.run(window, {
       minVolumeShare: 0.1,
       minOffPriceDistance: 0.4,

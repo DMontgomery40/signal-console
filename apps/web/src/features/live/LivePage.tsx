@@ -2,7 +2,7 @@
 //
 // Opt-in current-game live view: polls /v1/live/:gameId and /v1/board/:gameId
 // every 30 s and renders a Recharts intensity timeline with fire markers from
-// /v1/board observations at K_MAD_LIVE (the API enforces K=3.0 on this route).
+// /v1/board observations at the live sensitivity default.
 //
 // AC pins from US-031:
 //   • Polls useLive(gameId) and useBoard(gameId) at refetchInterval=30000.
@@ -269,7 +269,7 @@ export function LivePage({ gameId }: LivePageProps): JSX.Element {
       <div className="mt-8" data-testid="live-board-panel">
         <div className="flex items-baseline justify-between gap-6">
           <h3 className="text-sm font-semibold text-text-hi">
-            board-mad fires (K=
+            board-mad fires (sensitivity{" "}
             <span data-testid="live-k" className="text-accent-yellow">
               {k.toFixed(1)}
             </span>

@@ -15,7 +15,7 @@
 //   scope).
 //
 // Observations are persisted with all buckets (not fires-only) so US-037's
-// in-memory Cry Wolf K-sweep can recompute fired flags client-side without
+// in-memory Sensitivity K-sweep can recompute fired flags client-side without
 // re-fetching. Off-price-print has no bucketing — its observations are the
 // fires themselves, each with fired=1.
 

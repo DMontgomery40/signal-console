@@ -1,4 +1,5 @@
 import {
+  KALSHI_NBA_HISTORICAL_PERIOD_INTERVAL_MINUTES,
   syncBet365DirectLive,
   syncBet365Historical,
   syncBet365InternalDump,
@@ -37,7 +38,7 @@ type BackfillOptions = {
   lookbackDays?: number;
   maxEvents?: number;
   maxTickers?: number;
-  periodIntervalMinutes?: 1 | 60;
+  periodIntervalMinutes?: typeof KALSHI_NBA_HISTORICAL_PERIOD_INTERVAL_MINUTES;
   since?: string;
   target: BackfillTarget;
   until?: string;
@@ -93,7 +94,10 @@ function parseArgs(argv: string[]): BackfillOptions {
     lookbackDays: asNumber(args.lookbackDays) ?? DEFAULT_LOOKBACK_DAYS,
     maxEvents: asNumber(args.maxEvents),
     maxTickers: asNumber(args.maxTickers),
-    periodIntervalMinutes: period === 1 || period === 60 ? (period as 1 | 60) : undefined,
+    periodIntervalMinutes:
+      period === KALSHI_NBA_HISTORICAL_PERIOD_INTERVAL_MINUTES
+        ? KALSHI_NBA_HISTORICAL_PERIOD_INTERVAL_MINUTES
+        : undefined,
     since: args.since,
     target,
     until: args.until,
@@ -107,7 +111,9 @@ function printUsage() {
     "Usage:",
     "  pnpm backfill nba [--lookbackDays 365] [--lookaheadDays 0]",
     "  pnpm backfill kalshi [--since 2026-04-20] [--maxEvents N]",
-    "  pnpm backfill kalshi-historical [--maxEvents N] [--periodInterval 1|60]",
+    `  pnpm backfill kalshi-historical [--maxEvents N] [--periodInterval ${String(
+      KALSHI_NBA_HISTORICAL_PERIOD_INTERVAL_MINUTES,
+    )}]`,
     "  pnpm backfill kalshi-trades --since 2026-05-11T20:00:00Z --until 2026-05-12T08:00:00Z [--gameId nba-0042500224] [--maxTickers N]",
     "  pnpm backfill polymarket [--since 2024-10-01] [--maxEvents N] [--fidelity 1]",
     "  pnpm backfill polymarket-trades --since 2026-05-18T00:00:00Z --until 2026-05-18T05:30:00Z [--gameId nba-0042500207] [--maxTickers N]",
@@ -156,7 +162,8 @@ async function runKalshiHistorical(
 ) {
   const summary = await syncKalshiNbaHistorical({
     maxEvents: options.maxEvents,
-    periodIntervalMinutes: options.periodIntervalMinutes ?? 60,
+    periodIntervalMinutes:
+      options.periodIntervalMinutes ?? KALSHI_NBA_HISTORICAL_PERIOD_INTERVAL_MINUTES,
   });
   logger.info(summary, "Kalshi NBA historical backfill completed.");
   return summary;

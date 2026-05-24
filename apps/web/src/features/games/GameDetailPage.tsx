@@ -314,7 +314,7 @@ export function GameDetailPage({ gameId }: GameDetailPageProps): JSX.Element {
           <p className="mt-3 font-mono text-sm text-text-md">Loading fires…</p>
         ) : board.isError ? null : fires.length === 0 ? (
           <p className="mt-3 font-mono text-sm text-text-lo" data-testid="no-fires-empty-state">
-            No fires recorded for this game at K=3.0 (live default)
+            No fires recorded for this game at live sensitivity 3.0
           </p>
         ) : (
           <div className="mt-3 max-h-[70vh] overflow-y-auto bg-surface-1">

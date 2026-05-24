@@ -1,6 +1,17 @@
 import { describe, expect, it } from "vitest";
 
 import type { DetectorWindow, Tick } from "../../types";
+import {
+  BOARD_MAD_BASELINE_MODE_DEFAULT,
+  BOARD_MAD_BUCKET_SECONDS_DEFAULT,
+  BOARD_MAD_FRESH_CAP_SECONDS_DEFAULT,
+  BOARD_MAD_OPENING_BASELINE_BUCKETS_DEFAULT,
+  BOARD_MAD_OPENING_RAMP_COMPLETE_BUCKETS_DEFAULT,
+  BOARD_MAD_TRAILING_BUCKETS_DEFAULT,
+  BOARD_MAD_WARMUP_BUCKETS_DEFAULT,
+  BOARD_MAD_WEIGHTING_DEFAULT,
+  K_MAD_LIVE,
+} from "../config";
 import { detector, Params } from "../index";
 
 const defaults = (): ReturnType<typeof Params.parse> => Params.parse({});
@@ -15,18 +26,21 @@ const windowOf = (gameIds: readonly string[], ticks: readonly Tick[]): DetectorW
 describe("board-mad detector", () => {
   it("identity matches PRD §10", () => {
     expect(detector.id).toBe("board-mad");
-    expect(detector.version).toBe("1.1.0");
+    expect(detector.version).toBe("1.2.0");
     expect(detector.displayName).toBe("Board MAD (whole-board volatility)");
   });
 
   it("default Params resolves K to live default 3.0 and weighting='volume'", () => {
     const p = defaults();
-    expect(p.kMad).toBe(3.0);
-    expect(p.weighting).toBe("volume");
-    expect(p.bucketSeconds).toBe(60);
-    expect(p.trailingBuckets).toBe(20);
-    expect(p.warmupBuckets).toBe(8);
-    expect(p.freshCapSeconds).toBe(300);
+    expect(p.kMad).toBe(K_MAD_LIVE);
+    expect(p.weighting).toBe(BOARD_MAD_WEIGHTING_DEFAULT);
+    expect(p.bucketSeconds).toBe(BOARD_MAD_BUCKET_SECONDS_DEFAULT);
+    expect(p.trailingBuckets).toBe(BOARD_MAD_TRAILING_BUCKETS_DEFAULT);
+    expect(p.warmupBuckets).toBe(BOARD_MAD_WARMUP_BUCKETS_DEFAULT);
+    expect(p.baselineMode).toBe(BOARD_MAD_BASELINE_MODE_DEFAULT);
+    expect(p.openingBaselineBuckets).toBe(BOARD_MAD_OPENING_BASELINE_BUCKETS_DEFAULT);
+    expect(p.openingRampCompleteBuckets).toBe(BOARD_MAD_OPENING_RAMP_COMPLETE_BUCKETS_DEFAULT);
+    expect(p.freshCapSeconds).toBe(BOARD_MAD_FRESH_CAP_SECONDS_DEFAULT);
   });
 
   it("returns empty fires and zero firesPerGame on empty ticks (US-009 AC)", () => {

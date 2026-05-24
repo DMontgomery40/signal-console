@@ -1,7 +1,31 @@
-// K_MAD_LIVE — live default / sensitive ~18 fires/game.
-// Used by Recent, Live, and any non-Backtest surface.
+// Live sensitivity default: used by Recent, Live, and any non-Backtest surface.
 export const K_MAD_LIVE = 3.0;
 
-// K_MAD_CALM — Backtest calm comparison preset ~9 fires/game.
-// Snap-point on the Cry Wolf dial; never used by Live or Recent.
+// Backtest calm comparison preset, never used by Live or Recent.
 export const K_MAD_CALM = 6.0;
+
+export const BOARD_MAD_MAD_FLOOR = 1e-9;
+export const BOARD_MAD_BUCKET_SECONDS_MIN = 10;
+export const BOARD_MAD_BUCKET_SECONDS_MAX = 300;
+export const BOARD_MAD_BUCKET_SECONDS_DEFAULT = 60;
+export const BOARD_MAD_K_MAD_MIN = 1;
+export const BOARD_MAD_K_MAD_MAX = 12;
+export const BOARD_MAD_TRAILING_BUCKETS_MIN = 5;
+export const BOARD_MAD_TRAILING_BUCKETS_MAX = 60;
+export const BOARD_MAD_TRAILING_BUCKETS_DEFAULT = 20;
+export const BOARD_MAD_WARMUP_BUCKETS_MIN = 2;
+export const BOARD_MAD_WARMUP_BUCKETS_MAX = 20;
+export const BOARD_MAD_WARMUP_BUCKETS_DEFAULT = 8;
+export const BOARD_MAD_FRESH_CAP_SECONDS_MIN = 30;
+export const BOARD_MAD_FRESH_CAP_SECONDS_MAX = 3600;
+export const BOARD_MAD_FRESH_CAP_SECONDS_DEFAULT = 300;
+export const BOARD_MAD_WEIGHTING_DEFAULT = "volume";
+export const BOARD_MAD_BASELINE_MODE_TRAILING = "trailing";
+export const BOARD_MAD_BASELINE_MODE_OPENING_RAMP = "opening-ramp";
+export const BOARD_MAD_BASELINE_MODE_DEFAULT = BOARD_MAD_BASELINE_MODE_TRAILING;
+export const BOARD_MAD_OPENING_BASELINE_BUCKETS_MIN = 1;
+export const BOARD_MAD_OPENING_BASELINE_BUCKETS_MAX = 60;
+export const BOARD_MAD_OPENING_BASELINE_BUCKETS_DEFAULT = 4;
+export const BOARD_MAD_OPENING_RAMP_COMPLETE_BUCKETS_MIN = 2;
+export const BOARD_MAD_OPENING_RAMP_COMPLETE_BUCKETS_MAX = 120;
+export const BOARD_MAD_OPENING_RAMP_COMPLETE_BUCKETS_DEFAULT = BOARD_MAD_TRAILING_BUCKETS_DEFAULT;

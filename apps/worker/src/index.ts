@@ -1,4 +1,5 @@
 import {
+  KALSHI_NBA_HISTORICAL_PERIOD_INTERVAL_MINUTES,
   syncBet365Historical,
   syncKalshiNbaDirect,
   syncKalshiNbaHistorical,
@@ -223,7 +224,7 @@ async function executeQueuedMarketsBackfill(
     await options.syncKalshiHistorical({
       games: scopedGames ?? undefined,
       maxEvents: 100,
-      periodIntervalMinutes: 60,
+      periodIntervalMinutes: KALSHI_NBA_HISTORICAL_PERIOD_INTERVAL_MINUTES,
     });
     if (payload.source === "kalshi") {
       return;

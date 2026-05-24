@@ -4,6 +4,7 @@ import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { KALSHI_NBA_HISTORICAL_PERIOD_INTERVAL_MINUTES } from "@signal-console/adapters";
 import {
   createAppLogger,
   enqueueMarketBackfill,
@@ -733,6 +734,7 @@ describe("worker runtime", () => {
             game: expect.objectContaining({ id: "nba-0022600001" }),
           }),
         ],
+        periodIntervalMinutes: KALSHI_NBA_HISTORICAL_PERIOD_INTERVAL_MINUTES,
       }),
     );
   });

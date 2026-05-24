@@ -1,24 +1,40 @@
 import { describe, expect, it } from "vitest";
 
+import {
+  BOARD_MAD_BASELINE_MODE_DEFAULT,
+  BOARD_MAD_BASELINE_MODE_OPENING_RAMP,
+  BOARD_MAD_BUCKET_SECONDS_DEFAULT,
+  BOARD_MAD_FRESH_CAP_SECONDS_DEFAULT,
+  BOARD_MAD_OPENING_BASELINE_BUCKETS_DEFAULT,
+  BOARD_MAD_OPENING_RAMP_COMPLETE_BUCKETS_DEFAULT,
+  BOARD_MAD_TRAILING_BUCKETS_DEFAULT,
+  BOARD_MAD_WARMUP_BUCKETS_DEFAULT,
+} from "../config";
 import type { BucketSeries } from "../prebucket";
 import { runSweep, type SweepParams } from "../sweep";
 
 const DEFAULT_PARAMS: SweepParams = {
-  bucketSeconds: 60,
+  baselineMode: BOARD_MAD_BASELINE_MODE_DEFAULT,
+  bucketSeconds: BOARD_MAD_BUCKET_SECONDS_DEFAULT,
+  freshCapSeconds: BOARD_MAD_FRESH_CAP_SECONDS_DEFAULT,
+  openingBaselineBuckets: BOARD_MAD_OPENING_BASELINE_BUCKETS_DEFAULT,
+  openingRampCompleteBuckets: BOARD_MAD_OPENING_RAMP_COMPLETE_BUCKETS_DEFAULT,
+  trailingBuckets: BOARD_MAD_TRAILING_BUCKETS_DEFAULT,
+  warmupBuckets: BOARD_MAD_WARMUP_BUCKETS_DEFAULT,
   weighting: "volume",
-  trailingBuckets: 20,
-  warmupBuckets: 8,
-  freshCapSeconds: 300,
 };
 
 // Build a synthetic single-game BucketSeries with `n` buckets at 60s spacing.
 // The intensity profile is a calm baseline near 0.05 with periodic spikes of
 // magnitude 2.0..6.0 every 13 buckets. The spike heights are large enough that
 // at K=3 most spikes fire; at K=6 fewer do; at K=12 essentially none should.
-const buildSeries = (n: number, bucketSeconds = 60): BucketSeries => ({
+const buildSeries = (
+  n: number,
+  bucketSeconds = BOARD_MAD_BUCKET_SECONDS_DEFAULT,
+): BucketSeries => ({
   bucketSeconds,
   weighting: "volume",
-  freshCapSeconds: 300,
+  freshCapSeconds: BOARD_MAD_FRESH_CAP_SECONDS_DEFAULT,
   perGame: [
     {
       gameId: "synth",
@@ -84,14 +100,14 @@ describe("runSweep", () => {
     // (so neither count is zero, which would make >= trivially true).
     const spikeIndices = new Set([3, 5, 7, 25]);
     const targetedSeries: BucketSeries = {
-      bucketSeconds: 60,
+      bucketSeconds: BOARD_MAD_BUCKET_SECONDS_DEFAULT,
       weighting: "volume",
-      freshCapSeconds: 300,
+      freshCapSeconds: BOARD_MAD_FRESH_CAP_SECONDS_DEFAULT,
       perGame: [
         {
           gameId: "synth-warmup",
           buckets: Array.from({ length: 40 }, (_, i) => ({
-            bucket: i * 60,
+            bucket: i * BOARD_MAD_BUCKET_SECONDS_DEFAULT,
             intensity: spikeIndices.has(i) ? 1.0 : 0.05,
           })),
         },
@@ -108,9 +124,38 @@ describe("runSweep", () => {
     expect(lowCount).toBeGreaterThan(highCount);
   });
 
+  it("opening-ramp baseline can judge first eligible bucket against the opening sample", () => {
+    const openingRampSeries: BucketSeries = {
+      bucketSeconds: BOARD_MAD_BUCKET_SECONDS_DEFAULT,
+      weighting: "volume",
+      freshCapSeconds: BOARD_MAD_FRESH_CAP_SECONDS_DEFAULT,
+      perGame: [
+        {
+          gameId: "synth-opening-ramp",
+          buckets: [1, 1, 1, 1, 100, 100, 100, 100, 2].map((intensity, i) => ({
+            bucket: i * BOARD_MAD_BUCKET_SECONDS_DEFAULT,
+            intensity,
+          })),
+        },
+      ],
+    };
+    const trailing = runSweep(openingRampSeries, [1.0], DEFAULT_PARAMS);
+    const openingRamp = runSweep(openingRampSeries, [1.0], {
+      ...DEFAULT_PARAMS,
+      baselineMode: BOARD_MAD_BASELINE_MODE_OPENING_RAMP,
+      openingBaselineBuckets: BOARD_MAD_OPENING_BASELINE_BUCKETS_DEFAULT,
+      openingRampCompleteBuckets: BOARD_MAD_OPENING_RAMP_COMPLETE_BUCKETS_DEFAULT,
+    });
+
+    expect(trailing[0]?.fires.length ?? 0).toBe(0);
+    expect(openingRamp[0]?.fires.map((fire) => fire.bucketStart.toISOString())).toEqual([
+      "1970-01-01T00:08:00.000Z",
+    ]);
+  });
+
   it("over 100 K-values on a 28-day-equivalent bucket series scales from a shared baseline pass", () => {
     // 28 days × 24 h × 60 min = 40320 one-minute buckets — the conservative
-    // upper bound on a single-game bucket count for the Cry Wolf dial. This
+    // upper bound on a single-game bucket count for the Sensitivity dial. This
     // is the AC's "sub-second dial response" proxy. Avoid a brittle absolute
     // wall-clock assertion: loaded CI can make a good O(B + K*B) implementation
     // look slow. Instead compare one K against 100 K; recomputing baselines per

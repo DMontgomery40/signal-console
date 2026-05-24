@@ -2,12 +2,12 @@
 //
 // Scope of this story is the FORM SCAFFOLD: date range + game scope + detector
 // selector + an auto-rendered editable param form + empty results panel. The
-// Cry Wolf rotary dial (US-036), live preview metric (US-037), per-game
+// Sensitivity rotary dial (US-036), live preview metric (US-037), per-game
 // timeline (US-038), Reaves/Hartenstein anchor display (US-039), and warmup
 // dial (US-042) attach in later stories.
 //
-// In-memory recompute (round-trip stability): editing kMad, trailingBuckets,
-// or warmupBuckets re-derives the fires/game stat from the cached
+// In-memory recompute (round-trip stability): editing sensitivity,
+// signal timing, trailingBuckets, or warmupBuckets re-derives the fires/game stat from the cached
 // observations (`applyClientRecompute`) without re-hitting /v1/backtest. The
 // remaining knobs (bucketSeconds, weighting, freshCapSeconds) re-roll the
 // prebucket so they require a fresh Run — the UI marks them as such.
@@ -38,23 +38,53 @@ import {
   ENSEMBLE_OR_DETECTOR_ID,
 } from "./clientRecompute";
 import { BacktestTimelines } from "./BacktestTimelines";
-import { CryWolfDial } from "./CryWolfDial";
+import { SensitivityDial } from "./SensitivityDial";
 import { MemoryDial } from "./MemoryDial";
 import { PbpAnchoredIncidents } from "./PbpAnchoredIncidents";
 import { WarmupDial } from "./WarmupDial";
-import { K_MAD_LIVE } from "@signal-console/detectors/board-mad/config";
+import {
+  BOARD_MAD_BASELINE_MODE_DEFAULT,
+  BOARD_MAD_BASELINE_MODE_OPENING_RAMP,
+  BOARD_MAD_BASELINE_MODE_TRAILING,
+  BOARD_MAD_OPENING_BASELINE_BUCKETS_DEFAULT,
+  BOARD_MAD_OPENING_BASELINE_BUCKETS_MAX,
+  BOARD_MAD_OPENING_BASELINE_BUCKETS_MIN,
+  BOARD_MAD_OPENING_RAMP_COMPLETE_BUCKETS_DEFAULT,
+  BOARD_MAD_OPENING_RAMP_COMPLETE_BUCKETS_MAX,
+  BOARD_MAD_OPENING_RAMP_COMPLETE_BUCKETS_MIN,
+  BOARD_MAD_BUCKET_SECONDS_DEFAULT,
+  BOARD_MAD_TRAILING_BUCKETS_DEFAULT,
+  BOARD_MAD_WARMUP_BUCKETS_DEFAULT,
+  K_MAD_LIVE,
+} from "@signal-console/detectors/board-mad/config";
 
 const KMAD_PARAM_NAME = "kMad";
+const BUCKET_SECONDS_PARAM_NAME = "bucketSeconds";
+const BASELINE_MODE_PARAM_NAME = "baselineMode";
+const OPENING_BASELINE_PARAM_NAME = "openingBaselineBuckets";
+const OPENING_RAMP_COMPLETE_PARAM_NAME = "openingRampCompleteBuckets";
 const TRAILING_PARAM_NAME = "trailingBuckets";
 const WARMUP_PARAM_NAME = "warmupBuckets";
-const TRAILING_DEFAULT = 20;
-const WARMUP_DEFAULT = 8;
+const BUCKET_SECONDS_DEFAULT = BOARD_MAD_BUCKET_SECONDS_DEFAULT;
+const BASELINE_MODE_DEFAULT = BOARD_MAD_BASELINE_MODE_DEFAULT;
+const OPENING_BASELINE_DEFAULT = BOARD_MAD_OPENING_BASELINE_BUCKETS_DEFAULT;
+const OPENING_BASELINE_MIN = BOARD_MAD_OPENING_BASELINE_BUCKETS_MIN;
+const OPENING_BASELINE_MAX = BOARD_MAD_OPENING_BASELINE_BUCKETS_MAX;
+const OPENING_RAMP_COMPLETE_DEFAULT = BOARD_MAD_OPENING_RAMP_COMPLETE_BUCKETS_DEFAULT;
+const OPENING_RAMP_COMPLETE_MIN = BOARD_MAD_OPENING_RAMP_COMPLETE_BUCKETS_MIN;
+const OPENING_RAMP_COMPLETE_MAX = BOARD_MAD_OPENING_RAMP_COMPLETE_BUCKETS_MAX;
+const TRAILING_DEFAULT = BOARD_MAD_TRAILING_BUCKETS_DEFAULT;
+const WARMUP_DEFAULT = BOARD_MAD_WARMUP_BUCKETS_DEFAULT;
 
 function readNumber(v: unknown, fallback: number): number {
   return typeof v === "number" && Number.isFinite(v) ? v : fallback;
 }
 
-// Both board-mad and ensemble-or share the board lane's K/Memory/Warmup knobs.
+function readString(v: unknown, fallback: string): string {
+  return typeof v === "string" && v.length > 0 ? v : fallback;
+}
+
+// Both board-mad and ensemble-or share the board lane's sensitivity/baseline-timing knobs.
 // The dials are the marquee Backtest UX so they render for either detector;
 // the difference is just where in the params tree the values live.
 function isBoardLikeDetector(id: string | undefined): boolean {
@@ -79,6 +109,20 @@ function readBoardParam(
     return fallback;
   }
   return readNumber(params[name], fallback);
+}
+
+function readBoardStringParam(
+  params: Readonly<Record<string, unknown>>,
+  detectorId: string | undefined,
+  name: string,
+  fallback: string,
+): string {
+  if (detectorId === ENSEMBLE_OR_DETECTOR_ID) {
+    const board = params["board"];
+    if (isPlainRecord(board)) return readString(board[name], fallback);
+    return fallback;
+  }
+  return readString(params[name], fallback);
 }
 
 function readBoardKMad(
@@ -305,6 +349,120 @@ function ParamRow({
   );
 }
 
+interface SignalTimingPanelProps {
+  readonly baselineMode: string;
+  readonly memoryValue: number;
+  readonly bucketSeconds: number;
+  readonly openingBaselineValue: number;
+  readonly openingRampCompleteValue: number;
+  readonly warmupValue: number;
+  readonly onBaselineModeChange: (next: string) => void;
+  readonly onMemoryChange: (next: number) => void;
+  readonly onOpeningBaselineChange: (next: number) => void;
+  readonly onOpeningRampCompleteChange: (next: number) => void;
+  readonly onWarmupChange: (next: number) => void;
+}
+
+function SignalTimingPanel({
+  baselineMode,
+  memoryValue,
+  bucketSeconds,
+  openingBaselineValue,
+  openingRampCompleteValue,
+  warmupValue,
+  onBaselineModeChange,
+  onMemoryChange,
+  onOpeningBaselineChange,
+  onOpeningRampCompleteChange,
+  onWarmupChange,
+}: SignalTimingPanelProps): JSX.Element {
+  return (
+    <div
+      data-testid="backtest-signal-timing-panel"
+      className="border border-surface-2 bg-surface-0/70 px-5 py-4"
+    >
+      <div className="border-b border-surface-2 pb-3">
+        <ExplainerCard id="baseline-timing-controls">
+          <span className="text-text-hi text-sm font-semibold uppercase tracking-[0.08em]">
+            Signal timing
+          </span>
+        </ExplainerCard>
+        <p className="mt-1 max-w-[58ch] text-xs text-text-md">
+          How quickly the detector trusts this game: which prior sample defines normal, how fast it
+          graduates, and the opening holdoff before the first fire can happen.
+        </p>
+      </div>
+      <div className="mt-5 grid gap-6">
+        <div className="grid gap-3">
+          <label className="flex flex-col gap-1">
+            <span className={FIELD_LABEL_CLASS}>
+              <ExplainerCard id="baseline-source-mode">Prior sample</ExplainerCard>
+            </span>
+            <select
+              value={baselineMode}
+              onChange={(e) => {
+                onBaselineModeChange(e.target.value);
+              }}
+              className={SELECT_CLASS}
+              data-testid="backtest-baseline-mode"
+              aria-label="baseline mode"
+            >
+              <option value={BOARD_MAD_BASELINE_MODE_TRAILING}>Rolling current game</option>
+              <option value={BOARD_MAD_BASELINE_MODE_OPENING_RAMP}>Opening sample ramp</option>
+            </select>
+          </label>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="flex flex-col gap-1">
+              <span className={FIELD_LABEL_CLASS}>
+                <ExplainerCard id="settings-opening-baseline-buckets">Opening sample</ExplainerCard>
+              </span>
+              <input
+                type="number"
+                min={OPENING_BASELINE_MIN}
+                max={OPENING_BASELINE_MAX}
+                step={1}
+                value={String(openingBaselineValue)}
+                onChange={(e) => {
+                  const parsed = Number.parseInt(e.target.value, 10);
+                  if (Number.isFinite(parsed)) onOpeningBaselineChange(parsed);
+                }}
+                className={NUMBER_INPUT_CLASS}
+                data-testid="backtest-opening-baseline-buckets"
+                aria-label="opening baseline buckets"
+              />
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className={FIELD_LABEL_CLASS}>
+                <ExplainerCard id="settings-opening-ramp-complete-buckets">
+                  Ramp complete
+                </ExplainerCard>
+              </span>
+              <input
+                type="number"
+                min={OPENING_RAMP_COMPLETE_MIN}
+                max={OPENING_RAMP_COMPLETE_MAX}
+                step={1}
+                value={String(openingRampCompleteValue)}
+                onChange={(e) => {
+                  const parsed = Number.parseInt(e.target.value, 10);
+                  if (Number.isFinite(parsed)) onOpeningRampCompleteChange(parsed);
+                }}
+                className={NUMBER_INPUT_CLASS}
+                data-testid="backtest-opening-ramp-complete-buckets"
+                aria-label="opening ramp complete buckets"
+              />
+            </label>
+          </div>
+        </div>
+        <MemoryDial value={memoryValue} bucketSeconds={bucketSeconds} onChange={onMemoryChange} />
+        <div className="border-t border-surface-2 pt-5" data-testid="backtest-warmup-dial">
+          <WarmupDial value={warmupValue} bucketSeconds={bucketSeconds} onChange={onWarmupChange} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Page ─────────────────────────────────────────────────────────────────
 
 type ScopeMode = "all" | "specific";
@@ -367,9 +525,20 @@ function readRenderedResultKMad(
   return readBoardKMad(paramsForRenderedRows, snapshot.detectorId);
 }
 
+function formatFiresPerGamePreview(
+  pending: boolean,
+  hasSnapshot: boolean,
+  firesPerGame: number | null,
+): string {
+  if (pending) return "…";
+  if (!hasSnapshot || firesPerGame === null) return "—";
+  return firesPerGame.toFixed(2);
+}
+
 // True when any param that the client cannot re-apply has drifted from the
-// snapshot's last-run values. Board-like detectors can recompute K/Memory/Warmup
-// in memory, but bucket/weighting/freshness changes still need a server run.
+// snapshot's last-run values. Board-like detectors can recompute sensitivity,
+// volatility lookback, and opening holdoff in memory, but bucket/weighting/freshness changes still need
+// a server run.
 function snapshotIsStale(
   snapshot: RunSnapshot,
   currentParams: Readonly<Record<string, unknown>>,
@@ -538,6 +707,54 @@ export function BacktestPage(): JSX.Element {
     selectedDetector?.id,
     recomputeView,
   );
+  const firesPerGamePreview = formatFiresPerGamePreview(
+    runMutation.isPending,
+    snapshot !== null,
+    recomputeView?.stats.firesPerGame ?? null,
+  );
+  const boardLikeSelected = isBoardLikeDetector(selectedDetector?.id);
+  const currentSensitivity = readBoardParam(
+    form.params,
+    selectedDetector?.id,
+    KMAD_PARAM_NAME,
+    K_MAD_LIVE,
+  );
+  const currentBucketSeconds = readBoardParam(
+    form.params,
+    selectedDetector?.id,
+    BUCKET_SECONDS_PARAM_NAME,
+    BUCKET_SECONDS_DEFAULT,
+  );
+  const currentBaselineMode = readBoardStringParam(
+    form.params,
+    selectedDetector?.id,
+    BASELINE_MODE_PARAM_NAME,
+    BASELINE_MODE_DEFAULT,
+  );
+  const currentOpeningBaselineBuckets = readBoardParam(
+    form.params,
+    selectedDetector?.id,
+    OPENING_BASELINE_PARAM_NAME,
+    OPENING_BASELINE_DEFAULT,
+  );
+  const currentOpeningRampCompleteBuckets = readBoardParam(
+    form.params,
+    selectedDetector?.id,
+    OPENING_RAMP_COMPLETE_PARAM_NAME,
+    OPENING_RAMP_COMPLETE_DEFAULT,
+  );
+  const currentMemoryBuckets = readBoardParam(
+    form.params,
+    selectedDetector?.id,
+    TRAILING_PARAM_NAME,
+    TRAILING_DEFAULT,
+  );
+  const currentWarmupBuckets = readBoardParam(
+    form.params,
+    selectedDetector?.id,
+    WARMUP_PARAM_NAME,
+    WARMUP_DEFAULT,
+  );
 
   return (
     <section data-testid="backtest-page">
@@ -550,8 +767,8 @@ export function BacktestPage(): JSX.Element {
         </p>
       </div>
       <p className="mt-2 text-sm text-text-md">
-        Replay a detector over a window. The K dial recomputes the live preview in memory after the
-        first sweep — no API round-trip.
+        Replay a detector over a window. The sensitivity dial recomputes the live preview in memory
+        after the first sweep — no API round-trip.
       </p>
 
       <form
@@ -561,280 +778,264 @@ export function BacktestPage(): JSX.Element {
           handleRun();
         }}
       >
-        {/* Date range */}
-        <div data-testid="backtest-window">
-          <div className={SECTION_LABEL_CLASS}>Window</div>
-          <div className="mt-3 flex flex-wrap items-end gap-4">
-            <label className="flex flex-col gap-1">
-              <span className={FIELD_LABEL_CLASS}>Start</span>
-              <input
-                type="date"
-                value={form.startDate}
-                onChange={(e) => {
-                  setForm((prev) => ({ ...prev, startDate: e.target.value }));
-                }}
-                className={INPUT_CLASS}
-                data-testid="backtest-window-start"
-              />
-            </label>
-            <label className="flex flex-col gap-1">
-              <span className={FIELD_LABEL_CLASS}>End</span>
-              <input
-                type="date"
-                value={form.endDate}
-                onChange={(e) => {
-                  setForm((prev) => ({ ...prev, endDate: e.target.value }));
-                }}
-                className={INPUT_CLASS}
-                data-testid="backtest-window-end"
-              />
-            </label>
-            <span className={FIELD_HINT_CLASS} data-testid="backtest-window-span">
-              {Number.isFinite(windowDays) ? `${String(windowDays)} day span` : "—"}
-            </span>
-          </div>
-          {windowError !== null ? (
-            <p
-              data-testid="backtest-window-error"
-              className="mt-2 font-mono text-xs text-accent-yellow"
-            >
-              {windowError}
-            </p>
-          ) : null}
-        </div>
-
-        {/* Game scope */}
-        <div data-testid="backtest-scope">
-          <div className={SECTION_LABEL_CLASS}>Game scope</div>
-          <div className="mt-3 flex flex-col gap-3">
-            <label className="inline-flex items-center gap-2">
-              <input
-                type="radio"
-                name="backtest-scope-mode"
-                value="all"
-                checked={form.scopeMode === "all"}
-                onChange={() => {
-                  setForm((prev) => ({ ...prev, scopeMode: "all" }));
-                }}
-                data-testid="backtest-scope-all"
-              />
-              <span className="text-sm text-text-md">
-                All games in window (discovered up to {String(MAX_GAMES)})
-              </span>
-            </label>
-            <label className="inline-flex items-center gap-2">
-              <input
-                type="radio"
-                name="backtest-scope-mode"
-                value="specific"
-                checked={form.scopeMode === "specific"}
-                onChange={() => {
-                  setForm((prev) => ({ ...prev, scopeMode: "specific" }));
-                }}
-                data-testid="backtest-scope-specific"
-              />
-              <span className="text-sm text-text-md">
-                Specific game ids (one per line; up to {String(MAX_GAMES)})
-              </span>
-            </label>
-            {form.scopeMode === "specific" ? (
-              <div className="flex flex-col gap-1">
-                <textarea
-                  value={form.gameIdsText}
-                  onChange={(e) => {
-                    setForm((prev) => ({ ...prev, gameIdsText: e.target.value }));
-                  }}
-                  placeholder="nba-0042500222"
-                  className={TEXTAREA_CLASS}
-                  data-testid="backtest-game-ids"
-                  rows={4}
-                />
-                <span className={FIELD_HINT_CLASS} data-testid="backtest-game-ids-count">
-                  {String(parsedGameIds.length)} id{parsedGameIds.length === 1 ? "" : "s"}
+        <div className="grid gap-8 xl:grid-cols-[minmax(300px,420px)_minmax(150px,220px)_minmax(360px,1fr)] xl:items-start">
+          <div className="space-y-8">
+            {/* Date range */}
+            <div data-testid="backtest-window">
+              <div className={SECTION_LABEL_CLASS}>Window</div>
+              <div className="mt-3 flex flex-wrap items-end gap-4">
+                <label className="flex flex-col gap-1">
+                  <span className={FIELD_LABEL_CLASS}>Start</span>
+                  <input
+                    type="date"
+                    value={form.startDate}
+                    onChange={(e) => {
+                      setForm((prev) => ({ ...prev, startDate: e.target.value }));
+                    }}
+                    className={INPUT_CLASS}
+                    data-testid="backtest-window-start"
+                  />
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span className={FIELD_LABEL_CLASS}>End</span>
+                  <input
+                    type="date"
+                    value={form.endDate}
+                    onChange={(e) => {
+                      setForm((prev) => ({ ...prev, endDate: e.target.value }));
+                    }}
+                    className={INPUT_CLASS}
+                    data-testid="backtest-window-end"
+                  />
+                </label>
+                <span className={FIELD_HINT_CLASS} data-testid="backtest-window-span">
+                  {Number.isFinite(windowDays) ? `${String(windowDays)} day span` : "—"}
                 </span>
-                {gameIdsError !== null ? (
-                  <p
-                    data-testid="backtest-scope-error"
-                    className="font-mono text-xs text-accent-yellow"
-                  >
-                    {gameIdsError}
-                  </p>
+              </div>
+              {windowError !== null ? (
+                <p
+                  data-testid="backtest-window-error"
+                  className="mt-2 font-mono text-xs text-accent-yellow"
+                >
+                  {windowError}
+                </p>
+              ) : null}
+            </div>
+
+            {/* Game scope */}
+            <div data-testid="backtest-scope">
+              <div className={SECTION_LABEL_CLASS}>Game scope</div>
+              <div className="mt-3 flex flex-col gap-3">
+                <label className="inline-flex items-center gap-2">
+                  <input
+                    type="radio"
+                    name="backtest-scope-mode"
+                    value="all"
+                    checked={form.scopeMode === "all"}
+                    onChange={() => {
+                      setForm((prev) => ({ ...prev, scopeMode: "all" }));
+                    }}
+                    data-testid="backtest-scope-all"
+                  />
+                  <span className="text-sm text-text-md">
+                    All games in window (discovered up to {String(MAX_GAMES)})
+                  </span>
+                </label>
+                <label className="inline-flex items-center gap-2">
+                  <input
+                    type="radio"
+                    name="backtest-scope-mode"
+                    value="specific"
+                    checked={form.scopeMode === "specific"}
+                    onChange={() => {
+                      setForm((prev) => ({ ...prev, scopeMode: "specific" }));
+                    }}
+                    data-testid="backtest-scope-specific"
+                  />
+                  <span className="text-sm text-text-md">
+                    Specific game ids (one per line; up to {String(MAX_GAMES)})
+                  </span>
+                </label>
+                {form.scopeMode === "specific" ? (
+                  <div className="flex flex-col gap-1">
+                    <textarea
+                      value={form.gameIdsText}
+                      onChange={(e) => {
+                        setForm((prev) => ({ ...prev, gameIdsText: e.target.value }));
+                      }}
+                      placeholder="nba-0042500222"
+                      className={TEXTAREA_CLASS}
+                      data-testid="backtest-game-ids"
+                      rows={4}
+                    />
+                    <span className={FIELD_HINT_CLASS} data-testid="backtest-game-ids-count">
+                      {String(parsedGameIds.length)} id{parsedGameIds.length === 1 ? "" : "s"}
+                    </span>
+                    {gameIdsError !== null ? (
+                      <p
+                        data-testid="backtest-scope-error"
+                        className="font-mono text-xs text-accent-yellow"
+                      >
+                        {gameIdsError}
+                      </p>
+                    ) : null}
+                  </div>
                 ) : null}
               </div>
-            ) : null}
-          </div>
-        </div>
-
-        {/* Detector selector */}
-        <div data-testid="backtest-detector">
-          <div className={SECTION_LABEL_CLASS}>Detector</div>
-          <div className="mt-3">
-            {detectorsQuery.isLoading ? (
-              <p className="text-sm text-text-md">Loading detectors…</p>
-            ) : detectorRows.length === 0 ? (
-              <p className="text-sm text-text-md">No detectors registered.</p>
-            ) : (
-              <select
-                value={form.detectorId}
-                onChange={(e) => {
-                  handleDetectorChange(e.target.value);
-                }}
-                className={SELECT_CLASS}
-                data-testid="backtest-detector-select"
-                aria-label="detector"
-              >
-                {detectorRows.map((d) => (
-                  <option key={d.id} value={d.id}>
-                    {d.displayName}
-                  </option>
-                ))}
-              </select>
-            )}
-          </div>
-
-          {/* The Dials panel (US-053): two rotary dials side-by-side — Cry
-              Wolf K (threshold) and Memory (trailing window). Both feed the
-              in-memory recompute pipeline so dragging either updates the
-              live preview without an API round-trip. Their controlled params
-              (kMad, trailingBuckets) are omitted from the auto-rendered grid
-              below; warmupBuckets / freshCapSeconds / weighting /
-              bucketSeconds remain in the secondary form. The live-preview
-              metric is centered below both dials so the eye tracks "either
-              knob moves → fires/game moves" in one visual region. */}
-          {isBoardLikeDetector(selectedDetector?.id) ? (
-            <div
-              className="mt-8 flex flex-col items-center gap-8"
-              data-testid="backtest-cry-wolf-dial"
-            >
-              <div
-                className="flex flex-row items-start justify-center gap-12"
-                data-testid="backtest-dials-panel"
-              >
-                <CryWolfDial
-                  value={readBoardParam(
-                    form.params,
-                    selectedDetector?.id,
-                    KMAD_PARAM_NAME,
-                    K_MAD_LIVE,
-                  )}
-                  onChange={(next) => {
-                    updateBoardParam(KMAD_PARAM_NAME, next);
-                  }}
-                />
-                <MemoryDial
-                  value={readBoardParam(
-                    form.params,
-                    selectedDetector?.id,
-                    TRAILING_PARAM_NAME,
-                    TRAILING_DEFAULT,
-                  )}
-                  onChange={(next) => {
-                    updateBoardParam(TRAILING_PARAM_NAME, next);
-                  }}
-                />
-              </div>
-              <LivePreview
-                pending={runMutation.isPending}
-                hasSnapshot={snapshot !== null}
-                firesPerGame={recomputeView?.stats.firesPerGame ?? null}
-                fromRecompute={recomputeView?.fromRecompute ?? false}
-              />
             </div>
-          ) : null}
 
-          {isBoardLikeDetector(selectedDetector?.id) ? (
-            // Warmup is a secondary in-memory-recompute control (US-053 AC #8:
-            // demoted from the prominent dial slot, now lives inside the
-            // params auto-form). Rendered above the rest of the auto-form
-            // grid so the three recompute knobs (K + Memory + Warmup) cluster
-            // visually: rotary K + rotary Memory + horizontal Warmup slider.
-            // The remaining auto-form rows (bucketSeconds, weighting,
-            // freshCapSeconds) are prebucket-only and need a fresh server run.
-            <div className="mt-6" data-testid="backtest-warmup-dial">
-              <WarmupDial
-                value={readBoardParam(
-                  form.params,
-                  selectedDetector?.id,
-                  WARMUP_PARAM_NAME,
-                  WARMUP_DEFAULT,
-                )}
-                onChange={(next) => {
-                  updateBoardParam(WARMUP_PARAM_NAME, next);
-                }}
-              />
-            </div>
-          ) : null}
-
-          {selectedDetector !== undefined && parsedProps.length > 0 ? (
-            <div
-              data-testid="backtest-param-form"
-              className="mt-4 grid grid-cols-[max-content_1fr] gap-x-8"
-            >
-              {parsedProps
-                .filter((p) => {
-                  // Ensemble-or's top-level params are nested objects (board,
-                  // offprice) that parseSchema returns as kind="unknown". They
-                  // render as bare placeholder rows ("BOARD —", "OFFPRICE —")
-                  // with no controls — useless and confusing. Hide them; the
-                  // dials own the board lane and off-price thresholds run at
-                  // their defaults until we add nested sub-controls.
-                  if (selectedDetector.id === ENSEMBLE_OR_DETECTOR_ID) {
-                    return p.kind.kind !== "unknown";
-                  }
-                  // Board-mad: the K/Memory/Warmup dials replace those rows.
-                  return (
-                    selectedDetector.id !== BOARD_MAD_DETECTOR_ID ||
-                    (p.name !== KMAD_PARAM_NAME &&
-                      p.name !== TRAILING_PARAM_NAME &&
-                      p.name !== WARMUP_PARAM_NAME)
-                  );
-                })
-                .map((p) => (
-                  <ParamRow
-                    key={p.name}
-                    detectorId={selectedDetector.id}
-                    prop={p}
-                    value={form.params[p.name]}
-                    needsRerunHint={
-                      selectedDetector.id === BOARD_MAD_DETECTOR_ID &&
-                      isBoardMadPrebucketField(p.name)
-                    }
-                    onChange={(next) => {
-                      updateParam(p.name, next);
+            {/* Detector selector */}
+            <div data-testid="backtest-detector">
+              <div className={SECTION_LABEL_CLASS}>Detector</div>
+              <div className="mt-3">
+                {detectorsQuery.isLoading ? (
+                  <p className="text-sm text-text-md">Loading detectors…</p>
+                ) : detectorRows.length === 0 ? (
+                  <p className="text-sm text-text-md">No detectors registered.</p>
+                ) : (
+                  <select
+                    value={form.detectorId}
+                    onChange={(e) => {
+                      handleDetectorChange(e.target.value);
                     }}
-                  />
-                ))}
+                    className={SELECT_CLASS}
+                    data-testid="backtest-detector-select"
+                    aria-label="detector"
+                  >
+                    {detectorRows.map((d) => (
+                      <option key={d.id} value={d.id}>
+                        {d.displayName}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
             </div>
-          ) : null}
+          </div>
 
-          {selectedDetector?.id === BOARD_MAD_DETECTOR_ID ? (
-            <p
-              data-testid="backtest-recompute-hint"
-              className="mt-3 text-xs text-text-lo max-w-[64ch]"
-            >
-              The K dial, Memory dial, and warmupBuckets recompute in-memory after the first run —
-              no API round-trip. Changing bucketSeconds, weighting, or freshCapSeconds requires
-              re-running.
-            </p>
-          ) : null}
-        </div>
-
-        {/* Run button */}
-        <div className="flex items-center gap-4">
-          <button
-            type="submit"
-            disabled={!canRun}
-            className={BUTTON_PRIMARY_CLASS}
-            data-testid="backtest-run-button"
+          <div
+            className="flex h-full min-h-[120px] items-center justify-center xl:min-h-[320px]"
+            data-testid="backtest-run-hub"
           >
-            {runMutation.isPending ? "Running…" : "Run"}
-          </button>
-          {runMutation.isError ? (
-            <span data-testid="backtest-run-error" className="font-mono text-xs text-accent-yellow">
-              {runMutation.error.message}
-            </span>
-          ) : null}
+            <div className="flex flex-col items-center gap-3 text-center">
+              <button
+                type="submit"
+                disabled={!canRun}
+                className={`${BUTTON_PRIMARY_CLASS} px-7 py-2 text-base`}
+                data-testid="backtest-run-button"
+              >
+                {runMutation.isPending ? "Running…" : "Run"}
+              </button>
+              <span className="max-w-[18ch] text-xs text-text-lo">
+                Replays the current window and control settings.
+              </span>
+              {runMutation.isError ? (
+                <span
+                  data-testid="backtest-run-error"
+                  className="font-mono text-xs text-accent-yellow"
+                >
+                  {runMutation.error.message}
+                </span>
+              ) : null}
+            </div>
+          </div>
+
+          {boardLikeSelected ? (
+            <SignalTimingPanel
+              baselineMode={currentBaselineMode}
+              memoryValue={currentMemoryBuckets}
+              bucketSeconds={currentBucketSeconds}
+              openingBaselineValue={currentOpeningBaselineBuckets}
+              openingRampCompleteValue={currentOpeningRampCompleteBuckets}
+              warmupValue={currentWarmupBuckets}
+              onBaselineModeChange={(next) => {
+                updateBoardParam(BASELINE_MODE_PARAM_NAME, next);
+              }}
+              onMemoryChange={(next) => {
+                updateBoardParam(TRAILING_PARAM_NAME, next);
+              }}
+              onOpeningBaselineChange={(next) => {
+                updateBoardParam(OPENING_BASELINE_PARAM_NAME, next);
+              }}
+              onOpeningRampCompleteChange={(next) => {
+                updateBoardParam(OPENING_RAMP_COMPLETE_PARAM_NAME, next);
+              }}
+              onWarmupChange={(next) => {
+                updateBoardParam(WARMUP_PARAM_NAME, next);
+              }}
+            />
+          ) : (
+            <div className="hidden xl:block" aria-hidden="true" />
+          )}
         </div>
+
+        {boardLikeSelected ? (
+          <div className="flex flex-col items-center gap-4" data-testid="backtest-sensitivity-dial">
+            <SensitivityDial
+              value={currentSensitivity}
+              firesPerGamePreview={firesPerGamePreview}
+              onChange={(next) => {
+                updateBoardParam(KMAD_PARAM_NAME, next);
+              }}
+            />
+            <p className="max-w-[42ch] text-center text-xs text-text-md">
+              The center readout is estimated fires per game for the last run. It updates in memory
+              as sensitivity moves.
+            </p>
+          </div>
+        ) : null}
+
+        {selectedDetector !== undefined && parsedProps.length > 0 ? (
+          <div
+            data-testid="backtest-param-form"
+            className="grid grid-cols-[max-content_1fr] gap-x-8"
+          >
+            {parsedProps
+              .filter((p) => {
+                // Ensemble-or's top-level params are nested objects (board,
+                // offprice) that parseSchema returns as kind="unknown". They
+                // render as bare placeholder rows ("BOARD —", "OFFPRICE —")
+                // with no controls. Hide them; the dials own the board lane
+                // and off-price thresholds run at their defaults until we add
+                // nested sub-controls.
+                if (selectedDetector.id === ENSEMBLE_OR_DETECTOR_ID) {
+                  return p.kind.kind !== "unknown";
+                }
+                // Board-mad: the sensitivity/lookback/opening controls replace these rows.
+                return (
+                  selectedDetector.id !== BOARD_MAD_DETECTOR_ID ||
+                  (p.name !== KMAD_PARAM_NAME &&
+                    p.name !== BASELINE_MODE_PARAM_NAME &&
+                    p.name !== OPENING_BASELINE_PARAM_NAME &&
+                    p.name !== OPENING_RAMP_COMPLETE_PARAM_NAME &&
+                    p.name !== TRAILING_PARAM_NAME &&
+                    p.name !== WARMUP_PARAM_NAME)
+                );
+              })
+              .map((p) => (
+                <ParamRow
+                  key={p.name}
+                  detectorId={selectedDetector.id}
+                  prop={p}
+                  value={form.params[p.name]}
+                  needsRerunHint={
+                    selectedDetector.id === BOARD_MAD_DETECTOR_ID &&
+                    isBoardMadPrebucketField(p.name)
+                  }
+                  onChange={(next) => {
+                    updateParam(p.name, next);
+                  }}
+                />
+              ))}
+          </div>
+        ) : null}
+
+        {selectedDetector?.id === BOARD_MAD_DETECTOR_ID ? (
+          <p data-testid="backtest-recompute-hint" className="text-xs text-text-lo max-w-[64ch]">
+            Sensitivity and signal timing recompute in memory after the first run. Changing
+            bucketSeconds, weighting, or freshCapSeconds requires re-running.
+          </p>
+        ) : null}
       </form>
 
       {/* Results panel */}
@@ -956,41 +1157,6 @@ function Stat({
     <div className="flex flex-col gap-1">
       <span className={FIELD_LABEL_CLASS}>{label}</span>
       <span className="text-text-hi text-2xl tabular font-mono">{children}</span>
-    </div>
-  );
-}
-
-// Live preview (US-037): "Estimated fires/game" — the headline metric that
-// updates as the K dial moves. Reads from the same `recomputeView` the Results
-// panel uses; never triggers an API call. The dial owns kMad; this readout is
-// the visible feedback that K is doing something.
-function LivePreview({
-  pending,
-  hasSnapshot,
-  firesPerGame,
-  fromRecompute,
-}: {
-  readonly pending: boolean;
-  readonly hasSnapshot: boolean;
-  readonly firesPerGame: number | null;
-  readonly fromRecompute: boolean;
-}): JSX.Element {
-  const value =
-    hasSnapshot && firesPerGame !== null ? firesPerGame.toFixed(2) : pending ? "…" : "—";
-  return (
-    <div className="flex flex-col items-center gap-1" data-testid="backtest-live-preview">
-      <span className="text-text-lo text-xs uppercase tracking-[0.08em] font-sans">
-        Estimated fires/game
-      </span>
-      <MaybeExplain id="fires-per-game">
-        <span
-          data-testid="backtest-live-fires-per-game"
-          data-from-recompute={fromRecompute ? "1" : "0"}
-          className="text-text-hi text-4xl tabular font-mono"
-        >
-          {value}
-        </span>
-      </MaybeExplain>
     </div>
   );
 }

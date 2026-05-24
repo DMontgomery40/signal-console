@@ -55,7 +55,7 @@ body {
  * with the dark theme and leave text invisible-on-white. Applies globally so
  * every <input>, <select>, <textarea> in the app inherits without per-component
  * className boilerplate. Components can still override via Tailwind utilities
- * when they need (e.g. the Cry Wolf dial doesn't render a native input).
+ * when they need (e.g. the Sensitivity dial doesn't render a native input).
  */
 
 input,
@@ -91,7 +91,7 @@ textarea:disabled {
   cursor: not-allowed;
 }
 
-/* Numeric / mono inputs (Cry Wolf dial, K value displays, anywhere numerics
+/* Numeric / mono inputs (Sensitivity dial values, anywhere numerics
  * should align). When the input has `font-mono` Tailwind class OR the inline
  * font-variant tabular-nums, we keep the design-language treatment but switch
  * the family to the mono stack. */
@@ -111,7 +111,7 @@ input[type="time"]::-webkit-calendar-picker-indicator {
   cursor: pointer;
 }
 
-/* Native range slider — used by the WarmupDial (US-042) and any future linear
+/* Native range slider — used by the timing controls and any future linear
  * controls. Track + thumb in design tokens. */
 input[type="range"] {
   background: transparent;

@@ -10,6 +10,18 @@ import type { ReactNode, JSX } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { z } from "zod";
 
+import {
+  BOARD_MAD_BASELINE_MODE_DEFAULT,
+  BOARD_MAD_BASELINE_MODE_OPENING_RAMP,
+  BOARD_MAD_BASELINE_MODE_TRAILING,
+  BOARD_MAD_FRESH_CAP_SECONDS_DEFAULT,
+  BOARD_MAD_OPENING_BASELINE_BUCKETS_DEFAULT,
+  BOARD_MAD_OPENING_RAMP_COMPLETE_BUCKETS_DEFAULT,
+  BOARD_MAD_TRAILING_BUCKETS_DEFAULT,
+  BOARD_MAD_WARMUP_BUCKETS_DEFAULT,
+  K_MAD_LIVE,
+} from "@signal-console/detectors/board-mad/config";
+
 import { BacktestPage } from "../BacktestPage";
 
 const postBodySchema = z.object({
@@ -56,18 +68,50 @@ const DETECTORS_RESPONSE = {
   detectors: [
     {
       id: "board-mad",
-      version: "1.0.0",
+      version: "1.2.0",
       displayName: "Board MAD (whole-board volatility)",
       sources: ["bet365", "kalshi", "polymarket"],
       paramsSchema: {
         type: "object",
         properties: {
           bucketSeconds: { type: "integer", minimum: 10, maximum: 300, default: 60 },
-          kMad: { type: "number", minimum: 1, maximum: 12, default: 3 },
+          kMad: { type: "number", minimum: 1, maximum: 12, default: K_MAD_LIVE },
           weighting: { type: "string", enum: ["volume", "equal"], default: "volume" },
-          trailingBuckets: { type: "integer", minimum: 5, maximum: 60, default: 20 },
-          warmupBuckets: { type: "integer", minimum: 2, maximum: 20, default: 8 },
-          freshCapSeconds: { type: "integer", minimum: 30, maximum: 3600, default: 300 },
+          trailingBuckets: {
+            type: "integer",
+            minimum: 5,
+            maximum: 60,
+            default: BOARD_MAD_TRAILING_BUCKETS_DEFAULT,
+          },
+          warmupBuckets: {
+            type: "integer",
+            minimum: 2,
+            maximum: 20,
+            default: BOARD_MAD_WARMUP_BUCKETS_DEFAULT,
+          },
+          baselineMode: {
+            type: "string",
+            enum: [BOARD_MAD_BASELINE_MODE_TRAILING, BOARD_MAD_BASELINE_MODE_OPENING_RAMP],
+            default: BOARD_MAD_BASELINE_MODE_DEFAULT,
+          },
+          openingBaselineBuckets: {
+            type: "integer",
+            minimum: 1,
+            maximum: 60,
+            default: BOARD_MAD_OPENING_BASELINE_BUCKETS_DEFAULT,
+          },
+          openingRampCompleteBuckets: {
+            type: "integer",
+            minimum: 2,
+            maximum: 120,
+            default: BOARD_MAD_OPENING_RAMP_COMPLETE_BUCKETS_DEFAULT,
+          },
+          freshCapSeconds: {
+            type: "integer",
+            minimum: 30,
+            maximum: 3600,
+            default: BOARD_MAD_FRESH_CAP_SECONDS_DEFAULT,
+          },
         },
       },
     },
@@ -108,8 +152,8 @@ const ENSEMBLE_DETECTORS_RESPONSE = {
 
 // Synthetic observations that mimic the prebucket+sweep contract: per-game
 // chronological intensity series with baseline median + mad. We can predict
-// what the client recompute will produce for a given (kMad, warmupBuckets,
-// trailingBuckets) because the algorithm is the same as sweep.ts. For the
+// what the client recompute will produce for a given signal-timing parameter
+// set because the algorithm is the same as sweep.ts. For the
 // test we build 30 buckets with a steady 1.0 baseline punctuated by a 5.0
 // spike at bucket 25, so the spike fires at K=3 with the default
 // trailingBuckets=20.
@@ -354,14 +398,47 @@ describe("BacktestPage", () => {
       if (!(sel instanceof HTMLSelectElement)) throw new Error("not a select");
       expect(sel.value).toBe("board-mad");
     });
-    // kMad is owned by the Cry Wolf dial when board-mad is the selected
+    // kMad is owned by the Sensitivity dial when board-mad is the selected
     // detector; the plain NumberControl row is omitted from the grid.
     expect(screen.queryByTestId("backtest-param-kMad")).toBeNull();
-    const dial = screen.getByTestId("cry-wolf-dial");
+    const dial = screen.getByTestId("sensitivity-dial");
     expect(dial.getAttribute("aria-valuenow")).toBe("3");
     const weighting = screen.getByTestId("backtest-param-weighting");
     if (!(weighting instanceof HTMLSelectElement)) throw new Error("weighting not a select");
     expect(weighting.value).toBe("volume");
+  });
+
+  it("renders the signal timing panel with lookback and holdoff durations from bucketSeconds", async () => {
+    mockDetectors();
+    render(<BacktestPage />, { wrapper: makeWrapper() });
+    await waitFor(() => {
+      expect(screen.getByTestId("memory-dial")).not.toBeNull();
+    });
+
+    expect(screen.getByTestId("backtest-signal-timing-panel").textContent).toContain(
+      "Signal timing",
+    );
+    expect(screen.getByTestId("backtest-signal-timing-panel").textContent).toContain(
+      "Volatility lookback",
+    );
+    expect(screen.getByTestId("memory-dial-headline").textContent).toBe("20");
+    expect(screen.getByTestId("memory-dial-headline-detail").textContent).toBe("(20 min)");
+    expect(screen.getByTestId("backtest-warmup-dial").textContent).toContain("Opening holdoff");
+    const baselineMode = screen.getByTestId("backtest-baseline-mode");
+    if (!(baselineMode instanceof HTMLSelectElement)) throw new Error("baseline mode not a select");
+    expect(baselineMode.value).toBe(BOARD_MAD_BASELINE_MODE_DEFAULT);
+    expect(screen.getByTestId("backtest-opening-baseline-buckets")).not.toBeNull();
+    expect(screen.getByTestId("backtest-opening-ramp-complete-buckets")).not.toBeNull();
+
+    const bucketSeconds = screen.getByTestId("backtest-param-bucketSeconds");
+    if (!(bucketSeconds instanceof HTMLInputElement)) {
+      throw new Error("bucketSeconds not an input");
+    }
+    fireEvent.change(bucketSeconds, { target: { value: "30" } });
+
+    expect(screen.getByTestId("memory-dial-headline-detail").textContent).toBe("(10 min)");
+    expect(screen.getByTestId("warmup-dial-headline-detail").textContent).toBe("(4 min)");
+    expect(screen.getByTestId("memory-dial").getAttribute("aria-valuetext")).toBe("20 (10 min)");
   });
 
   it("defaults the detector selector to ensemble-or when it is registered (report §8.1 Stage 1)", async () => {
@@ -374,15 +451,15 @@ describe("BacktestPage", () => {
       if (!(sel instanceof HTMLSelectElement)) throw new Error("not a select");
       expect(sel.value).toBe("ensemble-or");
     });
-    // Marquee feature — the Cry Wolf K dial + Memory dial + Warmup dial
+    // Marquee feature — the Sensitivity dial + signal timing panel
     // ALL render for ensemble-or too (wired to the nested params.board.*
     // path). User explicitly insisted on this in feedback after seeing
     // the dial-less ensemble-or view.
-    expect(screen.getByTestId("backtest-cry-wolf-dial")).toBeDefined();
+    expect(screen.getByTestId("backtest-sensitivity-dial")).toBeDefined();
     expect(screen.getByTestId("backtest-warmup-dial")).toBeDefined();
-    // The Cry Wolf dial starts at K_MAD_LIVE = 3 even when the nested
+    // The Sensitivity dial starts at K_MAD_LIVE = 3 even when the nested
     // params.board.kMad isn't pre-seeded (readBoardParam fallback).
-    const dial = screen.getByTestId("cry-wolf-dial");
+    const dial = screen.getByTestId("sensitivity-dial");
     expect(dial.getAttribute("aria-valuenow")).toBe("3");
     // And the unhelpful BOARD/OFFPRICE placeholder rows that parseSchema
     // returns for ensemble-or's nested objects must NOT render — the user
@@ -456,7 +533,14 @@ describe("BacktestPage", () => {
     const [, init] = postCalls[0]!;
     const body = parsePostBody(init?.body);
     expect(body.detector_id).toBe("board-mad");
-    expect(body.params["kMad"]).toBe(3);
+    expect(body.params["kMad"]).toBe(K_MAD_LIVE);
+    expect(body.params["baselineMode"]).toBe(BOARD_MAD_BASELINE_MODE_DEFAULT);
+    expect(body.params["openingBaselineBuckets"]).toBe(BOARD_MAD_OPENING_BASELINE_BUCKETS_DEFAULT);
+    expect(body.params["openingRampCompleteBuckets"]).toBe(
+      BOARD_MAD_OPENING_RAMP_COMPLETE_BUCKETS_DEFAULT,
+    );
+    expect(body.params["trailingBuckets"]).toBe(BOARD_MAD_TRAILING_BUCKETS_DEFAULT);
+    expect(body.params["warmupBuckets"]).toBe(BOARD_MAD_WARMUP_BUCKETS_DEFAULT);
     expect(body.window.start.startsWith("20")).toBe(true);
     expect(body.window.end.startsWith("20")).toBe(true);
   });
@@ -481,14 +565,10 @@ describe("BacktestPage", () => {
     }).length;
     expect(postCountBefore).toBe(1);
 
-    // Bump trailingBuckets 20 -> 30 via the Memory dial (US-053). The dial is
-    // a SVG slider with smallStep 1 (integer) over [5, 60]; 10 ArrowRight key
-    // events walk the value from 20 to 30.
+    // Bump trailingBuckets 20 -> 30 via the Volatility lookback slider.
     const memory = screen.getByTestId("memory-dial");
     act(() => {
-      for (let i = 0; i < 10; i++) {
-        fireEvent.keyDown(memory, { key: "ArrowRight" });
-      }
+      fireEvent.change(memory, { target: { value: "30" } });
     });
     expect(memory.getAttribute("aria-valuenow")).toBe("30");
 
@@ -506,9 +586,7 @@ describe("BacktestPage", () => {
 
     // Revert to 20 — recompute should round-trip back to the baseline value.
     act(() => {
-      for (let i = 0; i < 10; i++) {
-        fireEvent.keyDown(memory, { key: "ArrowLeft" });
-      }
+      fireEvent.change(memory, { target: { value: "20" } });
     });
     expect(memory.getAttribute("aria-valuenow")).toBe("20");
     const afterRevert = screen.getByTestId("backtest-stat-fires-per-game").textContent;
@@ -546,7 +624,7 @@ describe("BacktestPage", () => {
     }).length;
     expect(postCountAfterRun).toBe(1);
 
-    const dial = screen.getByTestId("cry-wolf-dial");
+    const dial = screen.getByTestId("sensitivity-dial");
 
     // (b) Move K via keyboard: 3.0 → 6.0 (12 × +0.25 via ArrowRight).
     // No POST should be issued — the recompute is in-memory.
@@ -564,14 +642,12 @@ describe("BacktestPage", () => {
     }).length;
     expect(postCountAfterDial).toBe(1);
 
-    // (c) Second knob: Memory dial 20 → 30 (10 × +1 via ArrowRight). Still no
+    // (c) Second knob: Volatility lookback 20 → 30. Still no
     // API round-trip — the in-memory recompute reads baseline_median /
     // baseline_mad from the cached observations.
     const memory = screen.getByTestId("memory-dial");
     act(() => {
-      for (let i = 0; i < 10; i++) {
-        fireEvent.keyDown(memory, { key: "ArrowRight" });
-      }
+      fireEvent.change(memory, { target: { value: "30" } });
     });
     expect(memory.getAttribute("aria-valuenow")).toBe("30");
     const Z = screen.getByTestId("backtest-stat-fires-per-game").textContent;
@@ -582,7 +658,7 @@ describe("BacktestPage", () => {
     }).length;
     expect(postCountAfterTrailing).toBe(1);
 
-    // (d) Revert: K → 3.0 (12 × ArrowLeft), Memory 30 → 20 (10 × ArrowLeft).
+    // (d) Revert: K → 3.0 (12 × ArrowLeft), volatility lookback 30 → 20.
     // Assert X' === X to within float epsilon (the recompute must be
     // deterministic and stateless across reversals).
     act(() => {
@@ -592,9 +668,7 @@ describe("BacktestPage", () => {
     });
     expect(dial.getAttribute("aria-valuenow")).toBe("3");
     act(() => {
-      for (let i = 0; i < 10; i++) {
-        fireEvent.keyDown(memory, { key: "ArrowLeft" });
-      }
+      fireEvent.change(memory, { target: { value: "20" } });
     });
     expect(memory.getAttribute("aria-valuenow")).toBe("20");
     const Xprime = screen.getByTestId("backtest-stat-fires-per-game").textContent;
@@ -612,13 +686,13 @@ describe("BacktestPage", () => {
     await waitFor(() => {
       expect(screen.getByTestId("backtest-detector-select")).not.toBeNull();
     });
-    const dial = screen.getByTestId("cry-wolf-dial");
+    const dial = screen.getByTestId("sensitivity-dial");
     expect(dial.getAttribute("aria-valuenow")).toBe("3");
 
-    fireEvent.click(screen.getByTestId("cry-wolf-chip-calm"));
+    fireEvent.click(screen.getByTestId("sensitivity-chip-calm"));
     expect(dial.getAttribute("aria-valuenow")).toBe("6");
 
-    fireEvent.click(screen.getByTestId("cry-wolf-chip-sensitive"));
+    fireEvent.click(screen.getByTestId("sensitivity-chip-sensitive"));
     expect(dial.getAttribute("aria-valuenow")).toBe("3");
   });
 
@@ -630,10 +704,10 @@ describe("BacktestPage", () => {
     mockDetectors();
     render(<BacktestPage />, { wrapper: makeWrapper() });
     await waitFor(() => {
-      expect(screen.getByTestId("cry-wolf-dial")).not.toBeNull();
+      expect(screen.getByTestId("sensitivity-dial")).not.toBeNull();
     });
 
-    const dial = screen.getByTestId("cry-wolf-dial");
+    const dial = screen.getByTestId("sensitivity-dial");
     act(() => {
       for (let i = 0; i < 12; i++) {
         fireEvent.keyDown(dial, { key: "ArrowRight" });
@@ -658,22 +732,19 @@ describe("BacktestPage", () => {
     expect(anyKQuery).toBe(false);
   });
 
-  it("renders the prominent 'Estimated fires/game' live preview as a placeholder before any run (US-037)", async () => {
+  it("renders estimated fires per game inside the sensitivity knob before any run (US-037)", async () => {
     mockDetectors();
     render(<BacktestPage />, { wrapper: makeWrapper() });
     await waitFor(() => {
-      expect(screen.getByTestId("cry-wolf-dial")).not.toBeNull();
+      expect(screen.getByTestId("sensitivity-dial")).not.toBeNull();
     });
-    const preview = screen.getByTestId("backtest-live-preview");
-    expect(preview).not.toBeNull();
-    // Label literal — the AC asks for this exact phrase to be visible.
-    expect(preview.textContent).toMatch(/Estimated fires\/game/);
-    const value = screen.getByTestId("backtest-live-fires-per-game");
+    expect(screen.getByText(/center readout is estimated fires per game/i)).not.toBeNull();
+    const value = screen.getByTestId("sensitivity-dial-inline-value");
     expect(value.textContent).toBe("—");
-    expect(value.getAttribute("data-from-recompute")).toBe("0");
+    expect(screen.getByTestId("sensitivity-dial-inline-detail").textContent).toBe("fires/gm");
   });
 
-  it("populates the live preview from the backtest response and tracks dial moves without an API call (US-037)", async () => {
+  it("populates the knob center from the backtest response and tracks dial moves without an API call (US-037)", async () => {
     const backtest = buildKSensitiveBacktest();
     mockDetectorsAndBacktest(backtest);
     render(<BacktestPage />, { wrapper: makeWrapper() });
@@ -686,7 +757,7 @@ describe("BacktestPage", () => {
       expect(screen.getByTestId("backtest-run-id").textContent).toBe("99");
     });
 
-    const preview = screen.getByTestId("backtest-live-fires-per-game");
+    const preview = screen.getByTestId("sensitivity-dial-inline-value");
     const stat = screen.getByTestId("backtest-stat-fires-per-game");
     // After a run the preview value equals the Results-panel stat (single
     // source of truth) and is no longer the placeholder dash.
@@ -702,7 +773,7 @@ describe("BacktestPage", () => {
 
     // Move K from 3.0 → 6.0 via the dial. The preview must update without a
     // new POST /v1/backtest call.
-    const dial = screen.getByTestId("cry-wolf-dial");
+    const dial = screen.getByTestId("sensitivity-dial");
     act(() => {
       for (let i = 0; i < 12; i++) {
         fireEvent.keyDown(dial, { key: "ArrowRight" });
@@ -716,12 +787,8 @@ describe("BacktestPage", () => {
     }).length;
     expect(postCountAfter).toBe(1);
 
-    const after = screen.getByTestId("backtest-live-fires-per-game");
+    const after = screen.getByTestId("sensitivity-dial-inline-value");
     expect(after.textContent).not.toBe(baseline);
-    // The recompute path marks the readout so a future regression that drops
-    // the in-memory recompute (and falls back to the static snapshot value)
-    // would be detectable in tests + screenshots.
-    expect(after.getAttribute("data-from-recompute")).toBe("1");
     // Preview and Results-panel stat stay in lockstep — one source of truth.
     expect(after.textContent).toBe(screen.getByTestId("backtest-stat-fires-per-game").textContent);
   });
@@ -740,16 +807,16 @@ describe("BacktestPage", () => {
     });
     render(<BacktestPage />, { wrapper: makeWrapper() });
     await waitFor(() => {
-      expect(screen.getByTestId("cry-wolf-dial")).not.toBeNull();
+      expect(screen.getByTestId("sensitivity-dial")).not.toBeNull();
     });
 
     fireEvent.click(screen.getByTestId("backtest-run-button"));
     await waitFor(() => {
-      expect(screen.getByTestId("backtest-live-fires-per-game").textContent).toBe("…");
+      expect(screen.getByTestId("sensitivity-dial-inline-value").textContent).toBe("…");
     });
     resolveBacktest(jsonResponse(buildSyntheticBacktest()));
     await waitFor(() => {
-      const value = screen.getByTestId("backtest-live-fires-per-game").textContent;
+      const value = screen.getByTestId("sensitivity-dial-inline-value").textContent;
       expect(value).not.toBe("…");
       expect(value).not.toBe("—");
     });
@@ -864,7 +931,7 @@ describe("BacktestPage", () => {
 
     // Move K from 3.0 → 6.0 via the dial. At K=6, threshold ≈ 8 so the spike
     // of 7 no longer fires for any game.
-    const dial = screen.getByTestId("cry-wolf-dial");
+    const dial = screen.getByTestId("sensitivity-dial");
     act(() => {
       for (let i = 0; i < 12; i++) {
         fireEvent.keyDown(dial, { key: "ArrowRight" });
@@ -892,7 +959,7 @@ describe("BacktestPage", () => {
     expect(Object.is(chartNodesBefore[1], chartNodesAfter[1])).toBe(true);
 
     fireEvent.click(screen.getAllByTestId("backtest-timeline-row-toggle")[0]!);
-    expect(screen.getByText("Past fires in this game at K=6.00")).not.toBeNull();
+    expect(screen.getByText("Past fires in this game at sensitivity 6.00")).not.toBeNull();
   });
 
   it("recomputes ensemble board rows while preserving off-price lane fires", async () => {
@@ -925,7 +992,7 @@ describe("BacktestPage", () => {
       expect(sel.value).toBe("ensemble-or");
     });
 
-    const dial = screen.getByTestId("cry-wolf-dial");
+    const dial = screen.getByTestId("sensitivity-dial");
     act(() => {
       for (let i = 0; i < 12; i++) {
         fireEvent.keyDown(dial, { key: "ArrowRight" });
@@ -950,7 +1017,7 @@ describe("BacktestPage", () => {
     expect(body.params["board"]).toMatchObject({ kMad: 6 });
 
     fireEvent.click(screen.getByTestId("backtest-timeline-row-toggle"));
-    expect(screen.getByText("Past fires in this game at K=6.00")).not.toBeNull();
+    expect(screen.getByText("Past fires in this game at sensitivity 6.00")).not.toBeNull();
     expect(screen.getByTestId("backtest-timeline-fires").textContent).toBe("0 fires");
 
     act(() => {
@@ -961,8 +1028,8 @@ describe("BacktestPage", () => {
     expect(dial.getAttribute("aria-valuenow")).toBe("3");
     expect(screen.queryByTestId("backtest-stale-warning")).toBeNull();
     expect(screen.getByTestId("backtest-stat-total-fires").textContent).toBe("2");
-    expect(screen.getByText("Past fires in this game at K=3.00")).not.toBeNull();
-    expect(screen.queryByText("Past fires in this game at K=6.00")).toBeNull();
+    expect(screen.getByText("Past fires in this game at sensitivity 3.00")).not.toBeNull();
+    expect(screen.queryByText("Past fires in this game at sensitivity 6.00")).toBeNull();
   });
 
   it("flips data-from-recompute canary after dial-driven K change (US-038)", async () => {
@@ -983,7 +1050,7 @@ describe("BacktestPage", () => {
       expect(row.getAttribute("data-from-recompute")).toBe("1");
     });
 
-    const dial = screen.getByTestId("cry-wolf-dial");
+    const dial = screen.getByTestId("sensitivity-dial");
     act(() => {
       fireEvent.keyDown(dial, { key: "ArrowRight" });
     });
@@ -1099,7 +1166,7 @@ describe("BacktestPage", () => {
     }).length;
     expect(postCountBefore).toBe(1);
 
-    const dial = screen.getByTestId("cry-wolf-dial");
+    const dial = screen.getByTestId("sensitivity-dial");
     act(() => {
       for (let i = 0; i < 12; i++) {
         fireEvent.keyDown(dial, { key: "ArrowRight" });

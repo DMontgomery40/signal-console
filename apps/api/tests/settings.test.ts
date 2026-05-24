@@ -8,6 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { runMigrations } from "@signal-console/db";
+import { BOARD_MAD_BASELINE_MODE_OPENING_RAMP } from "@signal-console/detectors/board-mad/config";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
@@ -341,6 +342,11 @@ describe("detector-defaults route (US-053)", () => {
     const body = asRecord(res.json(), "body");
     const defaults = asRecord(body["detectorDefaults"], "detectorDefaults");
     expect(defaults["kMadLive"]).toBe(BASELINE_DEFAULTS.kMadLive);
+    expect(defaults["baselineMode"]).toBe(BASELINE_DEFAULTS.baselineMode);
+    expect(defaults["openingBaselineBuckets"]).toBe(BASELINE_DEFAULTS.openingBaselineBuckets);
+    expect(defaults["openingRampCompleteBuckets"]).toBe(
+      BASELINE_DEFAULTS.openingRampCompleteBuckets,
+    );
     expect(defaults["trailingBuckets"]).toBe(BASELINE_DEFAULTS.trailingBuckets);
     expect(defaults["warmupBuckets"]).toBe(BASELINE_DEFAULTS.warmupBuckets);
     expect(defaults["freshCapSeconds"]).toBe(BASELINE_DEFAULTS.freshCapSeconds);
@@ -366,6 +372,9 @@ describe("detector-defaults route (US-053)", () => {
 
     const next = {
       kMadLive: 4.5,
+      baselineMode: BOARD_MAD_BASELINE_MODE_OPENING_RAMP,
+      openingBaselineBuckets: 4,
+      openingRampCompleteBuckets: 12,
       trailingBuckets: 30,
       warmupBuckets: 8,
       freshCapSeconds: 300,
@@ -381,6 +390,8 @@ describe("detector-defaults route (US-053)", () => {
     expect(res.statusCode).toBe(200);
     const body = asRecord(res.json(), "body");
     expect(body["kMadLive"]).toBe(4.5);
+    expect(body["baselineMode"]).toBe(BOARD_MAD_BASELINE_MODE_OPENING_RAMP);
+    expect(body["openingRampCompleteBuckets"]).toBe(12);
     expect(body["trailingBuckets"]).toBe(30);
 
     // Atomic write landed at the expected path.
@@ -388,6 +399,8 @@ describe("detector-defaults route (US-053)", () => {
     const raw = readFileSync(path, "utf8");
     const onDisk = asRecord(JSON.parse(raw), "onDisk");
     expect(onDisk["kMadLive"]).toBe(4.5);
+    expect(onDisk["baselineMode"]).toBe(BOARD_MAD_BASELINE_MODE_OPENING_RAMP);
+    expect(onDisk["openingRampCompleteBuckets"]).toBe(12);
 
     // Cache invalidated immediately: next GET reflects the new values.
     const get = await app.inject({
@@ -399,6 +412,8 @@ describe("detector-defaults route (US-053)", () => {
     const getBody = asRecord(get.json(), "getBody");
     const defaults = asRecord(getBody["detectorDefaults"], "detectorDefaults");
     expect(defaults["kMadLive"]).toBe(4.5);
+    expect(defaults["baselineMode"]).toBe(BOARD_MAD_BASELINE_MODE_OPENING_RAMP);
+    expect(defaults["openingRampCompleteBuckets"]).toBe(12);
     expect(defaults["trailingBuckets"]).toBe(30);
     const about = asRecord(getBody["about"], "about");
     const dv = about["detectorVersions"];

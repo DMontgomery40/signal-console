@@ -14,6 +14,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactNode, JSX } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  BOARD_MAD_BASELINE_MODE_DEFAULT,
+  BOARD_MAD_BASELINE_MODE_OPENING_RAMP,
+  BOARD_MAD_BASELINE_MODE_TRAILING,
+  BOARD_MAD_FRESH_CAP_SECONDS_DEFAULT,
+  BOARD_MAD_OPENING_BASELINE_BUCKETS_DEFAULT,
+  BOARD_MAD_OPENING_RAMP_COMPLETE_BUCKETS_DEFAULT,
+  BOARD_MAD_TRAILING_BUCKETS_DEFAULT,
+  BOARD_MAD_WARMUP_BUCKETS_DEFAULT,
+  K_MAD_LIVE,
+} from "@signal-console/detectors/board-mad/config";
 
 import { DetectorsPage } from "../DetectorsPage";
 
@@ -67,18 +78,50 @@ const DETECTORS_RESPONSE = {
   detectors: [
     {
       id: "board-mad",
-      version: "1.0.0",
+      version: "1.2.0",
       displayName: "Board MAD (whole-board volatility)",
       sources: ["bet365", "kalshi", "polymarket"],
       paramsSchema: {
         type: "object",
         properties: {
           bucketSeconds: { type: "integer", minimum: 10, maximum: 300, default: 60 },
-          kMad: { type: "number", minimum: 1, maximum: 12, default: 3 },
+          kMad: { type: "number", minimum: 1, maximum: 12, default: K_MAD_LIVE },
           weighting: { type: "string", enum: ["volume", "equal"], default: "volume" },
-          trailingBuckets: { type: "integer", minimum: 5, maximum: 60, default: 20 },
-          warmupBuckets: { type: "integer", minimum: 2, maximum: 20, default: 8 },
-          freshCapSeconds: { type: "integer", minimum: 30, maximum: 3600, default: 300 },
+          baselineMode: {
+            type: "string",
+            enum: [BOARD_MAD_BASELINE_MODE_TRAILING, BOARD_MAD_BASELINE_MODE_OPENING_RAMP],
+            default: BOARD_MAD_BASELINE_MODE_DEFAULT,
+          },
+          openingBaselineBuckets: {
+            type: "integer",
+            minimum: 1,
+            maximum: 60,
+            default: BOARD_MAD_OPENING_BASELINE_BUCKETS_DEFAULT,
+          },
+          openingRampCompleteBuckets: {
+            type: "integer",
+            minimum: 2,
+            maximum: 120,
+            default: BOARD_MAD_OPENING_RAMP_COMPLETE_BUCKETS_DEFAULT,
+          },
+          trailingBuckets: {
+            type: "integer",
+            minimum: 5,
+            maximum: 60,
+            default: BOARD_MAD_TRAILING_BUCKETS_DEFAULT,
+          },
+          warmupBuckets: {
+            type: "integer",
+            minimum: 2,
+            maximum: 20,
+            default: BOARD_MAD_WARMUP_BUCKETS_DEFAULT,
+          },
+          freshCapSeconds: {
+            type: "integer",
+            minimum: 30,
+            maximum: 3600,
+            default: BOARD_MAD_FRESH_CAP_SECONDS_DEFAULT,
+          },
         },
       },
     },
@@ -142,7 +185,7 @@ describe("DetectorsPage", () => {
 
     const card = await findCardById("board-mad");
     expect(card.textContent).toContain("Board MAD (whole-board volatility)");
-    expect(within(card).getByTestId("detector-version").textContent).toBe("v1.0.0");
+    expect(within(card).getByTestId("detector-version").textContent).toBe("v1.2.0");
     expect(card.textContent).toContain("board-mad");
   });
 
@@ -176,6 +219,14 @@ describe("DetectorsPage", () => {
     expect(weighting.value).toBe("volume");
     const options = Array.from(weighting.options).map((o) => o.value);
     expect(options).toEqual(["volume", "equal"]);
+
+    const baselineMode = asSelect(within(card).getByTestId("param-input-baselineMode"));
+    expect(baselineMode.value).toBe(BOARD_MAD_BASELINE_MODE_DEFAULT);
+    const baselineOptions = Array.from(baselineMode.options).map((o) => o.value);
+    expect(baselineOptions).toEqual([
+      BOARD_MAD_BASELINE_MODE_TRAILING,
+      BOARD_MAD_BASELINE_MODE_OPENING_RAMP,
+    ]);
   });
 
   it("auto-renders boolean params as a disabled switch", async () => {

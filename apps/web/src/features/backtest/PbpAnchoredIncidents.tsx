@@ -19,7 +19,7 @@
 // (b) gives the Reaves no-fire case its expected "no fire" output.
 //
 // The observations array passed in is the same K-recomputed series the
-// BacktestTimelines uses, so the values update in place as the Cry Wolf dial
+// BacktestTimelines uses, so the values update in place as the Sensitivity dial
 // moves — no API round-trip.
 
 import { useMemo, type JSX } from "react";

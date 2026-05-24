@@ -9,6 +9,8 @@ import swagger from "@fastify/swagger";
 import swaggerUi from "@fastify/swagger-ui";
 import Fastify, { type FastifyInstance } from "fastify";
 
+import { defaultApiPort } from "../../../packages/shared/src/ports";
+
 import authPlugin, { type AuthPluginOptions } from "./plugins/auth";
 import backtestRoutes, { type BacktestRoutesOptions } from "./routes/backtest";
 import boardRoutes, { type BoardRoutesOptions } from "./routes/board";
@@ -20,7 +22,7 @@ import liveRoutes, { type LiveRoutesOptions } from "./routes/live";
 import microstructureRoutes, { type MicrostructureRoutesOptions } from "./routes/microstructure";
 import settingsRoutes, { type SettingsRoutesOptions } from "./routes/settings";
 
-const DEFAULT_PORT = 4100;
+const DEFAULT_PORT = defaultApiPort;
 const DEFAULT_HOST = "localhost";
 
 export interface BuildServerOptions {

@@ -37,8 +37,8 @@ export interface TypographyScale {
   readonly "2xl": string;
   readonly "3xl": string;
   readonly "4xl": string;
-  // 96 px — Cry Wolf dial above-knob headline number ONLY. Sourced from
-  // docs/design-language.md §"The Cry Wolf dial".
+  // 96 px — Backtest rotary dial above-knob headline number ONLY. Sourced from
+  // docs/design-language.md §"The Backtest Rotary Dials".
   readonly "5xl": string;
 }
 

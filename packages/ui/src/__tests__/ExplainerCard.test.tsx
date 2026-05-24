@@ -37,10 +37,10 @@ describe("ExplainerCard — trigger discoverability", () => {
   it("wraps children with the dashed-underline trigger and cursor:help", () => {
     render(
       <ExplainerCard id="k-mad">
-        <span>K</span>
+        <span>Sensitivity</span>
       </ExplainerCard>,
     );
-    const trigger = screen.getByText("K").parentElement;
+    const trigger = screen.getByText("Sensitivity").parentElement;
     expect(trigger).not.toBeNull();
     expect(trigger?.className).toContain("border-b");
     expect(trigger?.className).toContain("border-dashed");
@@ -59,10 +59,10 @@ describe("ExplainerCard — US-050 surface, stripe, and backdrop", () => {
     const user = userEvent.setup();
     render(
       <ExplainerCard id="k-mad">
-        <span>K</span>
+        <span>Sensitivity</span>
       </ExplainerCard>,
     );
-    const trigger = screen.getByText("K").parentElement;
+    const trigger = screen.getByText("Sensitivity").parentElement;
     if (trigger === null) throw new Error("trigger missing");
     await user.hover(trigger);
     await waitFor(() => {
@@ -89,10 +89,10 @@ describe("ExplainerCard — US-050 surface, stripe, and backdrop", () => {
     const user = userEvent.setup();
     render(
       <ExplainerCard id="k-mad">
-        <span>K</span>
+        <span>Sensitivity</span>
       </ExplainerCard>,
     );
-    const trigger = screen.getByText("K").parentElement;
+    const trigger = screen.getByText("Sensitivity").parentElement;
     if (trigger === null) throw new Error("trigger missing");
     await user.hover(trigger);
     await waitFor(() => {
@@ -112,10 +112,10 @@ describe("ExplainerCard — content opens on hover and shows both sections", () 
     const user = userEvent.setup();
     render(
       <ExplainerCard id="k-mad">
-        <span>K</span>
+        <span>Sensitivity</span>
       </ExplainerCard>,
     );
-    const trigger = screen.getByText("K").parentElement;
+    const trigger = screen.getByText("Sensitivity").parentElement;
     expect(trigger).not.toBeNull();
     if (trigger === null) return;
 
@@ -134,10 +134,10 @@ describe("ExplainerCard — content opens on hover and shows both sections", () 
     const user = userEvent.setup();
     const { container } = render(
       <ExplainerCard id="k-mad">
-        <span>K</span>
+        <span>Sensitivity</span>
       </ExplainerCard>,
     );
-    const trigger = screen.getByText("K").parentElement;
+    const trigger = screen.getByText("Sensitivity").parentElement;
     if (trigger === null) throw new Error("trigger missing");
     await user.hover(trigger);
     await waitFor(
@@ -158,10 +158,10 @@ describe("ExplainerCard — Escape key dismisses the card", () => {
     const user = userEvent.setup();
     render(
       <ExplainerCard id="k-mad">
-        <span>K</span>
+        <span>Sensitivity</span>
       </ExplainerCard>,
     );
-    const trigger = screen.getByText("K").parentElement;
+    const trigger = screen.getByText("Sensitivity").parentElement;
     if (trigger === null) throw new Error("trigger missing");
     await user.hover(trigger);
     await waitFor(() => {
@@ -212,10 +212,10 @@ describe("ExplainerCard — markdown features", () => {
     const user = userEvent.setup();
     render(
       <ExplainerCard id="k-mad">
-        <span>K</span>
+        <span>Sensitivity</span>
       </ExplainerCard>,
     );
-    const trigger = screen.getByText("K").parentElement;
+    const trigger = screen.getByText("Sensitivity").parentElement;
     if (trigger === null) throw new Error("trigger missing");
     await user.hover(trigger);
     await waitFor(() => {
@@ -226,19 +226,18 @@ describe("ExplainerCard — markdown features", () => {
     expect(paragraphs.length).toBeGreaterThan(1);
   });
 
-  it("dev-mode warning fires when eli5 contains a $ character", () => {
+  it("dev-mode warning stays quiet when plain English avoids math delimiters", () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
-    // k-mad's eli5 deliberately contains `$K = 3$` etc., so this should warn.
     render(
       <ExplainerCard id="k-mad">
-        <span>K</span>
+        <span>Sensitivity</span>
       </ExplainerCard>,
     );
     const dollarWarnings = warnSpy.mock.calls.filter((call) => {
       const first: unknown = call[0];
       return typeof first === "string" && first.includes("$") && first.includes("eli5");
     });
-    expect(dollarWarnings.length).toBeGreaterThan(0);
+    expect(dollarWarnings.length).toBe(0);
     warnSpy.mockRestore();
   });
 });

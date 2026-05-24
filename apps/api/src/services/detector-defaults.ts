@@ -15,7 +15,7 @@
 // the file shifts the version suffix; detector_runs rows from the old
 // configuration become cache misses on the next access and are recomputed.
 // When the file matches baseline defaults, the suffix is dropped and the
-// version is the unchanged "1.1.0" — pre-existing cache rows stay valid.
+// version is the package detector version — pre-existing cache rows stay valid.
 
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
@@ -23,7 +23,29 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
 import { detector as boardMad } from "@signal-console/detectors/board-mad";
-import { K_MAD_LIVE } from "@signal-console/detectors/board-mad/config";
+import {
+  BOARD_MAD_BASELINE_MODE_DEFAULT,
+  BOARD_MAD_BASELINE_MODE_OPENING_RAMP,
+  BOARD_MAD_BASELINE_MODE_TRAILING,
+  BOARD_MAD_FRESH_CAP_SECONDS_DEFAULT,
+  BOARD_MAD_FRESH_CAP_SECONDS_MAX,
+  BOARD_MAD_FRESH_CAP_SECONDS_MIN,
+  BOARD_MAD_K_MAD_MAX,
+  BOARD_MAD_K_MAD_MIN,
+  BOARD_MAD_OPENING_BASELINE_BUCKETS_DEFAULT,
+  BOARD_MAD_OPENING_BASELINE_BUCKETS_MAX,
+  BOARD_MAD_OPENING_BASELINE_BUCKETS_MIN,
+  BOARD_MAD_OPENING_RAMP_COMPLETE_BUCKETS_DEFAULT,
+  BOARD_MAD_OPENING_RAMP_COMPLETE_BUCKETS_MAX,
+  BOARD_MAD_OPENING_RAMP_COMPLETE_BUCKETS_MIN,
+  BOARD_MAD_TRAILING_BUCKETS_DEFAULT,
+  BOARD_MAD_TRAILING_BUCKETS_MAX,
+  BOARD_MAD_TRAILING_BUCKETS_MIN,
+  BOARD_MAD_WARMUP_BUCKETS_DEFAULT,
+  BOARD_MAD_WARMUP_BUCKETS_MAX,
+  BOARD_MAD_WARMUP_BUCKETS_MIN,
+  K_MAD_LIVE,
+} from "@signal-console/detectors/board-mad/config";
 import { z } from "zod";
 
 export const DETECTOR_DEFAULTS_PATH: string = join(
@@ -33,19 +55,47 @@ export const DETECTOR_DEFAULTS_PATH: string = join(
   "detector-defaults.json",
 );
 
+export const PBP_PRE_BUFFER_MS_DEFAULT = 5 * 60 * 1000;
+export const PBP_POST_BUFFER_MS_DEFAULT = 60_000;
+
 export const DetectorDefaultsSchema = z
   .object({
-    kMadLive: z.number().min(1).max(12).default(K_MAD_LIVE),
-    trailingBuckets: z.number().int().min(5).max(60).default(20),
-    warmupBuckets: z.number().int().min(2).max(20).default(8),
-    freshCapSeconds: z.number().int().min(30).max(3600).default(300),
-    pbpPreBufferMs: z
+    kMadLive: z.number().min(BOARD_MAD_K_MAD_MIN).max(BOARD_MAD_K_MAD_MAX).default(K_MAD_LIVE),
+    baselineMode: z
+      .enum([BOARD_MAD_BASELINE_MODE_TRAILING, BOARD_MAD_BASELINE_MODE_OPENING_RAMP])
+      .default(BOARD_MAD_BASELINE_MODE_DEFAULT),
+    openingBaselineBuckets: z
       .number()
       .int()
-      .min(60_000)
-      .max(3_600_000)
-      .default(5 * 60 * 1000),
-    pbpPostBufferMs: z.number().int().min(10_000).max(600_000).default(60_000),
+      .min(BOARD_MAD_OPENING_BASELINE_BUCKETS_MIN)
+      .max(BOARD_MAD_OPENING_BASELINE_BUCKETS_MAX)
+      .default(BOARD_MAD_OPENING_BASELINE_BUCKETS_DEFAULT),
+    openingRampCompleteBuckets: z
+      .number()
+      .int()
+      .min(BOARD_MAD_OPENING_RAMP_COMPLETE_BUCKETS_MIN)
+      .max(BOARD_MAD_OPENING_RAMP_COMPLETE_BUCKETS_MAX)
+      .default(BOARD_MAD_OPENING_RAMP_COMPLETE_BUCKETS_DEFAULT),
+    trailingBuckets: z
+      .number()
+      .int()
+      .min(BOARD_MAD_TRAILING_BUCKETS_MIN)
+      .max(BOARD_MAD_TRAILING_BUCKETS_MAX)
+      .default(BOARD_MAD_TRAILING_BUCKETS_DEFAULT),
+    warmupBuckets: z
+      .number()
+      .int()
+      .min(BOARD_MAD_WARMUP_BUCKETS_MIN)
+      .max(BOARD_MAD_WARMUP_BUCKETS_MAX)
+      .default(BOARD_MAD_WARMUP_BUCKETS_DEFAULT),
+    freshCapSeconds: z
+      .number()
+      .int()
+      .min(BOARD_MAD_FRESH_CAP_SECONDS_MIN)
+      .max(BOARD_MAD_FRESH_CAP_SECONDS_MAX)
+      .default(BOARD_MAD_FRESH_CAP_SECONDS_DEFAULT),
+    pbpPreBufferMs: z.number().int().min(60_000).max(3_600_000).default(PBP_PRE_BUFFER_MS_DEFAULT),
+    pbpPostBufferMs: z.number().int().min(10_000).max(600_000).default(PBP_POST_BUFFER_MS_DEFAULT),
   })
   .strict();
 
@@ -132,10 +182,13 @@ export function boardMadDetectorVersion(defaults: DetectorDefaults): string {
   return `${boardMad.version}+def.${hash}`;
 }
 
-function orderedDefaults(d: DetectorDefaults): Record<string, number> {
+function orderedDefaults(d: DetectorDefaults): Record<string, number | string> {
   return {
+    baselineMode: d.baselineMode,
     freshCapSeconds: d.freshCapSeconds,
     kMadLive: d.kMadLive,
+    openingBaselineBuckets: d.openingBaselineBuckets,
+    openingRampCompleteBuckets: d.openingRampCompleteBuckets,
     pbpPostBufferMs: d.pbpPostBufferMs,
     pbpPreBufferMs: d.pbpPreBufferMs,
     trailingBuckets: d.trailingBuckets,
@@ -146,6 +199,9 @@ function orderedDefaults(d: DetectorDefaults): Record<string, number> {
 function isBaselineDefaults(d: DetectorDefaults): boolean {
   return (
     d.kMadLive === BASELINE_DEFAULTS.kMadLive &&
+    d.baselineMode === BASELINE_DEFAULTS.baselineMode &&
+    d.openingBaselineBuckets === BASELINE_DEFAULTS.openingBaselineBuckets &&
+    d.openingRampCompleteBuckets === BASELINE_DEFAULTS.openingRampCompleteBuckets &&
     d.trailingBuckets === BASELINE_DEFAULTS.trailingBuckets &&
     d.warmupBuckets === BASELINE_DEFAULTS.warmupBuckets &&
     d.freshCapSeconds === BASELINE_DEFAULTS.freshCapSeconds &&
