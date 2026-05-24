@@ -12,6 +12,8 @@ import {
   upsertSourceMarket,
 } from "@signal-console/shared";
 
+import { buildCanonicalMoneylineInstrumentId, buildStableId } from "./canonical-instruments";
+
 export type Bet365InternalRow = {
   observedAt: string;
   gameDate: string;
@@ -79,13 +81,6 @@ function normalizeImpliedProbability(row: Bet365InternalRow) {
     return decimalToImplied(row.priceDecimal);
   }
   return null;
-}
-
-function buildStableId(parts: Array<string | number | null | undefined>) {
-  return parts
-    .map((part) => normalizeToken(String(part ?? "")))
-    .filter(Boolean)
-    .join("-");
 }
 
 function buildRawPayloadHash(payload: Record<string, unknown>) {
@@ -190,7 +185,7 @@ function resolveGame(row: Bet365InternalRow, gameIndex: ReturnType<typeof buildG
 function buildInstrumentId(row: Bet365InternalRow, gameId: string) {
   const participant = row.participantKey ?? row.selection;
   if (row.marketFamily === "moneyline") {
-    return buildStableId([gameId, "moneyline", participant]);
+    return buildCanonicalMoneylineInstrumentId({ gameId, participantKey: participant });
   }
   if (row.marketFamily === "spread") {
     return buildStableId([gameId, "spread", participant, row.line]);

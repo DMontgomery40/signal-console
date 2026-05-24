@@ -162,6 +162,7 @@ export type WorkerHeartbeatSummary = {
   kalshiSourceMarketsObserved: number;
   nbaGamesObserved: number;
   nbaSidecarConfigured: boolean;
+  nbaSidecarLastSyncAt: string | null;
   polymarketGamesMatched: number;
   polymarketSourceMarketsObserved: number;
   providerFailures: Array<{
@@ -325,6 +326,7 @@ export function buildWorkerHeartbeatSummary(options?: {
   kalshiSourceMarketsObserved?: number;
   nbaGameCount?: number;
   nbaSidecarConfigured?: boolean;
+  nbaSidecarLastSyncAt?: string | null;
   now?: () => Date;
   polymarketGamesMatched?: number;
   polymarketSourceMarketsObserved?: number;
@@ -344,6 +346,7 @@ export function buildWorkerHeartbeatSummary(options?: {
     nbaGamesObserved: options?.nbaGameCount ?? 0,
     nbaSidecarConfigured:
       options?.nbaSidecarConfigured ?? Boolean(process.env.NBA_SIDECAR_BASE_URL),
+    nbaSidecarLastSyncAt: options?.nbaSidecarLastSyncAt ?? null,
     polymarketGamesMatched: options?.polymarketGamesMatched ?? 0,
     polymarketSourceMarketsObserved: options?.polymarketSourceMarketsObserved ?? 0,
     providerFailures: options?.providerFailures ?? [],
@@ -403,6 +406,7 @@ export async function runWorkerCycle(options?: {
     let kalshiGamesMatched = 0;
     let kalshiSourceMarketsObserved = 0;
     let nbaGameCount = 0;
+    let nbaSidecarLastSyncAt: string | null = null;
     let polymarketGamesMatched = 0;
     let polymarketSourceMarketsObserved = 0;
     const providerFailures: WorkerHeartbeatSummary["providerFailures"] = [];
@@ -418,6 +422,7 @@ export async function runWorkerCycle(options?: {
         now: options?.now,
       });
       nbaGameCount = syncResult.gamesSeen;
+      nbaSidecarLastSyncAt = syncResult.finishedAt;
       if (syncResult.ok) {
         logger.info(syncResult, "NBA sidecar sync completed.");
       } else {
@@ -543,6 +548,7 @@ export async function runWorkerCycle(options?: {
       kalshiSourceMarketsObserved,
       nbaGameCount,
       nbaSidecarConfigured,
+      nbaSidecarLastSyncAt,
       now: options?.now,
       polymarketGamesMatched,
       polymarketSourceMarketsObserved,
@@ -629,7 +635,11 @@ export function startWorker(options?: {
         maxBackoffMs,
         onHeartbeat: (summary) => {
           try {
-            writeHeartbeatJson({ providerFailures: summary.providerFailures });
+            writeHeartbeatJson({
+              nbaSidecarConfigured: summary.nbaSidecarConfigured,
+              nbaSidecarLastSyncAt: summary.nbaSidecarLastSyncAt,
+              providerFailures: summary.providerFailures,
+            });
           } catch (err) {
             cycleLogger.warn({ error: serializeErrorForLog(err) }, "heartbeat.json write failed");
           }

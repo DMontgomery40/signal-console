@@ -319,7 +319,7 @@ describe("board route (US-021)", () => {
     expect(countRunsForGame(ctx.cacheDbPath, "nba-board-input-1")).toBe(1);
   });
 
-  it("falls back to quote ticks when the PBP table is missing", async () => {
+  it("fails closed when the PBP table is missing instead of using quote ticks", async () => {
     seedGoldDb(ctx.goldDbPath, [{ id: "nba-no-pbp-table-1", seedPbp: false, tickCount: 1200 }]);
     dropPbpTable(ctx.goldDbPath);
     const app = await startApp();
@@ -340,7 +340,7 @@ describe("board route (US-021)", () => {
     const firstBody = asRecord(first.json(), "first body");
     const secondBody = asRecord(second.json(), "second body");
     expect(secondBody["runId"]).toBe(firstBody["runId"]);
-    expect(readObservations(firstBody).length).toBeGreaterThan(0);
+    expect(readObservations(firstBody)).toEqual([]);
     expect(countRunsForGame(ctx.cacheDbPath, "nba-no-pbp-table-1")).toBe(1);
   });
 

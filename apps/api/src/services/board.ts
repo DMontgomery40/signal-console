@@ -11,8 +11,8 @@
 //      source_watermark_hash, scope='game', game_id).
 //   4. Cache hit: SELECT detector_observations for the matched run_id.
 //   5. Cache miss: resolve the in-play window (PBP MIN/MAX(time_actual) with
-//      a 5-min pre-buffer + 1-min post-buffer; fallback to the game's entire
-//      quote_ticks captured_at range when PBP is empty), load ticks for the
+//      a 5-min pre-buffer + 1-min post-buffer; fail closed when PBP is absent),
+//      load ticks for the
 //      window, run board-mad, INSERT detector_runs + detector_observations in
 //      a single transaction.
 //
@@ -300,24 +300,9 @@ function resolveInPlayWindow(
       }
     }
   }
-  // Fallback: entire quote_ticks captured_at range for the game.
-  // Last-ditch for games with neither PBP nor scheduled_start. Wide window
-  // (~25h) but bounded to this game's actual data extent. If quote_ticks
-  // is also empty, return null and the caller persists an empty-observations
-  // run so the next call hits cache.
-  const qt = goldDb
-    .prepare(
-      `SELECT MIN(qt.captured_at) AS lo, MAX(qt.captured_at) AS hi
-       FROM quote_ticks qt
-       JOIN source_markets sm ON sm.id = qt.source_market_id
-       WHERE sm.game_id = ?`,
-    )
-    .get(gameId);
-  if (!isRecord(qt)) return null;
-  const lo = qt["lo"];
-  const hi = qt["hi"];
-  if (typeof lo !== "string" || typeof hi !== "string") return null;
-  return { start: new Date(lo), end: new Date(hi) };
+  // No PBP means no trustworthy in-play boundary. Fail closed instead of
+  // treating market-open quote ticks as game action.
+  return null;
 }
 
 function loadTicks(goldDb: GoldDbHandle, gameId: string, start: Date, end: Date): readonly Tick[] {

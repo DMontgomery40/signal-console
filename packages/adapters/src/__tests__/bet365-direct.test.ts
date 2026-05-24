@@ -167,6 +167,7 @@ describe("captureBet365Snapshot + persistBet365Snapshot", () => {
     expect(rows).toHaveLength(2);
     expect(rows.map((r) => r.selection).sort()).toEqual(["hou", "lal"]);
     const lal = rows.find((r) => r.selection === "lal");
+    expect(lal?.instrumentId).toBe("nba-bet365-test-1-moneyline-lal");
     expect(lal?.p).toBeCloseTo(1 / 1.65, 3);
   });
 

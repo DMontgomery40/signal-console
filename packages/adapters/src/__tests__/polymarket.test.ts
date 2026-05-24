@@ -230,16 +230,16 @@ describe("polymarket adapter", () => {
       ]),
     );
 
-    expect(
-      getInstrumentComparison("nba-0042500173", "nba-0042500173-moneyline-lakers-moneyline"),
-    ).toMatchObject({
-      latestQuotesBySource: expect.arrayContaining([
-        expect.objectContaining({
-          impliedProbability: 0.215,
-          source: "polymarket",
-        }),
-      ]),
-    });
+    expect(getInstrumentComparison("nba-0042500173", "nba-0042500173-moneyline-lal")).toMatchObject(
+      {
+        latestQuotesBySource: expect.arrayContaining([
+          expect.objectContaining({
+            impliedProbability: 0.215,
+            source: "polymarket",
+          }),
+        ]),
+      },
+    );
 
     expect(
       getInstrumentComparison(

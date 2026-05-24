@@ -62,6 +62,9 @@ export interface BacktestObservation {
   // Set by composite detectors (ensemble-or) so the UI can render board fires
   // and off-price-print fires differently. Single-lane runs leave it undefined.
   readonly lane?: "board" | "offprice";
+  // Event-lane discriminator. Off-price prints can share the same timestamp but
+  // still be distinct market events.
+  readonly sourceMarketId?: string;
 }
 
 export interface BacktestStats {
@@ -312,15 +315,21 @@ function loadObservations(
     if (!isRecord(row)) throw new Error("observation row not an object");
     const detailJson = row["detail_json"];
     let lane: "board" | "offprice" | undefined;
+    let sourceMarketId: string | undefined;
     if (typeof detailJson === "string" && detailJson.length > 0) {
       try {
         const parsed: unknown = JSON.parse(detailJson);
         if (isRecord(parsed)) {
           const candidate = parsed["lane"];
           if (candidate === "board" || candidate === "offprice") lane = candidate;
+          const sourceMarket = parsed["sourceMarketId"];
+          if (typeof sourceMarket === "string" && sourceMarket.length > 0) {
+            sourceMarketId = sourceMarket;
+          }
         }
       } catch {
         lane = undefined;
+        sourceMarketId = undefined;
       }
     }
     const base = {
@@ -332,7 +341,11 @@ function loadObservations(
       baselineMedian: pickNumber(row, "baseline_median"),
       baselineMad: pickNumber(row, "baseline_mad"),
     };
-    return lane === undefined ? base : { ...base, lane };
+    return {
+      ...base,
+      ...(lane === undefined ? {} : { lane }),
+      ...(sourceMarketId === undefined ? {} : { sourceMarketId }),
+    };
   });
 }
 
@@ -365,6 +378,7 @@ function buildObservationsFromResult(result: DetectorResult): readonly BacktestO
           baselineMedian: f.baselineMedian,
           baselineMad: f.baselineMad,
           lane: "offprice",
+          ...(f.sourceMarketId === undefined ? {} : { sourceMarketId: f.sourceMarketId }),
         });
       }
     }
@@ -383,6 +397,7 @@ function buildObservationsFromResult(result: DetectorResult): readonly BacktestO
       baselineMedian: f.baselineMedian,
       baselineMad: f.baselineMad,
       ...(f.lane === undefined ? {} : { lane: f.lane }),
+      ...(f.sourceMarketId === undefined ? {} : { sourceMarketId: f.sourceMarketId }),
     }),
   );
 }
@@ -456,7 +471,10 @@ function persistRun(cacheDb: Database.Database, args: PersistArgs): number {
     }
     const runId = Number(result.lastInsertRowid);
     for (const obs of args.observations) {
-      const detail = obs.lane === undefined ? null : JSON.stringify({ lane: obs.lane });
+      const detailPayload: Record<string, string> = {};
+      if (obs.lane !== undefined) detailPayload.lane = obs.lane;
+      if (obs.sourceMarketId !== undefined) detailPayload.sourceMarketId = obs.sourceMarketId;
+      const detail = Object.keys(detailPayload).length === 0 ? null : JSON.stringify(detailPayload);
       insertObs.run(
         runId,
         obs.gameId,
@@ -531,46 +549,9 @@ function resolvePerGameInPlayWindow(
       }
     }
   }
-  // Fallback: per-game quote_ticks captured_at MIN..MAX. Used when PBP is
-  // unavailable for this game (e.g. backup predates PBP ingest). Less precise (no
-  // pre-tipoff anchor, no after-final cooldown) but still narrows vs the
-  // raw requested window because it bounds to "first tick to last tick for
-  // THIS game's markets."
-  let qt: unknown;
-  try {
-    qt = goldDb
-      .prepare(
-        `SELECT MIN(qt.captured_at) AS lo, MAX(qt.captured_at) AS hi
-         FROM quote_ticks qt
-         JOIN source_markets sm ON sm.id = qt.source_market_id
-         WHERE sm.game_id = ?
-           AND qt.captured_at >= ?
-           AND qt.captured_at <= ?`,
-      )
-      .get(gameId, windowStart, windowEnd);
-  } catch {
-    qt = null;
-  }
-  if (isRecord(qt)) {
-    const lo = qt["lo"];
-    const hi = qt["hi"];
-    if (typeof lo === "string" && typeof hi === "string") {
-      const loMs = Date.parse(lo);
-      const hiMs = Date.parse(hi);
-      if (Number.isFinite(loMs) && Number.isFinite(hiMs)) {
-        // No PBP-style buffers — we don't know exactly when tipoff was, so
-        // first tick IS the earliest signal and last tick IS the latest.
-        // This will still include some pre-warmup ticks from market-open
-        // (the same wide-window problem at smaller scale) but bounded by
-        // the actual data extent of THIS game.
-        return { start: lo, end: hi };
-      }
-    }
-  }
-  // Last-ditch: requested window (no narrowing). Only true when the game has
-  // no PBP and no ticks — in which case loadTicks finds nothing anyway, so
-  // this is a harmless terminal fallback.
-  return { start: windowStart, end: windowEnd };
+  // No PBP means no trustworthy in-play boundary. Fail closed instead of
+  // evaluating pregame quote ticks as if they were game action.
+  return null;
 }
 
 function loadTicks(

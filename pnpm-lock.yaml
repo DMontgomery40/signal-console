@@ -56,6 +56,9 @@ importers:
       '@signal-console/detectors':
         specifier: workspace:*
         version: link:../../packages/detectors
+      better-sqlite3:
+        specifier: ^12.4.0
+        version: 12.10.0
       fastify:
         specifier: ^5.8.0
         version: 5.8.5
@@ -75,9 +78,6 @@ importers:
       '@types/node':
         specifier: ^22.10.10
         version: 22.19.19
-      better-sqlite3:
-        specifier: ^12.4.0
-        version: 12.10.0
       vitest:
         specifier: ^3.2.0
         version: 3.2.4(@types/debug@4.1.13)(@types/node@22.19.19)(jiti@1.21.7)(jsdom@29.1.1)(tsx@4.22.3)(yaml@2.9.0)

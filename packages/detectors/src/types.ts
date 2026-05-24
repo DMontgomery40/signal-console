@@ -73,6 +73,7 @@ export type DetectorFire = {
   readonly baselineMedian: number;
   readonly baselineMad: number;
   readonly lane?: DetectorFireLane;
+  readonly sourceMarketId?: string;
 };
 
 export type DetectorStats = {

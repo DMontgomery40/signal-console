@@ -311,6 +311,40 @@ describe("backtest route (US-034)", () => {
     expect(secondBody["observations"]).toEqual(firstBody["observations"]);
   });
 
+  it("fails closed for board-lane backtests when PBP is missing, even if quote ticks exist", async () => {
+    seedGoldDb(ctx.goldDbPath, [{ id: "nba-no-pbp-backtest-1", tickCount: 1200 }]);
+    const app = await startApp();
+    const payload = {
+      detector_id: "board-mad",
+      params: defaultBoardMadParams(3.0),
+      window: { start: "2026-05-23T02:30:00Z", end: "2026-05-23T05:00:00Z" },
+      game_ids: ["nba-no-pbp-backtest-1"],
+    };
+
+    const first = await app.inject({
+      method: "POST",
+      url: "/v1/backtest",
+      headers: authHeaders(),
+      payload,
+    });
+    expect(first.statusCode).toBe(200);
+    const firstBody = asRecord(first.json(), "first no-pbp");
+    expect(firstBody["observations"]).toEqual([]);
+
+    seedQuoteTick(ctx.goldDbPath, "mkt-nba-no-pbp-backtest-1-0", "2026-05-23T03:10:00.000Z", 0.99);
+
+    const second = await app.inject({
+      method: "POST",
+      url: "/v1/backtest",
+      headers: authHeaders(),
+      payload,
+    });
+    expect(second.statusCode).toBe(200);
+    const secondBody = asRecord(second.json(), "second no-pbp");
+    expect(secondBody["runId"]).toBe(firstBody["runId"]);
+    expect(secondBody["observations"]).toEqual([]);
+  });
+
   it("treats explicit game_ids as a canonical set for cache and stats", async () => {
     seedGoldDb(ctx.goldDbPath, [{ id: "nba-canon-1", tickCount: 1200 }]);
     const app = await startApp();

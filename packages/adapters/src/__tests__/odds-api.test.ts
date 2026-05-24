@@ -416,10 +416,7 @@ describe("odds-api adapter", () => {
       ]),
     );
 
-    const comparison = getInstrumentComparison(
-      "nba-0042500173",
-      "nba-0042500173-moneyline-rockets-moneyline",
-    );
+    const comparison = getInstrumentComparison("nba-0042500173", "nba-0042500173-moneyline-hou");
     expect(comparison).toMatchObject({
       latestQuotesBySource: expect.arrayContaining([
         expect.objectContaining({

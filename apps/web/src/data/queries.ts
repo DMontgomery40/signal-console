@@ -67,6 +67,8 @@ const boardObservationSchema = z.object({
   intensity: z.number(),
   baselineMedian: z.number(),
   baselineMad: z.number(),
+  lane: z.enum(["board", "offprice"]).optional(),
+  sourceMarketId: z.string().optional(),
 });
 const boardSchema = z.object({
   gameId: z.string(),
@@ -392,6 +394,8 @@ const backtestObservationSchema = z.object({
   intensity: z.number(),
   baselineMedian: z.number(),
   baselineMad: z.number(),
+  lane: z.enum(["board", "offprice"]).optional(),
+  sourceMarketId: z.string().optional(),
 });
 const backtestStatsSchema = z.object({
   firesPerGame: z.number(),

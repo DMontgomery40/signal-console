@@ -95,6 +95,40 @@ describe("ensemble-or detector", () => {
     expect(ensemble.stats.totalFires).toBe(boardOnly.fires.length + offOnly.fires.length);
   });
 
+  it("keeps simultaneous off-price fires from distinct source markets", () => {
+    const eventAt = new Date(baseTime.getTime() + 10 * 60_000);
+    const microstructureEvents: readonly MicrostructureEvent[] = [
+      {
+        ...offPriceEvent(),
+        eventTimestamp: eventAt,
+        sourceMarketId: "mkt-a",
+      },
+      {
+        ...offPriceEvent(),
+        eventTimestamp: eventAt,
+        sourceMarketId: "mkt-b",
+      },
+    ];
+    const window: DetectorWindow = {
+      gameIds: ["nba-test-1"],
+      start: baseTime,
+      end: new Date(baseTime.getTime() + 60 * 60_000),
+      ticks: [],
+      microstructureEvents,
+    };
+
+    const offOnly = offPricePrint.run(window, {
+      minVolumeShare: 0.1,
+      minOffPriceDistance: 0.4,
+    });
+    const ensemble = ensembleOr.run(window, Params.parse({}));
+    const offpriceFires = ensemble.fires.filter((f) => f.lane === "offprice");
+
+    expect(offOnly.fires).toHaveLength(2);
+    expect(offpriceFires).toHaveLength(2);
+    expect(ensemble.stats.totalFires).toBe(2);
+  });
+
   it("emits buckets from the board lane (off-price has no per-bucket aggregate)", () => {
     const window = buildWindow();
     const ensemble = ensembleOr.run(window, Params.parse({}));

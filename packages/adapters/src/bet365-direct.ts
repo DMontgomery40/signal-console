@@ -11,6 +11,8 @@ import {
   upsertSourceMarket,
 } from "@signal-console/shared";
 
+import { buildCanonicalMoneylineInstrumentId, buildStableId } from "./canonical-instruments";
+
 type PlaywrightBrowser = {
   close: () => Promise<void>;
   newContext: (options?: {
@@ -73,13 +75,6 @@ function normalizeToken(value: string | null | undefined) {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
-}
-
-function buildStableId(parts: Array<string | number | null | undefined>) {
-  return parts
-    .map((part) => normalizeToken(String(part ?? "")))
-    .filter(Boolean)
-    .join("-");
 }
 
 function buildRawPayloadHash(payload: Record<string, unknown>) {
@@ -239,12 +234,18 @@ export function persistBet365Snapshot(snapshot: Bet365DirectGameSnapshot) {
     const implied = normalizeImplied(offering);
     if (implied == null) continue;
 
-    const instrumentId = buildStableId([
-      snapshot.gameId,
-      offering.family,
-      offering.participantKey ?? offering.selection,
-      offering.line,
-    ]);
+    const instrumentId =
+      offering.family === "moneyline"
+        ? buildCanonicalMoneylineInstrumentId({
+            gameId: snapshot.gameId,
+            participantKey: offering.participantKey ?? offering.selection,
+          })
+        : buildStableId([
+            snapshot.gameId,
+            offering.family,
+            offering.participantKey ?? offering.selection,
+            offering.line,
+          ]);
     const sourceMarketId = `bet365-direct-${instrumentId}`;
 
     upsertMarketInstrument({
