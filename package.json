@@ -1,0 +1,36 @@
+{
+  "name": "signal-console",
+  "version": "0.0.0",
+  "private": true,
+  "packageManager": "pnpm@11.0.9",
+  "engines": {
+    "node": ">=22.0.0",
+    "pnpm": ">=11.0.0"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "lint": "eslint . --max-warnings=0",
+    "format:check": "prettier --check . --ignore-unknown",
+    "format:write": "prettier --write . --ignore-unknown",
+    "typecheck": "tsc --noEmit -p scripts/tsconfig.json && tsx scripts/run-workspace-script.ts typecheck",
+    "verify:no-stale-plan": "tsx scripts/verify-no-stale-plan.ts",
+    "verify:no-hex-literals": "tsx scripts/verify-no-hex-literals.ts",
+    "verify:queries": "tsx scripts/verify-queries.ts",
+    "cache:reset": "tsx scripts/cache-reset.ts",
+    "verify": "prettier --check . --ignore-unknown && eslint . --max-warnings=0 && tsc --noEmit -p scripts/tsconfig.json && tsx scripts/run-workspace-script.ts typecheck && tsx scripts/verify-no-stale-plan.ts && tsx scripts/verify-no-hex-literals.ts && tsx scripts/verify-queries.ts && tsx scripts/run-workspace-script.ts verify"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.4",
+    "@types/node": "^22.10.10",
+    "eslint": "^9.39.4",
+    "eslint-plugin-functional": "^7.3.0",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "globals": "^16.5.0",
+    "prettier": "^3.8.3",
+    "tsx": "^4.20.6",
+    "turbo": "^2.5.10",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.59.4"
+  }
+}

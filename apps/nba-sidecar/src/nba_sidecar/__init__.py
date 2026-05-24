@@ -1,0 +1,2 @@
+"""NBA sidecar package."""
+

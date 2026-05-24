@@ -1,0 +1,38 @@
+node_modules/
+dist/
+build/
+.turbo/
+.next/
+coverage/
+*.log
+.DS_Store
+.env
+.env.local
+.env.*.local
+
+# Local ralph runtime state
+scripts/ralph/.last-branch
+scripts/ralph/.last-story
+scripts/ralph/.story-attempts
+scripts/ralph/ralph.log
+scripts/ralph/.playwright-mcp/
+
+# Gold DB (54 GB) — never tracked
+data/*.sqlite
+data/*.sqlite-wal
+data/*.sqlite-shm
+data/*.sqlite.pre-*
+data/*.sqlite.corrupt-*
+
+# Worker runtime heartbeat (updated each ingest cycle)
+apps/worker/data/heartbeat.json
+
+# Editor and assistant local state
+.agents/
+.claude/scheduled_tasks.lock
+
+# Python sidecar virtualenv + pytest cache
+.venv/
+.pytest_cache/
+__pycache__/
+*.pyc

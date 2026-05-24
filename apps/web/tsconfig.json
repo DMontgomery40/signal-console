@@ -1,0 +1,20 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    "types": ["node", "vite/client"],
+    "allowJs": false
+  },
+  "include": [
+    "src/**/*",
+    "playwright.config.ts",
+    "vite.config.ts",
+    "vitest.config.ts",
+    "vitest.setup.ts",
+    "tailwind.config.ts",
+    "postcss.config.cjs"
+  ],
+  "exclude": ["node_modules", "dist", "build", "e2e"]
+}

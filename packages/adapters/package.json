@@ -1,0 +1,32 @@
+{
+  "name": "@signal-console/adapters",
+  "version": "0.0.0",
+  "type": "module",
+  "main": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "tsup src/index.ts --format esm --out-dir dist",
+    "lint": "eslint src --ext .ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run --passWithNoTests",
+    "verify": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@signal-console/domain": "workspace:*",
+    "@signal-console/shared": "workspace:*",
+    "zod": "^3.24.3"
+  },
+  "peerDependencies": {
+    "playwright": "^1.52.0"
+  },
+  "peerDependenciesMeta": {
+    "playwright": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "vitest": "^3.2.0"
+  }
+}

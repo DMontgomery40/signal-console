@@ -1,0 +1,5 @@
+QUERY PLAN
+SCAN g
+CORRELATED SCALAR SUBQUERY 1
+  SEARCH gs USING INDEX idx_game_states_game_captured (game_id=?)
+USE TEMP B-TREE FOR ORDER BY

@@ -1,0 +1,288 @@
+/* Signal Console — global CSS.
+ *
+ * Declares CSS custom properties that mirror the design tokens in ./tokens.ts
+ * and applies the subtle vertical surface-0 gradient to <body> exactly once
+ * for the entire app. No per-panel gradients, no card gradients (see
+ * docs/design-language.md §"Layout & density").
+ *
+ * Hex literals are allowed in this file by the `verify:no-hex-literals` check.
+ * Keep the values aligned with tokens.ts; the tokens snapshot test guards drift
+ * in the TS source, while visual review covers the CSS side.
+ */
+
+@import "katex/dist/katex.min.css";
+
+:root {
+  --surface-0-from: #06140e;
+  --surface-0-to: #0e2a1f;
+  --surface-1: #0f2419;
+  --surface-2: #163020;
+  --surface-elevated: #1a3528;
+  --accent-green: #14eb6f;
+  --accent-yellow: #ffd000;
+  --negative: #ff5757;
+  --text-hi: #ffffff;
+  --text-md: #b4c4bd;
+  --text-lo: #6e7e77;
+
+  --font-sans: Inter, "Geist Sans", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "Berkeley Mono", "IBM Plex Mono", ui-monospace, monospace;
+
+  --motion-fast: 100ms;
+  --motion-base: 150ms;
+  --motion-slow: 200ms;
+  --motion-pulse: 1500ms;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: linear-gradient(to bottom, var(--surface-0-from), var(--surface-0-to));
+  background-attachment: fixed;
+  color: var(--text-md);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Form-control base styling — design-language.md §"Components style" inputs:
+ * surface-1 background, 1px text-lo border, focus border accent-green, no
+ * floating labels. Without this, browser defaults (white background) collide
+ * with the dark theme and leave text invisible-on-white. Applies globally so
+ * every <input>, <select>, <textarea> in the app inherits without per-component
+ * className boilerplate. Components can still override via Tailwind utilities
+ * when they need (e.g. the Cry Wolf dial doesn't render a native input).
+ */
+
+input,
+select,
+textarea {
+  background-color: var(--surface-1);
+  color: var(--text-hi);
+  border: 1px solid var(--text-lo);
+  border-radius: 4px;
+  padding: 6px 10px;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: 1.4;
+  transition: border-color var(--motion-fast) ease-out;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--text-lo);
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  outline: none;
+  border-color: var(--accent-green);
+}
+
+input:disabled,
+select:disabled,
+textarea:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Numeric / mono inputs (Cry Wolf dial, K value displays, anywhere numerics
+ * should align). When the input has `font-mono` Tailwind class OR the inline
+ * font-variant tabular-nums, we keep the design-language treatment but switch
+ * the family to the mono stack. */
+input[type="number"],
+input.tabular,
+select.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Native date/time pickers — make the indicator icon legible against the dark
+ * surface. Without invert(), the picker chevron renders almost-black on the
+ * dark input fill. */
+input[type="date"]::-webkit-calendar-picker-indicator,
+input[type="datetime-local"]::-webkit-calendar-picker-indicator,
+input[type="time"]::-webkit-calendar-picker-indicator {
+  filter: invert(0.7);
+  cursor: pointer;
+}
+
+/* Native range slider — used by the WarmupDial (US-042) and any future linear
+ * controls. Track + thumb in design tokens. */
+input[type="range"] {
+  background: transparent;
+  border: none;
+  padding: 0;
+  -webkit-appearance: none;
+  appearance: none;
+  height: 24px;
+}
+
+input[type="range"]::-webkit-slider-runnable-track {
+  background-color: var(--surface-1);
+  height: 8px;
+  border-radius: 999px;
+}
+
+input[type="range"]::-moz-range-track {
+  background-color: var(--surface-1);
+  height: 8px;
+  border-radius: 999px;
+  border: none;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  background-color: var(--accent-yellow);
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid var(--text-hi);
+  margin-top: -5px;
+  cursor: pointer;
+}
+
+input[type="range"]::-moz-range-thumb {
+  background-color: var(--accent-yellow);
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid var(--text-hi);
+  cursor: pointer;
+}
+
+/* Radio + checkbox — keep size but recolor so the indicator + ring use design
+ * tokens, not the OS accent. */
+input[type="radio"],
+input[type="checkbox"] {
+  accent-color: var(--accent-green);
+  background-color: var(--surface-1);
+  border: 1px solid var(--text-lo);
+  padding: 0;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+}
+
+/* ExplainerCard — backdrop overlay. Rendered inside HoverCard.Portal as a
+ * sibling to the Content so it mounts/unmounts in sync with the card. The
+ * backdrop blurs and dims the rest of the page while keeping the card crisp
+ * — Linear/Vercel/Notion hover-card pattern. pointer-events: none so the
+ * trigger underneath stays interactive (the user can move the mouse from
+ * trigger into the card across the 8 px bridge). filter / box-shadow /
+ * drop-shadow are deliberately NOT applied here OR on the card: depth comes
+ * from the background blur, not from elevation shadow on the card body.
+ */
+
+.explainer-backdrop {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background-color: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  z-index: 40;
+  animation: explainer-backdrop-fade-in var(--motion-fast) ease-out;
+}
+
+@keyframes explainer-backdrop-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* ExplainerCard — Radix HoverCard content. */
+
+.explainer-card-content {
+  scrollbar-width: thin;
+  scrollbar-color: var(--text-lo) var(--surface-2);
+  animation-duration: var(--motion-fast);
+}
+
+.explainer-card-content::-webkit-scrollbar {
+  width: 6px;
+}
+
+.explainer-card-content::-webkit-scrollbar-track {
+  background: var(--surface-2);
+}
+
+.explainer-card-content::-webkit-scrollbar-thumb {
+  background: var(--text-lo);
+  border-radius: 3px;
+}
+
+.explainer-prose p {
+  margin: 0 0 0.75em 0;
+  /* US-048: long URLs, long-tokens, and unbroken identifiers in the Plain
+   * English copy were escaping the card horizontally. anywhere is the
+   * permissive rule that wraps at any character when no normal break point
+   * exists; word-break is the legacy fallback for engines that ignore
+   * overflow-wrap on individual words. */
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.explainer-prose p:last-child {
+  margin-bottom: 0;
+}
+
+.explainer-prose code {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  background: var(--surface-2);
+  padding: 0.05em 0.35em;
+  border-radius: 2px;
+  color: var(--text-hi);
+}
+
+.explainer-prose table {
+  border-collapse: collapse;
+  margin: 0.5em 0;
+  width: 100%;
+}
+
+.explainer-prose th,
+.explainer-prose td {
+  border-bottom: 1px solid var(--surface-2);
+  padding: 0.25em 0.5em;
+  text-align: left;
+}
+
+.explainer-prose th {
+  color: var(--text-lo);
+  font-weight: 500;
+}
+
+.explainer-prose-formal .katex-display {
+  margin: 0.75em 0;
+  /* US-048: KaTeX block-math wrappers ignore their parent's max-width and
+   * push the card sideways when a formula is wider than the body. Clamping
+   * max-width to 100% + horizontal scroll keeps the math inside the card. */
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: var(--text-lo) var(--surface-2);
+}
+
+.explainer-prose-formal .katex-display::-webkit-scrollbar {
+  height: 6px;
+}
+
+.explainer-prose-formal .katex-display::-webkit-scrollbar-track {
+  background: var(--surface-2);
+}
+
+.explainer-prose-formal .katex-display::-webkit-scrollbar-thumb {
+  background: var(--text-lo);
+  border-radius: 3px;
+}

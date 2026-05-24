@@ -1,0 +1,33 @@
+node_modules/
+dist/
+build/
+.turbo/
+coverage/
+.next/
+data/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+.gitnexus/
+.claude/skills/
+
+# Owner-maintained docs / Ralph runtime state
+AGENTS.md
+CLAUDE.md
+HANDOFF-*.md
+PRD.md
+scripts/ralph/progress.txt
+scripts/ralph/ralph.log
+scripts/ralph/prd.json
+scripts/ralph/.last-branch
+scripts/ralph/.last-story
+scripts/ralph/.story-attempts
+scripts/ralph/.playwright-mcp/
+
+# Visual-verification screenshots committed by Ralph UI stories (binary PNGs;
+# prettier --ignore-unknown handles binaries but the directory exists as a
+# committed artifact, not a formatting target).
+apps/web/.ralph-screenshots/
+
+# Lockfile (pnpm manages it)
+pnpm-lock.yaml

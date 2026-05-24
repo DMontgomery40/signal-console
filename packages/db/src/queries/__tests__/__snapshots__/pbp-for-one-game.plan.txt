@@ -1,0 +1,2 @@
+QUERY PLAN
+SEARCH nba_play_by_play_actions USING INDEX sqlite_autoindex_nba_play_by_play_actions_1 (game_id=?)

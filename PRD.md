@@ -31,7 +31,7 @@ The "Cry Wolf adapter" is not a new algorithm — it is the existing `K_MAD` mul
 - **Headline feature:** The Cry Wolf adapter — a continuous K-slider on Backtest with two labelled snap points (`K=3.0` sensitive/live default, `K=6.0` calm comparison preset).
 - **Extensibility:** Detector registry; new detector = one file under `packages/detectors/src/<name>/index.ts` + one line in `registry.ts`.
 - **Math honesty:** K = 3.0 is the live/Recent/default operating value. K = 6.0 is a Backtest-only calmer preset. Both declared once in `packages/detectors/src/board-mad/config.ts`. K is a compute parameter, never persisted in the gold DB.
-- **Code ceiling:** Total ~6,000 LOC including tests for the first release. Anything larger is a smell — re-justify before merging.
+- **Stay focused:** the old repo was 73k LOC of bloat; the new one should be small by intent. No hard per-file or total LOC ceiling — judgment over numbers.
 - **Sport-agnostic from day one:** NBA + (future) NFL/NCAA football, via SQL CTEs in query modules. No new tables until a second sport's data lands.
 - **Hosting:** Local compute (Vite preview UI, Fastify API, SQLite read-only on local disk). Reach via existing Cloudflare Tunnel at `nba-predict.dtmont.com` (parked during Phase 0 cutover, repointed in Phase 1).
 - **Gold DB is gold:** Moved once at Phase 0, opened read-only thereafter, never altered by the API path.
@@ -102,7 +102,7 @@ The "Cry Wolf adapter" is not a new algorithm — it is the existing `K_MAD` mul
 │   │   │   │   ├── detectors.ts       # GET /v1/detectors (registry; schemas)
 │   │   │   │   ├── settings.ts        # /v1/settings (DB info, error log)
 │   │   │   │   └── health.ts          # /v1/health/live, /v1/health/ready
-│   │   │   └── services/              # ≤150 LOC each, one per route
+│   │   │   └── services/              # ≤400 LOC each, one per route
 │   │   └── tests/                     # vitest + a real-DB smoke
 │   ├── web/                # React 19 + Vite 6 + Tailwind + Zustand
 │   │   ├── src/
@@ -121,7 +121,7 @@ The "Cry Wolf adapter" is not a new algorithm — it is the existing `K_MAD` mul
 │   ├── db/                 # read-only sqlite + typed queries; no schema
 │   │   └── src/
 │   │       ├── open.ts                # opens with ?mode=ro, sets timeouts
-│   │       ├── queries/               # one file per query, ≤80 LOC each
+│   │       ├── queries/               # one file per query, ≤200 LOC each
 │   │       └── views/                 # SQL view definitions applied to an in-memory clone for dev (never to the gold DB)
 │   ├── detectors/          # detector registry + first 2 detectors
 │   │   └── src/
@@ -134,7 +134,7 @@ The "Cry Wolf adapter" is not a new algorithm — it is the existing `K_MAD` mul
 └── apps/sidecar/           # (phase 0.5, conditional) python sidecar port/wrap if live ingest is needed
 ```
 
-Total ceiling for the first release: **~6,000 LOC** including tests. Anything larger is a smell — re-justify before merging.
+The new repo should be **small by intent** — the old repo was 73k LOC of bloat (1,246 LOC SettingsPage, 3,300 LOC live-repository.ts). No hard LOC ceiling; focused modules that happen to be long are fine. The anti-pattern is conflated mega-files.
 
 ---
 
@@ -737,8 +737,8 @@ Three sections, no buttons that mutate (except "clear cache"):
 - [ ] Query params validated by Zod: `since?: string (ISO duration, default "PT24H")`, `sport?: string`.
 - [ ] Reads via `v_games` CTE; bounded by `since`.
 - [ ] Returns Zod-typed JSON; never `as` cast.
-- [ ] Service module ≤ 150 LOC.
-- [ ] Route handler ≤ 80 LOC.
+- [ ] Service module ≤ 400 LOC.
+- [ ] Route handler ≤ 250 LOC.
 - [ ] Unit test against in-memory or fixture-backed gold DB.
 - [ ] Typecheck/lint passes.
 
@@ -1115,7 +1115,7 @@ Three sections, no buttons that mutate (except "clear cache"):
 - FR-33: Token rotation: editing `~/.signal-console/token` takes effect without restarting Fastify.
 
 **LOC ceiling**
-- FR-34: Total LOC for the first release (Phases 0 → 3) including tests is ≤ ~6,000. Anything larger requires re-justification before merging.
+- FR-34: The new repo stays focused. No hard LOC ceiling; the goal is to avoid the old repo's 73k-LOC bloat patterns (mega-files, conflated responsibilities). Judgment over numbers.
 
 ---
 
@@ -1137,7 +1137,8 @@ Three sections, no buttons that mutate (except "clear cache"):
 
 ## 24. Design Considerations
 
-- UI uses Tailwind tokens + headless primitives in `packages/ui/`. Recharts for charts. Recent + Live + Backtest each ship one focused view; no kitchen-sink dashboard.
+- **Design language:** see `docs/design-language.md` for the full palette, typography, motion, and component rules. Lineage: bet365 (palette + typographic restraint), Linear (type craft), NYT election needle (the dial as a moment). Tokens declared once in `packages/ui/src/tokens.ts`; no hex literals outside that file.
+- UI uses Tailwind tokens + headless primitives in `packages/ui/`. Recharts for charts, themed to the design language (1 px lines, no gridlines, hover-only labels). Recent + Live + Backtest each ship one focused view; no kitchen-sink dashboard.
 - Recharts theme: ported from `nba-predict/apps/web/src/lib/chart-theme.ts`.
 - Date/time formatting: ported from `nba-predict/apps/web/src/lib/time-format.ts`.
 - Market formatting: ported from `nba-predict/apps/web/src/lib/market-format.ts`.
@@ -1152,7 +1153,7 @@ Three sections, no buttons that mutate (except "clear cache"):
 ## 25. Technical Considerations
 
 - Stack: React 19, Vite 6, Tailwind, Tanstack Query, Zustand (tiny — command palette state only), Recharts, Zod, Fastify, better-sqlite3. Python sidecar (Phase 0.5) stays Pydantic v2 + nba_api.
-- LOC budgets per file: route handlers ≤ 80, service modules ≤ 150, query modules ≤ 80, detector modules ≤ 250.
+- LOC budgets per file are guidance, not gates. Route handlers ~250, service modules ~400, query modules ~200, detector modules ~350 are reasonable targets — exceed them if the module is focused. No hard total ceiling; the anti-pattern to avoid is conflated mega-files like the old repo's 3,300-LOC live-repository.ts.
 - EXPLAIN-validated: `quote_ticks` per-game time-window queries use `idx_quote_ticks_unique_observation (source_market_id, captured_at)` and a covering subquery on `idx_source_markets_game_instrument`. Indexes for "lightweight" already exist; the win is calling fewer endpoints.
 - Backtest pre-bucket-once pattern: pre-bucket in a single SQL pass, re-sweep K in JS. Microseconds per K value enables sub-second dial response.
 - Cache freshness model is per-game / per-window scoped via watermarks (no global invalidation token); active games recompute on next render, closed games stay warm.
@@ -1209,7 +1210,7 @@ Three sections, no buttons that mutate (except "clear cache"):
 - **Phase 3 done:** 28-d / ~20-game first sweep < 60 s; dial change < 1 s; UI matches the video's narrated UX.
 - **Phase 4 done:** `/v1/games?sport=NBA` and `?sport=NFL` (empty) both work; `docs/sport-onboarding.md` exists.
 - **Phase 5 done:** `~/nba-predict` archived or deleted; no process in the new repo references the old path.
-- **Code health:** Total release LOC ≤ ~6,000 (Phases 0 → 3, including tests). LOC ceiling per file enforced (route ≤ 80, service ≤ 150, query ≤ 80, detector ≤ 250).
+- **Code health:** Modules stay focused; no LOC ceiling enforced. Old-repo anti-patterns (mega-files, conflated responsibilities) are absent.
 - **Math honesty:** `pnpm verify:no-stale-plan` returns zero hits for `K = 6.0 only` and related forbidden strings.
 
 ---

@@ -1,0 +1,2 @@
+QUERY PLAN
+SEARCH market_microstructure_events USING INDEX idx_market_microstructure_game_time (game_id=?)

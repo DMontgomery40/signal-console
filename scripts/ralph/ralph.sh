@@ -213,7 +213,62 @@ for i in $(seq 1 $MAX_ITERATIONS); do
   fi
 
   # Run Claude Code with the ralph prompt
-  OUTPUT=$(claude --dangerously-skip-permissions --print < "$SCRIPT_DIR/CLAUDE.md" 2>&1 | tee /dev/stderr) || true
+  # Hard 20-min ceiling on any single iteration. Healthy iterations run 5-22 min.
+  # Anything past 20 min is overwhelmingly Playwright/MCP hung indefinitely (observed
+  # twice on UI stories US-045 and US-046, identical signature: claude sleeping, 0%
+  # CPU, dead API child, no file activity). Pure-bash timeout because macOS doesn't
+  # ship coreutils' `timeout` by default — we spawn the killer in the background and
+  # let `wait` race against it.
+  ITERATION_TIMEOUT_SEC=${ITERATION_TIMEOUT_SEC:-1200}
+  ITER_OUT_FILE=$(mktemp -t ralph-iter)
+  ITER_TIMEOUT_MARKER="${ITER_OUT_FILE}.timeout"
+
+  # set -e is active at script top; every cleanup command below could return
+  # non-zero on the happy path (killer already exited cleanly, wait reaping an
+  # already-reaped child), so we MUST `|| true`-suffix each one or the loop
+  # silently exits after the first successful iteration (observed: US-046
+  # committed cleanly, then ralph.sh exited because `kill $KILLER_PID` returned
+  # non-zero under set -e).
+  # BUG FIX: previous version put claude inside a `(...) | tee ... &` pipeline.
+  # In bash, `$!` after a pipeline returns the LAST process in the pipeline (tee),
+  # NOT the first (claude). So `kill -KILL $CLAUDE_PID` was killing tee, leaving
+  # claude orphaned — observed: US-036 iteration ran 25+ min past the 20-min
+  # timeout because the timeout signaled the wrong process. Fix: don't pipe.
+  # Write claude's output straight to the iter file; live-tail the file to stderr
+  # in a background sidecar process for observation. CLAUDE_PID now IS claude.
+  claude --dangerously-skip-permissions --print < "$SCRIPT_DIR/CLAUDE.md" > "$ITER_OUT_FILE" 2>&1 &
+  CLAUDE_PID=$!
+  ( tail -f "$ITER_OUT_FILE" >&2 2>/dev/null ) &
+  TAIL_PID=$!
+  ( sleep "$ITERATION_TIMEOUT_SEC" && kill -KILL $CLAUDE_PID 2>/dev/null && touch "$ITER_TIMEOUT_MARKER" ) &
+  KILLER_PID=$!
+
+  wait $CLAUDE_PID 2>/dev/null || true
+  CLAUDE_EXIT=$?
+  # Tear down sidecars
+  kill $TAIL_PID 2>/dev/null || true
+  kill $KILLER_PID 2>/dev/null || true
+  wait $TAIL_PID 2>/dev/null || true
+  wait $KILLER_PID 2>/dev/null || true
+
+  OUTPUT=$(cat "$ITER_OUT_FILE" 2>/dev/null || echo "")
+  TIMED_OUT=0
+  if [ -f "$ITER_TIMEOUT_MARKER" ]; then
+    TIMED_OUT=1
+    rm -f "$ITER_TIMEOUT_MARKER" || true
+  fi
+  rm -f "$ITER_OUT_FILE" || true
+
+  if [ $TIMED_OUT -eq 1 ]; then
+    echo ""
+    echo "[ralph.sh] ITERATION TIMEOUT — claude killed after ${ITERATION_TIMEOUT_SEC}s. Story stays passes:false; loop continues to next iteration."
+    # Best-effort kill any child processes claude spawned (MCP servers, dev servers, etc.)
+    pkill -KILL -f "tsx watch src/server.ts" 2>/dev/null || true
+    pkill -KILL -f "playwright/mcp@latest" 2>/dev/null || true
+    pkill -KILL -f "21st-dev/magic@latest" 2>/dev/null || true
+    pkill -KILL -f "gitnexus mcp" 2>/dev/null || true
+    sleep 3
+  fi
 
   # Check for completion signal
   if echo "$OUTPUT" | grep -q "<promise>COMPLETE</promise>"; then
