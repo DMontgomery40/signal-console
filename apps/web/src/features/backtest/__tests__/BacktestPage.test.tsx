@@ -321,7 +321,10 @@ describe("BacktestPage", () => {
     expect(screen.queryByTestId("backtest-run-id")).toBeNull();
   });
 
-  it("defaults the detector selector to board-mad and seeds its param defaults", async () => {
+  it("falls back to board-mad as the default detector when ensemble-or is not registered (older API)", async () => {
+    // The base DETECTORS_RESPONSE fixture intentionally omits ensemble-or to
+    // exercise the back-compat fallback in selectInitialDetector. The newer
+    // test below verifies the preferred default when ensemble-or IS present.
     mockDetectors();
     render(<BacktestPage />, { wrapper: makeWrapper() });
     await waitFor(() => {
@@ -337,6 +340,38 @@ describe("BacktestPage", () => {
     const weighting = screen.getByTestId("backtest-param-weighting");
     if (!(weighting instanceof HTMLSelectElement)) throw new Error("weighting not a select");
     expect(weighting.value).toBe("volume");
+  });
+
+  it("defaults the detector selector to ensemble-or when it is registered (report §8.1 Stage 1)", async () => {
+    // Mock detectors response that includes ensemble-or, matching the new
+    // registry. selectInitialDetector should pick it over board-mad.
+    mockDetectors({
+      detectors: [
+        ...DETECTORS_RESPONSE.detectors,
+        {
+          id: "ensemble-or",
+          version: "1.0.0",
+          displayName: "Stage 1 (board OR off-price-print)",
+          sources: ["bet365", "kalshi", "polymarket"],
+          paramsSchema: {
+            type: "object",
+            properties: {
+              board: { type: "object", default: {} },
+              offprice: { type: "object", default: {} },
+            },
+          },
+        },
+      ],
+    });
+    render(<BacktestPage />, { wrapper: makeWrapper() });
+    await waitFor(() => {
+      const sel = screen.getByTestId("backtest-detector-select");
+      if (!(sel instanceof HTMLSelectElement)) throw new Error("not a select");
+      expect(sel.value).toBe("ensemble-or");
+    });
+    // The Cry Wolf dial is board-mad-only; selecting ensemble-or hides it
+    // (users who want to K-sweep switch to board-mad explicitly).
+    expect(screen.queryByTestId("backtest-cry-wolf-dial")).toBeNull();
   });
 
   it("blocks the Run button when window exceeds 28 days", async () => {
