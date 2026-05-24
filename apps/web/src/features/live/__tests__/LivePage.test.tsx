@@ -3,7 +3,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode, JSX } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
-import { LivePage } from "../LivePage";
+import { LivePage, snapEventToBucket } from "../LivePage";
 
 function makeWrapper(): (props: { children: ReactNode }) => JSX.Element {
   const client = new QueryClient({
@@ -95,6 +95,30 @@ function mockLiveAndBoard(
 }
 
 const GAME_ID = "nba-0042500313";
+
+describe("snapEventToBucket", () => {
+  const buckets = [
+    { bucketStart: "2026-05-23T03:00:00Z", bucketEnd: "2026-05-23T03:01:00Z" },
+    { bucketStart: "2026-05-23T03:01:00Z", bucketEnd: "2026-05-23T03:02:00Z" },
+  ] as const;
+
+  it("returns the bucket whose [start, end) contains the event", () => {
+    expect(snapEventToBucket("2026-05-23T03:00:30Z", buckets)).toBe("2026-05-23T03:00:00Z");
+    expect(snapEventToBucket("2026-05-23T03:01:15Z", buckets)).toBe("2026-05-23T03:01:00Z");
+  });
+
+  it("returns null when the event is before the first bucket", () => {
+    expect(snapEventToBucket("2026-05-23T02:59:00Z", buckets)).toBeNull();
+  });
+
+  it("returns null when the event is after the last bucket (no last-bucket fallback)", () => {
+    expect(snapEventToBucket("2026-05-23T03:05:00Z", buckets)).toBeNull();
+  });
+
+  it("returns null for an empty bucket list", () => {
+    expect(snapEventToBucket("2026-05-23T03:00:30Z", [])).toBeNull();
+  });
+});
 
 describe("LivePage", () => {
   let fetchMock: ReturnType<typeof vi.fn<FetchFn>>;

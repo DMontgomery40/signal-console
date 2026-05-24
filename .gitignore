@@ -21,3 +21,6 @@ scripts/ralph/.playwright-mcp/
 data/*.sqlite
 data/*.sqlite-wal
 data/*.sqlite-shm
+
+# Worker runtime heartbeat (updated each ingest cycle)
+apps/worker/data/heartbeat.json

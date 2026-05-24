@@ -59,6 +59,7 @@ function formatClock(iso: string | null): string {
 
 interface ChartPoint {
   readonly bucketStart: string;
+  readonly bucketEnd: string;
   readonly intensity: number;
   readonly fired: number;
 }
@@ -71,23 +72,29 @@ function buildChartData(observations: readonly BoardObservation[]): ChartPoint[]
     .sort((a, b) => (a.bucketStart < b.bucketStart ? -1 : a.bucketStart > b.bucketStart ? 1 : 0))
     .map((o) => ({
       bucketStart: o.bucketStart,
+      bucketEnd: o.bucketEnd,
       intensity: o.intensity,
       fired: o.fired,
     }));
 }
 
-// Snap an off-price-print event timestamp to its nearest board bucket so the
-// vertical marker lines up with the same x-axis category Recharts uses for
-// the intensity line. Without this, Recharts would treat the event's ISO
-// timestamp as a brand-new categorical x-value and the line would either
-// shift or the marker would render off-axis. We pick the earliest bucket
-// whose start is >= event_timestamp - bucketSeconds.
-function snapEventToBucket(eventIso: string, buckets: readonly string[]): string | null {
-  if (buckets.length === 0) return null;
+// Snap an off-price-print event to the board bucket whose half-open window
+// [bucketStart, bucketEnd) contains the event (same rule as PbpAnchoredIncidents).
+// Returns null when the event falls outside every bucket (before the first or
+// after the last) so we do not draw a misleading off-axis marker.
+export function snapEventToBucket(
+  eventIso: string,
+  buckets: readonly { readonly bucketStart: string; readonly bucketEnd: string }[],
+): string | null {
+  const eventMs = Date.parse(eventIso);
+  if (!Number.isFinite(eventMs) || buckets.length === 0) return null;
   for (const b of buckets) {
-    if (b >= eventIso) return b;
+    const startMs = Date.parse(b.bucketStart);
+    const endMs = Date.parse(b.bucketEnd);
+    if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) continue;
+    if (startMs <= eventMs && eventMs < endMs) return b.bucketStart;
   }
-  return buckets[buckets.length - 1] ?? null;
+  return null;
 }
 
 interface IntensityTimelineProps {
@@ -97,9 +104,8 @@ interface IntensityTimelineProps {
 
 function IntensityTimeline({ data, offPriceEvents }: IntensityTimelineProps): JSX.Element {
   const fires = data.filter((d) => d.fired === 1);
-  const buckets = data.map((d) => d.bucketStart);
   const offPriceMarkers = offPriceEvents
-    .map((ev) => ({ snapped: snapEventToBucket(ev.eventTimestamp, buckets), ev }))
+    .map((ev) => ({ snapped: snapEventToBucket(ev.eventTimestamp, data), ev }))
     .filter(
       (m): m is { snapped: string; ev: MicrostructureEvent } =>
         m.snapped !== null,
