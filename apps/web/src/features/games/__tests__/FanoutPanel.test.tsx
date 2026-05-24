@@ -68,7 +68,7 @@ const REAL_FANOUT = {
     },
   ],
   narrative:
-    "Fire at 03:12:00 — I. Hartenstein REBOUND (Off:4 Def:4) at +37s — top mover polymarket: rebounds · Marcus Smart: Rebounds O/U 0.5 (ΔIP -0.220, 31.2%).",
+    "Alert at 03:13:00 — I. Hartenstein REBOUND (Off:4 Def:4) 23s before alert — top mover polymarket: rebounds · Marcus Smart: Rebounds O/U 0.5 (ΔIP -0.220, 31.2%).",
 };
 
 describe("FanoutPanel (US-051)", () => {
@@ -97,8 +97,9 @@ describe("FanoutPanel (US-051)", () => {
     await waitFor(() => {
       expect(screen.getByTestId("fanout-panel")).toBeDefined();
     });
-    expect(screen.getByTestId("fanout-narrative").textContent).toContain("Fire at 03:12:00");
+    expect(screen.getByTestId("fanout-narrative").textContent).toContain("Alert at 03:13:00");
     expect(screen.getByTestId("fanout-narrative").textContent).toContain("I. Hartenstein REBOUND");
+    expect(screen.getByTestId("fanout-narrative").textContent).toMatch(/before alert/);
     expect(screen.getByTestId("fanout-pbp-timeline")).toBeDefined();
     expect(screen.getByTestId("fanout-movers-table")).toBeDefined();
   });
@@ -130,7 +131,7 @@ describe("FanoutPanel (US-051)", () => {
         ...REAL_FANOUT,
         pbp: [],
         narrative:
-          "Fire at 03:12:00 — no PBP within ±5 min — no qualifying market movers in bucket.",
+          "Alert at 03:13:00 — no PBP within ±5 min — no qualifying market movers in bucket.",
         movers: [],
       });
     });

@@ -37,7 +37,14 @@ export interface FanoutPbpEvent {
   readonly actionType: string | null;
   readonly playerName: string | null;
   readonly description: string | null;
+  // Offset within the alert window: event_time - bucket_start. Kept for
+  // back-compat; UI prefers deltaSecondsFromAlert.
   readonly deltaSecondsFromFire: number;
+  // Time of the event relative to the alert confirmation (bucket_end).
+  // Negative = event happened BEFORE the alert confirmed. Positive = after.
+  // This is the honest framing: the desk's alert lands at bucket_end, so the
+  // useful lead/lag against a known PBP event is event_time − bucket_end.
+  readonly deltaSecondsFromAlert: number;
 }
 
 export interface FanoutMover {
@@ -47,6 +54,10 @@ export interface FanoutMover {
   readonly ipAfter: number | null;
   readonly ipDelta: number | null;
   readonly contributionPct: number;
+  // Offset within the alert window: representative_tick_time - bucket_start.
+  // Always in [0, 60) for movers (representative ticks fall inside the
+  // bucket). NOT a lead-over-the-desk figure. The alert itself confirms at
+  // bucket_end = bucket_start + 60s.
   readonly deltaSecondsFromFire: number;
 }
 
@@ -71,15 +82,17 @@ export function getFanout(args: GetFanoutArgs): FanoutResult {
   }
   const bucketStart = new Date(bucketStartMs);
   const bucketEnd = new Date(bucketStartMs + FANOUT_BUCKET_SECONDS * 1000);
+  const bucketEndMs = bucketEnd.getTime();
   const pbpLo = new Date(bucketStartMs - FANOUT_PBP_WINDOW_SECONDS * 1000);
   const pbpHi = new Date(bucketStartMs + FANOUT_PBP_WINDOW_SECONDS * 1000);
 
   const db = openGoldDb(args.goldDbPath);
   try {
-    const pbp = loadPbpWindow(db, args.gameId, bucketStartMs, pbpLo, pbpHi);
+    const pbp = loadPbpWindow(db, args.gameId, bucketStartMs, bucketEndMs, pbpLo, pbpHi);
     const movers = loadMovers(db, args.gameId, bucketStartMs, bucketStart, bucketEnd);
     const narrative = renderFanoutNarrative({
       bucketStart: args.bucketStart,
+      bucketEnd: bucketEnd.toISOString(),
       pbp,
       movers,
     });
@@ -99,6 +112,7 @@ function loadPbpWindow(
   db: GoldDbHandle,
   gameId: string,
   bucketStartMs: number,
+  bucketEndMs: number,
   lo: Date,
   hi: Date,
 ): readonly FanoutPbpEvent[] {
@@ -124,12 +138,14 @@ function loadPbpWindow(
     // bucket_start and stored time_actual strings.
     if (Math.abs(deltaSec) > FANOUT_PBP_WINDOW_SECONDS) continue;
     const description = pickStringOrNull(row, "description");
+    const deltaFromAlertSec = (ms - bucketEndMs) / 1000;
     events.push({
       timeActual,
       actionType: pickStringOrNull(row, "action_type"),
       playerName: extractPlayerName(description),
       description,
       deltaSecondsFromFire: roundTenth(deltaSec),
+      deltaSecondsFromAlert: roundTenth(deltaFromAlertSec),
     });
   }
   events.sort((a, b) => Math.abs(a.deltaSecondsFromFire) - Math.abs(b.deltaSecondsFromFire));

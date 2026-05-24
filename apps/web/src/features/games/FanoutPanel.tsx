@@ -189,46 +189,53 @@ function MoversTable({ movers }: { readonly movers: readonly FanoutMover[] }): J
     );
   }
   return (
-    <table className="w-full text-left text-sm" data-testid="fanout-movers-table">
-      <thead>
-        <tr className="text-xs uppercase tracking-[0.08em] text-text-lo">
-          <th className="py-2 font-normal">Instrument</th>
-          <th className="py-2 font-normal">ipBefore</th>
-          <th className="py-2 font-normal">ipAfter</th>
-          <th className="py-2 font-normal">ΔIP</th>
-          <th className="py-2 font-normal">Contribution</th>
-          <th className="py-2 font-normal">Δt</th>
-        </tr>
-      </thead>
-      <tbody>
-        {movers.map((m) => {
-          const tier = tierFor(m.deltaSecondsFromFire) ?? "md";
-          return (
-            <tr
-              key={m.sourceMarketId}
-              className="border-t border-surface-1"
-              data-testid="fanout-mover-row"
-            >
-              <td className="py-2 pr-4 font-mono text-text-md">{m.instrument}</td>
-              <td className="tabular py-2 pr-4 font-mono text-text-md">{formatIp(m.ipBefore)}</td>
-              <td className="tabular py-2 pr-4 font-mono text-text-md">{formatIp(m.ipAfter)}</td>
-              <td className="tabular py-2 pr-4 font-mono text-text-hi">
-                {formatSignedIp(m.ipDelta)}
-              </td>
-              <td className="tabular py-2 pr-4 font-mono text-text-hi">
-                {m.contributionPct.toFixed(1)}%
-              </td>
-              <td
-                className={`tabular py-2 pr-2 font-mono ${tierClassName(tier)}`}
-                data-testid="fanout-mover-delta"
+    <div className="space-y-2">
+      <table className="w-full text-left text-sm" data-testid="fanout-movers-table">
+        <thead>
+          <tr className="text-xs uppercase tracking-[0.08em] text-text-lo">
+            <th className="py-2 font-normal">Instrument</th>
+            <th className="py-2 font-normal">ipBefore</th>
+            <th className="py-2 font-normal">ipAfter</th>
+            <th className="py-2 font-normal">ΔIP</th>
+            <th className="py-2 font-normal">Contribution</th>
+            <th className="py-2 font-normal">In bucket</th>
+          </tr>
+        </thead>
+        <tbody>
+          {movers.map((m) => {
+            const tier = tierFor(m.deltaSecondsFromFire) ?? "md";
+            return (
+              <tr
+                key={m.sourceMarketId}
+                className="border-t border-surface-1"
+                data-testid="fanout-mover-row"
               >
-                {formatDelta(m.deltaSecondsFromFire)}
-              </td>
-            </tr>
-          );
-        })}
-      </tbody>
-    </table>
+                <td className="py-2 pr-4 font-mono text-text-md">{m.instrument}</td>
+                <td className="tabular py-2 pr-4 font-mono text-text-md">{formatIp(m.ipBefore)}</td>
+                <td className="tabular py-2 pr-4 font-mono text-text-md">{formatIp(m.ipAfter)}</td>
+                <td className="tabular py-2 pr-4 font-mono text-text-hi">
+                  {formatSignedIp(m.ipDelta)}
+                </td>
+                <td className="tabular py-2 pr-4 font-mono text-text-hi">
+                  {m.contributionPct.toFixed(1)}%
+                </td>
+                <td
+                  className={`tabular py-2 pr-2 font-mono ${tierClassName(tier)}`}
+                  data-testid="fanout-mover-delta"
+                >
+                  {formatDelta(m.deltaSecondsFromFire)}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      <p className="font-mono text-[11px] text-text-lo" data-testid="fanout-movers-caveat">
+        <span className="font-semibold text-text-md">In bucket</span> is when the market moved within
+        the 60s alert window (0–60s from bucket start). The alert itself confirms at the end of the
+        window. This is NOT lead time over the trading desk.
+      </p>
+    </div>
   );
 }
 

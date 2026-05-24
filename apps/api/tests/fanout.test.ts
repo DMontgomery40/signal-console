@@ -434,7 +434,7 @@ describe("fanout route (US-051)", () => {
     expect(playerPropPresent).toBe(true);
   });
 
-  it("narrative cites the closest non-boring anchor at +37s, names the top mover, and counts other movers >0.15 IP", async () => {
+  it("narrative cites the closest non-boring anchor relative to alert (bucket_end), names the top mover, and counts other movers >0.15 IP", async () => {
     seedHartensteinAnchor();
     const app = await startApp();
     const res = await app.inject({
@@ -446,9 +446,15 @@ describe("fanout route (US-051)", () => {
     const narrative = body["narrative"];
     expect(typeof narrative).toBe("string");
     if (typeof narrative === "string") {
-      expect(narrative).toMatch(/Fire at 03:12:00/);
+      // The alert confirms at bucket_end (03:13:00), not bucket_start. The
+      // previous wording ("Fire at 03:12:00") suggested the desk saw a
+      // signal at bucket_start; the honest framing puts the alert at the
+      // causal confirmation point — bucket_end.
+      expect(narrative).toMatch(/Alert at 03:13:00/);
       expect(narrative).toMatch(/Hartenstein/);
-      expect(narrative).toMatch(/\+37s/);
+      // Hartenstein PBP @ 03:12:37 vs alert @ 03:13:00 → 23s BEFORE alert.
+      // System reacted ~23s after the disputed play landed in the feed.
+      expect(narrative).toMatch(/\b2[0-5]s before alert\b/);
       // Top mover line includes ΔIP and percentage with 1 decimal.
       expect(narrative).toMatch(/ΔIP [+-]\d\.\d{3}/);
       expect(narrative).toMatch(/\d+\.\d%/);

@@ -88,6 +88,10 @@ const fanoutPbpEventSchema = z.object({
   playerName: z.string().nullable(),
   description: z.string().nullable(),
   deltaSecondsFromFire: z.number(),
+  // event_time − bucket_end. Negative = event before alert confirmation.
+  // Optional for back-compat with older API responses that pre-dated the
+  // honest-framing fix.
+  deltaSecondsFromAlert: z.number().optional(),
 });
 const fanoutMoverSchema = z.object({
   sourceMarketId: z.string(),

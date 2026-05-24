@@ -99,13 +99,23 @@ const boardRoutes: FastifyPluginAsync<BoardRoutesOptions> = (app, opts) => {
   } as const;
   const fanoutPbpJsonSchema = {
     type: "object",
-    required: ["timeActual", "actionType", "playerName", "description", "deltaSecondsFromFire"],
+    required: [
+      "timeActual",
+      "actionType",
+      "playerName",
+      "description",
+      "deltaSecondsFromFire",
+      "deltaSecondsFromAlert",
+    ],
     properties: {
       timeActual: { type: "string" },
       actionType: { type: ["string", "null"] },
       playerName: { type: ["string", "null"] },
       description: { type: ["string", "null"] },
       deltaSecondsFromFire: { type: "number" },
+      // Signed against bucket_end (alert confirmation). Negative = play
+      // happened before alert (system reacted N seconds after the play).
+      deltaSecondsFromAlert: { type: "number" },
     },
   } as const;
   const fanoutMoverJsonSchema = {

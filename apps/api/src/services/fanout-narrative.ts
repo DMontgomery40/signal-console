@@ -23,12 +23,18 @@ const SIGNIFICANT_OTHER_THRESHOLD = 0.15;
 
 export interface RenderFanoutNarrativeArgs {
   readonly bucketStart: string;
+  readonly bucketEnd: string;
   readonly pbp: readonly FanoutPbpEvent[];
   readonly movers: readonly FanoutMover[];
 }
 
 export function renderFanoutNarrative(args: RenderFanoutNarrativeArgs): string {
-  const timeLabel = formatTimeLabel(args.bucketStart);
+  // The alert is the bucket_END — that's the moment a causal watcher can
+  // confirm the threshold crossed and surface a desk-actionable signal.
+  // Calling it "Fire at bucket_start" was misleading; the previous wording
+  // suggested the desk saw the alert 1 second after the play when the
+  // actual confirmation point is 60s after bucket_start.
+  const alertLabel = formatTimeLabel(args.bucketEnd);
   const anchor = pickAnchorEvent(args.pbp);
   const topMover = args.movers[0];
   const moverFragment =
@@ -38,19 +44,28 @@ export function renderFanoutNarrative(args: RenderFanoutNarrativeArgs): string {
   const significantOthers = countSignificantOthers(args.movers);
   const tailFragment = formatTail(significantOthers);
   if (anchor === null) {
-    return `Fire at ${timeLabel} — no PBP within ±5 min — ${moverFragment}.${tailFragment}`;
+    return `Alert at ${alertLabel} — no PBP within ±5 min — ${moverFragment}.${tailFragment}`;
   }
-  const deltaLabel = formatDeltaLabel(anchor.deltaSecondsFromFire);
+  // deltaSecondsFromAlert is signed against bucket_end. Negative = play
+  // happened BEFORE the alert confirmed (desk reacted N seconds after the
+  // play). Positive = play happened AFTER the alert (desk got a heads-up).
+  const deltaLabel = formatAlertDeltaPhrase(anchor.deltaSecondsFromAlert);
   const anchorLabel = describeAnchor(anchor);
-  return `Fire at ${timeLabel} — ${anchorLabel} at ${deltaLabel} — ${moverFragment}.${tailFragment}`;
+  return `Alert at ${alertLabel} — ${anchorLabel} ${deltaLabel} — ${moverFragment}.${tailFragment}`;
 }
 
 function pickAnchorEvent(events: readonly FanoutPbpEvent[]): FanoutPbpEvent | null {
+  // Pick the non-boring PBP event whose time is closest to the alert
+  // confirmation (bucket_end). Earlier code used distance from bucket_start,
+  // which biased toward bucket-edge events (e.g. a TEAM rebound 1s before
+  // the bucket) over events inside the bucket (e.g. Hartenstein at -23s
+  // vs alert). The disputed play we're trying to explain is more likely
+  // the in-bucket event than the pre-bucket adjacent one.
   let best: FanoutPbpEvent | null = null;
   let bestAbs = Infinity;
   for (const e of events) {
     if (e.actionType !== null && BORING_ACTION_TYPES.has(e.actionType)) continue;
-    const abs = Math.abs(e.deltaSecondsFromFire);
+    const abs = Math.abs(e.deltaSecondsFromAlert);
     if (abs < bestAbs) {
       bestAbs = abs;
       best = e;
@@ -94,6 +109,18 @@ function formatTimeLabel(bucketStart: string): string {
 function formatDeltaLabel(deltaSec: number): string {
   const sign = deltaSec >= 0 ? "+" : "";
   return `${sign}${deltaSec.toFixed(0)}s`;
+}
+
+// Phrase a signed seconds-from-alert delta in plain English so the trader
+// doesn't have to interpret "+/-Ns" twice. Negative = play before alert
+// (system reacted N seconds after the play). Positive = play after alert
+// (system flagged the bucket N seconds before this play landed in PBP).
+function formatAlertDeltaPhrase(deltaSecFromAlert: number): string {
+  const abs = Math.abs(deltaSecFromAlert);
+  const rounded = abs.toFixed(0);
+  if (deltaSecFromAlert < 0) return `${rounded}s before alert`;
+  if (deltaSecFromAlert > 0) return `${rounded}s after alert`;
+  return "at alert";
 }
 
 function formatSignedDelta(value: number | null): string {
