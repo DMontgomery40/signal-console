@@ -110,6 +110,10 @@ function isoMinutesAgo(minutes: number): string {
   return new Date(Date.now() - minutes * 60_000).toISOString();
 }
 
+function isoMinutesFromNow(minutes: number): string {
+  return new Date(Date.now() + minutes * 60_000).toISOString();
+}
+
 function isoDaysAgo(days: number): string {
   return new Date(Date.now() - days * 86_400_000).toISOString();
 }
@@ -174,6 +178,51 @@ describe("games routes (US-018)", () => {
     expect(ids).toContain("nba-recent-1");
     expect(ids).toContain("nfl-recent-1");
     expect(ids).not.toContain("nba-old-1");
+  });
+
+  // Recent is "in the past" — a game scheduled an hour from now is NOT recent.
+  // Pre-fix the query was `scheduled_start >= cutoff` (lower bound only) so a
+  // future game appeared under the page title "Recent · last 24 h", and the
+  // subtitle "5 games · last 24 h" no longer matched the rows. The fix also
+  // bounds the upper end at `now`.
+  it("GET /v1/games excludes future-scheduled games", async () => {
+    seedGoldDb(ctx.goldDbPath, [
+      {
+        id: "nba-past-1",
+        sport: "NBA",
+        league: "national",
+        homeParticipantJson: '{"abbreviation":"NYK"}',
+        awayParticipantJson: '{"abbreviation":"LAL"}',
+        scheduledStart: isoMinutesAgo(120),
+      },
+      {
+        id: "nba-future-1",
+        sport: "NBA",
+        league: "national",
+        homeParticipantJson: '{"abbreviation":"GSW"}',
+        awayParticipantJson: '{"abbreviation":"BOS"}',
+        scheduledStart: isoMinutesFromNow(60),
+      },
+    ]);
+    const app = await startApp();
+    const res = await app.inject({
+      method: "GET",
+      url: "/v1/games",
+      headers: authHeaders(),
+    });
+    expect(res.statusCode).toBe(200);
+    const body: unknown = res.json();
+    if (!isRecord(body)) throw new Error("body not an object");
+    const games = body["games"];
+    if (!isUnknownArray(games)) throw new Error("body.games not an array");
+    const ids = games.map((g): string => {
+      if (!isRecord(g)) throw new Error("game not an object");
+      const id = g["id"];
+      if (typeof id !== "string") throw new Error("game.id not a string");
+      return id;
+    });
+    expect(ids).toContain("nba-past-1");
+    expect(ids).not.toContain("nba-future-1");
   });
 
   it("GET /v1/games?sport=NBA filters out other sports", async () => {

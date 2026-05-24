@@ -102,19 +102,25 @@ export function listGames(
   args: ListGamesArgs,
   now: Date = new Date(),
 ): readonly GameRow[] {
+  // Recent means in the past — bound BOTH ends of the window so a game
+  // scheduled for tomorrow does not appear under a page titled "Recent · last
+  // 24 h". Lower bound (now - since) keeps games that have already started or
+  // were scheduled to start; upper bound (now) excludes anything still in the
+  // future.
   const durationMs = parseIsoDuration(args.since);
   const cutoff = new Date(now.getTime() - durationMs).toISOString();
+  const upper = now.toISOString();
   const hasSport = args.sport !== undefined && args.sport.length > 0;
   if (hasSport) {
     const stmt = db.prepare(
-      `WITH v_games AS (${v_games}) SELECT ${SELECT_COLS} FROM v_games WHERE scheduled_start >= ? AND sport = ? ORDER BY scheduled_start DESC`,
+      `WITH v_games AS (${v_games}) SELECT ${SELECT_COLS} FROM v_games WHERE scheduled_start >= ? AND scheduled_start <= ? AND sport = ? ORDER BY scheduled_start DESC`,
     );
-    return stmt.all(cutoff, args.sport).map(asGameRow);
+    return stmt.all(cutoff, upper, args.sport).map(asGameRow);
   }
   const stmt = db.prepare(
-    `WITH v_games AS (${v_games}) SELECT ${SELECT_COLS} FROM v_games WHERE scheduled_start >= ? ORDER BY scheduled_start DESC`,
+    `WITH v_games AS (${v_games}) SELECT ${SELECT_COLS} FROM v_games WHERE scheduled_start >= ? AND scheduled_start <= ? ORDER BY scheduled_start DESC`,
   );
-  return stmt.all(cutoff).map(asGameRow);
+  return stmt.all(cutoff, upper).map(asGameRow);
 }
 
 export function getGame(db: GoldDbHandle, gameId: string): GameRow | null {
