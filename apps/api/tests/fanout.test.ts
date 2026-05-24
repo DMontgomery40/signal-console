@@ -53,6 +53,8 @@ interface SeedPbp {
   readonly timeActual: string;
   readonly actionType: string | null;
   readonly description: string | null;
+  readonly period?: number | null;
+  readonly clock?: string | null;
 }
 
 function seedGoldDb(
@@ -88,7 +90,9 @@ function seedGoldDb(
       game_id TEXT NOT NULL,
       action_type TEXT,
       description TEXT,
-      time_actual TEXT
+      time_actual TEXT,
+      period INTEGER,
+      clock TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_quote_ticks_source_market
       ON quote_ticks(source_market_id, captured_at);
@@ -103,8 +107,8 @@ function seedGoldDb(
      VALUES (?, ?, ?, ?, ?)`,
   );
   const insertPbp = db.prepare(
-    `INSERT INTO nba_play_by_play_actions (game_id, action_type, description, time_actual)
-     VALUES (?, ?, ?, ?)`,
+    `INSERT INTO nba_play_by_play_actions (game_id, action_type, description, time_actual, period, clock)
+     VALUES (?, ?, ?, ?, ?, ?)`,
   );
   for (const m of markets) {
     insertMarket.run(
@@ -125,7 +129,14 @@ function seedGoldDb(
     );
   }
   for (const e of pbp) {
-    insertPbp.run(e.gameId, e.actionType, e.description, e.timeActual);
+    insertPbp.run(
+      e.gameId,
+      e.actionType,
+      e.description,
+      e.timeActual,
+      e.period ?? null,
+      e.clock ?? null,
+    );
   }
   db.close();
 }
@@ -299,6 +310,8 @@ function seedHartensteinAnchor(): void {
       timeActual: "2026-05-08T03:12:36.8Z",
       actionType: "rebound",
       description: "I. Hartenstein REBOUND (Off:4 Def:4)",
+      period: 3,
+      clock: "PT08M19.00S",
     },
     // Inside ±5 min, slightly later (+101s) — not closer than +37s
     {
@@ -455,6 +468,10 @@ describe("fanout route (US-051)", () => {
       // Hartenstein PBP @ 03:12:37 vs alert @ 03:13:00 → 23s BEFORE alert.
       // System reacted ~23s after the disputed play landed in the feed.
       expect(narrative).toMatch(/\b2[0-5]s before alert\b/);
+      // Game-clock surfaced from the PBP row (period=3, clock="PT08M19.00S")
+      // — the trader-readable "Q3 8:19" sits parenthetically with the play
+      // description so the desk doesn't have to mentally convert UTC.
+      expect(narrative).toMatch(/Q3 8:19/);
       // Top mover line includes ΔIP and percentage with 1 decimal.
       expect(narrative).toMatch(/ΔIP [+-]\d\.\d{3}/);
       expect(narrative).toMatch(/\d+\.\d%/);

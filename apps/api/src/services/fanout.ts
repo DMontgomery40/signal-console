@@ -45,6 +45,12 @@ export interface FanoutPbpEvent {
   // This is the honest framing: the desk's alert lands at bucket_end, so the
   // useful lead/lag against a known PBP event is event_time − bucket_end.
   readonly deltaSecondsFromAlert: number;
+  // NBA period (1-4 = quarters, 5+ = overtimes). null on schema-light fixtures.
+  readonly period: number | null;
+  // Raw ISO 8601 duration for game clock (e.g. "PT08M19.00S" = 8:19 remaining
+  // in the period). UI parses to "Q3 8:19" for display. null on schema-light
+  // fixtures.
+  readonly clock: string | null;
 }
 
 export interface FanoutMover {
@@ -118,7 +124,7 @@ function loadPbpWindow(
 ): readonly FanoutPbpEvent[] {
   const rows = db
     .prepare(
-      `SELECT time_actual, action_type, description
+      `SELECT time_actual, action_type, description, period, clock
        FROM nba_play_by_play_actions
        WHERE game_id = ?
          AND time_actual >= ?
@@ -139,6 +145,7 @@ function loadPbpWindow(
     if (Math.abs(deltaSec) > FANOUT_PBP_WINDOW_SECONDS) continue;
     const description = pickStringOrNull(row, "description");
     const deltaFromAlertSec = (ms - bucketEndMs) / 1000;
+    const period = row["period"];
     events.push({
       timeActual,
       actionType: pickStringOrNull(row, "action_type"),
@@ -146,6 +153,8 @@ function loadPbpWindow(
       description,
       deltaSecondsFromFire: roundTenth(deltaSec),
       deltaSecondsFromAlert: roundTenth(deltaFromAlertSec),
+      period: typeof period === "number" && Number.isFinite(period) ? period : null,
+      clock: pickStringOrNull(row, "clock"),
     });
   }
   events.sort((a, b) => Math.abs(a.deltaSecondsFromFire) - Math.abs(b.deltaSecondsFromFire));

@@ -92,6 +92,11 @@ const fanoutPbpEventSchema = z.object({
   // Optional for back-compat with older API responses that pre-dated the
   // honest-framing fix.
   deltaSecondsFromAlert: z.number().optional(),
+  // NBA period (1-4 = quarters, 5+ = overtimes). Optional for back-compat.
+  period: z.number().nullable().optional(),
+  // ISO 8601 duration ("PT08M19.00S"). UI renders "Q3 8:19". Optional for
+  // back-compat with older API responses.
+  clock: z.string().nullable().optional(),
 });
 const fanoutMoverSchema = z.object({
   sourceMarketId: z.string(),

@@ -106,6 +106,8 @@ const boardRoutes: FastifyPluginAsync<BoardRoutesOptions> = (app, opts) => {
       "description",
       "deltaSecondsFromFire",
       "deltaSecondsFromAlert",
+      "period",
+      "clock",
     ],
     properties: {
       timeActual: { type: "string" },
@@ -116,6 +118,10 @@ const boardRoutes: FastifyPluginAsync<BoardRoutesOptions> = (app, opts) => {
       // Signed against bucket_end (alert confirmation). Negative = play
       // happened before alert (system reacted N seconds after the play).
       deltaSecondsFromAlert: { type: "number" },
+      // NBA period (1-4 = quarters, 5+ = overtimes).
+      period: { type: ["integer", "null"] },
+      // ISO 8601 duration ("PT08M19.00S") for game-clock display ("Q3 8:19").
+      clock: { type: ["string", "null"] },
     },
   } as const;
   const fanoutMoverJsonSchema = {

@@ -173,17 +173,25 @@ function TimelineChart({
   return (
     <div className="h-40 w-full" data-testid="backtest-timeline-chart">
       <ResponsiveContainer width="100%" height="100%">
-        <LineChart data={data} margin={{ top: 8, right: 12, bottom: 16, left: 4 }}>
+        <LineChart data={data} margin={{ top: 8, right: 12, bottom: 28, left: 4 }}>
           <CartesianGrid stroke={colors.textLo} strokeOpacity={0.15} strokeDasharray="2 4" />
           <XAxis
             dataKey="bucketStart"
-            tick={{ fill: colors.textLo, fontSize: 10, fontFamily: "JetBrains Mono" }}
+            tick={{ fill: colors.textLo, fontSize: 13, fontFamily: "JetBrains Mono" }}
             tickFormatter={(v: string) => v.slice(11, 16)}
-            minTickGap={48}
+            minTickGap={72}
             interval="preserveStartEnd"
+            label={{
+              value: "UTC (HH:MM)",
+              position: "insideBottom",
+              offset: -10,
+              fill: colors.textLo,
+              fontFamily: "JetBrains Mono",
+              fontSize: 11,
+            }}
           />
           <YAxis
-            tick={{ fill: colors.textLo, fontSize: 10, fontFamily: "JetBrains Mono" }}
+            tick={{ fill: colors.textLo, fontSize: 13, fontFamily: "JetBrains Mono" }}
             width={36}
           />
           <Line
@@ -234,15 +242,24 @@ function ContextTimeline({
   return (
     <div className="h-44 w-full" data-testid="backtest-context-timeline">
       <ResponsiveContainer width="100%" height="100%">
-        <LineChart data={data} margin={{ top: 8, right: 12, bottom: 16, left: 4 }}>
+        <LineChart data={data} margin={{ top: 8, right: 12, bottom: 28, left: 4 }}>
           <CartesianGrid stroke={colors.textLo} strokeOpacity={0.2} strokeDasharray="2 4" />
           <XAxis
             dataKey="bucketStart"
-            tick={{ fill: colors.textLo, fontSize: 10, fontFamily: "JetBrains Mono" }}
+            tick={{ fill: colors.textLo, fontSize: 13, fontFamily: "JetBrains Mono" }}
             tickFormatter={(v: string) => v.slice(11, 19)}
+            minTickGap={64}
+            label={{
+              value: "UTC (HH:MM:SS)",
+              position: "insideBottom",
+              offset: -10,
+              fill: colors.textLo,
+              fontFamily: "JetBrains Mono",
+              fontSize: 11,
+            }}
           />
           <YAxis
-            tick={{ fill: colors.textLo, fontSize: 10, fontFamily: "JetBrains Mono" }}
+            tick={{ fill: colors.textLo, fontSize: 13, fontFamily: "JetBrains Mono" }}
             width={36}
           />
           <Tooltip

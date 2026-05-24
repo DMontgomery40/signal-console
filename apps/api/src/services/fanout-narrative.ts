@@ -44,14 +44,29 @@ export function renderFanoutNarrative(args: RenderFanoutNarrativeArgs): string {
   const significantOthers = countSignificantOthers(args.movers);
   const tailFragment = formatTail(significantOthers);
   if (anchor === null) {
-    return `Alert at ${alertLabel} — no PBP within ±5 min — ${moverFragment}.${tailFragment}`;
+    return `Alert at ${alertLabel}Z — no PBP within ±5 min — ${moverFragment}.${tailFragment}`;
   }
   // deltaSecondsFromAlert is signed against bucket_end. Negative = play
   // happened BEFORE the alert confirmed (desk reacted N seconds after the
   // play). Positive = play happened AFTER the alert (desk got a heads-up).
   const deltaLabel = formatAlertDeltaPhrase(anchor.deltaSecondsFromAlert);
   const anchorLabel = describeAnchor(anchor);
-  return `Alert at ${alertLabel} — ${anchorLabel} ${deltaLabel} — ${moverFragment}.${tailFragment}`;
+  const gameClock = formatGameClock(anchor.period, anchor.clock);
+  const gameClockFragment = gameClock !== null ? ` (${gameClock})` : "";
+  return `Alert at ${alertLabel}Z — ${anchorLabel}${gameClockFragment} ${deltaLabel} — ${moverFragment}.${tailFragment}`;
+}
+
+// Parse NBA play-by-play game clock ("PT08M19.00S") + period number into the
+// trader-readable "Q3 8:19" form. Period 5+ = OT.
+export function formatGameClock(period: number | null, clock: string | null): string | null {
+  if (period === null || clock === null) return null;
+  const match = /^PT(?:(\d+)M)?(\d+(?:\.\d+)?)S$/.exec(clock);
+  if (match === null) return null;
+  const minutes = match[1] !== undefined ? Number(match[1]) : 0;
+  const seconds = Math.floor(Number(match[2]));
+  if (!Number.isFinite(minutes) || !Number.isFinite(seconds)) return null;
+  const periodLabel = period >= 5 ? `OT${String(period - 4)}` : `Q${String(period)}`;
+  return `${periodLabel} ${String(minutes)}:${String(seconds).padStart(2, "0")}`;
 }
 
 function pickAnchorEvent(events: readonly FanoutPbpEvent[]): FanoutPbpEvent | null {

@@ -114,8 +114,31 @@ function extractPbpPayload(item: unknown): PbpPoint | null {
   return isPbpPoint(payload) ? payload : null;
 }
 
+// Parse NBA ISO-8601 game clock ("PT08M19.00S") + period number into a
+// trader-readable "Q3 8:19" string. Period 5+ → "OT1", "OT2", etc.
+function formatGameClock(period: number | null | undefined, clock: string | null | undefined): string | null {
+  if (period === null || period === undefined || clock === null || clock === undefined) return null;
+  const match = /^PT(?:(\d+)M)?(\d+(?:\.\d+)?)S$/.exec(clock);
+  if (match === null) return null;
+  const minutes = match[1] !== undefined ? Number(match[1]) : 0;
+  const seconds = Math.floor(Number(match[2]));
+  if (!Number.isFinite(minutes) || !Number.isFinite(seconds)) return null;
+  const periodLabel = period >= 5 ? `OT${String(period - 4)}` : `Q${String(period)}`;
+  return `${periodLabel} ${String(minutes)}:${String(seconds).padStart(2, "0")}`;
+}
+
 function PbpTimelineChart({ events }: { readonly events: readonly FanoutPbpEvent[] }): JSX.Element {
-  const points: PbpPoint[] = events.flatMap((e) => {
+  // Carry game-clock + description through the chart payload so the tooltip
+  // can render "Q3 8:19 · I. Hartenstein REBOUND · 23s before alert".
+  type PointPayload = {
+    readonly delta: number;
+    readonly y: number;
+    readonly description: string;
+    readonly tier: Tier;
+    readonly gameClock: string | null;
+    readonly fromAlert: number | null;
+  };
+  const points: PointPayload[] = events.flatMap((e) => {
     const tier = tierFor(e.deltaSecondsFromFire);
     if (tier === null) return [];
     return [
@@ -124,13 +147,15 @@ function PbpTimelineChart({ events }: { readonly events: readonly FanoutPbpEvent
         y: 0.5,
         description: e.description ?? e.actionType ?? "PBP event",
         tier,
+        gameClock: formatGameClock(e.period, e.clock),
+        fromAlert: typeof e.deltaSecondsFromAlert === "number" ? e.deltaSecondsFromAlert : null,
       },
     ];
   });
   return (
-    <div className="h-24 w-full" data-testid="fanout-pbp-timeline">
+    <div className="h-28 w-full" data-testid="fanout-pbp-timeline">
       <ResponsiveContainer width="100%" height="100%">
-        <ScatterChart margin={{ top: 8, right: 16, bottom: 24, left: 16 }}>
+        <ScatterChart margin={{ top: 8, right: 16, bottom: 32, left: 16 }}>
           <CartesianGrid stroke={colors.textLo} strokeOpacity={0.15} strokeDasharray="2 4" />
           <XAxis
             type="number"
@@ -138,9 +163,17 @@ function PbpTimelineChart({ events }: { readonly events: readonly FanoutPbpEvent
             domain={[-300, 300]}
             ticks={[-300, -180, -60, 0, 60, 180, 300]}
             tickFormatter={(v: number) =>
-              v === 0 ? "fire" : `${v > 0 ? "+" : ""}${v.toFixed(0)}s`
+              v === 0 ? "bucket start" : `${v > 0 ? "+" : ""}${v.toFixed(0)}s`
             }
-            tick={{ fill: colors.textLo, fontSize: 10, fontFamily: "JetBrains Mono" }}
+            tick={{ fill: colors.textLo, fontSize: 13, fontFamily: "JetBrains Mono" }}
+            label={{
+              value: "seconds from bucket start  (alert confirms at +60s)",
+              position: "insideBottom",
+              offset: -10,
+              fill: colors.textLo,
+              fontFamily: "JetBrains Mono",
+              fontSize: 11,
+            }}
           />
           <YAxis type="number" dataKey="y" domain={[0, 1]} hide />
           <Tooltip
@@ -150,17 +183,56 @@ function PbpTimelineChart({ events }: { readonly events: readonly FanoutPbpEvent
               border: `1px solid ${colors.surface2}`,
               borderRadius: 0,
               fontFamily: "JetBrains Mono",
-              fontSize: 11,
+              fontSize: 12,
               color: colors.textHi,
             }}
             formatter={(_value, _name, item) => {
-              const payload = extractPbpPayload(item);
-              if (payload === null) return ["", ""];
-              return [`${payload.description} · ${formatDelta(payload.delta)}`, ""];
+              if (!isRecord(item)) return ["", ""];
+              const payload = item["payload"];
+              if (!isRecord(payload)) return ["", ""];
+              const desc = typeof payload["description"] === "string" ? payload["description"] : "";
+              const delta = typeof payload["delta"] === "number" ? payload["delta"] : 0;
+              const gc = typeof payload["gameClock"] === "string" ? payload["gameClock"] : null;
+              const fromAlert =
+                typeof payload["fromAlert"] === "number" ? payload["fromAlert"] : null;
+              const parts: string[] = [];
+              if (gc !== null) parts.push(gc);
+              parts.push(desc);
+              parts.push(formatDelta(delta) + " from bucket start");
+              if (fromAlert !== null) {
+                const abs = Math.abs(fromAlert);
+                const phrase =
+                  fromAlert < 0
+                    ? `${abs.toFixed(0)}s before alert`
+                    : fromAlert > 0
+                      ? `${abs.toFixed(0)}s after alert`
+                      : "at alert";
+                parts.push(phrase);
+              }
+              return [parts.join("  ·  "), ""];
             }}
             labelFormatter={() => ""}
           />
-          <ReferenceLine x={0} stroke={colors.accentYellow} strokeWidth={1.5} strokeOpacity={0.8} />
+          <ReferenceLine
+            x={0}
+            stroke={colors.textLo}
+            strokeWidth={1}
+            strokeOpacity={0.5}
+            strokeDasharray="2 3"
+          />
+          <ReferenceLine
+            x={60}
+            stroke={colors.accentYellow}
+            strokeWidth={1.5}
+            strokeOpacity={0.85}
+            label={{
+              value: "alert",
+              position: "top",
+              fill: colors.accentYellow,
+              fontFamily: "JetBrains Mono",
+              fontSize: 11,
+            }}
+          />
           {(["yellow", "hi", "md"] as const).map((tier) => {
             const tierPoints = points.filter((p) => p.tier === tier);
             if (tierPoints.length === 0) return null;
