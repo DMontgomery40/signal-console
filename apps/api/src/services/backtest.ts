@@ -408,10 +408,7 @@ function resolvePerGameInPlayWindow(
   pbpPreBufferMs: number,
   pbpPostBufferMs: number,
 ): InPlayBound | null {
-  // Wrap in try because test fixtures may not include the
-  // nba_play_by_play_actions table; production gold DB always does. Any
-  // failure here falls back to the requested window — the behavior the
-  // detector had before US-053-equivalent fix landed.
+  // Primary: PBP time_actual MIN..MAX (most accurate; tipoff to final).
   let pbp: unknown;
   try {
     pbp = goldDb
@@ -422,7 +419,7 @@ function resolvePerGameInPlayWindow(
       )
       .get(gameId);
   } catch {
-    return { start: windowStart, end: windowEnd };
+    pbp = null;
   }
   if (isRecord(pbp)) {
     const lo = pbp["lo"];
@@ -440,7 +437,76 @@ function resolvePerGameInPlayWindow(
       }
     }
   }
-  // Fallback for games without PBP (e.g. sport without play-by-play feed).
+  // Secondary fallback: games.scheduled_start ± fixed buffers. Used when PBP
+  // is unavailable (e.g. gold DB restored from a backup that predates the PBP
+  // ingest, or the sidecar hasn't backfilled this date). NBA games are
+  // ~2.5h, so [tipoff - 30min, tipoff + 3.5h] tightly bounds the in-play
+  // window without needing PBP. This is the critical fix: a tertiary
+  // captured_at MIN..MAX fallback was empirically ~25h wide (markets open
+  // the day before tipoff and close after final), which still produced
+  // ~152 fires/game over the contract-test's ~18/game at K=3.
+  let sched: unknown;
+  try {
+    sched = goldDb
+      .prepare(`SELECT scheduled_start AS ts FROM games WHERE id = ?`)
+      .get(gameId);
+  } catch {
+    sched = null;
+  }
+  if (isRecord(sched)) {
+    const ts = sched["ts"];
+    if (typeof ts === "string") {
+      const tipoffMs = Date.parse(ts);
+      if (Number.isFinite(tipoffMs)) {
+        const SCHED_PRE_MS = 30 * 60 * 1000;
+        const SCHED_POST_MS = 3.5 * 60 * 60 * 1000;
+        const schedStart = new Date(tipoffMs - SCHED_PRE_MS).toISOString();
+        const schedEnd = new Date(tipoffMs + SCHED_POST_MS).toISOString();
+        const start = schedStart > windowStart ? schedStart : windowStart;
+        const end = schedEnd < windowEnd ? schedEnd : windowEnd;
+        if (start <= end) return { start, end };
+      }
+    }
+  }
+  // Tertiary fallback: per-game quote_ticks captured_at MIN..MAX. Last-ditch
+  // when neither PBP nor scheduled_start is available. Less precise (no
+  // pre-tipoff anchor, no after-final cooldown) but still narrows vs the
+  // raw requested window because it bounds to "first tick to last tick for
+  // THIS game's markets."
+  let qt: unknown;
+  try {
+    qt = goldDb
+      .prepare(
+        `SELECT MIN(qt.captured_at) AS lo, MAX(qt.captured_at) AS hi
+         FROM quote_ticks qt
+         JOIN source_markets sm ON sm.id = qt.source_market_id
+         WHERE sm.game_id = ?
+           AND qt.captured_at >= ?
+           AND qt.captured_at <= ?`,
+      )
+      .get(gameId, windowStart, windowEnd);
+  } catch {
+    qt = null;
+  }
+  if (isRecord(qt)) {
+    const lo = qt["lo"];
+    const hi = qt["hi"];
+    if (typeof lo === "string" && typeof hi === "string") {
+      const loMs = Date.parse(lo);
+      const hiMs = Date.parse(hi);
+      if (Number.isFinite(loMs) && Number.isFinite(hiMs)) {
+        // No PBP-style buffers — we don't know exactly when tipoff was, so
+        // first tick IS the earliest signal and last tick IS the latest.
+        // This will still include some pre-warmup ticks from market-open
+        // (the same wide-window problem at smaller scale) but bounded by
+        // the actual data extent of THIS game.
+        return { start: lo, end: hi };
+      }
+    }
+  }
+  // Quaternary: requested window (no narrowing). Only true when the game has
+  // no PBP, no scheduled_start, and no ticks — in which case loadTicks finds
+  // nothing anyway, so this is a harmless terminal fallback.
   return { start: windowStart, end: windowEnd };
 }
 

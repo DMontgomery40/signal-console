@@ -18,6 +18,7 @@ import {
   Line,
   LineChart,
   ReferenceDot,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -28,7 +29,13 @@ import { colors } from "@signal-console/ui";
 
 import { ApiUnreachableBanner, isNetworkError } from "../../components/ApiUnreachableBanner";
 import { QueryErrorBanner } from "../../components/QueryErrorBanner";
-import { useBoard, useLive, type BoardObservation } from "../../data/queries";
+import {
+  useBoard,
+  useLive,
+  useMicrostructure,
+  type BoardObservation,
+  type MicrostructureEvent,
+} from "../../data/queries";
 import { navigateTo } from "../../router";
 
 interface LivePageProps {
@@ -69,8 +76,34 @@ function buildChartData(observations: readonly BoardObservation[]): ChartPoint[]
     }));
 }
 
-function IntensityTimeline({ data }: { readonly data: ChartPoint[] }): JSX.Element {
+// Snap an off-price-print event timestamp to its nearest board bucket so the
+// vertical marker lines up with the same x-axis category Recharts uses for
+// the intensity line. Without this, Recharts would treat the event's ISO
+// timestamp as a brand-new categorical x-value and the line would either
+// shift or the marker would render off-axis. We pick the earliest bucket
+// whose start is >= event_timestamp - bucketSeconds.
+function snapEventToBucket(eventIso: string, buckets: readonly string[]): string | null {
+  if (buckets.length === 0) return null;
+  for (const b of buckets) {
+    if (b >= eventIso) return b;
+  }
+  return buckets[buckets.length - 1] ?? null;
+}
+
+interface IntensityTimelineProps {
+  readonly data: ChartPoint[];
+  readonly offPriceEvents: readonly MicrostructureEvent[];
+}
+
+function IntensityTimeline({ data, offPriceEvents }: IntensityTimelineProps): JSX.Element {
   const fires = data.filter((d) => d.fired === 1);
+  const buckets = data.map((d) => d.bucketStart);
+  const offPriceMarkers = offPriceEvents
+    .map((ev) => ({ snapped: snapEventToBucket(ev.eventTimestamp, buckets), ev }))
+    .filter(
+      (m): m is { snapped: string; ev: MicrostructureEvent } =>
+        m.snapped !== null,
+    );
   return (
     // Fixed-height container so the layout doesn't shift between empty/loading
     // and the first resolved poll (US-031 AC #6: "renders without a layout-shift
@@ -113,12 +146,22 @@ function IntensityTimeline({ data }: { readonly data: ChartPoint[] }): JSX.Eleme
           />
           {fires.map((f) => (
             <ReferenceDot
-              key={f.bucketStart}
+              key={`board-${f.bucketStart}`}
               x={f.bucketStart}
               y={f.intensity}
               r={4}
               fill={colors.accentYellow}
               stroke={colors.accentYellow}
+              ifOverflow="extendDomain"
+            />
+          ))}
+          {offPriceMarkers.map((m, idx) => (
+            <ReferenceLine
+              key={`offprice-${m.ev.id}-${String(idx)}`}
+              x={m.snapped}
+              stroke={colors.negative}
+              strokeWidth={1.5}
+              strokeDasharray="3 3"
               ifOverflow="extendDomain"
             />
           ))}
@@ -156,6 +199,11 @@ export function LivePage({ gameId }: LivePageProps): JSX.Element {
   const safeId = gameId ?? "";
   const live = useLive(safeId, { refetchInterval: POLL_MS });
   const board = useBoard(safeId, { refetchInterval: POLL_MS });
+  // Pair board-mad with off-price-print on the same chart — the report's
+  // headline finding: "pairing it with the big-off-price-bet alarm catches
+  // what either one misses." See innovation-team-suspend-signal-report
+  // §formulas.
+  const micro = useMicrostructure(safeId, { refetchInterval: POLL_MS });
 
   if (gameId === null) {
     return <InvalidGameFallback />;
@@ -175,6 +223,7 @@ export function LivePage({ gameId }: LivePageProps): JSX.Element {
   const observations: readonly BoardObservation[] = board.data?.observations ?? [];
   const chartData = buildChartData(observations);
   const fires = observations.filter((o) => o.fired === 1);
+  const offPriceEvents: readonly MicrostructureEvent[] = micro.data?.events ?? [];
   const k = board.data?.k ?? 3.0;
   const tickCount = live.data?.ticks.length ?? 0;
   const lastWindowEnd = live.data?.windowEnd ?? null;
@@ -221,7 +270,7 @@ export function LivePage({ gameId }: LivePageProps): JSX.Element {
             <span data-testid="live-k" className="text-accent-yellow">
               {k.toFixed(1)}
             </span>
-            )
+            ) <span className="text-text-lo">+</span> off-price prints
           </h3>
           <p className="tabular font-mono text-xs text-text-lo">
             <span
@@ -230,7 +279,10 @@ export function LivePage({ gameId }: LivePageProps): JSX.Element {
             >
               {String(fires.length)}
             </span>{" "}
-            fire{fires.length === 1 ? "" : "s"} · {String(observations.length)} bucket
+            board · <span data-testid="live-offprice-count" className="text-negative">
+              {String(offPriceEvents.length)}
+            </span>{" "}
+            off-price · {String(observations.length)} bucket
             {observations.length === 1 ? "" : "s"}
           </p>
         </div>
@@ -253,8 +305,36 @@ export function LivePage({ gameId }: LivePageProps): JSX.Element {
               </p>
             </div>
           ) : (
-            <IntensityTimeline data={chartData} />
+            <IntensityTimeline data={chartData} offPriceEvents={offPriceEvents} />
           )}
+        </div>
+
+        <div
+          className="mt-3 flex items-center gap-5 font-mono text-[11px] text-text-lo"
+          data-testid="live-legend"
+        >
+          <span className="flex items-center gap-2">
+            <span
+              aria-hidden
+              className="inline-block h-[1.5px] w-5 bg-accent-green"
+            />
+            $wt intensity
+          </span>
+          <span className="flex items-center gap-2">
+            <span
+              aria-hidden
+              className="inline-block h-2 w-2 rounded-full bg-accent-yellow"
+            />
+            board-mad fire
+          </span>
+          <span className="flex items-center gap-2">
+            <span
+              aria-hidden
+              className="inline-block h-3 w-[2px] bg-negative"
+              style={{ borderRight: `1.5px dashed ${colors.negative}` }}
+            />
+            off-price print
+          </span>
         </div>
       </div>
     </section>

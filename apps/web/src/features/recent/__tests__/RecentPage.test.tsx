@@ -120,7 +120,9 @@ describe("RecentPage", () => {
     expect(text).toContain("NBA");
     expect(text).toContain("SAS");
     expect(text).toContain("OKC");
-    expect(text).toContain("final");
+    // Status column normalises to uppercase LIVE / FINAL so the desk row scans
+    // at a glance; the underlying API field is still lowercase "final".
+    expect(text).toContain("FINAL");
 
     await waitFor(() => {
       expect(within(finalRow).getByTestId("fires-count").textContent).toBe("3");

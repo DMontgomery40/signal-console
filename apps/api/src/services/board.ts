@@ -283,10 +283,36 @@ function resolveInPlayWindow(
       }
     }
   }
-  // Fallback: entire quote_ticks captured_at range for the game. Covers
-  // non-NBA games (no PBP table coverage) and games that haven't booked
-  // any PBP rows yet. If quote_ticks is also empty, return null and the
-  // caller persists an empty-observations run so the next call hits cache.
+  // Secondary fallback: games.scheduled_start ± fixed buffers. NBA games run
+  // ~2.5h, so [tipoff - 30min, tipoff + 3.5h] tightly bounds the in-play
+  // window without needing PBP. Critical because the tertiary captured_at
+  // MIN..MAX fallback below is empirically ~25h wide (markets open the day
+  // before tipoff, close after final). Without this, a live game with PBP
+  // not yet ingested produced ~197 fires 30min in because the detector
+  // baselined against ~25h of pre-tipoff calm and then fired on every
+  // mid-game tick.
+  const sched = goldDb
+    .prepare(`SELECT scheduled_start AS ts FROM games WHERE id = ?`)
+    .get(gameId);
+  if (isRecord(sched)) {
+    const ts = sched["ts"];
+    if (typeof ts === "string") {
+      const tipoffMs = Date.parse(ts);
+      if (Number.isFinite(tipoffMs)) {
+        const SCHED_PRE_MS = 30 * 60 * 1000;
+        const SCHED_POST_MS = 3.5 * 60 * 60 * 1000;
+        return {
+          start: new Date(tipoffMs - SCHED_PRE_MS),
+          end: new Date(tipoffMs + SCHED_POST_MS),
+        };
+      }
+    }
+  }
+  // Tertiary fallback: entire quote_ticks captured_at range for the game.
+  // Last-ditch for games with neither PBP nor scheduled_start. Wide window
+  // (~25h) but bounded to this game's actual data extent. If quote_ticks
+  // is also empty, return null and the caller persists an empty-observations
+  // run so the next call hits cache.
   const qt = goldDb
     .prepare(
       `SELECT MIN(qt.captured_at) AS lo, MAX(qt.captured_at) AS hi

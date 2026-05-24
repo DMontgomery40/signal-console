@@ -45,9 +45,28 @@ export function participantLabel(raw: string): string {
   }
 }
 
+// Status column is for *state*, not redundancy with the Scheduled column.
+// "scheduled" is the default for any future-dated game and just clutters the
+// table — collapse it (and any null/empty) to a dash. Show LIVE prominently
+// in green and FINAL muted so the desk can scan the in-play row at a glance.
 function renderStatus(status: string | null): JSX.Element {
-  if (status === null || status.length === 0) {
+  const norm = (status ?? "").toLowerCase();
+  if (norm === "" || norm === "scheduled") {
     return <span className="text-text-lo">—</span>;
+  }
+  if (norm === "live" || norm === "in_progress" || norm === "inprogress") {
+    return (
+      <span data-testid="status-live" className="font-mono text-accent-green">
+        LIVE
+      </span>
+    );
+  }
+  if (norm === "final" || norm === "complete" || norm === "completed") {
+    return (
+      <span data-testid="status-final" className="font-mono text-text-lo">
+        FINAL
+      </span>
+    );
   }
   return <span className="text-text-md">{status}</span>;
 }

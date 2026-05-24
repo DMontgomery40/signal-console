@@ -305,7 +305,10 @@ export function useFanout(
   });
 }
 
-export function useMicrostructure(gameId: string): UseQueryResult<Microstructure, Error> {
+export function useMicrostructure(
+  gameId: string,
+  opts?: PollOptions,
+): UseQueryResult<Microstructure, Error> {
   return useQuery({
     queryKey: ["microstructure", gameId],
     queryFn: ({ signal }) =>
@@ -315,6 +318,7 @@ export function useMicrostructure(gameId: string): UseQueryResult<Microstructure
         signal,
       ),
     enabled: gameId.length > 0,
+    ...(opts?.refetchInterval !== undefined ? { refetchInterval: opts.refetchInterval } : {}),
   });
 }
 
