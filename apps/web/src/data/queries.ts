@@ -15,6 +15,10 @@ import {
   type UseMutationResult,
   type UseQueryResult,
 } from "@tanstack/react-query";
+import {
+  BOARD_MAD_BASELINE_MODE_OPENING_RAMP,
+  BOARD_MAD_BASELINE_MODE_TRAILING,
+} from "@signal-console/detectors/board-mad/config";
 import { z } from "zod";
 
 const API_BASE_URL: string =
@@ -251,6 +255,9 @@ const aboutInfoSchema = z.object({
 // (US-053). The shape mirrors apps/api/src/services/detector-defaults.ts.
 const detectorDefaultsSchema = z.object({
   kMadLive: z.number(),
+  baselineMode: z.enum([BOARD_MAD_BASELINE_MODE_TRAILING, BOARD_MAD_BASELINE_MODE_OPENING_RAMP]),
+  openingBaselineBuckets: z.number().int(),
+  openingRampCompleteBuckets: z.number().int(),
   trailingBuckets: z.number().int(),
   warmupBuckets: z.number().int(),
   freshCapSeconds: z.number().int(),
@@ -385,7 +392,7 @@ export function useSettings(): UseQueryResult<Settings, Error> {
 // is { detector_id, params, window: {start, end}, game_ids? }; the response
 // shape matches BacktestResult: { runId, stats, observations[] }.
 // Observations are all-buckets (not fires-only) so US-035/US-036/US-037 can
-// recompute kMad/trailingBuckets/warmupBuckets client-side without re-fetching.
+// recompute kMad and baseline-timing params client-side without re-fetching.
 const backtestObservationSchema = z.object({
   gameId: z.string(),
   bucketStart: z.string(),

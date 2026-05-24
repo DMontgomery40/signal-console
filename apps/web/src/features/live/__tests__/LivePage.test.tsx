@@ -204,7 +204,7 @@ describe("LivePage", () => {
     });
   });
 
-  it("renders the K=3.0 label (live default)", async () => {
+  it("renders the live sensitivity value", async () => {
     mockLiveAndBoard(
       fetchMock,
       liveResponse({ gameId: GAME_ID, tickCount: 0 }),

@@ -1,7 +1,7 @@
 // Pre-bucketing step for board-mad. Takes raw quote_ticks, returns one
-// {bucket, intensity} series per game — the K-independent half of the
-// detector. Done once per backtest invocation so the Cry Wolf dial (US-037)
-// can re-sweep K via runSweep() in sub-second time without re-walking the
+// {bucket, intensity} series per game — the sensitivity-independent half of the
+// detector. Done once per backtest invocation so the Sensitivity dial can
+// re-sweep the threshold multiplier in sub-second time without re-walking the
 // raw ticks.
 //
 // Algorithm (unchanged from index.ts pre-refactor; preserves canonical
@@ -22,6 +22,7 @@
 // DetectorBucket timestamps without a second source of truth.
 
 import type { Tick } from "../types";
+import { BOARD_MAD_FRESH_CAP_SECONDS_DEFAULT, BOARD_MAD_WEIGHTING_DEFAULT } from "./config";
 import type { Weighting } from "./params";
 
 export interface BucketEntry {
@@ -47,8 +48,8 @@ export interface PrebucketOptions {
   readonly gameIds?: readonly string[];
 }
 
-const DEFAULT_WEIGHTING: Weighting = "volume";
-const DEFAULT_FRESH_CAP_SECONDS = 300;
+const DEFAULT_WEIGHTING: Weighting = BOARD_MAD_WEIGHTING_DEFAULT;
+const DEFAULT_FRESH_CAP_SECONDS = BOARD_MAD_FRESH_CAP_SECONDS_DEFAULT;
 
 type Contribution = { readonly bucket: number; readonly weighted: number };
 

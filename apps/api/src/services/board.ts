@@ -67,6 +67,9 @@ export function getOrComputeBoard(args: GetOrComputeBoardArgs): BoardResult {
   const detectorVersion = boardMadDetectorVersion(defaults);
   const resolvedParams = BoardMadParams.parse({
     kMad: defaults.kMadLive,
+    baselineMode: defaults.baselineMode,
+    openingBaselineBuckets: defaults.openingBaselineBuckets,
+    openingRampCompleteBuckets: defaults.openingRampCompleteBuckets,
     trailingBuckets: defaults.trailingBuckets,
     warmupBuckets: defaults.warmupBuckets,
     freshCapSeconds: defaults.freshCapSeconds,

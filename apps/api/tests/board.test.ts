@@ -7,9 +7,16 @@ import { mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { BOARD_MAD_BASELINE_MODE_OPENING_RAMP } from "@signal-console/detectors/board-mad/config";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { buildServer } from "../src/server";
+import {
+  BASELINE_DEFAULTS,
+  invalidateDetectorDefaultsCache,
+  setDetectorDefaultsPath,
+  writeDetectorDefaults,
+} from "../src/services/detector-defaults";
 import { getOrComputeBoard } from "../src/services/board";
 
 type FastifyApp = Awaited<ReturnType<typeof buildServer>>;
@@ -124,6 +131,8 @@ beforeEach(() => {
   ctx.goldDbPath = join(ctx.tempDir, "gold.sqlite");
   ctx.cacheDbPath = join(ctx.tempDir, "cache.sqlite");
   writeFileSync(ctx.tokenPath, `${TEST_TOKEN}\n`, "utf8");
+  setDetectorDefaultsPath(join(ctx.tempDir, "detector-defaults.json"));
+  invalidateDetectorDefaultsCache();
 });
 
 afterEach(async () => {
@@ -182,6 +191,21 @@ function countRunsForGame(cacheDbPath: string, gameId: string): number {
   }
 }
 
+function guardAgainstDetectorRunInsert(cacheDbPath: string): void {
+  const cacheDb = new Database(cacheDbPath);
+  try {
+    cacheDb.exec(`
+      CREATE TRIGGER fail_unexpected_detector_run_insert
+      BEFORE INSERT ON detector_runs
+      BEGIN
+        SELECT RAISE(ABORT, 'warm board path attempted detector_runs insert');
+      END;
+    `);
+  } finally {
+    cacheDb.close();
+  }
+}
+
 function updateEarliestPbp(path: string, gameId: string, nextTimeActual: string): void {
   const db = new Database(path);
   try {
@@ -223,13 +247,6 @@ function dropPbpTable(path: string): void {
   } finally {
     db.close();
   }
-}
-
-async function timedInject(app: FastifyApp, url: string): Promise<{ res: unknown; ms: number }> {
-  const start = process.hrtime.bigint();
-  const res = await app.inject({ method: "GET", url, headers: authHeaders() });
-  const ms = Number(process.hrtime.bigint() - start) / 1_000_000;
-  return { res, ms };
 }
 
 describe("board route (US-021)", () => {
@@ -344,26 +361,30 @@ describe("board route (US-021)", () => {
     expect(countRunsForGame(ctx.cacheDbPath, "nba-no-pbp-table-1")).toBe(1);
   });
 
-  it("warm call is at least 5x faster than the cold call (proxy for cache hit vs compute)", async () => {
-    // Wide-enough seed that cold compute (sort + bucket sweep + transaction)
-    // is well above ms quantization noise. 8000 ticks across 6 markets keeps
-    // the detector input meaningful while the cache lookup stays trivial.
-    seedGoldDb(ctx.goldDbPath, [{ id: "nba-timed-1", tickCount: 8000, markets: 6 }]);
+  it("warm call reuses the cached detector run without attempting a second insert", async () => {
+    seedGoldDb(ctx.goldDbPath, [{ id: "nba-timed-1", tickCount: 1200 }]);
     const app = await startApp();
 
-    const cold = await timedInject(app, "/v1/board/nba-timed-1");
-    const warm = await timedInject(app, "/v1/board/nba-timed-1");
+    const cold = await app.inject({
+      method: "GET",
+      url: "/v1/board/nba-timed-1",
+      headers: authHeaders(),
+    });
+    expect(cold.statusCode).toBe(200);
+    const coldBody = asRecord(cold.json(), "cold body");
+    expect(countRunsForGame(ctx.cacheDbPath, "nba-timed-1")).toBe(1);
 
-    // Both calls must succeed.
-    if (!isRecord(cold.res) || !("statusCode" in cold.res)) throw new Error("cold response shape");
-    if (!isRecord(warm.res) || !("statusCode" in warm.res)) throw new Error("warm response shape");
-    expect(cold.res["statusCode"]).toBe(200);
-    expect(warm.res["statusCode"]).toBe(200);
+    guardAgainstDetectorRunInsert(ctx.cacheDbPath);
 
-    // Soft assertion: cold must take a non-trivial amount of time (otherwise
-    // the ratio is meaningless), and warm must be at least 5x faster.
-    expect(cold.ms).toBeGreaterThan(10);
-    expect(cold.ms).toBeGreaterThanOrEqual(warm.ms * 5);
+    const warm = await app.inject({
+      method: "GET",
+      url: "/v1/board/nba-timed-1",
+      headers: authHeaders(),
+    });
+    expect(warm.statusCode).toBe(200);
+    const warmBody = asRecord(warm.json(), "warm body");
+    expect(warmBody["runId"]).toBe(coldBody["runId"]);
+    expect(countRunsForGame(ctx.cacheDbPath, "nba-timed-1")).toBe(1);
   });
 
   it("DELETE /v1/cache then GET /v1/board recomputes (cache miss path is real)", async () => {
@@ -496,6 +517,42 @@ describe("board route (US-021)", () => {
         .get("nba-unique-1");
       if (!isRecord(row)) throw new Error("count row not a record");
       expect(row["n"]).toBe(1);
+    } finally {
+      cacheDb.close();
+    }
+  });
+
+  it("live board params include signal timing defaults in cache identity", () => {
+    seedGoldDb(ctx.goldDbPath, [{ id: "nba-baseline-defaults-1", tickCount: 100 }]);
+    writeDetectorDefaults({
+      ...BASELINE_DEFAULTS,
+      baselineMode: BOARD_MAD_BASELINE_MODE_OPENING_RAMP,
+      openingRampCompleteBuckets: 12,
+    });
+
+    getOrComputeBoard({
+      goldDbPath: ctx.goldDbPath,
+      cacheDbPath: ctx.cacheDbPath,
+      gameId: "nba-baseline-defaults-1",
+    });
+
+    const cacheDb = new Database(ctx.cacheDbPath, { readonly: true });
+    try {
+      const row = cacheDb
+        .prepare(
+          `SELECT detector_version, params_json
+           FROM detector_runs
+           WHERE game_id = ?`,
+        )
+        .get("nba-baseline-defaults-1");
+      if (!isRecord(row)) throw new Error("run row not a record");
+      expect(String(row["detector_version"])).toMatch(/\+def\.[0-9a-f]{8}$/);
+      const params = asRecord(JSON.parse(String(row["params_json"])), "params_json");
+      expect(params["baselineMode"]).toBe(BOARD_MAD_BASELINE_MODE_OPENING_RAMP);
+      expect(params["openingBaselineBuckets"]).toBe(BASELINE_DEFAULTS.openingBaselineBuckets);
+      expect(params["openingRampCompleteBuckets"]).toBe(12);
+      expect(params["trailingBuckets"]).toBe(BASELINE_DEFAULTS.trailingBuckets);
+      expect(params["warmupBuckets"]).toBe(BASELINE_DEFAULTS.warmupBuckets);
     } finally {
       cacheDb.close();
     }

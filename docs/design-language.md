@@ -4,7 +4,7 @@
 
 ## Lineage
 
-The palette and typographic restraint borrow directly from **bet365**: dark green field, vivid green for structure, vivid yellow for attention, white on green for legibility. Everything else — layout, density, motion, charting — is **forward** of bet365: stripped of icon chrome, denser without cards, charts done Tufte-style, the Cry Wolf dial as the single hero object.
+The palette and typographic restraint borrow directly from **bet365**: dark green field, vivid green for structure, vivid yellow for attention, white on green for legibility. Everything else — layout, density, motion, charting — is **forward** of bet365: stripped of icon chrome, denser without cards, charts done Tufte-style, the Sensitivity dial as the single hero object.
 
 The reference triangle: **bet365** (palette, type), **Linear** (typography craft, restraint), **NYT election needle** (the dial as an experiential object).
 
@@ -14,23 +14,23 @@ The reference triangle: **bet365** (palette, type), **Linear** (typography craft
 
 All values declared once in `packages/ui/src/tokens.ts`, re-exported via a Tailwind preset, consumed everywhere. **No hex literals outside this file.**
 
-| Token              | Hex       | Role                                                                                                                                                                                                                                                                                                                                                                               |
-| ------------------ | --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `surface-0-from`   | `#06140E` | App background, top of gradient                                                                                                                                                                                                                                                                                                                                                    |
-| `surface-0-to`     | `#0E2A1F` | App background, bottom of gradient (subtle vertical gradient on `<body>` only)                                                                                                                                                                                                                                                                                                     |
-| `surface-1`        | `#0F2419` | Cards, panels, dial track                                                                                                                                                                                                                                                                                                                                                          |
-| `surface-2`        | `#163020` | Row hover, focused list item                                                                                                                                                                                                                                                                                                                                                       |
-| `surface-elevated` | `#1A3528` | **Elevated overlays — hover cards, popovers, dropdowns.** Stand out clearly against the page gradient. Used for Explainer Cards and any future floating surface that needs visual hierarchy above the page.                                                                                                                                                                        |
-| `accent-green`     | `#14EB6F` | Brand/structural — nav underline, live pulse, status dots, "ok" state, secondary actions ("Open Alerts" pattern)                                                                                                                                                                                                                                                                   |
-| `accent-yellow`    | `#FFD000` | **Action + positive + anomaly + engage-with-this-for-info.** Primary CTAs (buttons you want clicked), fires/anomaly markers, active K value on the dial, positive deltas, suspend warnings, explainer-trigger underlines + explainer-card left-edge stripes. The bet365 "Join button + plus-odds" role, extended to "the system has more for you here" (the explainer affordance). |
-| `negative`         | `#FF5757` | Used sparingly — error banners, negative deltas in dense tables                                                                                                                                                                                                                                                                                                                    |
-| `text-hi`          | `#FFFFFF` | Headings, primary numerics                                                                                                                                                                                                                                                                                                                                                         |
-| `text-md`          | `#B4C4BD` | Body, secondary metadata                                                                                                                                                                                                                                                                                                                                                           |
-| `text-lo`          | `#6E7E77` | Labels, axis ticks, helper text                                                                                                                                                                                                                                                                                                                                                    |
+| Token              | Hex       | Role                                                                                                                                                                                                                                                                                                                                                                                         |
+| ------------------ | --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `surface-0-from`   | `#06140E` | App background, top of gradient                                                                                                                                                                                                                                                                                                                                                              |
+| `surface-0-to`     | `#0E2A1F` | App background, bottom of gradient (subtle vertical gradient on `<body>` only)                                                                                                                                                                                                                                                                                                               |
+| `surface-1`        | `#0F2419` | Cards, panels, dial track                                                                                                                                                                                                                                                                                                                                                                    |
+| `surface-2`        | `#163020` | Row hover, focused list item                                                                                                                                                                                                                                                                                                                                                                 |
+| `surface-elevated` | `#1A3528` | **Elevated overlays — hover cards, popovers, dropdowns.** Stand out clearly against the page gradient. Used for Explainer Cards and any future floating surface that needs visual hierarchy above the page.                                                                                                                                                                                  |
+| `accent-green`     | `#14EB6F` | Brand/structural — nav underline, live pulse, status dots, "ok" state, secondary actions ("Open Alerts" pattern)                                                                                                                                                                                                                                                                             |
+| `accent-yellow`    | `#FFD000` | **Action + positive + anomaly + engage-with-this-for-info.** Primary CTAs (buttons you want clicked), fires/anomaly markers, active sensitivity value on the dial, positive deltas, suspend warnings, explainer-trigger underlines + explainer-card left-edge stripes. The bet365 "Join button + plus-odds" role, extended to "the system has more for you here" (the explainer affordance). |
+| `negative`         | `#FF5757` | Used sparingly — error banners, negative deltas in dense tables                                                                                                                                                                                                                                                                                                                              |
+| `text-hi`          | `#FFFFFF` | Headings, primary numerics                                                                                                                                                                                                                                                                                                                                                                   |
+| `text-md`          | `#B4C4BD` | Body, secondary metadata                                                                                                                                                                                                                                                                                                                                                                     |
+| `text-lo`          | `#6E7E77` | Labels, axis ticks, helper text                                                                                                                                                                                                                                                                                                                                                              |
 
 **Rules:**
 
-- **Every screen with an action shows yellow.** Primary CTAs are yellow-outlined buttons. Yellow also marks fires, anomaly markers, the active K value, positive deltas, and the explainer affordance (dashed-underline trigger + left-edge stripe on the open hover card — see §Explainer Cards). Yellow is scarce but **visible on every page** — that's the bet365 lineage. A screen with no yellow at all (no CTA, no fire, no positive delta, no explainable term) is a sign you're either on a pure-display surface or missed an affordance.
+- **Every screen with an action shows yellow.** Primary CTAs are yellow-outlined buttons. Yellow also marks fires, anomaly markers, the active sensitivity value, positive deltas, and the explainer affordance (dashed-underline trigger + left-edge stripe on the open hover card — see §Explainer Cards). Yellow is scarce but **visible on every page** — that's the bet365 lineage. A screen with no yellow at all (no CTA, no fire, no positive delta, no explainable term) is a sign you're either on a pure-display surface or missed an affordance.
 - **Don't sprinkle yellow.** No yellow chrome, decoration, gridlines, or hover ornaments. Yellow says "click me / fire / good news / engage-with-this-for-info" — nothing else. The explainer underline counts as the "engage" role; a yellow underline on a plain (non-explainer) word would dilute the contract.
 - **Green is the structural quiet.** Nav underline, live pulse, status dots, the "Open Alerts"-style secondary action. Green is not a CTA color.
 - Negative red appears at most once per screen, only when contrasting positive.
@@ -41,14 +41,14 @@ All values declared once in `packages/ui/src/tokens.ts`, re-exported via a Tailw
 
 ## Typography
 
-| Family | Stack                                                                         | Use                                                                   |
-| ------ | ----------------------------------------------------------------------------- | --------------------------------------------------------------------- |
-| Sans   | `Inter, "Geist Sans", system-ui, sans-serif`                                  | All UI text, headings, body                                           |
-| Mono   | `"JetBrains Mono", "Berkeley Mono", "IBM Plex Mono", ui-monospace, monospace` | All numerics — fire counts, K values, timestamps, prices, deltas, IDs |
+| Family | Stack                                                                         | Use                                                                             |
+| ------ | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| Sans   | `Inter, "Geist Sans", system-ui, sans-serif`                                  | All UI text, headings, body                                                     |
+| Mono   | `"JetBrains Mono", "Berkeley Mono", "IBM Plex Mono", ui-monospace, monospace` | All numerics — fire counts, sensitivity values, timestamps, prices, deltas, IDs |
 
 **Scale (Tailwind):** `text-xs 12 / text-sm 13 / text-base 14 / text-lg 16 / text-xl 20 / text-2xl 28 / text-3xl 40 / text-4xl 64` — pixel sizes locked, no fluid type.
 
-**Weights:** 400 (body), 500 (emphasis), 600 (headings). No 700+ except the K-value display.
+**Weights:** 400 (body), 500 (emphasis), 600 (headings). No 700+ except the sensitivity-value display.
 
 **Tabular figures locked** on every monospace text element via `font-variant-numeric: tabular-nums`. Numbers must align column-wise without thinking.
 
@@ -66,21 +66,23 @@ All values declared once in `packages/ui/src/tokens.ts`, re-exported via a Tailw
 
 ## Motion
 
-| Element                  | Behavior                                      | Duration | Easing        |
-| ------------------------ | --------------------------------------------- | -------- | ------------- |
-| Live indicator           | Opacity pulse 0.4 → 1.0                       | 1500 ms  | `ease-in-out` |
-| Hover (any)              | Color/background fade                         | 100 ms   | `ease-out`    |
-| Route transition         | Crossfade                                     | 150 ms   | `ease-out`    |
-| Dial drag                | None — value updates synchronously, no easing | —        | —             |
-| Chart update on K change | Markers fade in                               | 200 ms   | `ease-out`    |
+| Element                            | Behavior                                      | Duration | Easing        |
+| ---------------------------------- | --------------------------------------------- | -------- | ------------- |
+| Live indicator                     | Opacity pulse 0.4 → 1.0                       | 1500 ms  | `ease-in-out` |
+| Hover (any)                        | Color/background fade                         | 100 ms   | `ease-out`    |
+| Route transition                   | Crossfade                                     | 150 ms   | `ease-out`    |
+| Dial drag                          | None — value updates synchronously, no easing | —        | —             |
+| Chart update on sensitivity change | Markers fade in                               | 200 ms   | `ease-out`    |
 
 No bouncy springs, no parallax, no scroll-jacking, no entrance animations on initial mount.
 
 ---
 
-## The Cry Wolf dial (centerpiece)
+## The Backtest Rotary Dials
 
 **This is a rotary dial — a circular knob you turn — not a horizontal slider.** The original plan, the video, and the trader mental model all say "dial." The UI must match that — a tactile-looking knob that a desk operator would reach to grab.
+
+Backtest has one primary threshold rotary, Sensitivity for `kMad`, plus a grouped Signal timing panel for the opening-game mechanics. Inside that panel, Prior sample selects `baselineMode`, Opening sample controls `openingBaselineBuckets`, Ramp complete controls `openingRampCompleteBuckets`, Volatility lookback is the slider for `trailingBuckets`, and Opening holdoff is the slider for `warmupBuckets`. The timing sliders show the integer bucket count plus a smaller parenthetical duration computed exactly as `bucketCount × bucketSeconds`.
 
 **Aesthetic level:** ~20% of the way from "minimal flat" toward "fully rendered 3D knob." Inspiration: an analog audio potentiometer (Sennheiser volume, Yamaha mixing console, hi-fi tuning dial). It looks like a real thing, but the depth is implied by flat hairlines, not raster shadows. **NO** dynamic shadows, **NO** 3D / WebGL rendering, **NO** haptics, **NO** GPU-blurred glows.
 
@@ -89,24 +91,24 @@ No bouncy springs, no parallax, no scroll-jacking, no entrance animations on ini
 - **Knob body:** 160 px diameter circle, `surface-1` fill.
 - **Inner bezel ring:** 1 px inset stroke, `text-lo` at 30% opacity, 4 px inside the knob edge. Implies machined metal lip; no drop shadow.
 - **Outer bezel:** 192 px diameter ring (16 px wider than knob), 1 px `text-lo` at 30% opacity. Holds the tick marks.
-- **Ticks:** every 1.0 K from K=2 to K=8 = 7 ticks across a 270° travel arc (K=2 at -135°, K=5 at 0°, K=8 at +135°). Each tick is a 12 px line, `text-lo`. Major ticks at K=3 and K=6 (the snap detents) are 16 px and `accent-green`.
+- **Ticks:** every 1.0 sensitivity unit from 2 to 8 = 7 ticks across a 270° travel arc (2 at -135°, 5 at 0°, 8 at +135°). Each tick is a 12 px line, `text-lo`. Major ticks at sensitivity 3 and 6 (the snap detents) are 16 px and `accent-green`.
 - **Indicator:** 3 px wide line from center to bezel edge (radius 88 px), `accent-yellow` stroke, rounded ends. Rotates with the knob. A 0.5 px lighter `accent-yellow` hairline along its leading edge suggests bevel depth without a shadow.
-- **K value (inside the knob):** mono 32 px (`text-2xl`), `accent-yellow`, 2-decimal precision, centered.
-- **K value (large above):** mono 96 px (add `text-5xl 96 px` token if not present — used here and nowhere else), `accent-yellow`, 2-decimal precision. Sits above the knob when the dial is the focal point; this is the bet365-style oversized headline number.
+- **Secondary value (inside the knob):** mono 32 px (`text-2xl`), `accent-yellow`, centered. The Sensitivity knob uses this space for a real output of the chosen setting, currently estimated fires per game from the last run.
+- **Primary value (large above):** mono 96 px (add `text-5xl 96 px` token if not present — used here and nowhere else), `accent-yellow`. Sits above the knob when the dial is the focal point; this is the bet365-style oversized headline number. Optional detail text sits below it, not beside it, so parenthetical durations do not collide with the 96 px headline.
 
 **Interaction:**
 
-- **Vertical drag:** mousedown anywhere inside the knob, then drag up to raise K, down to lower K. 200 px of vertical travel = full 270° rotation = K range 2.0 → 8.0. Drag is the primary interaction.
-- **Click a tick mark:** snaps the dial to that K value (instant, no animation longer than the 50 ms snap-magnetize below).
-- **Click a snap chip** ("Sensitive" K=3, "Calm" K=6): snaps with an 80 ms `text-hi`→`accent-yellow` flash on the inline K value.
-- **Wheel / scroll over knob:** each tick = ±0.25 K.
-- **Keyboard (when focused):** ← ↓ = -0.25, → ↑ = +0.25, PageUp/Down = ±1.0, Home/End = K=2.0/8.0.
+- **Vertical drag:** mousedown anywhere inside the knob, then drag up to raise sensitivity, down to lower sensitivity. 200 px of vertical travel = full 270° rotation = sensitivity range 2.0 → 8.0. Drag is the primary interaction.
+- **Click a tick mark:** snaps the dial to that sensitivity value (instant, no animation longer than the 50 ms snap-magnetize below).
+- **Click a snap chip** ("Sensitive" at 3, "Calm" at 6): snaps with an 80 ms `text-hi`→`accent-yellow` flash on the headline value.
+- **Wheel / scroll over knob:** each tick = ±0.25 sensitivity.
+- **Keyboard (when focused):** ← ↓ = -0.25, → ↑ = +0.25, PageUp/Down = ±1.0, Home/End = 2.0/8.0.
 - Touch: vertical pan, same mapping. No haptic vibration.
 
 **Snap detents:**
 
-- At K=3.0 ("Sensitive — live default") and K=6.0 ("Calm — comparison preset"). Both tick marks rendered in `accent-green` (vs `text-lo` for non-snap ticks).
-- **Magnetize behavior:** when the dragged value lands within ±0.1 K of a snap, the indicator smoothly transitions to the exact snap value over 50 ms — no bounce, no spring, just a tight ease-out to lock in.
+- At sensitivity 3.0 ("Sensitive — live default") and sensitivity 6.0 ("Calm — comparison preset"). Both tick marks rendered in `accent-green` (vs `text-lo` for non-snap ticks).
+- **Magnetize behavior:** when the dragged value lands within ±0.1 sensitivity units of a snap, the indicator smoothly transitions to the exact snap value over 50 ms — no bounce, no spring, just a tight ease-out to lock in.
 
 **Snap chips (below the knob):**
 
@@ -122,7 +124,7 @@ No bouncy springs, no parallax, no scroll-jacking, no entrance animations on ini
 
 That's it. Anything beyond these five — drop shadows, gradients, glow filters, animated rotation on idle — is over the line.
 
-**Everything else on the Backtest page recedes** so the dial earns its prominence. The dial is the only object on its row; the params form (US-035) lives below it; the per-game timelines (US-038) live below that.
+**Everything else on the Backtest page recedes** so the control area earns its prominence. Window/scope/detector live on the left, Run sits between the setup and the tunable controls, Signal timing uses the upper-right workspace, Sensitivity remains the primary rotary below, prebucket params live below them, and the per-game timelines (US-038) live below that.
 
 ---
 
@@ -151,7 +153,7 @@ Strip Recharts to the bone. Custom theme exported from `packages/ui/src/chart-th
 
 ## Explainer Cards (hover for verbose, multi-paragraph, LaTeX-capable explanations)
 
-Many numbers and concepts in this app (`K_MAD`, `fires/game`, the various detector params, "median + K·MAD" itself, "implied probability", "MAD") are non-obvious to a sports-brain trader. A bet365 user knows "+115" — they may not know "trailing median absolute deviation." Explainer cards close that gap **without** dumbing the app down or requiring a "Help" page.
+Many numbers and concepts in this app (`kMad`, `fires/game`, the various detector params, "median + sensitivity·MAD" itself, "implied probability", "MAD") are non-obvious to a sports-brain trader. A bet365 user knows "+115" — they may not know "trailing median absolute deviation." Explainer cards close that gap **without** dumbing the app down or requiring a "Help" page.
 
 **Primitive:** Radix UI `HoverCard` (not `Tooltip` — `Tooltip` auto-dismisses on blur and disallows interactive content; we need the user to be able to move the mouse INTO the card and scroll).
 
@@ -183,7 +185,7 @@ Many numbers and concepts in this app (`K_MAD`, `fires/game`, the various detect
 │   in LaTeX, a note on why this estimator vs another.     │
 │   Readable by a "normal-small nerd" — not IMO-only.      │
 │                                                          │
-│   intensity_t > median(B_{t-W..t-1}) + K · MAD(...)      │
+│   intensity_t > median(B_{t-W..t-1}) + sensitivity · MAD │
 │                                                          │
 │   (Above renders via KaTeX block-math.)                  │
 │ </text-md mono>                                          │

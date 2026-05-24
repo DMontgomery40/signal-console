@@ -10,6 +10,22 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { CACHE_DB_PATH, GOLD_DB_PATH } from "@signal-console/db";
+import {
+  BOARD_MAD_BASELINE_MODE_OPENING_RAMP,
+  BOARD_MAD_BASELINE_MODE_TRAILING,
+  BOARD_MAD_FRESH_CAP_SECONDS_MAX,
+  BOARD_MAD_FRESH_CAP_SECONDS_MIN,
+  BOARD_MAD_K_MAD_MAX,
+  BOARD_MAD_K_MAD_MIN,
+  BOARD_MAD_OPENING_BASELINE_BUCKETS_MAX,
+  BOARD_MAD_OPENING_BASELINE_BUCKETS_MIN,
+  BOARD_MAD_OPENING_RAMP_COMPLETE_BUCKETS_MAX,
+  BOARD_MAD_OPENING_RAMP_COMPLETE_BUCKETS_MIN,
+  BOARD_MAD_TRAILING_BUCKETS_MAX,
+  BOARD_MAD_TRAILING_BUCKETS_MIN,
+  BOARD_MAD_WARMUP_BUCKETS_MAX,
+  BOARD_MAD_WARMUP_BUCKETS_MIN,
+} from "@signal-console/detectors/board-mad/config";
 import type { FastifyPluginAsync } from "fastify";
 
 import {
@@ -99,7 +115,7 @@ const sourcesSchema = {
 
 const responseSchema = {
   type: "object",
-  required: ["db", "cacheDb", "sources", "errors", "about"],
+  required: ["db", "cacheDb", "sources", "errors", "about", "detectorDefaults"],
   properties: {
     db: {
       type: "object",
@@ -160,6 +176,9 @@ const responseSchema = {
       type: "object",
       required: [
         "kMadLive",
+        "baselineMode",
+        "openingBaselineBuckets",
+        "openingRampCompleteBuckets",
         "trailingBuckets",
         "warmupBuckets",
         "freshCapSeconds",
@@ -167,10 +186,40 @@ const responseSchema = {
         "pbpPostBufferMs",
       ],
       properties: {
-        kMadLive: { type: "number" },
-        trailingBuckets: { type: "integer" },
-        warmupBuckets: { type: "integer" },
-        freshCapSeconds: { type: "integer" },
+        kMadLive: {
+          type: "number",
+          minimum: BOARD_MAD_K_MAD_MIN,
+          maximum: BOARD_MAD_K_MAD_MAX,
+        },
+        baselineMode: {
+          type: "string",
+          enum: [BOARD_MAD_BASELINE_MODE_TRAILING, BOARD_MAD_BASELINE_MODE_OPENING_RAMP],
+        },
+        openingBaselineBuckets: {
+          type: "integer",
+          minimum: BOARD_MAD_OPENING_BASELINE_BUCKETS_MIN,
+          maximum: BOARD_MAD_OPENING_BASELINE_BUCKETS_MAX,
+        },
+        openingRampCompleteBuckets: {
+          type: "integer",
+          minimum: BOARD_MAD_OPENING_RAMP_COMPLETE_BUCKETS_MIN,
+          maximum: BOARD_MAD_OPENING_RAMP_COMPLETE_BUCKETS_MAX,
+        },
+        trailingBuckets: {
+          type: "integer",
+          minimum: BOARD_MAD_TRAILING_BUCKETS_MIN,
+          maximum: BOARD_MAD_TRAILING_BUCKETS_MAX,
+        },
+        warmupBuckets: {
+          type: "integer",
+          minimum: BOARD_MAD_WARMUP_BUCKETS_MIN,
+          maximum: BOARD_MAD_WARMUP_BUCKETS_MAX,
+        },
+        freshCapSeconds: {
+          type: "integer",
+          minimum: BOARD_MAD_FRESH_CAP_SECONDS_MIN,
+          maximum: BOARD_MAD_FRESH_CAP_SECONDS_MAX,
+        },
         pbpPreBufferMs: { type: "integer" },
         pbpPostBufferMs: { type: "integer" },
       },
@@ -183,6 +232,9 @@ const detectorDefaultsResponseSchema = {
   type: "object",
   required: [
     "kMadLive",
+    "baselineMode",
+    "openingBaselineBuckets",
+    "openingRampCompleteBuckets",
     "trailingBuckets",
     "warmupBuckets",
     "freshCapSeconds",
@@ -190,10 +242,40 @@ const detectorDefaultsResponseSchema = {
     "pbpPostBufferMs",
   ],
   properties: {
-    kMadLive: { type: "number" },
-    trailingBuckets: { type: "integer" },
-    warmupBuckets: { type: "integer" },
-    freshCapSeconds: { type: "integer" },
+    kMadLive: {
+      type: "number",
+      minimum: BOARD_MAD_K_MAD_MIN,
+      maximum: BOARD_MAD_K_MAD_MAX,
+    },
+    baselineMode: {
+      type: "string",
+      enum: [BOARD_MAD_BASELINE_MODE_TRAILING, BOARD_MAD_BASELINE_MODE_OPENING_RAMP],
+    },
+    openingBaselineBuckets: {
+      type: "integer",
+      minimum: BOARD_MAD_OPENING_BASELINE_BUCKETS_MIN,
+      maximum: BOARD_MAD_OPENING_BASELINE_BUCKETS_MAX,
+    },
+    openingRampCompleteBuckets: {
+      type: "integer",
+      minimum: BOARD_MAD_OPENING_RAMP_COMPLETE_BUCKETS_MIN,
+      maximum: BOARD_MAD_OPENING_RAMP_COMPLETE_BUCKETS_MAX,
+    },
+    trailingBuckets: {
+      type: "integer",
+      minimum: BOARD_MAD_TRAILING_BUCKETS_MIN,
+      maximum: BOARD_MAD_TRAILING_BUCKETS_MAX,
+    },
+    warmupBuckets: {
+      type: "integer",
+      minimum: BOARD_MAD_WARMUP_BUCKETS_MIN,
+      maximum: BOARD_MAD_WARMUP_BUCKETS_MAX,
+    },
+    freshCapSeconds: {
+      type: "integer",
+      minimum: BOARD_MAD_FRESH_CAP_SECONDS_MIN,
+      maximum: BOARD_MAD_FRESH_CAP_SECONDS_MAX,
+    },
     pbpPreBufferMs: { type: "integer" },
     pbpPostBufferMs: { type: "integer" },
   },

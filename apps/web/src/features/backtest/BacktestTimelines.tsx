@@ -15,7 +15,7 @@
 // Snapshot vs recompute data-flow split is preserved from the original US-038
 // design: intensity line reads from `snapshotObservations` so it never remounts
 // on K change; fire markers + bucket context read from `recomputedObservations`
-// so they update in place when the Cry Wolf dial moves.
+// so they update in place when the Sensitivity dial moves.
 
 import { useState, type JSX } from "react";
 import {
@@ -452,14 +452,14 @@ function GameCard({
           data-testid="backtest-timeline-drilldown"
         >
           <h4 className="text-sm font-semibold text-text-hi">
-            Past fires in this game at K={k.toFixed(2)}
+            Past fires in this game at sensitivity {k.toFixed(2)}
           </h4>
           {fires.length === 0 ? (
             <p
               className="mt-3 font-mono text-sm text-text-lo"
               data-testid="backtest-no-fires-empty"
             >
-              No fires for this game at K={k.toFixed(2)}.
+              No fires for this game at sensitivity {k.toFixed(2)}.
             </p>
           ) : (
             <div className="mt-3 max-h-[60vh] overflow-y-auto bg-surface-0-to">
@@ -502,8 +502,8 @@ export interface BacktestTimelinesProps {
   readonly snapshotObservations: readonly BacktestObservation[];
   readonly recomputedObservations: readonly BacktestObservation[];
   readonly fromRecompute: boolean;
-  // Current K — used for the threshold line on the context timeline and the
-  // drilldown header. Backtest's K dial drives this.
+  // Current sensitivity — used for the threshold line on the context timeline
+  // and the drilldown header. Backtest's sensitivity dial drives this.
   readonly k: number;
 }
 

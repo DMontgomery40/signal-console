@@ -20,13 +20,13 @@ export {
 export type { TailwindPreset, TailwindPresetThemeExtend } from "./tailwind-preset.cjs";
 
 // Explainer content for HoverCards. 17 entries spanning the board-MAD and
-// off-price-print detectors, the K dial and its labeled snap points, detector
+// off-price-print detectors, the Sensitivity dial and its labeled snap points, detector
 // params, math foundations, and data sanitations.
 export { explainers, type Explainer, type ExplainerId } from "./explainers";
 
 // HoverCard primitive consuming the explainer content above. See US-046.
 export { ExplainerCard, type ExplainerCardProps } from "./components/ExplainerCard";
 
-// Generic rotary-dial primitive (US-053). Cry Wolf dial and Memory dial both
+// Generic rotary-dial primitive (US-053). Sensitivity and timing dials both
 // configure this; consumers supply value/min/max/step + snap points + chips.
 export { RotaryDial, type RotaryDialProps, type RotaryDialSnapChip } from "./components/RotaryDial";

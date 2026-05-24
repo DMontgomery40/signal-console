@@ -2,6 +2,20 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import type { ReactNode, JSX } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  BOARD_MAD_BASELINE_MODE_DEFAULT,
+  BOARD_MAD_BASELINE_MODE_OPENING_RAMP,
+  BOARD_MAD_FRESH_CAP_SECONDS_DEFAULT,
+  BOARD_MAD_K_MAD_MAX,
+  BOARD_MAD_K_MAD_MIN,
+  BOARD_MAD_OPENING_BASELINE_BUCKETS_DEFAULT,
+  BOARD_MAD_OPENING_BASELINE_BUCKETS_MAX,
+  BOARD_MAD_OPENING_BASELINE_BUCKETS_MIN,
+  BOARD_MAD_OPENING_RAMP_COMPLETE_BUCKETS_DEFAULT,
+  BOARD_MAD_TRAILING_BUCKETS_DEFAULT,
+  BOARD_MAD_WARMUP_BUCKETS_DEFAULT,
+  K_MAD_LIVE,
+} from "@signal-console/detectors/board-mad/config";
 
 import { SettingsPage } from "../SettingsPage";
 
@@ -45,6 +59,32 @@ function parseJsonUnknown(s: string): unknown {
   return v;
 }
 
+interface DetectorDefaultsFixture {
+  readonly kMadLive: number;
+  readonly baselineMode:
+    | typeof BOARD_MAD_BASELINE_MODE_DEFAULT
+    | typeof BOARD_MAD_BASELINE_MODE_OPENING_RAMP;
+  readonly openingBaselineBuckets: number;
+  readonly openingRampCompleteBuckets: number;
+  readonly trailingBuckets: number;
+  readonly warmupBuckets: number;
+  readonly freshCapSeconds: number;
+  readonly pbpPreBufferMs: number;
+  readonly pbpPostBufferMs: number;
+}
+
+const DEFAULT_DETECTOR_DEFAULTS: DetectorDefaultsFixture = {
+  kMadLive: K_MAD_LIVE,
+  baselineMode: BOARD_MAD_BASELINE_MODE_DEFAULT,
+  openingBaselineBuckets: BOARD_MAD_OPENING_BASELINE_BUCKETS_DEFAULT,
+  openingRampCompleteBuckets: BOARD_MAD_OPENING_RAMP_COMPLETE_BUCKETS_DEFAULT,
+  trailingBuckets: BOARD_MAD_TRAILING_BUCKETS_DEFAULT,
+  warmupBuckets: BOARD_MAD_WARMUP_BUCKETS_DEFAULT,
+  freshCapSeconds: BOARD_MAD_FRESH_CAP_SECONDS_DEFAULT,
+  pbpPreBufferMs: 5 * 60 * 1000,
+  pbpPostBufferMs: 60_000,
+};
+
 interface SettingsFixture {
   readonly mode?: "read-only" | "error";
   readonly sizeBytes?: number;
@@ -52,14 +92,7 @@ interface SettingsFixture {
   readonly paused?: boolean;
   readonly errors?: ReadonlyArray<{ level: string; message: string; time: string | null }>;
   readonly detectors?: ReadonlyArray<{ id: string; version: string }>;
-  readonly detectorDefaults?: {
-    kMadLive: number;
-    trailingBuckets: number;
-    warmupBuckets: number;
-    freshCapSeconds: number;
-    pbpPreBufferMs: number;
-    pbpPostBufferMs: number;
-  };
+  readonly detectorDefaults?: Partial<DetectorDefaultsFixture>;
 }
 
 function makeSettings(fixture: SettingsFixture = {}): Record<string, unknown> {
@@ -129,14 +162,7 @@ function makeSettings(fixture: SettingsFixture = {}): Record<string, unknown> {
       detectorVersions: fixture.detectors ?? [{ id: "board-mad", version: "1.0.0" }],
       dbSchemaVersion: 18,
     },
-    detectorDefaults: fixture.detectorDefaults ?? {
-      kMadLive: 3.0,
-      trailingBuckets: 20,
-      warmupBuckets: 8,
-      freshCapSeconds: 300,
-      pbpPreBufferMs: 5 * 60 * 1000,
-      pbpPostBufferMs: 60_000,
-    },
+    detectorDefaults: { ...DEFAULT_DETECTOR_DEFAULTS, ...fixture.detectorDefaults },
   };
 }
 
@@ -432,10 +458,20 @@ describe("SettingsPage > Detector defaults (US-053)", () => {
       expect(screen.getByTestId("settings-detector-defaults")).toBeDefined();
     });
     const rows = screen.getAllByTestId("detector-default-row");
-    expect(rows.length).toBe(6);
+    expect(rows.length).toBe(9);
+    const baselineMode = screen.getByTestId("detector-default-input-baselineMode");
+    if (!(baselineMode instanceof HTMLSelectElement)) throw new Error("not select");
+    expect(baselineMode.value).toBe(BOARD_MAD_BASELINE_MODE_DEFAULT);
     const k = screen.getByTestId("detector-default-input-kMadLive");
     if (!(k instanceof HTMLInputElement)) throw new Error("not input");
     expect(k.value).toBe("4.5");
+    expect(k.getAttribute("min")).toBe(String(BOARD_MAD_K_MAD_MIN));
+    expect(k.getAttribute("max")).toBe(String(BOARD_MAD_K_MAD_MAX));
+    const opening = screen.getByTestId("detector-default-input-openingBaselineBuckets");
+    if (!(opening instanceof HTMLInputElement)) throw new Error("not input");
+    expect(opening.value).toBe(String(BOARD_MAD_OPENING_BASELINE_BUCKETS_DEFAULT));
+    expect(opening.getAttribute("min")).toBe(String(BOARD_MAD_OPENING_BASELINE_BUCKETS_MIN));
+    expect(opening.getAttribute("max")).toBe(String(BOARD_MAD_OPENING_BASELINE_BUCKETS_MAX));
     const trail = screen.getByTestId("detector-default-input-trailingBuckets");
     if (!(trail instanceof HTMLInputElement)) throw new Error("not input");
     expect(trail.value).toBe("30");
@@ -462,12 +498,8 @@ describe("SettingsPage > Detector defaults (US-053)", () => {
       await Promise.resolve();
       if (url.startsWith("/v1/settings/detector-defaults") && init?.method === "POST") {
         return jsonResponse({
+          ...DEFAULT_DETECTOR_DEFAULTS,
           kMadLive: 5.5,
-          trailingBuckets: 20,
-          warmupBuckets: 8,
-          freshCapSeconds: 300,
-          pbpPreBufferMs: 5 * 60 * 1000,
-          pbpPostBufferMs: 60_000,
         });
       }
       const body = responses[Math.min(getCount, responses.length - 1)];
@@ -499,8 +531,53 @@ describe("SettingsPage > Detector defaults (US-053)", () => {
     const parsed = parseJsonUnknown(body);
     const obj = asRecord(parsed, "body");
     expect(obj["kMadLive"]).toBe(5.5);
-    expect(obj["trailingBuckets"]).toBe(20);
-    expect(obj["warmupBuckets"]).toBe(8);
+    expect(obj["baselineMode"]).toBe(BOARD_MAD_BASELINE_MODE_DEFAULT);
+    expect(obj["openingBaselineBuckets"]).toBe(BOARD_MAD_OPENING_BASELINE_BUCKETS_DEFAULT);
+    expect(obj["openingRampCompleteBuckets"]).toBe(BOARD_MAD_OPENING_RAMP_COMPLETE_BUCKETS_DEFAULT);
+    expect(obj["trailingBuckets"]).toBe(BOARD_MAD_TRAILING_BUCKETS_DEFAULT);
+    expect(obj["warmupBuckets"]).toBe(BOARD_MAD_WARMUP_BUCKETS_DEFAULT);
+  });
+
+  it("POSTs the full detector-default payload when prior sample changes", async () => {
+    fetchMock.mockImplementation(async (input, init) => {
+      const url = urlOf(input);
+      await Promise.resolve();
+      if (url.startsWith("/v1/settings/detector-defaults") && init?.method === "POST") {
+        return jsonResponse({
+          ...DEFAULT_DETECTOR_DEFAULTS,
+          baselineMode: BOARD_MAD_BASELINE_MODE_OPENING_RAMP,
+        });
+      }
+      return jsonResponse(makeSettings());
+    });
+
+    render(<SettingsPage />, { wrapper: makeWrapper() });
+
+    const baselineMode = await waitFor(() =>
+      screen.getByTestId("detector-default-input-baselineMode"),
+    );
+    if (!(baselineMode instanceof HTMLSelectElement)) throw new Error("not select");
+    fireEvent.change(baselineMode, { target: { value: BOARD_MAD_BASELINE_MODE_OPENING_RAMP } });
+
+    await waitFor(() => {
+      const posts = fetchMock.mock.calls.filter((c) => {
+        const url = urlOf(c[0]);
+        return url.startsWith("/v1/settings/detector-defaults") && c[1]?.method === "POST";
+      });
+      expect(posts.length).toBe(1);
+    });
+    const post = fetchMock.mock.calls.find((c) => {
+      const url = urlOf(c[0]);
+      return url.startsWith("/v1/settings/detector-defaults") && c[1]?.method === "POST";
+    });
+    if (post === undefined) throw new Error("missing POST");
+    const body = post[1]?.body;
+    if (typeof body !== "string") throw new Error("body not string");
+    const obj = asRecord(parseJsonUnknown(body), "body");
+    expect(obj["baselineMode"]).toBe(BOARD_MAD_BASELINE_MODE_OPENING_RAMP);
+    expect(obj["openingBaselineBuckets"]).toBe(BOARD_MAD_OPENING_BASELINE_BUCKETS_DEFAULT);
+    expect(obj["openingRampCompleteBuckets"]).toBe(BOARD_MAD_OPENING_RAMP_COMPLETE_BUCKETS_DEFAULT);
+    expect(obj["trailingBuckets"]).toBe(BOARD_MAD_TRAILING_BUCKETS_DEFAULT);
   });
 
   it("Reset to default appears only when value differs from baseline + restores it on click", async () => {
@@ -509,12 +586,7 @@ describe("SettingsPage > Detector defaults (US-053)", () => {
       await Promise.resolve();
       if (url.startsWith("/v1/settings/detector-defaults") && init?.method === "POST") {
         return jsonResponse({
-          kMadLive: 3.0,
-          trailingBuckets: 20,
-          warmupBuckets: 8,
-          freshCapSeconds: 300,
-          pbpPreBufferMs: 5 * 60 * 1000,
-          pbpPostBufferMs: 60_000,
+          ...DEFAULT_DETECTOR_DEFAULTS,
         });
       }
       return jsonResponse(
@@ -556,7 +628,7 @@ describe("SettingsPage > Detector defaults (US-053)", () => {
     if (typeof body !== "string") throw new Error("body not string");
     const parsed = parseJsonUnknown(body);
     const obj = asRecord(parsed, "body");
-    expect(obj["kMadLive"]).toBe(3.0);
+    expect(obj["kMadLive"]).toBe(K_MAD_LIVE);
   });
 
   it("renders ExplainerCard wrappers for every Detector defaults field label", async () => {

@@ -15,7 +15,10 @@ import {
   upsertSourceMarket,
 } from "@signal-console/shared";
 
-import { syncKalshiNbaHistorical } from "../kalshi-historical";
+import {
+  KALSHI_NBA_HISTORICAL_PERIOD_INTERVAL_MINUTES,
+  syncKalshiNbaHistorical,
+} from "../kalshi-historical";
 
 let tempDir = "";
 
@@ -68,8 +71,8 @@ const kalshiEventsPayload = {
         {
           ticker: "KXNBAGAME-26APR22PHXOKC-OKC",
           status: "finalized",
-          open_time: "2026-04-18T20:57:00Z",
-          close_time: "2026-04-23T04:23:18Z",
+          open_time: "2026-04-22T23:30:00Z",
+          close_time: "2026-04-23T00:00:00Z",
           yes_sub_title: "Oklahoma City",
           no_sub_title: "No",
           result: "yes",
@@ -77,8 +80,8 @@ const kalshiEventsPayload = {
         {
           ticker: "KXNBAGAME-26APR22PHXOKC-PHX",
           status: "finalized",
-          open_time: "2026-04-18T20:57:00Z",
-          close_time: "2026-04-23T04:23:18Z",
+          open_time: "2026-04-22T23:30:00Z",
+          close_time: "2026-04-23T00:00:00Z",
           yes_sub_title: "Phoenix",
           no_sub_title: "No",
           result: "no",
@@ -93,7 +96,7 @@ const kalshiCandlesticksByMarket: Record<string, unknown> = {
     ticker: "KXNBAGAME-26APR22PHXOKC-OKC",
     candlesticks: [
       {
-        end_period_ts: 1776556800,
+        end_period_ts: 1776901200,
         open_interest_fp: "42.00",
         volume_fp: "10.00",
         price: {
@@ -107,7 +110,7 @@ const kalshiCandlesticksByMarket: Record<string, unknown> = {
         yes_ask: { close_dollars: "0.8300" },
       },
       {
-        end_period_ts: 1776560400,
+        end_period_ts: 1776901800,
         open_interest_fp: "48.00",
         volume_fp: "3.00",
         price: {
@@ -126,7 +129,7 @@ const kalshiCandlesticksByMarket: Record<string, unknown> = {
     ticker: "KXNBAGAME-26APR22PHXOKC-PHX",
     candlesticks: [
       {
-        end_period_ts: 1776556800,
+        end_period_ts: 1776901200,
         open_interest_fp: "42.00",
         volume_fp: "10.00",
         price: {
@@ -143,9 +146,10 @@ const kalshiCandlesticksByMarket: Record<string, unknown> = {
   },
 };
 
-function buildFetchImpl() {
+function buildFetchImpl(requestedUrls: URL[] = []) {
   return (async (input: string | URL) => {
     const url = typeof input === "string" ? new URL(input) : input;
+    requestedUrls.push(new URL(url.toString()));
     if (url.pathname.endsWith("/events")) {
       return {
         json: async () => kalshiEventsPayload,
@@ -193,10 +197,10 @@ describe("kalshi historical adapter", () => {
   it("writes historical ticks for a settled Kalshi NBA event and dedupes on re-run", async () => {
     seedPastGame();
 
+    const requestedUrls: URL[] = [];
     const run1 = await syncKalshiNbaHistorical({
-      fetchImpl: buildFetchImpl(),
+      fetchImpl: buildFetchImpl(requestedUrls),
       now: () => new Date("2026-04-23T12:00:00.000Z"),
-      periodIntervalMinutes: 60,
     });
 
     expect(run1.ok).toBe(true);
@@ -204,11 +208,16 @@ describe("kalshi historical adapter", () => {
     expect(run1.marketsConsidered).toBe(2);
     expect(run1.candlesFetched).toBe(3);
     expect(run1.ticksWritten).toBe(3);
+    const candleRequestIntervals = requestedUrls
+      .filter((url) => url.pathname.endsWith("/candlesticks"))
+      .map((url) => url.searchParams.get("period_interval"));
+    expect(candleRequestIntervals).toEqual(
+      Array.from({ length: 2 }, () => String(KALSHI_NBA_HISTORICAL_PERIOD_INTERVAL_MINUTES)),
+    );
 
     const run2 = await syncKalshiNbaHistorical({
       fetchImpl: buildFetchImpl(),
       now: () => new Date("2026-04-24T12:00:00.000Z"),
-      periodIntervalMinutes: 60,
     });
 
     expect(run2.ticksWritten).toBe(0);
@@ -256,7 +265,6 @@ describe("kalshi historical adapter", () => {
     const result = await syncKalshiNbaHistorical({
       fetchImpl: buildFetchImpl(),
       now: () => new Date("2026-04-23T12:00:00.000Z"),
-      periodIntervalMinutes: 60,
     });
 
     expect(result.gamesMatched).toBe(0);
@@ -285,6 +293,8 @@ describe("kalshi historical adapter", () => {
       rawLabel: "Devin Booker over 24.5 points",
       rawMetadata: {
         eventTicker: "KXNBAPTS-26APR22PHXOKC",
+        closeTime: "2026-04-23T00:00:00Z",
+        openTime: "2026-04-22T23:30:00Z",
         seriesTicker: "KXNBAPTS",
       },
       source: "kalshi",
@@ -308,7 +318,7 @@ describe("kalshi historical adapter", () => {
           json: async () => ({
             candlesticks: [
               {
-                end_period_ts: 1776556800,
+                end_period_ts: 1776901200,
                 open_interest_fp: "10.00",
                 volume_fp: "4.00",
                 price: { close_dollars: "0.6600" },
@@ -316,7 +326,7 @@ describe("kalshi historical adapter", () => {
                 yes_ask: { close_dollars: "0.6700" },
               },
               {
-                end_period_ts: 1776560400,
+                end_period_ts: 1776901800,
                 open_interest_fp: "12.00",
                 volume_fp: "2.00",
                 price: { close_dollars: "0.8200" },
@@ -353,7 +363,6 @@ describe("kalshi historical adapter", () => {
     const run = await syncKalshiNbaHistorical({
       fetchImpl,
       now: () => new Date("2026-04-23T12:00:00.000Z"),
-      periodIntervalMinutes: 60,
     });
 
     expect(run.gamesMatched).toBe(1);
@@ -395,6 +404,8 @@ describe("kalshi historical adapter", () => {
       rawLabel: "Devin Booker over 24.5 points",
       rawMetadata: {
         eventTicker: "KXNBAPTS-26APR22PHXOKC",
+        closeTime: "2026-04-23T00:00:00Z",
+        openTime: "2026-04-22T23:30:00Z",
         seriesTicker: "KXNBAPTS",
       },
       source: "kalshi",
@@ -418,7 +429,7 @@ describe("kalshi historical adapter", () => {
           json: async () => ({
             candlesticks: [
               {
-                end_period_ts: 1776556800,
+                end_period_ts: 1776901200,
                 open_interest_fp: "10.00",
                 volume_fp: "4.00",
                 price: { close_dollars: "0.6600" },
@@ -469,7 +480,6 @@ describe("kalshi historical adapter", () => {
       fetchImpl,
       games,
       now: () => new Date("2026-04-23T12:00:00.000Z"),
-      periodIntervalMinutes: 60,
     });
 
     expect(run.gamesMatched).toBe(0);

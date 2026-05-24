@@ -70,7 +70,7 @@ This must fail. Any 5xx response, connection error, or `curl: (22)` exit is
 acceptable proof that the tunnel is parked.
 
 **Do NOT auto-repoint here.** Phase 1 (step `h`, after the cutover smoke passes)
-is where cloudflared gets repointed to `localhost:4100`. Repointing inside this
+is where cloudflared gets repointed to `localhost:32140`. Repointing inside this
 step would expose the new API to the internet before its smoke gate has run.
 
 ---
@@ -199,9 +199,9 @@ ls -la ~/nba-predict/data/MOVED.txt ~/nba-predict/.DEPRECATED
 **Out of scope for the Phase-0 cutover.** Documented here so the procedure ends
 with a clear handoff to Phase 1.
 
-After Phase 1 ships the read-only API on `localhost:4100` and its acceptance
+After Phase 1 ships the read-only API on `localhost:32140` and its acceptance
 smoke (`/v1/health/ready`, `/v1/games`, `/v1/settings`) returns green, the
-cloudflared config is updated to point at `localhost:4100` instead of the old
+cloudflared config is updated to point at `localhost:32140` instead of the old
 `localhost:4000` upstream. That config edit is its own reviewed change and is
 documented separately under the Phase-1 story that owns it.
 

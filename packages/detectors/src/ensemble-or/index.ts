@@ -87,7 +87,7 @@ export const detector: Detector<typeof Params> = {
 
     // Only the board lane has well-defined per-bucket observations (the
     // off-price-print detector intentionally emits no buckets — its events
-    // are tape prints, not aggregates). The Backtest UI's Cry Wolf timeline
+    // are tape prints, not aggregates). The Backtest UI's Sensitivity timeline
     // and past-fires drilldown both render from these; for off-price the
     // fires themselves are the renderable surface.
     const buckets: readonly DetectorBucket[] = boardResult.buckets;

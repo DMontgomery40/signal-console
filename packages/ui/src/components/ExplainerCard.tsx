@@ -23,7 +23,7 @@ const EXPLAINER_LOOKUP: Record<string, Explainer | undefined> = explainers;
 // Yellow is now the explainer identity end-to-end — see yellow dashed
 // underline, know it's hoverable; see yellow stripe on the resulting card,
 // recognize the same affordance. This pairs with the bet365 "engage-with-this"
-// yellow role (Join button, +odds, active K) and stays scarce — yellow
+// yellow role (Join button, +odds, active sensitivity) and stays scarce — yellow
 // underlines appear only on terms that have an attached explainer.
 const TRIGGER_CLASS =
   "border-b border-dashed border-accent-yellow/60 cursor-help underline-offset-2 decoration-from-font";

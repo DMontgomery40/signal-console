@@ -13,13 +13,13 @@
 This PRD describes a clean rebuild in a new sibling repo at `~/signal-console/`. The new app is:
 
 - A small, dead-reliable **read-only** API serving small live slices, so trading-desk integrators can rely on it and a front-end can render the last 24 h without scanning the store.
-- A focused front-end with **three** primary views: last-24-h list (default), live single-game (opt-in), and a backtest tab whose only initial knob is a visible "Cry Wolf adapter" dial.
+- A focused front-end with **three** primary views: last-24-h list (default), live single-game (opt-in), and a backtest tab with visible Sensitivity and Signal timing controls.
 - An entry point for the data team to drop in their own detector (Gaussian non-linear, sport-specific, etc.) without touching the core code.
 - Pedantic linting, Pydantic, Zustand, spec-driven + test-driven.
 - Sport-agnostic from day 1 (NFL + NCAA football named as first-class), but no speculative scaffolding for sports we are not yet ingesting.
 - The 54 GB SQLite is **moved at phase 0** to `~/signal-console/data/signal-console.sqlite` (with `-wal` and `-shm` siblings); the API/UI/cache paths open it read-only thereafter. The old `~/nba-predict/data/...` location becomes reference-only with a loud sentinel.
 
-The "Cry Wolf adapter" is not a new algorithm — it is the existing `K_MAD` multiplier on the trailing `median + K·MAD` board-volatility threshold, which the live runtime currently hard-codes to `3` while the research backtest uses `6.0`. The research report says `K=3` produces ~18 fires/game ("sensitive, catches 5 of 6"), `K=6` produces ~9 fires/game (the "calmer" comparison preset). The video plan narrates this verbatim as "It's a dial." Exposing it honestly is the headline feature.
+The "Sensitivity adapter" is not a new algorithm — it is the existing `K_MAD` multiplier on the trailing `median + K·MAD` board-volatility threshold, which the live runtime currently hard-codes to `3` while the research backtest uses `6.0`. The research report says `K=3` produces ~18 fires/game ("sensitive, catches 5 of 6"), `K=6` produces ~9 fires/game (the "calmer" comparison preset). The video plan narrates this verbatim as "It's a dial." Exposing it honestly is the headline feature.
 
 ---
 
@@ -27,8 +27,8 @@ The "Cry Wolf adapter" is not a new algorithm — it is the existing `K_MAD` mul
 
 - **Reliability:** Dead-reliable, lightweight, read-only API path. Zero writes to the gold DB from the API/UI/cache layer.
 - **Performance budgets:** Recent (24-h list) < 500 ms warm / < 2 s cold for ~20 games; one game's live view < 300 ms; one market's timeline < 300 ms; backtest 28-day / ~20-game first sweep < 60 s, cached subsequent K change < 1 s; Settings < 100 ms.
-- **Focus:** **Three** primary views — Recent (default), Live (opt-in), Backtest (dial). One additional view (Detectors) for registry browsing, and Settings for diagnostics. Nothing else.
-- **Headline feature:** The Cry Wolf adapter — a continuous K-slider on Backtest with two labelled snap points (`K=3.0` sensitive/live default, `K=6.0` calm comparison preset).
+- **Focus:** **Three** primary views — Recent (default), Live (opt-in), Backtest (dials). One additional view (Detectors) for registry browsing, and Settings for diagnostics. Nothing else.
+- **Headline feature:** The Sensitivity adapter — a continuous Backtest dial with two labelled snap points (`3.0` sensitive/live default, `6.0` calm comparison preset). The Signal timing panel exposes `baselineMode`, `openingBaselineBuckets`, `openingRampCompleteBuckets`, `trailingBuckets`, and `warmupBuckets` with exact wall-clock durations from `bucketSeconds` where applicable.
 - **Extensibility:** Detector registry; new detector = one file under `packages/detectors/src/<name>/index.ts` + one line in `registry.ts`.
 - **Math honesty:** K = 3.0 is the live/Recent/default operating value. K = 6.0 is a Backtest-only calmer preset. Both declared once in `packages/detectors/src/board-mad/config.ts`. K is a compute parameter, never persisted in the gold DB.
 - **Stay focused:** the old repo was 73k LOC of bloat; the new one should be small by intent. No hard per-file or total LOC ceiling — judgment over numbers.
@@ -43,7 +43,7 @@ The "Cry Wolf adapter" is not a new algorithm — it is the existing `K_MAD` mul
 | Decision                 | Choice                                                                                      |
 | ------------------------ | ------------------------------------------------------------------------------------------- |
 | Hosting (compute)        | **Local-only.** Vite preview for UI, Fastify for API, SQLite read-only on local disk.       |
-| Hosting (reach)          | **Cloudflare Tunnel** keeps the existing `nba-predict.dtmont.com` subdomain. Tunnel is **parked** during Phase 0's cutover (no public surface, by intent), and **repointed** to the new API on `localhost:4100` in Phase 1, only after smoke passes. Subdomain rename deferred. |
+| Hosting (reach)          | **Cloudflare Tunnel** keeps the existing `nba-predict.dtmont.com` subdomain. Tunnel is **parked** during Phase 0's cutover (no public surface, by intent), and **repointed** to the new API on `localhost:32140` in Phase 1, only after smoke passes. Subdomain rename deferred. |
 | Repo location            | **New sibling repo** at `~/signal-console/`. Name matches the existing `@signal-console/*` package scope inside `nba-predict`, so utility ports keep their import paths. Old `~/nba-predict` is not deleted. |
 | Delivery                 | **PRD → Ralph loop.** This plan file becomes the PRD's architecture spec.                   |
 | Stack                    | React 19 + Vite 6 + Tailwind + Tanstack Query + Zustand + Recharts + Zod + Fastify + better-sqlite3. Python sidecar stays Pydantic v2 + nba_api. |
@@ -111,7 +111,7 @@ The "Cry Wolf adapter" is not a new algorithm — it is the existing `K_MAD` mul
 │   │   │   ├── features/
 │   │   │   │   ├── recent/            # default route (last 24 h)
 │   │   │   │   ├── live/              # opt-in current-game live view
-│   │   │   │   ├── backtest/          # Cry Wolf dial + sweep
+│   │   │   │   ├── backtest/          # Sensitivity dial + sweep
 │   │   │   │   ├── detectors/         # registry listing + BYO entry point
 │   │   │   │   └── settings/          # DB + sources + error log
 │   │   │   ├── data/                  # tanstack-query hooks; ~10 functions
@@ -138,7 +138,7 @@ The new repo should be **small by intent** — the old repo was 73k LOC of bloat
 
 ---
 
-## 7. The Cry Wolf adapter (mechanics, explicit)
+## 7. The Sensitivity adapter (mechanics, explicit)
 
 This is the only novel UI element in the rebuild; getting it right is the headline.
 
@@ -172,7 +172,7 @@ TDD + SDD principles fail if the math under test is wrong. The new repo honours 
 1. **Canonical live default:** `K_MAD_LIVE = 3.0`, weighting `"volume"` — the sensitive setting from the video/bakeoff: ~18 fires/game, "catches 5 of 6" per that artifact. This is what Recent, Live, and any non-Backtest surface uses. Justification: for a suspend-signal whose miss cost (an exposed bad market) exceeds the per-fire review cost, the higher-recall setting wins.
 2. **Backtest calm preset:** `K_MAD_CALM = 6.0` — the calmer comparison from the research report (`scripts/board_signal_v2.py:33`): ~9 fires/game. The "catches N of 6" number is **not** committed to in the plan/UI unless and until a current bakeoff artifact supports it; the dial UI labels the preset by fire-rate only.
 3. Both constants live in `packages/detectors/src/board-mad/config.ts`, re-exported as the only K values the API, UI, and cache layer consume. **No other file declares a default for K.**
-4. **K is a compute parameter, not a persisted dimension.** The `board-mad` detector follows `scripts/board_signal_v2.py` verbatim: for each game, iterate `quote_ticks` in time order, bucket by 60 s, compute a **trailing causal** baseline `median(prior 20 buckets) + K · MAD(prior 20 buckets)` on the fly, fire when current bucket intensity exceeds the threshold (after an 8-bucket warmup, with a 300 s fresh-cap on per-market deltas and the `is_heartbeat` / `0.500` opening-anchor sanitations). **Nothing about K lives in the gold DB**; it is purely a knob inside the detector's compute loop.
+4. **K is a compute parameter, not a persisted dimension.** The `board-mad` detector defaults to the `scripts/board_signal_v2.py` rolling-current-game baseline: for each game, iterate `quote_ticks` in time order, bucket by 60 s, compute a causal baseline `median(prior trailingBuckets) + K · MAD(prior trailingBuckets)` on the fly, fire when current bucket intensity exceeds the threshold (after `warmupBuckets`, with a 300 s fresh-cap on per-market deltas and the `is_heartbeat` / `0.500` opening-anchor sanitations). Backtest also exposes `baselineMode="opening-ramp"`, where the first eligible buckets can compare against `openingBaselineBuckets` from the opening sample and graduate to rolling memory at `openingRampCompleteBuckets`. **Nothing about K lives in the gold DB**; it is purely a knob inside the detector's compute loop.
 5. **The gold DB's `board_volatility_baselines` table is NOT a fire decision store.** Its rows are expected-range bands (p50/p75/p90/p99) keyed by phase / source / core-family for UI band overlays, written by the old worker. The new app may read them for a band overlay; it does **not** depend on them for any fire decision. The `cohortKey` label in `nba-predict`'s TypeScript runtime embeds K only for display purposes (`game-state-volatility.ts:697`, `:880`), not as a persisted key.
 6. **Detector contract tests** (`packages/detectors/src/board-mad/__tests__/canonical.test.ts`) run against committed JSON fixture extracts (small slices of `quote_ticks` for the two anchored games — **not** against the gold DB). The tests lock in outcomes at **both** K values:
 
@@ -275,12 +275,15 @@ const Params = z.object({
   weighting: z.enum(["volume", "equal"]).default("volume"),   // live default: volume-weighted
   trailingBuckets: z.number().int().min(5).max(60).default(20),
   warmupBuckets: z.number().int().min(2).max(20).default(8),
+  baselineMode: z.enum(["trailing", "opening-ramp"]).default("trailing"),
+  openingBaselineBuckets: z.number().int().min(1).max(60).default(4),
+  openingRampCompleteBuckets: z.number().int().min(2).max(120).default(20),
   freshCapSeconds: z.number().int().min(30).max(3600).default(300),
 });
 
 export const detector: Detector<typeof Params> = {
   id: "board-mad",
-  version: "1.0.0",
+  version: "1.2.0",
   displayName: "Board MAD (whole-board volatility)",
   paramsSchema: Params,
   run(window, params) {
@@ -355,7 +358,7 @@ The 54 GB tick store is gold. After Phase 0 it lives at `~/signal-console/data/s
    #    hits the old API. Verify:
    #          curl --fail --max-time 5 https://nba-predict.dtmont.com
    #    should fail (any 5xx / connection error is acceptable). Do NOT
-   #    auto-repoint here; phase 1 repoints to localhost:4100 only after
+   #    auto-repoint here; phase 1 repoints to localhost:32140 only after
    #    smoke passes.
    # c. Confirm no holders of the gold DB files:
    #          lsof | grep "nba-predict/data/signal-console.sqlite"
@@ -404,7 +407,7 @@ The 54 GB tick store is gold. After Phase 0 it lives at `~/signal-console/data/s
 
 ## 13. Trading-desk reach
 
-The trading desk's primary near-term use is consuming the API. We host compute locally; reach is via the existing **Cloudflare Tunnel** behind `nba-predict.dtmont.com`. The tunnel is **parked** during Phase 0's cutover and **repointed** to the new `signal-console/apps/api` on `localhost:4100` in Phase 1, only after the Phase-1 smoke (`GET /v1/games`) passes.
+The trading desk's primary near-term use is consuming the API. We host compute locally; reach is via the existing **Cloudflare Tunnel** behind `nba-predict.dtmont.com`. The tunnel is **parked** during Phase 0's cutover and **repointed** to the new `signal-console/apps/api` on `localhost:32140` in Phase 1, only after the Phase-1 smoke (`GET /v1/games`) passes.
 
 - **Subdomain:** keep `nba-predict.dtmont.com` for now. Rename to `signal.dtmont.com` is a Phase-5 cleanup item.
 - **OpenAPI:** Fastify with `@fastify/swagger` emits `/openapi.json` automatically. Every route declares Zod schemas → JSON Schema → OpenAPI; the desk codes against the spec, not against route prose.
@@ -458,11 +461,11 @@ Every route validates its query/body with Zod; never an `as` cast. Every service
 | ------------ | ----------------------------------------------------------------------------- |
 | `/`          | "Last 24 h" — list games + status + fire count, no auto-refresh on first load |
 | `/live/:id`  | Opt-in; user must click into a game. 30 s poll. No silent baseline rebuild.   |
-| `/backtest`  | Date range + game scope + detector selector + Cry Wolf dial + results panel    |
+| `/backtest`  | Date range + game scope + detector selector + Sensitivity / Signal timing controls + results panel |
 | `/detectors` | Registry listing with paramsSchema; "Drop a new file in `packages/detectors/src/`" link |
 | `/settings`  | DB path, size, WAL bytes, last sync per source, last 200 error lines, version |
 
-The store (`apps/web/src/app/store.ts`) stays tiny — command palette state and nothing else. Server state lives in Tanstack Query. Form state for the backtest dial lives in the Backtest page component.
+The store (`apps/web/src/app/store.ts`) stays tiny — command palette state and nothing else. Server state lives in Tanstack Query. Form state for the backtest dials lives in the Backtest page component.
 
 ---
 
@@ -624,13 +627,13 @@ Three sections, no buttons that mutate (except "clear cache"):
 - [ ] Typecheck/lint passes.
 
 #### US-006: Port `board-mad` detector from `board_signal_v2.py`
-**Description:** As a developer, I need a TypeScript port of `scripts/board_signal_v2.py` as the canonical `board-mad` detector, including the trailing-causal `median + K·MAD` baseline, 8-bucket warmup, 300 s fresh cap, and `is_heartbeat`/`0.500` sanitations.
+**Description:** As a developer, I need a TypeScript port of `scripts/board_signal_v2.py` as the canonical `board-mad` detector, including the rolling-current-game `median + K·MAD` baseline, configurable signal timing, 8-bucket warmup default, 300 s fresh cap, and `is_heartbeat`/`0.500` sanitations.
 
 **Acceptance Criteria:**
 - [ ] `packages/detectors/src/board-mad/index.ts` exports `detector: Detector<Params>` matching the §10 sketch (id `board-mad`, version `1.0.0`, displayName `"Board MAD (whole-board volatility)"`).
 - [ ] `packages/detectors/src/board-mad/config.ts` declares `K_MAD_LIVE = 3.0` and `K_MAD_CALM = 6.0`; these are the **only** declarations of either K value in the repo (enforced by `pnpm verify:no-stale-plan`).
-- [ ] Detector iterates `quote_ticks` in time order, bucketed by `bucketSeconds` (default 60), applies the trailing causal baseline `median(prior 20) + K·MAD(prior 20)`, fires when current bucket intensity exceeds threshold, after the `warmupBuckets` warmup, with `freshCapSeconds` per-market delta cap, and the `is_heartbeat`/`0.500` opening-anchor sanitations.
-- [ ] Detector defaults match `nba-predict` `BOARD_VW_K_MAD = 3` for the live path: `kMad=3.0`, `weighting="volume"`, `trailingBuckets=20`, `warmupBuckets=8`, `freshCapSeconds=300`.
+- [ ] Detector iterates `quote_ticks` in time order, bucketed by `bucketSeconds` (default 60), applies the selected signal timing mode, fires when current bucket intensity exceeds threshold, after the `warmupBuckets` warmup, with `freshCapSeconds` per-market delta cap, and the `is_heartbeat`/`0.500` opening-anchor sanitations.
+- [ ] Detector defaults match `nba-predict` `BOARD_VW_K_MAD = 3` for the live path: `kMad=3.0`, `weighting="volume"`, `baselineMode="trailing"`, `openingBaselineBuckets=4`, `openingRampCompleteBuckets=20`, `trailingBuckets=20`, `warmupBuckets=8`, `freshCapSeconds=300`.
 - [ ] `eslint-plugin-functional` (`no-let`, `no-mutation`) passes in this package.
 - [ ] Total LOC under `packages/detectors/src/board-mad/` is ≤ 250.
 - [ ] Typecheck/lint passes.
@@ -806,7 +809,7 @@ Three sections, no buttons that mutate (except "clear cache"):
 
 **Acceptance Criteria:**
 - [ ] Route `/` renders a list of games from `GET /v1/games?since=PT24H`.
-- [ ] For each game, the "fires" column is filled lazily: look up `detector_cache` for `(board-mad, v1.0.0, params_hash(K=3.0, weighting='volume', ...), source_watermark_hash(game_id), scope='game', game_id)`; on hit, show count from `detector_observations`; on miss, run detector for the in-play window, persist, then show.
+- [ ] For each game, the "fires" column is filled lazily: look up `detector_cache` for `(board-mad, current board-mad detector version, params_hash(live defaults), source_watermark_hash(game_id), scope='game', game_id)`; on hit, show count from `detector_observations`; on miss, run detector for the in-play window, persist, then show.
 - [ ] No auto-refresh on first load (manual refresh button only).
 - [ ] Warm cache renders in < 500 ms (measured client-side).
 - [ ] Cold cache fills in < 2 s for ~20 games.
@@ -815,9 +818,10 @@ Three sections, no buttons that mutate (except "clear cache"):
 - [ ] Verify in browser using dev-browser skill.
 
 #### US-108: Settings UI page (`/settings`)
-**Description:** As an operator, I need a `/settings` page showing the three sections in §20 (Database / Sources / Errors / About) with no mutating buttons except "clear cache".
+**Description:** As an operator, I need a `/settings` page showing detector defaults plus the diagnostic sections in §20 with no mutating buttons except detector-default edits and "clear cache".
 
 **Acceptance Criteria:**
+- [ ] Renders Detector defaults section: live sensitivity, prior sample, opening sample/ramp, lookback/holdoff, freshness cap, and PBP buffers.
 - [ ] Renders Database section: path, size (bytes + human), WAL bytes, page count, page size, last-modified, mode (red banner if not `read-only`).
 - [ ] Renders Sources section: heartbeat file path; per-source last sync, last error, rate-limit cooldown. If no heartbeat, shows "ingest paused" with last-known values.
 - [ ] Renders Errors section: tail of last 200 log entries with level filter.
@@ -827,13 +831,13 @@ Three sections, no buttons that mutate (except "clear cache"):
 - [ ] Typecheck/lint passes.
 - [ ] Verify in browser using dev-browser skill.
 
-#### US-109: Repoint Cloudflare tunnel to new API on `localhost:4100`
+#### US-109: Repoint Cloudflare tunnel to new API on `localhost:32140`
 **Description:** As the owner, I need the Cloudflare tunnel repointed to the new Fastify API only after a Phase-1 smoke passes, so the desk's `nba-predict.dtmont.com` URL works again.
 
 **Acceptance Criteria:**
 - [ ] Phase-0 relocation smoke passed (US-010).
-- [ ] Local smoke: `curl -H "X-Signal-Token: $(cat ~/.signal-console/token)" http://localhost:4100/v1/games` returns a valid OpenAPI-described JSON payload.
-- [ ] Cloudflare config updated to point `nba-predict.dtmont.com` → `localhost:4100`.
+- [ ] Local smoke: `curl -H "X-Signal-Token: $(cat ~/.signal-console/token)" http://localhost:32140/v1/games` returns a valid OpenAPI-described JSON payload.
+- [ ] Cloudflare config updated to point `nba-predict.dtmont.com` → `localhost:32140`.
 - [ ] `curl -H "X-Signal-Token: ..." https://nba-predict.dtmont.com/v1/games` returns the same payload.
 - [ ] `~/nba-predict` does **not** run; old worker remains stopped.
 - [ ] Decision recorded in `docs/phase-1-tunnel-repoint.md` with timestamp.
@@ -884,7 +888,7 @@ Three sections, no buttons that mutate (except "clear cache"):
 **Description:** As an API integrator, I need a `GET /v1/board/:gameId` route returning board fires for one game at the live default K=3.0, cached.
 
 **Acceptance Criteria:**
-- [ ] Looks up `detector_cache` with `(board-mad, v1.0.0, params_hash(live defaults), source_watermark_hash(game_id), scope='game', game_id)`.
+- [ ] Looks up `detector_cache` with `(board-mad, current board-mad detector version, params_hash(live defaults), source_watermark_hash(game_id), scope='game', game_id)`.
 - [ ] On hit: returns observations from cache.
 - [ ] On miss: runs detector for the game's in-play window, persists, returns.
 - [ ] K is the live default `K_MAD_LIVE = 3.0`; no query param overrides K on this route (Backtest is the override surface).
@@ -951,7 +955,7 @@ Three sections, no buttons that mutate (except "clear cache"):
 
 ---
 
-### Phase 3 — Backtest + Cry Wolf Dial
+### Phase 3 — Backtest + Sensitivity Dial
 
 #### US-300: Implement `POST /v1/backtest` route
 **Description:** As an analyst, I need a `POST /v1/backtest` route running a detector over a chosen window + games + params, cached by `params_hash`.
@@ -975,15 +979,18 @@ Three sections, no buttons that mutate (except "clear cache"):
 - [ ] Typecheck/lint passes.
 
 #### US-302: Backtest UI page (`/backtest`)
-**Description:** As an analyst, I need a `/backtest` page with date range + game scope + detector selector + Cry Wolf dial + results panel.
+**Description:** As an analyst, I need a `/backtest` page with date range + game scope + detector selector + Sensitivity / Signal timing controls + results panel.
 
 **Acceptance Criteria:**
 - [ ] Date range picker (start/end ≤ 28 days apart).
 - [ ] Game scope: "all games in window" or specific game ids (max 20).
 - [ ] Detector dropdown lists registry entries; selecting one renders its params schema.
-- [ ] Cry Wolf dial: continuous slider K = 2.0–8.0, step 0.25, **default K = 3.0**.
+- [ ] Sensitivity dial: continuous rotary control over `kMad` = 2.0–8.0, step 0.25, **default 3.0**.
+- [ ] Volatility-lookback slider: integer `trailingBuckets` = 5–60, step 1, **default 20**, with a visible duration readout computed from `trailingBuckets × bucketSeconds` (for example, 20 buckets × 60 s = 20 min).
+- [ ] Opening-holdoff slider: integer `warmupBuckets` = 2–20, step 1, **default 8**, with a visible duration readout computed from `warmupBuckets × bucketSeconds`.
+- [ ] Prior sample controls: `baselineMode` defaults to `"trailing"` and can switch to `"opening-ramp"`; opening-ramp uses `openingBaselineBuckets` (default 4) from the opening sample and reaches full rolling memory at `openingRampCompleteBuckets` (default 20).
 - [ ] Two labelled snap points: "Sensitive — live default" at K=3.0; "Calm — comparison preset" at K=6.0.
-- [ ] As the slider moves: estimated fires/game updates live (in-memory recompute, no DB scan, < 1 s response).
+- [ ] As either recompute dial moves: estimated fires/game updates live (in-memory recompute, no DB scan, < 1 s response).
 - [ ] Per-game small timeline shows fire markers at the chosen K.
 - [ ] For Reaves/Hayes and Hartenstein incidents (if they fall inside the window), shows lead time at current K or "no fire".
 - [ ] First sweep ≤ 60 s on 28-d / 20-game window.
@@ -997,7 +1004,7 @@ Three sections, no buttons that mutate (except "clear cache"):
 **Acceptance Criteria:**
 - [ ] Recent and Live pages always render at the live default `K_MAD_LIVE = 3.0`.
 - [ ] No state synchronisation between Backtest's dial value and Recent/Live.
-- [ ] Unit/integration test: move the Backtest dial to K=6.0; navigate to Recent; verify all fires are still the K=3.0 set.
+- [ ] Unit/integration test: move the Backtest K dial to K=6.0; navigate to Recent; verify all fires are still the K=3.0 set.
 - [ ] Typecheck/lint passes.
 - [ ] Verify in browser using dev-browser skill.
 
@@ -1075,7 +1082,7 @@ Three sections, no buttons that mutate (except "clear cache"):
 
 **Detectors and math**
 - FR-7: `packages/detectors/src/board-mad/config.ts` is the **only** file in the repo declaring `K_MAD_LIVE = 3.0` or `K_MAD_CALM = 6.0`. No other file hardcodes either value.
-- FR-8: The `board-mad` detector implements `intensity > median(prior `trailingBuckets`) + K · MAD(prior `trailingBuckets`)`, after `warmupBuckets` warmup, with `freshCapSeconds` per-market delta cap and the `is_heartbeat`/`0.500` opening-anchor sanitations, in `O(bucket)` time.
+- FR-8: The `board-mad` detector implements `intensity > median(selected prior sample) + K · MAD(selected prior sample)`, after `warmupBuckets` warmup, with `freshCapSeconds` per-market delta cap and the `is_heartbeat`/`0.500` opening-anchor sanitations, in `O(bucket)` time. The default selected prior sample is rolling current-game `trailingBuckets`; `baselineMode="opening-ramp"` starts from `openingBaselineBuckets` at game open and reaches rolling memory at `openingRampCompleteBuckets`.
 - FR-9: K is a compute parameter; nothing about K is ever persisted in the gold DB.
 - FR-10: Detector contract tests must assert: Hartenstein fires at K=6 with bucket-start `2026-05-08T03:12:00Z` and watcher-end `03:13:00Z`; Reaves no-fire at K=6 on both game ids; K=3 snapshots locked for both incidents and 64-game mean.
 - FR-11: Any future change to `K_MAD_LIVE` or `K_MAD_CALM` must be accompanied by fresh contract-test snapshots AND a bumped `detector_version` in the detector module.
@@ -1092,9 +1099,9 @@ Three sections, no buttons that mutate (except "clear cache"):
 - FR-18: The web app has exactly five routes: `/`, `/live/:id`, `/backtest`, `/detectors`, `/settings`.
 - FR-19: Recent (`/`) does not auto-refresh on first load.
 - FR-20: Live (`/live/:id`) is opt-in (user must click into a game) and polls at 30 s.
-- FR-21: Backtest's Cry Wolf dial defaults to K=3.0; labelled snap points at K=3.0 ("Sensitive — live default") and K=6.0 ("Calm — comparison preset").
-- FR-22: Moving the Backtest dial never changes the K used by Recent or Live (FR-16 enforces this at the API level).
-- FR-23: The Backtest dial's first 28-d / 20-game sweep completes in < 60 s; subsequent K changes complete in < 1 s.
+- FR-21: Backtest's Sensitivity dial defaults to `kMad=3.0` with labelled snap points at 3.0 ("Sensitive — live default") and 6.0 ("Calm — comparison preset"); Signal timing defaults to `baselineMode="trailing"`, `openingBaselineBuckets=4`, `openingRampCompleteBuckets=20`, `trailingBuckets=20`, and `warmupBuckets=8`, and displays exact durations from `bucketSeconds`.
+- FR-22: Moving the Backtest dials never changes the K or trailing-window values used by Recent or Live (FR-16 enforces this at the API level).
+- FR-23: The Backtest first 28-d / 20-game sweep completes in < 60 s; subsequent K or trailing-window changes complete in < 1 s.
 
 **Detector registry**
 - FR-24: A new detector requires one new file at `packages/detectors/src/<name>/index.ts` and one new line in `packages/detectors/src/registry.ts`; no other file changes for the detector to appear in `/detectors` and `/backtest`.
@@ -1111,7 +1118,7 @@ Three sections, no buttons that mutate (except "clear cache"):
 - FR-31: Query plan snapshot diffs are reviewed, not auto-updated; updating requires `pnpm verify:queries -u` plus a PR note.
 
 **Auth / tunnel**
-- FR-32: The Cloudflare tunnel is parked during Phase 0's cutover (verified by `curl --fail https://nba-predict.dtmont.com` returning an error) and repointed to `localhost:4100` in Phase 1 only after the Phase-1 smoke passes.
+- FR-32: The Cloudflare tunnel is parked during Phase 0's cutover (verified by `curl --fail https://nba-predict.dtmont.com` returning an error) and repointed to `localhost:32140` in Phase 1 only after the Phase-1 smoke passes.
 - FR-33: Token rotation: editing `~/.signal-console/token` takes effect without restarting Fastify.
 
 **LOC ceiling**
@@ -1146,7 +1153,7 @@ Three sections, no buttons that mutate (except "clear cache"):
 - Game triage logic: ported from `nba-predict/apps/web/src/lib/game-triage.ts`.
 - Divergence history helpers: ported from `nba-predict/apps/web/src/lib/divergence-history.ts`.
 - Each port keeps its existing tests.
-- The Backtest dial UX matches the video plan narration at `~/markdown-video-experiment/projects/suspend-signal-explainer-v2/plan.json` — "It's a dial."
+- The Backtest dial UX matches the video plan narration at `~/markdown-video-experiment/projects/signal-console-explainer/plan.json` — "It's a dial" remains the control metaphor for both primary knobs.
 
 ---
 
@@ -1197,7 +1204,7 @@ Three sections, no buttons that mutate (except "clear cache"):
 - **Phase 0:** confirm `~/nba-predict/.DEPRECATED` exists, `~/nba-predict/data/MOVED.txt` exists, and `~/nba-predict/data/signal-console.sqlite` no longer exists; confirm `sqlite3 -readonly ~/signal-console/data/signal-console.sqlite "PRAGMA integrity_check;"` returns `ok`.
 - `pnpm --filter @signal-console/api dev` cold start in < 2 s.
 - `pnpm --filter @signal-console/web preview` first contentful paint < 1 s with API responding.
-- A manual smoke per phase: open `/`, open one game, open Backtest, move the dial, open Settings.
+- A manual smoke per phase: open `/`, open one game, open Backtest, move the dials, open Settings.
 - **Phase 0.5 (if shipped):** confirm new worker's heartbeat file is being updated and `quote_ticks` row count grows over time.
 
 ---
@@ -1207,7 +1214,7 @@ Three sections, no buttons that mutate (except "clear cache"):
 - **Phase 0 done:** `integrity_check` returns `ok` on moved DB; read-only open returns `query_only=1`; contract tests green at both K values; old path has the sentinel; byte-equivalent DB is gone from there.
 - **Phase 1 done:** Recent cold-cache < 2 s for ~20 games, warm < 500 ms; the desk's first `GET nba-predict.dtmont.com/v1/games` (with valid token) returns OpenAPI-described JSON.
 - **Phase 2 done:** Live opens without triggering anything that resembles a baseline rebuild; fires match the canonical contract tests at K=3.0.
-- **Phase 3 done:** 28-d / ~20-game first sweep < 60 s; dial change < 1 s; UI matches the video's narrated UX.
+- **Phase 3 done:** 28-d / ~20-game first sweep < 60 s; dial changes < 1 s; UI matches the video's narrated UX.
 - **Phase 4 done:** `/v1/games?sport=NBA` and `?sport=NFL` (empty) both work; `docs/sport-onboarding.md` exists.
 - **Phase 5 done:** `~/nba-predict` archived or deleted; no process in the new repo references the old path.
 - **Code health:** Modules stay focused; no LOC ceiling enforced. Old-repo anti-patterns (mega-files, conflated responsibilities) are absent.
@@ -1234,7 +1241,7 @@ Three sections, no buttons that mutate (except "clear cache"):
 - `~/nba-predict/packages/shared/src/live-repository.ts` — query examples worth porting (extract small ones; do not import the file).
 - `~/nba-predict/apps/web/src/lib/{game-state,time-format,market-format,source-coverage,game-triage,divergence-history,chart-theme}.ts` — pure utilities to port wholesale with their tests.
 - `~/nba-predict/outputs/innovation-team-suspend-signal-report/REPORT.md` — the design rationale; the new repo's `docs/why-board-and-tape.md` is a 10× compression of this.
-- `~/markdown-video-experiment/projects/suspend-signal-explainer-v2/plan.json` — narration source for the Cry Wolf dial's labels and tooltips.
+- `~/markdown-video-experiment/projects/signal-console-explainer/plan.json` — narration source for the Backtest dial labels and explainer copy.
 - `~/nba-predict/.codex/hooks.json` — the regression-coverage guard to port.
 
 ---

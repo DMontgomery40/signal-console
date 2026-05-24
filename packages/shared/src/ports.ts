@@ -1,3 +1,3 @@
-export const defaultApiPort = 8788;
-export const defaultE2eApiPort = 8787;
-export const defaultWebPort = 4120;
+export const defaultApiPort = 32140;
+export const defaultWebPort = 32141;
+export const defaultE2eApiPort = 32142;

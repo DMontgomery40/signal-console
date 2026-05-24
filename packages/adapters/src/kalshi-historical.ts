@@ -17,12 +17,44 @@ type FetchLike = typeof fetch;
 
 const KALSHI_DEFAULT_BASE_URL = "https://api.elections.kalshi.com/trade-api/v2";
 const KALSHI_NBA_SERIES_TICKER = "KXNBAGAME";
-const CANDLESTICK_MAX_WINDOW_SECONDS_BY_INTERVAL: Record<1 | 60 | 1440, number> = {
-  1: 60 * 60, // 1-minute candles: 1-hour windows (Kalshi caps tight)
-  60: 60 * 60 * 24 * 7, // 1-hour candles: 7-day windows
-  1440: 60 * 60 * 24 * 365, // 1-day candles: 1-year window
+const MILLISECONDS_PER_SECOND = 1000;
+const SECONDS_PER_MINUTE = 60;
+const MINUTES_PER_HOUR = 60;
+const HOURS_PER_DAY = 24;
+const DAYS_PER_WEEK = 7;
+const DAYS_PER_YEAR = 365;
+const MILLISECONDS_PER_MINUTE = SECONDS_PER_MINUTE * MILLISECONDS_PER_SECOND;
+const MILLISECONDS_PER_HOUR = MINUTES_PER_HOUR * MILLISECONDS_PER_MINUTE;
+const KALSHI_ONE_MINUTE_CANDLE_INTERVAL_MINUTES = 1;
+const KALSHI_ONE_HOUR_CANDLE_INTERVAL_MINUTES = MINUTES_PER_HOUR;
+const KALSHI_ONE_DAY_CANDLE_INTERVAL_MINUTES = HOURS_PER_DAY * MINUTES_PER_HOUR;
+type KalshiCandlestickPeriodIntervalMinutes =
+  | typeof KALSHI_ONE_MINUTE_CANDLE_INTERVAL_MINUTES
+  | typeof KALSHI_ONE_HOUR_CANDLE_INTERVAL_MINUTES
+  | typeof KALSHI_ONE_DAY_CANDLE_INTERVAL_MINUTES;
+const KALSHI_ONE_MINUTE_CANDLE_MAX_WINDOW_SECONDS = MINUTES_PER_HOUR * SECONDS_PER_MINUTE;
+const KALSHI_ONE_HOUR_CANDLE_MAX_WINDOW_SECONDS =
+  DAYS_PER_WEEK * HOURS_PER_DAY * MINUTES_PER_HOUR * SECONDS_PER_MINUTE;
+const KALSHI_ONE_DAY_CANDLE_MAX_WINDOW_SECONDS =
+  DAYS_PER_YEAR * HOURS_PER_DAY * MINUTES_PER_HOUR * SECONDS_PER_MINUTE;
+const KALSHI_DEFAULT_CANDLE_MAX_WINDOW_SECONDS = KALSHI_ONE_HOUR_CANDLE_MAX_WINDOW_SECONDS;
+const KALSHI_HISTORICAL_FALLBACK_WINDOW_BEFORE_HOURS = HOURS_PER_DAY;
+const KALSHI_HISTORICAL_FALLBACK_WINDOW_AFTER_HOURS = 6;
+export const KALSHI_NBA_HISTORICAL_CANDLE_SECONDS =
+  KALSHI_ONE_MINUTE_CANDLE_INTERVAL_MINUTES * SECONDS_PER_MINUTE;
+export const KALSHI_NBA_HISTORICAL_PERIOD_INTERVAL_MINUTES =
+  KALSHI_ONE_MINUTE_CANDLE_INTERVAL_MINUTES;
+const CANDLESTICK_MAX_WINDOW_SECONDS_BY_INTERVAL: Record<
+  KalshiCandlestickPeriodIntervalMinutes,
+  number
+> = {
+  [KALSHI_ONE_MINUTE_CANDLE_INTERVAL_MINUTES]: KALSHI_ONE_MINUTE_CANDLE_MAX_WINDOW_SECONDS,
+  [KALSHI_ONE_HOUR_CANDLE_INTERVAL_MINUTES]: KALSHI_ONE_HOUR_CANDLE_MAX_WINDOW_SECONDS,
+  [KALSHI_ONE_DAY_CANDLE_INTERVAL_MINUTES]: KALSHI_ONE_DAY_CANDLE_MAX_WINDOW_SECONDS,
 };
 const DEFAULT_INTER_REQUEST_MS = 250;
+const INITIAL_RETRY_AFTER_WAIT_MS = MILLISECONDS_PER_SECOND;
+const MAX_RETRY_AFTER_WAIT_MS = 30 * MILLISECONDS_PER_SECOND;
 const MAX_RETRIES_ON_429 = 5;
 
 function sleep(ms: number) {
@@ -38,7 +70,7 @@ async function fetchWithRateLimit(
 ): Promise<Response> {
   const interRequestMs = options?.interRequestMs ?? DEFAULT_INTER_REQUEST_MS;
   let attempt = 0;
-  let waitMs = 1000;
+  let waitMs = INITIAL_RETRY_AFTER_WAIT_MS;
 
   while (attempt <= MAX_RETRIES_ON_429) {
     if (attempt === 0 && interRequestMs > 0) {
@@ -51,10 +83,12 @@ async function fetchWithRateLimit(
 
     const retryAfterHeader = response.headers?.get?.("retry-after");
     const retryAfterSeconds = retryAfterHeader ? Number(retryAfterHeader) : NaN;
-    const delay = Number.isFinite(retryAfterSeconds) ? retryAfterSeconds * 1000 : waitMs;
+    const delay = Number.isFinite(retryAfterSeconds)
+      ? retryAfterSeconds * MILLISECONDS_PER_SECOND
+      : waitMs;
 
     await sleep(delay);
-    waitMs = Math.min(waitMs * 2, 30_000);
+    waitMs = Math.min(waitMs * 2, MAX_RETRY_AFTER_WAIT_MS);
     attempt += 1;
   }
 
@@ -301,8 +335,12 @@ function chooseHistoricalWindow(target: KalshiHistoricalTarget) {
   const scheduledMs = Date.parse(target.scheduledStart);
   const openMs = Date.parse(target.openTime ?? "");
   const closeMs = Date.parse(target.closeTime ?? "");
-  const fallbackStart = Number.isFinite(scheduledMs) ? scheduledMs - 24 * 60 * 60_000 : Number.NaN;
-  const fallbackEnd = Number.isFinite(scheduledMs) ? scheduledMs + 6 * 60 * 60_000 : Number.NaN;
+  const fallbackStart = Number.isFinite(scheduledMs)
+    ? scheduledMs - KALSHI_HISTORICAL_FALLBACK_WINDOW_BEFORE_HOURS * MILLISECONDS_PER_HOUR
+    : Number.NaN;
+  const fallbackEnd = Number.isFinite(scheduledMs)
+    ? scheduledMs + KALSHI_HISTORICAL_FALLBACK_WINDOW_AFTER_HOURS * MILLISECONDS_PER_HOUR
+    : Number.NaN;
 
   const startMs = Number.isFinite(openMs)
     ? openMs
@@ -320,8 +358,8 @@ function chooseHistoricalWindow(target: KalshiHistoricalTarget) {
   }
 
   return {
-    endTs: Math.floor(endMs / 1000),
-    startTs: Math.floor(startMs / 1000),
+    endTs: Math.floor(endMs / MILLISECONDS_PER_SECOND),
+    startTs: Math.floor(startMs / MILLISECONDS_PER_SECOND),
   };
 }
 
@@ -435,7 +473,7 @@ export async function fetchKalshiSettledNbaEvents(options?: {
 export async function fetchKalshiCandlesticks(options: {
   endTs: number;
   marketTicker: string;
-  periodIntervalMinutes: 1 | 60 | 1440;
+  periodIntervalMinutes: KalshiCandlestickPeriodIntervalMinutes;
   startTs: number;
   baseUrl?: string;
   fetchImpl?: FetchLike;
@@ -448,7 +486,8 @@ export async function fetchKalshiCandlesticks(options: {
   const candles: KalshiCandlestick[] = [];
   let cursorStart = options.startTs;
   const maxWindowSeconds =
-    CANDLESTICK_MAX_WINDOW_SECONDS_BY_INTERVAL[options.periodIntervalMinutes] ?? 60 * 60 * 24 * 7;
+    CANDLESTICK_MAX_WINDOW_SECONDS_BY_INTERVAL[options.periodIntervalMinutes] ??
+    KALSHI_DEFAULT_CANDLE_MAX_WINDOW_SECONDS;
 
   while (cursorStart < options.endTs) {
     const windowEnd = Math.min(cursorStart + maxWindowSeconds, options.endTs);
@@ -486,7 +525,7 @@ export async function fetchKalshiCandlesticks(options: {
 async function backfillExistingKalshiHistoricalTarget(options: {
   baseUrl?: string;
   fetchImpl?: FetchLike;
-  periodIntervalMinutes: 1 | 60;
+  periodIntervalMinutes: typeof KALSHI_NBA_HISTORICAL_PERIOD_INTERVAL_MINUTES;
   startedAt: string;
   target: KalshiHistoricalTarget;
 }) {
@@ -511,7 +550,7 @@ async function backfillExistingKalshiHistoricalTarget(options: {
 
   let ticksWritten = 0;
   for (const candle of candles) {
-    const capturedAt = new Date(candle.end_period_ts * 1000).toISOString();
+    const capturedAt = new Date(candle.end_period_ts * MILLISECONDS_PER_SECOND).toISOString();
 
     const closePrice =
       toNumberFromDollars(candle.price?.close_dollars) ??
@@ -583,11 +622,12 @@ export async function syncKalshiNbaHistorical(options?: {
   games?: ResearchGameCard[];
   maxEvents?: number;
   now?: () => Date;
-  periodIntervalMinutes?: 1 | 60;
+  periodIntervalMinutes?: typeof KALSHI_NBA_HISTORICAL_PERIOD_INTERVAL_MINUTES;
 }) {
   const now = options?.now ?? (() => new Date());
   const startedAt = now().toISOString();
-  const periodIntervalMinutes = options?.periodIntervalMinutes ?? 60;
+  const periodIntervalMinutes =
+    options?.periodIntervalMinutes ?? KALSHI_NBA_HISTORICAL_PERIOD_INTERVAL_MINUTES;
 
   try {
     const games =
@@ -634,8 +674,8 @@ export async function syncKalshiNbaHistorical(options?: {
           continue;
         }
 
-        const startTs = Math.floor(new Date(market.open_time).getTime() / 1000);
-        const endTs = Math.floor(new Date(market.close_time).getTime() / 1000);
+        const startTs = Math.floor(new Date(market.open_time).getTime() / MILLISECONDS_PER_SECOND);
+        const endTs = Math.floor(new Date(market.close_time).getTime() / MILLISECONDS_PER_SECOND);
         if (!Number.isFinite(startTs) || !Number.isFinite(endTs) || endTs <= startTs) {
           continue;
         }
@@ -703,7 +743,7 @@ export async function syncKalshiNbaHistorical(options?: {
         processedSourceMarketIds.add(sourceMarketId);
 
         for (const candle of candles) {
-          const capturedAt = new Date(candle.end_period_ts * 1000).toISOString();
+          const capturedAt = new Date(candle.end_period_ts * MILLISECONDS_PER_SECOND).toISOString();
 
           const closePrice =
             toNumberFromDollars(candle.price?.close_dollars) ??

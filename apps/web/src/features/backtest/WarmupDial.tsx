@@ -1,103 +1,133 @@
-// Warmup horizontal slider (US-042; demoted to a secondary auto-form control
-// per US-053 AC #8).
+// Opening-holdoff slider (US-042).
 //
-// The original US-042 placement put this dial side-by-side with the Cry Wolf
-// rotary, but US-053 reorganised the prominent rotary slot to host
-// CryWolf + Memory. WarmupDial now lives inside the params auto-form below
-// the dual rotary dials — so visual weight is dialled down to match the
-// other form controls (no 96-px headline that would compete with the rotary
-// knobs). Snap chips, verbatim tooltip text, and clamping behaviour are
-// preserved verbatim from the original AC.
-//
-// Bounds and default come from board-mad's paramsSchema.warmupBuckets
-// (min 2, max 20, default 8). The dial does not own these constants; it
-// receives `value` from the BacktestPage form state and emits `onChange`.
-//
-// The three snap chips (Default 8 / Eager 4 / Off 2) are labels from the AC
-// and commit directly through `onChange` — no separate flash state.
+// Controls `warmupBuckets`: the number of leading non-empty intensity buckets
+// suppressed before the detector can emit its first fire. It sits beside the
+// volatility-lookback slider because the two timing choices jointly decide how
+// quickly the signal trusts current-game data.
 
 import type { ChangeEvent, JSX } from "react";
 
-const WARMUP_MIN = 2;
-const WARMUP_MAX = 20;
-const WARMUP_DEFAULT = 8;
-const WARMUP_EAGER = 4;
-const WARMUP_OFF = 2;
+import {
+  BOARD_MAD_WARMUP_BUCKETS_DEFAULT,
+  BOARD_MAD_WARMUP_BUCKETS_MAX,
+  BOARD_MAD_WARMUP_BUCKETS_MIN,
+} from "@signal-console/detectors/board-mad/config";
+import { ExplainerCard } from "@signal-console/ui";
 
-// Verbatim tooltip text per US-042 acceptance criterion 6.
+import { formatBucketDurationForDisplay } from "./MemoryDial";
+
+const HOLDOFF_MIN = BOARD_MAD_WARMUP_BUCKETS_MIN;
+const HOLDOFF_MAX = BOARD_MAD_WARMUP_BUCKETS_MAX;
+const HOLDOFF_DEFAULT = BOARD_MAD_WARMUP_BUCKETS_DEFAULT;
+const HOLDOFF_FAST = Math.max(HOLDOFF_MIN, Math.round(HOLDOFF_DEFAULT / 2));
+const HOLDOFF_EARLIEST = HOLDOFF_MIN;
+
 const TOOLTIP_TEXT =
-  "Skip the first N buckets before fires can occur. Lower = earlier fires; below ~4 the MAD becomes noisy.";
+  "Opening holdoff: suppress the first N non-empty intensity buckets. Once the holdoff ends, the selected prior sample decides which buckets set median and MAD.";
 
 interface SnapChip {
   readonly label: string;
   readonly value: number;
   readonly testId: string;
 }
+
 const SNAP_CHIPS: readonly SnapChip[] = [
-  { label: "Default (8)", value: WARMUP_DEFAULT, testId: "warmup-dial-chip-default" },
-  { label: "Eager (4)", value: WARMUP_EAGER, testId: "warmup-dial-chip-eager" },
-  { label: "Off (2)", value: WARMUP_OFF, testId: "warmup-dial-chip-off" },
+  {
+    label: `Default (${String(HOLDOFF_DEFAULT)})`,
+    value: HOLDOFF_DEFAULT,
+    testId: "warmup-dial-chip-default",
+  },
+  {
+    label: `Fast (${String(HOLDOFF_FAST)})`,
+    value: HOLDOFF_FAST,
+    testId: "warmup-dial-chip-eager",
+  },
+  {
+    label: `Earliest (${String(HOLDOFF_EARLIEST)})`,
+    value: HOLDOFF_EARLIEST,
+    testId: "warmup-dial-chip-off",
+  },
 ];
 
-function clampWarmup(n: number): number {
-  if (!Number.isFinite(n)) return WARMUP_DEFAULT;
+function clampHoldoff(n: number): number {
+  if (!Number.isFinite(n)) return HOLDOFF_DEFAULT;
   const rounded = Math.round(n);
-  if (rounded < WARMUP_MIN) return WARMUP_MIN;
-  if (rounded > WARMUP_MAX) return WARMUP_MAX;
+  if (rounded < HOLDOFF_MIN) return HOLDOFF_MIN;
+  if (rounded > HOLDOFF_MAX) return HOLDOFF_MAX;
   return rounded;
 }
 
 export interface WarmupDialProps {
   readonly value: number;
+  readonly bucketSeconds: number;
   readonly onChange: (next: number) => void;
 }
 
-export function WarmupDial({ value, onChange }: WarmupDialProps): JSX.Element {
-  const clamped = clampWarmup(value);
+export function WarmupDial({ value, bucketSeconds, onChange }: WarmupDialProps): JSX.Element {
+  const clamped = clampHoldoff(value);
+  const duration = formatBucketDurationForDisplay(clamped, bucketSeconds);
+  const minLabel = formatBucketDurationForDisplay(HOLDOFF_MIN, bucketSeconds);
+  const maxLabel = formatBucketDurationForDisplay(HOLDOFF_MAX, bucketSeconds);
 
   const handleSliderChange = (e: ChangeEvent<HTMLInputElement>): void => {
     const parsed = Number.parseInt(e.target.value, 10);
-    if (Number.isFinite(parsed)) onChange(clampWarmup(parsed));
+    if (Number.isFinite(parsed)) onChange(clampHoldoff(parsed));
   };
 
   return (
     <div
       data-testid="warmup-dial-root"
       data-warmup-value={String(clamped)}
-      className="flex flex-col items-start select-none"
+      className="flex flex-col select-none"
     >
-      <div className="flex items-baseline gap-3">
-        {/* Numeric readout — AC #5 ("Current warmupBuckets value displayed
-            numerically next to slider with integer precision"). Mono +
-            tabular figures so digit width is stable as the value scrubs. */}
-        <span
-          data-testid="warmup-dial-headline"
-          className="tabular font-mono text-text-hi text-2xl leading-none"
-        >
-          {String(clamped)}
-        </span>
-        <span className="text-text-lo text-xs uppercase tracking-[0.08em] font-sans">
-          Warmup buckets
-        </span>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <div className="text-text-lo text-xs uppercase tracking-[0.08em] font-sans">
+            <ExplainerCard id="warmup-buckets">Opening holdoff</ExplainerCard>
+          </div>
+          <p className="mt-1 max-w-[34ch] text-xs text-text-md">
+            Opening buckets that cannot fire while the game builds enough context.
+          </p>
+        </div>
+        <div className="text-right">
+          <span
+            data-testid="warmup-dial-headline"
+            className="tabular font-mono text-text-hi text-3xl leading-none"
+          >
+            {String(clamped)}
+          </span>
+          <span
+            data-testid="warmup-dial-headline-detail"
+            className="ml-2 tabular font-mono text-sm text-text-md"
+          >
+            ({duration})
+          </span>
+        </div>
       </div>
 
       <input
         type="range"
-        min={WARMUP_MIN}
-        max={WARMUP_MAX}
+        min={HOLDOFF_MIN}
+        max={HOLDOFF_MAX}
         step={1}
         value={String(clamped)}
         onChange={handleSliderChange}
         title={TOOLTIP_TEXT}
-        aria-label="Warmup buckets"
-        aria-valuemin={WARMUP_MIN}
-        aria-valuemax={WARMUP_MAX}
+        aria-label="Opening holdoff buckets"
+        aria-valuemin={HOLDOFF_MIN}
+        aria-valuemax={HOLDOFF_MAX}
         aria-valuenow={clamped}
+        aria-valuetext={`${String(clamped)} (${duration})`}
         data-testid="warmup-dial-slider"
-        className="mt-3 w-48 accent-accent-yellow"
+        className="mt-4 w-full accent-accent-yellow"
       />
 
-      <div className="mt-3 flex items-center gap-2" data-testid="warmup-dial-chips">
+      <div className="mt-1 flex justify-between font-mono text-[11px] uppercase tracking-[0.08em] text-text-lo">
+        <span data-testid="warmup-dial-min-label">{minLabel}</span>
+        <span data-testid="warmup-dial-max-label">{maxLabel}</span>
+      </div>
+
+      <div className="mt-3 flex flex-wrap items-center gap-2" data-testid="warmup-dial-chips">
         {SNAP_CHIPS.map((chip) => {
           const active = clamped === chip.value;
           const className = active

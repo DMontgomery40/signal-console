@@ -1,10 +1,10 @@
 // K-sweep step for board-mad. Given a pre-bucketed BucketSeries (one
-// {bucket, intensity} pair per non-empty bucket per game), apply the trailing
-// median + K·MAD threshold per K value. K is the only Cry Wolf dial knob
-// (US-037) so this is the sub-second half of the detector: precompute the
-// per-bucket baseline (median+MAD over the prior trailing window) and the
-// per-bucket {bucketStart, bucketEnd} Dates once — depends only on warmup
-// and trailing window sizes, not K — then per K just iterate and compare
+// {bucket, intensity} pair per non-empty bucket per game), apply the selected
+// causal signal timing mode plus K·MAD threshold per K value. K is the only
+// Sensitivity dial knob (US-037) so this is the sub-second half of the
+// detector: precompute the per-bucket baseline (median+MAD over the selected
+// prior sample) and the per-bucket {bucketStart, bucketEnd} Dates once —
+// depends on signal timing, not K — then per K just iterate and compare
 // intensity >= median + K·MAD.
 //
 // runSweep matches US-033's signature exactly: it returns one entry per K
@@ -14,6 +14,7 @@
 // the past-alerts drilldown (US-047).
 
 import type { DetectorBucket, DetectorFire } from "../types";
+import { resolveBoardMadBaseline } from "./baseline";
 import type { ParamsResolved } from "./params";
 import type { BucketSeries, BucketSeriesGame } from "./prebucket";
 
@@ -34,27 +35,10 @@ interface Baseline {
   readonly warmedUp: boolean;
 }
 
-const median = (xs: readonly number[]): number => {
-  if (xs.length === 0) return 0;
-  const sorted = xs.toSorted((a, b) => a - b);
-  const mid = Math.floor(sorted.length / 2);
-  const upper = sorted[mid] ?? 0;
-  if (sorted.length % 2 === 1) return upper;
-  const lower = sorted[mid - 1] ?? 0;
-  return (lower + upper) / 2;
-};
-
-const medianAbsDev = (xs: readonly number[]): number => {
-  if (xs.length === 0) return 0;
-  const m = median(xs);
-  return median(xs.map((x) => Math.abs(x - m)));
-};
-
 const baselinesForGame = (
   game: BucketSeriesGame,
   bucketSeconds: number,
-  warmupBuckets: number,
-  trailingBuckets: number,
+  params: SweepParams,
 ): readonly Baseline[] => {
   const entries = game.buckets;
   // Pre-extract intensities once so the per-bucket trailing-window slice
@@ -63,30 +47,15 @@ const baselinesForGame = (
   return entries.map((e, i): Baseline => {
     const bucketStart = new Date(e.bucket * 1000);
     const bucketEnd = new Date((e.bucket + bucketSeconds) * 1000);
-    if (i < warmupBuckets) {
-      return {
-        gameId: game.gameId,
-        bucketStart,
-        bucketEnd,
-        intensity: e.intensity,
-        median: 0,
-        mad: 0,
-        warmedUp: false,
-      };
-    }
-    const trailStart = Math.max(0, i - trailingBuckets);
-    const priorValues = intensities.slice(trailStart, i);
-    const med = median(priorValues);
-    const madRaw = medianAbsDev(priorValues);
-    const mad = madRaw === 0 ? 1e-9 : madRaw;
+    const baseline = resolveBoardMadBaseline(intensities, i, params);
     return {
       gameId: game.gameId,
       bucketStart,
       bucketEnd,
       intensity: e.intensity,
-      median: med,
-      mad,
-      warmedUp: true,
+      median: baseline.median,
+      mad: baseline.mad,
+      warmedUp: baseline.warmedUp,
     };
   });
 };
@@ -137,21 +106,15 @@ const detectorBucketsFromBaselines = (
     };
   });
 
-const computeAllBaselines = (
-  buckets: BucketSeries,
-  warmupBuckets: number,
-  trailingBuckets: number,
-): readonly Baseline[] =>
-  buckets.perGame.flatMap((g) =>
-    baselinesForGame(g, buckets.bucketSeconds, warmupBuckets, trailingBuckets),
-  );
+const computeAllBaselines = (buckets: BucketSeries, params: SweepParams): readonly Baseline[] =>
+  buckets.perGame.flatMap((g) => baselinesForGame(g, buckets.bucketSeconds, params));
 
 export function runSweep(
   buckets: BucketSeries,
   kValues: readonly number[],
   params: SweepParams,
 ): readonly SweepResult[] {
-  const baselines = computeAllBaselines(buckets, params.warmupBuckets, params.trailingBuckets);
+  const baselines = computeAllBaselines(buckets, params);
   return kValues.map(
     (k): SweepResult => ({
       k,
@@ -165,7 +128,7 @@ export function runForK(
   k: number,
   params: SweepParams,
 ): { readonly fires: readonly DetectorFire[]; readonly buckets: readonly DetectorBucket[] } {
-  const baselines = computeAllBaselines(buckets, params.warmupBuckets, params.trailingBuckets);
+  const baselines = computeAllBaselines(buckets, params);
   return {
     fires: firesFromBaselines(baselines, k),
     buckets: detectorBucketsFromBaselines(baselines, k),

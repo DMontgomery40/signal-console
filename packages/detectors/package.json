@@ -9,6 +9,7 @@
     "./types": "./src/types.ts",
     "./registry": "./src/registry.ts",
     "./board-mad": "./src/board-mad/index.ts",
+    "./board-mad/baseline": "./src/board-mad/baseline.ts",
     "./board-mad/config": "./src/board-mad/config.ts",
     "./off-price-print": "./src/off-price-print/index.ts",
     "./ensemble-or": "./src/ensemble-or/index.ts"

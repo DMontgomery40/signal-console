@@ -1,7 +1,7 @@
 // SettingsPage — diagnostic-only dashboard (US-026 / PRD §20).
 //
 // Five sections backed by useSettings():
-//   - Detector defaults (US-053): runtime-editable kMad / trailing / warmup /
+//   - Detector defaults (US-053): runtime-editable sensitivity / signal timing /
 //     freshCap / pbpPre / pbpPost. POST /v1/settings/detector-defaults writes
 //     ~/signal-console/data/detector-defaults.json atomically; the API picks
 //     up the new values within 5 s without restart.
@@ -22,6 +22,29 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ChangeEvent, JSX, ReactNode } from "react";
 
+import {
+  BOARD_MAD_BASELINE_MODE_DEFAULT,
+  BOARD_MAD_BASELINE_MODE_OPENING_RAMP,
+  BOARD_MAD_BASELINE_MODE_TRAILING,
+  BOARD_MAD_FRESH_CAP_SECONDS_DEFAULT,
+  BOARD_MAD_FRESH_CAP_SECONDS_MAX,
+  BOARD_MAD_FRESH_CAP_SECONDS_MIN,
+  BOARD_MAD_K_MAD_MAX,
+  BOARD_MAD_K_MAD_MIN,
+  BOARD_MAD_OPENING_BASELINE_BUCKETS_DEFAULT,
+  BOARD_MAD_OPENING_BASELINE_BUCKETS_MAX,
+  BOARD_MAD_OPENING_BASELINE_BUCKETS_MIN,
+  BOARD_MAD_OPENING_RAMP_COMPLETE_BUCKETS_DEFAULT,
+  BOARD_MAD_OPENING_RAMP_COMPLETE_BUCKETS_MAX,
+  BOARD_MAD_OPENING_RAMP_COMPLETE_BUCKETS_MIN,
+  BOARD_MAD_TRAILING_BUCKETS_DEFAULT,
+  BOARD_MAD_TRAILING_BUCKETS_MAX,
+  BOARD_MAD_TRAILING_BUCKETS_MIN,
+  BOARD_MAD_WARMUP_BUCKETS_DEFAULT,
+  BOARD_MAD_WARMUP_BUCKETS_MAX,
+  BOARD_MAD_WARMUP_BUCKETS_MIN,
+  K_MAD_LIVE,
+} from "@signal-console/detectors/board-mad/config";
 import { ExplainerCard } from "@signal-console/ui";
 import type { ExplainerId } from "@signal-console/ui";
 
@@ -104,36 +127,66 @@ function ExplainHeader({ id, children }: { id: ExplainerId; children: ReactNode 
 
 // ── Detector defaults section (US-053) ──────────────────────────────────────
 
-const DETECTOR_DEFAULT_FIELDS: ReadonlyArray<{
-  readonly key: keyof DetectorDefaults;
+type NumericDetectorDefaultKey = Exclude<keyof DetectorDefaults, "baselineMode">;
+
+const NUMERIC_DETECTOR_DEFAULT_FIELDS: ReadonlyArray<{
+  readonly key: NumericDetectorDefaultKey;
   readonly label: string;
   readonly explainerId: ExplainerId;
   readonly step: number;
   readonly integer: boolean;
+  readonly min?: number;
+  readonly max?: number;
   readonly unit: string;
 }> = [
   {
     key: "kMadLive",
-    label: "K (live)",
+    label: "Live sensitivity",
     explainerId: "settings-k-mad-live",
     step: 0.1,
     integer: false,
+    min: BOARD_MAD_K_MAD_MIN,
+    max: BOARD_MAD_K_MAD_MAX,
     unit: "× MAD",
   },
   {
+    key: "openingBaselineBuckets",
+    label: "Opening sample",
+    explainerId: "settings-opening-baseline-buckets",
+    step: 1,
+    integer: true,
+    min: BOARD_MAD_OPENING_BASELINE_BUCKETS_MIN,
+    max: BOARD_MAD_OPENING_BASELINE_BUCKETS_MAX,
+    unit: "buckets",
+  },
+  {
+    key: "openingRampCompleteBuckets",
+    label: "Ramp complete",
+    explainerId: "settings-opening-ramp-complete-buckets",
+    step: 1,
+    integer: true,
+    min: BOARD_MAD_OPENING_RAMP_COMPLETE_BUCKETS_MIN,
+    max: BOARD_MAD_OPENING_RAMP_COMPLETE_BUCKETS_MAX,
+    unit: "buckets",
+  },
+  {
     key: "trailingBuckets",
-    label: "Trailing buckets",
+    label: "Volatility lookback",
     explainerId: "settings-trailing-buckets",
     step: 1,
     integer: true,
+    min: BOARD_MAD_TRAILING_BUCKETS_MIN,
+    max: BOARD_MAD_TRAILING_BUCKETS_MAX,
     unit: "buckets",
   },
   {
     key: "warmupBuckets",
-    label: "Warmup buckets",
+    label: "Opening holdoff",
     explainerId: "settings-warmup-buckets",
     step: 1,
     integer: true,
+    min: BOARD_MAD_WARMUP_BUCKETS_MIN,
+    max: BOARD_MAD_WARMUP_BUCKETS_MAX,
     unit: "buckets",
   },
   {
@@ -142,6 +195,8 @@ const DETECTOR_DEFAULT_FIELDS: ReadonlyArray<{
     explainerId: "settings-fresh-cap-seconds",
     step: 30,
     integer: true,
+    min: BOARD_MAD_FRESH_CAP_SECONDS_MIN,
+    max: BOARD_MAD_FRESH_CAP_SECONDS_MAX,
     unit: "seconds",
   },
   {
@@ -162,15 +217,21 @@ const DETECTOR_DEFAULT_FIELDS: ReadonlyArray<{
   },
 ];
 
-// Hardcoded fallback when /v1/settings hasn't reported them yet. Kept in sync
-// with apps/api/src/services/detector-defaults.ts BASELINE_DEFAULTS.
+const PBP_PRE_BUFFER_MS_DEFAULT = 5 * 60 * 1000;
+const PBP_POST_BUFFER_MS_DEFAULT = 60_000;
+
+// Fallback when /v1/settings hasn't reported them yet. Board MAD defaults come
+// from the package config; PBP windows are local Settings/API defaults.
 const BASELINE_DEFAULTS: DetectorDefaults = {
-  kMadLive: 3.0,
-  trailingBuckets: 20,
-  warmupBuckets: 8,
-  freshCapSeconds: 300,
-  pbpPreBufferMs: 5 * 60 * 1000,
-  pbpPostBufferMs: 60_000,
+  kMadLive: K_MAD_LIVE,
+  baselineMode: BOARD_MAD_BASELINE_MODE_DEFAULT,
+  openingBaselineBuckets: BOARD_MAD_OPENING_BASELINE_BUCKETS_DEFAULT,
+  openingRampCompleteBuckets: BOARD_MAD_OPENING_RAMP_COMPLETE_BUCKETS_DEFAULT,
+  trailingBuckets: BOARD_MAD_TRAILING_BUCKETS_DEFAULT,
+  warmupBuckets: BOARD_MAD_WARMUP_BUCKETS_DEFAULT,
+  freshCapSeconds: BOARD_MAD_FRESH_CAP_SECONDS_DEFAULT,
+  pbpPreBufferMs: PBP_PRE_BUFFER_MS_DEFAULT,
+  pbpPostBufferMs: PBP_POST_BUFFER_MS_DEFAULT,
 };
 
 const YELLOW_FLASH_MS = 200;
@@ -192,52 +253,55 @@ function DetectorDefaultsSection({
     setDraft(defaults);
   }, [defaults]);
 
-  function updateField(key: keyof DetectorDefaults, raw: string): void {
+  function updateField(key: NumericDetectorDefaultKey, raw: string): void {
     if (raw === "") return;
-    const field = DETECTOR_DEFAULT_FIELDS.find((f) => f.key === key);
+    const field = NUMERIC_DETECTOR_DEFAULT_FIELDS.find((f) => f.key === key);
     if (field === undefined) return;
     const parsed = field.integer ? Number.parseInt(raw, 10) : Number.parseFloat(raw);
     if (!Number.isFinite(parsed)) return;
     setDraft((prev) => ({ ...prev, [key]: parsed }));
   }
 
-  function commit(changedKey: keyof DetectorDefaults): void {
-    if (draft[changedKey] === defaults[changedKey]) return;
-    mutation.mutate(draft, {
+  function flashField(changedKey: keyof DetectorDefaults): void {
+    const next = new Set(flashing);
+    next.add(changedKey);
+    setFlashing(next);
+    // Clear the flash after 200 ms per AC #3.
+    setTimeout(() => {
+      setFlashing((prev) => {
+        const without = new Set(prev);
+        without.delete(changedKey);
+        return without;
+      });
+    }, YELLOW_FLASH_MS);
+  }
+
+  function commitNext(changedKey: keyof DetectorDefaults, next: DetectorDefaults): void {
+    if (next[changedKey] === defaults[changedKey]) return;
+    mutation.mutate(next, {
       onSuccess: () => {
-        const next = new Set(flashing);
-        next.add(changedKey);
-        setFlashing(next);
-        // Clear the flash after 200 ms per AC #3.
-        setTimeout(() => {
-          setFlashing((prev) => {
-            const without = new Set(prev);
-            without.delete(changedKey);
-            return without;
-          });
-        }, YELLOW_FLASH_MS);
+        flashField(changedKey);
       },
     });
+  }
+
+  function updateBaselineMode(raw: string): void {
+    if (raw !== BOARD_MAD_BASELINE_MODE_TRAILING && raw !== BOARD_MAD_BASELINE_MODE_OPENING_RAMP) {
+      return;
+    }
+    const next: DetectorDefaults = { ...draft, baselineMode: raw };
+    setDraft(next);
+    commitNext("baselineMode", next);
+  }
+
+  function commit(changedKey: keyof DetectorDefaults): void {
+    commitNext(changedKey, draft);
   }
 
   function resetField(key: keyof DetectorDefaults): void {
     const next: DetectorDefaults = { ...draft, [key]: BASELINE_DEFAULTS[key] };
     setDraft(next);
-    if (BASELINE_DEFAULTS[key] === defaults[key]) return;
-    mutation.mutate(next, {
-      onSuccess: () => {
-        const flash = new Set(flashing);
-        flash.add(key);
-        setFlashing(flash);
-        setTimeout(() => {
-          setFlashing((prev) => {
-            const without = new Set(prev);
-            without.delete(key);
-            return without;
-          });
-        }, YELLOW_FLASH_MS);
-      },
-    });
+    commitNext(key, next);
   }
 
   return (
@@ -257,7 +321,50 @@ function DetectorDefaultsSection({
         recompute on next access.
       </p>
       <dl className="mt-4 grid grid-cols-[180px_1fr] gap-y-3 text-sm">
-        {DETECTOR_DEFAULT_FIELDS.map((field) => {
+        <div
+          data-testid="detector-default-row"
+          data-field="baselineMode"
+          data-dirty={draft.baselineMode !== defaults.baselineMode ? "1" : "0"}
+          data-flashing={flashing.has("baselineMode") ? "1" : "0"}
+          className="contents"
+        >
+          <ExplainDt id="settings-baseline-mode">Prior sample</ExplainDt>
+          <dd
+            className={
+              flashing.has("baselineMode")
+                ? "transition-colors duration-fast bg-accent-yellow/15"
+                : "transition-colors duration-fast"
+            }
+          >
+            <div className="flex items-center gap-3">
+              <select
+                value={draft.baselineMode}
+                onChange={(e: ChangeEvent<HTMLSelectElement>) => {
+                  updateBaselineMode(e.target.value);
+                }}
+                data-testid="detector-default-input-baselineMode"
+                aria-label="Prior sample"
+                className="w-52 border border-surface-2 bg-surface-0 px-2 py-1 text-sm font-mono text-text-hi focus:border-accent-green focus:outline-none"
+              >
+                <option value={BOARD_MAD_BASELINE_MODE_TRAILING}>rolling current game</option>
+                <option value={BOARD_MAD_BASELINE_MODE_OPENING_RAMP}>opening sample ramp</option>
+              </select>
+              {defaults.baselineMode === BASELINE_DEFAULTS.baselineMode ? null : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    resetField("baselineMode");
+                  }}
+                  data-testid="detector-default-reset-baselineMode"
+                  className="font-mono text-xs uppercase tracking-wider text-accent-green hover:text-text-hi"
+                >
+                  Reset to default
+                </button>
+              )}
+            </div>
+          </dd>
+        </div>
+        {NUMERIC_DETECTOR_DEFAULT_FIELDS.map((field) => {
           const isFlashing = flashing.has(field.key);
           const draftValue = draft[field.key];
           const serverValue = defaults[field.key];
@@ -285,6 +392,8 @@ function DetectorDefaultsSection({
                     type="number"
                     value={String(draftValue)}
                     step={field.step}
+                    {...(field.min !== undefined ? { min: field.min } : {})}
+                    {...(field.max !== undefined ? { max: field.max } : {})}
                     onChange={(e: ChangeEvent<HTMLInputElement>) => {
                       updateField(field.key, e.target.value);
                     }}
