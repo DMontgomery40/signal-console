@@ -30,3 +30,9 @@ apps/worker/data/heartbeat.json
 # Editor and assistant local state
 .agents/
 .claude/scheduled_tasks.lock
+
+# Python sidecar virtualenv + pytest cache
+.venv/
+.pytest_cache/
+__pycache__/
+*.pyc
