@@ -94,6 +94,17 @@ function seedGoldDb(
       period INTEGER,
       clock TEXT
     );
+    CREATE TABLE IF NOT EXISTS market_microstructure_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      game_id TEXT NOT NULL,
+      source_market_id TEXT NOT NULL,
+      event_type TEXT NOT NULL,
+      event_timestamp TEXT NOT NULL,
+      trade_price REAL,
+      size REAL,
+      notional REAL,
+      volume_share REAL
+    );
     CREATE INDEX IF NOT EXISTS idx_quote_ticks_source_market
       ON quote_ticks(source_market_id, captured_at);
     CREATE INDEX IF NOT EXISTS idx_pbp_game ON nba_play_by_play_actions(game_id, time_actual);

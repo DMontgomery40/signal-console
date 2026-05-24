@@ -32,7 +32,12 @@ import {
 
 import { ExplainerCard, colors } from "@signal-console/ui";
 
-import { useFanout, type FanoutMover, type FanoutPbpEvent } from "../../data/queries";
+import {
+  useFanout,
+  type FanoutMicroEvent,
+  type FanoutMover,
+  type FanoutPbpEvent,
+} from "../../data/queries";
 
 interface FanoutPanelProps {
   readonly gameId: string;
@@ -68,6 +73,48 @@ function tierClassName(tier: Tier): string {
       return "text-text-hi";
     case "md":
       return "text-text-md";
+  }
+}
+
+// PBP-dot heatmap by action significance. The old coloring (yellow/hi/md
+// by recency tier) hid the fact that some plays are inherently more
+// informative than others — a rebound or a turnover near the alert is
+// gold tier; a substitution at the same instant is bookkeeping noise.
+// User feedback explicitly asked for heatmap colors on the PBP line.
+type Heat = "hot" | "warm" | "cool";
+
+const HOT_ACTIONS: ReadonlySet<string> = new Set([
+  "rebound",
+  "3pt",
+  "2pt",
+  "block",
+  "steal",
+  "turnover",
+  "freethrow",
+  "violation",
+]);
+const WARM_ACTIONS: ReadonlySet<string> = new Set([
+  "foul",
+  "jumpball",
+  "assist",
+]);
+
+function heatForAction(actionType: string | null): Heat {
+  if (actionType === null) return "warm";
+  const lower = actionType.toLowerCase();
+  if (HOT_ACTIONS.has(lower)) return "hot";
+  if (WARM_ACTIONS.has(lower)) return "warm";
+  return "cool";
+}
+
+function heatColor(h: Heat): string {
+  switch (h) {
+    case "hot":
+      return colors.accentYellow;
+    case "warm":
+      return colors.textHi;
+    case "cool":
+      return colors.textLo;
   }
 }
 
@@ -134,19 +181,20 @@ function PbpTimelineChart({ events }: { readonly events: readonly FanoutPbpEvent
     readonly delta: number;
     readonly y: number;
     readonly description: string;
-    readonly tier: Tier;
+    readonly heat: Heat;
     readonly gameClock: string | null;
     readonly fromAlert: number | null;
   };
   const points: PointPayload[] = events.flatMap((e) => {
-    const tier = tierFor(e.deltaSecondsFromFire);
-    if (tier === null) return [];
+    // Still drop events outside ±5min (the report's hard cap). Coloring
+    // within-window dots is action-type-based, not recency-tier-based.
+    if (Math.abs(e.deltaSecondsFromFire) >= 300) return [];
     return [
       {
         delta: e.deltaSecondsFromFire,
         y: 0.5,
         description: e.description ?? e.actionType ?? "PBP event",
-        tier,
+        heat: heatForAction(e.actionType),
         gameClock: formatGameClock(e.period, e.clock),
         fromAlert: typeof e.deltaSecondsFromAlert === "number" ? e.deltaSecondsFromAlert : null,
       },
@@ -233,14 +281,14 @@ function PbpTimelineChart({ events }: { readonly events: readonly FanoutPbpEvent
               fontSize: 11,
             }}
           />
-          {(["yellow", "hi", "md"] as const).map((tier) => {
-            const tierPoints = points.filter((p) => p.tier === tier);
-            if (tierPoints.length === 0) return null;
+          {(["hot", "warm", "cool"] as const).map((heat) => {
+            const heatPoints = points.filter((p) => p.heat === heat);
+            if (heatPoints.length === 0) return null;
             return (
               <Scatter
-                key={tier}
-                data={[...tierPoints]}
-                fill={tierColor(tier)}
+                key={heat}
+                data={[...heatPoints]}
+                fill={heatColor(heat)}
                 isAnimationActive={false}
                 shape="circle"
               />
@@ -249,6 +297,93 @@ function PbpTimelineChart({ events }: { readonly events: readonly FanoutPbpEvent
         </ScatterChart>
       </ResponsiveContainer>
     </div>
+  );
+}
+
+// Polymarket trade prints in the ±5min drilldown — the off-price tape, side
+// by side with the board movers above. Each row shows the trader-relevant
+// surface: market label, trade price, off-price distance (|trade_price −
+// surrounding sampled IP|), volume share, dollar notional, and timing
+// against the alert.
+function MicrostructureStrip({
+  events,
+}: {
+  readonly events: readonly FanoutMicroEvent[];
+}): JSX.Element {
+  if (events.length === 0) {
+    return (
+      <p
+        className="font-mono text-xs text-text-lo"
+        data-testid="fanout-microstructure-empty"
+      >
+        No Polymarket trade prints in this ±5 min window.
+      </p>
+    );
+  }
+  return (
+    <table className="w-full text-left text-sm" data-testid="fanout-microstructure-table">
+      <thead>
+        <tr className="text-xs uppercase tracking-[0.08em] text-text-lo">
+          <th className="py-2 font-normal">Market</th>
+          <th className="py-2 font-normal">Trade price</th>
+          <th className="py-2 font-normal">Off-price dist</th>
+          <th className="py-2 font-normal">Vol share</th>
+          <th className="py-2 font-normal">$ notional</th>
+          <th className="py-2 font-normal">vs Alert</th>
+        </tr>
+      </thead>
+      <tbody>
+        {events.map((e) => {
+          // Highlight "concentrated off-price prints" — the report's
+          // canonical trigger shape: volumeShare ≥ 0.10 AND offPriceDistance
+          // ≥ 0.40. Same thresholds as off-price-print detector defaults.
+          const isOffPrice =
+            e.volumeShare !== null &&
+            e.offPriceDistance !== null &&
+            e.volumeShare >= 0.1 &&
+            e.offPriceDistance >= 0.4;
+          const alertFrame = e.deltaSecondsFromAlert;
+          const phrase =
+            alertFrame < 0
+              ? `${Math.abs(alertFrame).toFixed(0)}s before`
+              : alertFrame > 0
+                ? `${alertFrame.toFixed(0)}s after`
+                : "at alert";
+          return (
+            <tr
+              key={`${e.eventTimestamp}-${e.sourceMarketId}`}
+              className={`border-t border-surface-1 ${
+                isOffPrice ? "bg-accent-yellow/5" : ""
+              }`}
+              data-testid="fanout-microstructure-row"
+            >
+              <td className="py-2 pr-4 font-mono text-text-md">{e.instrument}</td>
+              <td className="tabular py-2 pr-4 font-mono text-text-hi">
+                {e.tradePrice === null ? "—" : e.tradePrice.toFixed(3)}
+              </td>
+              <td
+                className={`tabular py-2 pr-4 font-mono ${
+                  isOffPrice ? "text-accent-yellow" : "text-text-md"
+                }`}
+              >
+                {e.offPriceDistance === null ? "—" : e.offPriceDistance.toFixed(3)}
+              </td>
+              <td
+                className={`tabular py-2 pr-4 font-mono ${
+                  isOffPrice ? "text-accent-yellow" : "text-text-md"
+                }`}
+              >
+                {e.volumeShare === null ? "—" : `${(e.volumeShare * 100).toFixed(1)}%`}
+              </td>
+              <td className="tabular py-2 pr-4 font-mono text-text-md">
+                {e.notional === null ? "—" : `$${e.notional.toFixed(2)}`}
+              </td>
+              <td className="tabular py-2 pr-2 font-mono text-text-md">{phrase}</td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
   );
 }
 
@@ -329,7 +464,7 @@ export function FanoutPanel({ gameId, bucketStart }: FanoutPanelProps): JSX.Elem
     );
   }
 
-  const { narrative, pbp, movers } = fanout.data;
+  const { narrative, pbp, movers, microstructureEvents } = fanout.data;
 
   return (
     <div className="mt-6 space-y-6" data-testid="fanout-panel">
@@ -341,7 +476,7 @@ export function FanoutPanel({ gameId, bucketStart }: FanoutPanelProps): JSX.Elem
 
       <div>
         <p className="mb-2 font-mono text-xs uppercase tracking-[0.08em] text-text-lo">
-          Play-by-play ±5 min
+          Play-by-play ±5 min  ·  hot = scoring/rebound/turnover, warm = foul/assist, cool = bookkeeping
         </p>
         {pbp.length === 0 ? (
           <p className="font-mono text-xs text-text-lo" data-testid="fanout-pbp-empty">
@@ -354,9 +489,17 @@ export function FanoutPanel({ gameId, bucketStart }: FanoutPanelProps): JSX.Elem
 
       <div>
         <p className="mb-2 font-mono text-xs uppercase tracking-[0.08em] text-text-lo">
-          Top market movers
+          Top market movers  (board lane — markets repricing inside the 60s alert bucket)
         </p>
         <MoversTable movers={movers} />
+      </div>
+
+      <div>
+        <p className="mb-2 font-mono text-xs uppercase tracking-[0.08em] text-text-lo">
+          Polymarket trade prints ±5 min  (off-price lane — gold rows are concentrated
+          off-price prints: vol_share ≥ 10% AND off-price-dist ≥ 0.40)
+        </p>
+        <MicrostructureStrip events={microstructureEvents} />
       </div>
     </div>
   );

@@ -107,11 +107,25 @@ const fanoutMoverSchema = z.object({
   contributionPct: z.number(),
   deltaSecondsFromFire: z.number(),
 });
+const fanoutMicroEventSchema = z.object({
+  eventTimestamp: z.string(),
+  sourceMarketId: z.string(),
+  instrument: z.string(),
+  tradePrice: z.number().nullable(),
+  size: z.number().nullable(),
+  notional: z.number().nullable(),
+  volumeShare: z.number().nullable(),
+  offPriceDistance: z.number().nullable(),
+  deltaSecondsFromAlert: z.number(),
+});
 const fanoutSchema = z.object({
   bucketStart: z.string(),
   bucketEnd: z.string(),
   pbp: z.array(fanoutPbpEventSchema),
   movers: z.array(fanoutMoverSchema),
+  // Optional + default [] for back-compat: older API responses didn't
+  // include the Polymarket trade-print strip yet.
+  microstructureEvents: z.array(fanoutMicroEventSchema).optional().default([]),
   narrative: z.string(),
 });
 
@@ -243,6 +257,7 @@ export type MicrostructureEvent = z.infer<typeof microstructureEventSchema>;
 export type Microstructure = z.infer<typeof microstructureSchema>;
 export type FanoutPbpEvent = z.infer<typeof fanoutPbpEventSchema>;
 export type FanoutMover = z.infer<typeof fanoutMoverSchema>;
+export type FanoutMicroEvent = z.infer<typeof fanoutMicroEventSchema>;
 export type Fanout = z.infer<typeof fanoutSchema>;
 export type DetectorEntry = z.infer<typeof detectorEntrySchema>;
 export type DetectorsResponse = z.infer<typeof detectorsSchema>;

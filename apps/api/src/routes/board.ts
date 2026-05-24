@@ -145,14 +145,40 @@ const boardRoutes: FastifyPluginAsync<BoardRoutesOptions> = (app, opts) => {
       deltaSecondsFromFire: { type: "number" },
     },
   } as const;
+  const fanoutMicroEventJsonSchema = {
+    type: "object",
+    required: [
+      "eventTimestamp",
+      "sourceMarketId",
+      "instrument",
+      "tradePrice",
+      "size",
+      "notional",
+      "volumeShare",
+      "offPriceDistance",
+      "deltaSecondsFromAlert",
+    ],
+    properties: {
+      eventTimestamp: { type: "string" },
+      sourceMarketId: { type: "string" },
+      instrument: { type: "string" },
+      tradePrice: { type: ["number", "null"] },
+      size: { type: ["number", "null"] },
+      notional: { type: ["number", "null"] },
+      volumeShare: { type: ["number", "null"] },
+      offPriceDistance: { type: ["number", "null"] },
+      deltaSecondsFromAlert: { type: "number" },
+    },
+  } as const;
   const fanoutResponseSchema = {
     type: "object",
-    required: ["bucketStart", "bucketEnd", "pbp", "movers", "narrative"],
+    required: ["bucketStart", "bucketEnd", "pbp", "movers", "microstructureEvents", "narrative"],
     properties: {
       bucketStart: { type: "string" },
       bucketEnd: { type: "string" },
       pbp: { type: "array", items: fanoutPbpJsonSchema },
       movers: { type: "array", items: fanoutMoverJsonSchema },
+      microstructureEvents: { type: "array", items: fanoutMicroEventJsonSchema },
       narrative: { type: "string" },
     },
   } as const;

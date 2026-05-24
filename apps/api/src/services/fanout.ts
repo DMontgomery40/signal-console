@@ -67,11 +67,30 @@ export interface FanoutMover {
   readonly deltaSecondsFromFire: number;
 }
 
+// One Polymarket trade print in the ±5min drilldown window. The off-price
+// lane ("the bet tape") is rendered alongside the board lane ("the markets
+// repricing") so the trader sees both surfaces in one zoom-in.
+export interface FanoutMicrostructureEvent {
+  readonly eventTimestamp: string;
+  readonly sourceMarketId: string;
+  readonly instrument: string;
+  readonly tradePrice: number | null;
+  readonly size: number | null;
+  readonly notional: number | null;
+  readonly volumeShare: number | null;
+  // |trade_price − latest pre-event sampled implied_probability| on the same
+  // source_market. Same definition the off-price-print detector uses.
+  readonly offPriceDistance: number | null;
+  // event_timestamp − bucket_end. Negative = print before alert confirmation.
+  readonly deltaSecondsFromAlert: number;
+}
+
 export interface FanoutResult {
   readonly bucketStart: string;
   readonly bucketEnd: string;
   readonly pbp: readonly FanoutPbpEvent[];
   readonly movers: readonly FanoutMover[];
+  readonly microstructureEvents: readonly FanoutMicrostructureEvent[];
   readonly narrative: string;
 }
 
@@ -96,6 +115,13 @@ export function getFanout(args: GetFanoutArgs): FanoutResult {
   try {
     const pbp = loadPbpWindow(db, args.gameId, bucketStartMs, bucketEndMs, pbpLo, pbpHi);
     const movers = loadMovers(db, args.gameId, bucketStartMs, bucketStart, bucketEnd);
+    const microstructureEvents = loadMicrostructureWindow(
+      db,
+      args.gameId,
+      bucketEndMs,
+      pbpLo,
+      pbpHi,
+    );
     const narrative = renderFanoutNarrative({
       bucketStart: args.bucketStart,
       bucketEnd: bucketEnd.toISOString(),
@@ -107,6 +133,7 @@ export function getFanout(args: GetFanoutArgs): FanoutResult {
       bucketEnd: bucketEnd.toISOString(),
       pbp,
       movers,
+      microstructureEvents,
       narrative,
     };
   } finally {
@@ -298,6 +325,113 @@ function loadMovers(
       deltaSecondsFromFire: roundTenth(deltaSec),
     };
   });
+}
+
+// Off-price tape events (Polymarket trade prints) in the ±5min window. The
+// drilldown needs both lanes side-by-side: board ticks (loadMovers) AND
+// off-price prints (this function). off_price_distance is computed at query
+// time — same definition the off-price-print detector uses — via a causal
+// correlated subquery against quote_ticks (the column was never persisted
+// in the schema; see services/backtest.ts loadMicrostructure for the
+// matching logic).
+function loadMicrostructureWindow(
+  db: GoldDbHandle,
+  gameId: string,
+  bucketEndMs: number,
+  lo: Date,
+  hi: Date,
+): readonly FanoutMicrostructureEvent[] {
+  // event_type='trade' is the Polymarket data-api trade-print stream; book
+  // snapshots are not surfaced here. source='polymarket' is implicit (no
+  // other adapter writes trade rows) but added explicitly for forward-compat
+  // if Kalshi/bet365 trade tapes ever land.
+  const rows = db
+    .prepare(
+      `SELECT e.event_timestamp, e.source_market_id, e.trade_price, e.size,
+              e.notional, e.volume_share
+       FROM market_microstructure_events e
+       WHERE e.game_id = ?
+         AND e.event_type = 'trade'
+         AND e.event_timestamp >= ?
+         AND e.event_timestamp <= ?
+       ORDER BY e.event_timestamp`,
+    )
+    .all(gameId, lo.toISOString(), hi.toISOString());
+
+  // Compute off_price_distance for each event by finding the latest
+  // pre-event sampled implied_probability on the same source_market. Batch
+  // to one prepared statement reused across events for index hits.
+  const ipBeforeStmt = db.prepare(
+    `SELECT qt.implied_probability
+     FROM quote_ticks qt
+     WHERE qt.source_market_id = ?
+       AND qt.captured_at <= ?
+     ORDER BY qt.captured_at DESC
+     LIMIT 1`,
+  );
+
+  const events: FanoutMicrostructureEvent[] = [];
+  const sourceMarketIds = new Set<string>();
+  const seen: Array<{ idx: number; sourceMarketId: string }> = [];
+
+  for (const row of rows) {
+    if (!isRecord(row)) continue;
+    const eventTimestamp = pickStringOrNull(row, "event_timestamp");
+    const sourceMarketId = pickStringOrNull(row, "source_market_id");
+    if (eventTimestamp === null || sourceMarketId === null) continue;
+    const ms = Date.parse(eventTimestamp);
+    if (!Number.isFinite(ms)) continue;
+    const tradePrice = pickNumberOrNull(row, "trade_price");
+    const size = pickNumberOrNull(row, "size");
+    const notional = pickNumberOrNull(row, "notional");
+    const volumeShare = pickNumberOrNull(row, "volume_share");
+
+    let offPriceDistance: number | null = null;
+    if (tradePrice !== null) {
+      const ipRow = ipBeforeStmt.get(sourceMarketId, eventTimestamp);
+      if (isRecord(ipRow)) {
+        const ip = ipRow["implied_probability"];
+        if (typeof ip === "number" && Number.isFinite(ip)) {
+          offPriceDistance = Math.abs(tradePrice - ip);
+        }
+      }
+    }
+
+    sourceMarketIds.add(sourceMarketId);
+    seen.push({ idx: events.length, sourceMarketId });
+    events.push({
+      eventTimestamp,
+      sourceMarketId,
+      instrument: sourceMarketId, // placeholder — filled below
+      tradePrice,
+      size,
+      notional,
+      volumeShare,
+      offPriceDistance,
+      deltaSecondsFromAlert: roundTenth((ms - bucketEndMs) / 1000),
+    });
+  }
+
+  // Backfill instrument labels in one query.
+  if (sourceMarketIds.size > 0) {
+    const labels = loadInstrumentLabels(db, Array.from(sourceMarketIds));
+    for (const ref of seen) {
+      const label = labels.get(ref.sourceMarketId);
+      if (label !== undefined) {
+        const existing = events[ref.idx];
+        if (existing !== undefined) {
+          events[ref.idx] = { ...existing, instrument: label };
+        }
+      }
+    }
+  }
+
+  return events;
+}
+
+function pickNumberOrNull(rec: Record<string, unknown>, key: string): number | null {
+  const v = rec[key];
+  return typeof v === "number" && Number.isFinite(v) ? v : null;
 }
 
 function loadInstrumentLabels(db: GoldDbHandle, ids: readonly string[]): Map<string, string> {
