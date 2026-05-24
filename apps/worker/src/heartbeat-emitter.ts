@@ -39,6 +39,7 @@ function errorMessage(err: unknown): string {
 }
 
 export function writeHeartbeatJson(options?: {
+  nbaSidecarConfigured?: boolean;
   providerFailures?: readonly ProviderFailure[];
   nbaSidecarLastSyncAt?: string | null;
   outPath?: string;
@@ -77,11 +78,12 @@ export function writeHeartbeatJson(options?: {
     };
   }
 
-  // nba-sidecar has no quote_ticks rows of its own (it populates games + PBP),
-  // so report this cycle's wallclock as its lastSyncAt when not supplied.
-  if (!bySource["nba-sidecar"]) {
+  // nba-sidecar has no quote_ticks rows of its own (it populates games + PBP).
+  // Only report it when the worker actually has the sidecar configured; disabled
+  // sources should not look freshly synced.
+  if (options?.nbaSidecarConfigured === true && !bySource["nba-sidecar"]) {
     bySource["nba-sidecar"] = {
-      lastSyncAt: options?.nbaSidecarLastSyncAt ?? new Date().toISOString(),
+      lastSyncAt: options.nbaSidecarLastSyncAt ?? null,
       lastError: null,
       rateLimitCooldown: null,
     };

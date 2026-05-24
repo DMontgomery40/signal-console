@@ -38,6 +38,7 @@ const eventToFire = (e: MicrostructureEvent): DetectorFire => ({
   intensity: e.offPriceDistance,
   baselineMedian: 0,
   baselineMad: 0,
+  sourceMarketId: e.sourceMarketId,
 });
 
 const uniqueGameIds = (gameIds: readonly string[]): readonly string[] =>

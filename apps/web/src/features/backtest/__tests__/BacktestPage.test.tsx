@@ -895,9 +895,27 @@ describe("BacktestPage", () => {
     expect(screen.getByText("Past fires in this game at K=6.00")).not.toBeNull();
   });
 
-  it("keeps ensemble timeline K tied to the snapshot params that produced the rows", async () => {
+  it("recomputes ensemble board rows while preserving off-price lane fires", async () => {
+    const boardOnly = buildMultiGameKSensitiveBacktest(["nba-ensemble"]);
     mockDetectorsAndBacktest(
-      buildMultiGameKSensitiveBacktest(["nba-ensemble"]),
+      {
+        ...boardOnly,
+        stats: { firesPerGame: 2, totalFires: 2, gamesInWindow: 1 },
+        observations: [
+          ...boardOnly.observations.map((obs) => ({ ...obs, lane: "board" })),
+          {
+            gameId: "nba-ensemble",
+            bucketStart: "2026-05-08T03:10:30.000Z",
+            bucketEnd: "2026-05-08T03:10:30.000Z",
+            fired: 1,
+            intensity: 0.49,
+            baselineMedian: 0,
+            baselineMad: 0,
+            lane: "offprice",
+            sourceMarketId: "pm-ensemble-a",
+          },
+        ],
+      },
       ENSEMBLE_DETECTORS_RESPONSE,
     );
     render(<BacktestPage />, { wrapper: makeWrapper() });
@@ -919,6 +937,7 @@ describe("BacktestPage", () => {
     await waitFor(() => {
       expect(screen.getByTestId("backtest-run-id").textContent).toBe("138");
     });
+    expect(screen.getByTestId("backtest-stat-total-fires").textContent).toBe("1");
 
     const postCalls = fetchMock.mock.calls.filter(([input, init]) => {
       const url = urlOf(input);
@@ -932,6 +951,7 @@ describe("BacktestPage", () => {
 
     fireEvent.click(screen.getByTestId("backtest-timeline-row-toggle"));
     expect(screen.getByText("Past fires in this game at K=6.00")).not.toBeNull();
+    expect(screen.getByTestId("backtest-timeline-fires").textContent).toBe("0 fires");
 
     act(() => {
       for (let i = 0; i < 12; i++) {
@@ -939,9 +959,10 @@ describe("BacktestPage", () => {
       }
     });
     expect(dial.getAttribute("aria-valuenow")).toBe("3");
-    expect(screen.getByTestId("backtest-stale-warning")).not.toBeNull();
-    expect(screen.getByText("Past fires in this game at K=6.00")).not.toBeNull();
-    expect(screen.queryByText("Past fires in this game at K=3.00")).toBeNull();
+    expect(screen.queryByTestId("backtest-stale-warning")).toBeNull();
+    expect(screen.getByTestId("backtest-stat-total-fires").textContent).toBe("2");
+    expect(screen.getByText("Past fires in this game at K=3.00")).not.toBeNull();
+    expect(screen.queryByText("Past fires in this game at K=6.00")).toBeNull();
   });
 
   it("flips data-from-recompute canary after dial-driven K change (US-038)", async () => {

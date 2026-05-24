@@ -39,6 +39,12 @@ export interface BoardMadRecomputeParams {
   readonly warmupBuckets: number;
 }
 
+const DEFAULT_BOARD_RECOMPUTE_PARAMS: BoardMadRecomputeParams = {
+  kMad: 3,
+  trailingBuckets: 20,
+  warmupBuckets: 8,
+};
+
 // Params that drive prebucket itself — if any of these have drifted from
 // what the backtest was run with, the recompute would be misleading.
 export const BOARD_MAD_PREBUCKET_PARAMS: readonly string[] = [
@@ -58,6 +64,58 @@ export function isBoardMadRecomputeField(name: string): boolean {
 
 export function isBoardMadPrebucketField(name: string): boolean {
   return BOARD_MAD_PREBUCKET_PARAMS.includes(name);
+}
+
+function isPlainRecord(value: unknown): value is Readonly<Record<string, unknown>> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function boardParamsForDetector(
+  detectorId: string,
+  params: Readonly<Record<string, unknown>>,
+): Readonly<Record<string, unknown>> | null {
+  if (detectorId === BOARD_MAD_DETECTOR_ID) return params;
+  if (detectorId === ENSEMBLE_OR_DETECTOR_ID) {
+    const board = params["board"];
+    return isPlainRecord(board) ? board : {};
+  }
+  return null;
+}
+
+function readBoardMadRecomputeParams(
+  detectorId: string,
+  params: Readonly<Record<string, unknown>>,
+): BoardMadRecomputeParams | null {
+  const boardParams = boardParamsForDetector(detectorId, params);
+  if (boardParams === null) return null;
+  const kMad = boardParams["kMad"] ?? DEFAULT_BOARD_RECOMPUTE_PARAMS.kMad;
+  const trailingBuckets =
+    boardParams["trailingBuckets"] ?? DEFAULT_BOARD_RECOMPUTE_PARAMS.trailingBuckets;
+  const warmupBuckets =
+    boardParams["warmupBuckets"] ?? DEFAULT_BOARD_RECOMPUTE_PARAMS.warmupBuckets;
+  if (typeof kMad !== "number" || !Number.isFinite(kMad)) return null;
+  if (typeof trailingBuckets !== "number" || !Number.isInteger(trailingBuckets)) return null;
+  if (typeof warmupBuckets !== "number" || !Number.isInteger(warmupBuckets)) return null;
+  return { kMad, trailingBuckets, warmupBuckets };
+}
+
+export function hasBoardMadPrebucketDrift(
+  detectorId: string,
+  snapshotParams: Readonly<Record<string, unknown>>,
+  currentParams: Readonly<Record<string, unknown>>,
+): boolean {
+  const snapshotBoard = boardParamsForDetector(detectorId, snapshotParams);
+  const currentBoard = boardParamsForDetector(detectorId, currentParams);
+  if (snapshotBoard === null || currentBoard === null) return false;
+  return BOARD_MAD_PREBUCKET_PARAMS.some((key) => snapshotBoard[key] !== currentBoard[key]);
+}
+
+function isBoardLaneObservation(obs: BacktestObservation): boolean {
+  return obs.lane === undefined || obs.lane === "board";
+}
+
+function isOffpriceLaneObservation(obs: BacktestObservation): boolean {
+  return obs.lane === "offprice";
 }
 
 const median = (xs: readonly number[]): number => {
@@ -115,7 +173,7 @@ export function recomputeBoardMad(
   params: BoardMadRecomputeParams,
   gamesInWindow: number,
 ): RecomputeResult {
-  const groups = groupByGame(response.observations);
+  const groups = groupByGame(response.observations.filter(isBoardLaneObservation));
   const totalFires = { count: 0 };
   const out: RecomputedObservation[] = [];
   for (const group of groups) {
@@ -166,16 +224,20 @@ export function applyClientRecompute(
   response: BacktestResponse,
   params: Readonly<Record<string, unknown>>,
 ): RecomputeResult | null {
-  if (detectorId !== BOARD_MAD_DETECTOR_ID) return null;
-  const kMad = params["kMad"];
-  const trailingBuckets = params["trailingBuckets"];
-  const warmupBuckets = params["warmupBuckets"];
-  if (typeof kMad !== "number" || !Number.isFinite(kMad)) return null;
-  if (typeof trailingBuckets !== "number" || !Number.isInteger(trailingBuckets)) return null;
-  if (typeof warmupBuckets !== "number" || !Number.isInteger(warmupBuckets)) return null;
-  return recomputeBoardMad(
-    response,
-    { kMad, trailingBuckets, warmupBuckets },
-    response.stats.gamesInWindow,
-  );
+  if (detectorId !== BOARD_MAD_DETECTOR_ID && detectorId !== ENSEMBLE_OR_DETECTOR_ID) return null;
+  const boardParams = readBoardMadRecomputeParams(detectorId, params);
+  if (boardParams === null) return null;
+  const boardResult = recomputeBoardMad(response, boardParams, response.stats.gamesInWindow);
+  const offpriceRows = response.observations.filter(isOffpriceLaneObservation);
+  const offpriceFires = offpriceRows.reduce((acc, obs) => acc + (obs.fired === 1 ? 1 : 0), 0);
+  const totalFires = boardResult.stats.totalFires + offpriceFires;
+  const denom = response.stats.gamesInWindow > 0 ? response.stats.gamesInWindow : 1;
+  return {
+    stats: {
+      totalFires,
+      firesPerGame: totalFires / denom,
+      gamesInWindow: response.stats.gamesInWindow,
+    },
+    observations: [...boardResult.observations, ...offpriceRows],
+  };
 }

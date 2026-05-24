@@ -11,6 +11,8 @@ import {
   upsertSourceMarket,
 } from "@signal-console/shared";
 
+import { buildCanonicalMoneylineInstrumentId } from "./canonical-instruments";
+
 type FetchLike = typeof fetch;
 
 const KALSHI_DEFAULT_BASE_URL = "https://api.elections.kalshi.com/trade-api/v2";
@@ -277,13 +279,6 @@ function resolveParticipantKey(market: KalshiMarket, game: ResearchGameCard) {
   }
 
   return null;
-}
-
-function buildStableId(parts: Array<string | number | null | undefined>) {
-  return parts
-    .map((part) => normalizeToken(String(part ?? "")))
-    .filter(Boolean)
-    .join("-");
 }
 
 function buildRawPayloadHash(payload: Record<string, unknown>) {
@@ -668,7 +663,10 @@ export async function syncKalshiNbaHistorical(options?: {
           continue;
         }
 
-        const instrumentId = buildStableId([game.game.id, "moneyline", participantKey]);
+        const instrumentId = buildCanonicalMoneylineInstrumentId({
+          gameId: game.game.id,
+          participantKey,
+        });
         const sourceMarketId = `kalshi-${market.ticker.toLowerCase()}`;
         const displayLabel = `${market.yes_sub_title ?? participantKey} moneyline`;
 

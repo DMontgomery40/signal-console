@@ -32,6 +32,7 @@ import {
 import { defaultValuesFor, parseSchema, type ParsedProperty } from "../../lib/paramsSchema";
 import {
   applyClientRecompute,
+  hasBoardMadPrebucketDrift,
   isBoardMadPrebucketField,
   BOARD_MAD_DETECTOR_ID,
   ENSEMBLE_OR_DETECTOR_ID,
@@ -366,20 +367,21 @@ function readRenderedResultKMad(
   return readBoardKMad(paramsForRenderedRows, snapshot.detectorId);
 }
 
-// True when any param that drives prebucket has drifted from the snapshot's
-// last-run values. Off-price-print has no prebucket params, so we look for
-// drift on any field for non-board-mad detectors.
+// True when any param that the client cannot re-apply has drifted from the
+// snapshot's last-run values. Board-like detectors can recompute K/Memory/Warmup
+// in memory, but bucket/weighting/freshness changes still need a server run.
 function snapshotIsStale(
   snapshot: RunSnapshot,
   currentParams: Readonly<Record<string, unknown>>,
 ): boolean {
   if (snapshot.detectorId === BOARD_MAD_DETECTOR_ID) {
-    for (const key of Object.keys(currentParams)) {
-      if (isBoardMadPrebucketField(key)) {
-        if (snapshot.params[key] !== currentParams[key]) return true;
-      }
+    return hasBoardMadPrebucketDrift(snapshot.detectorId, snapshot.params, currentParams);
+  }
+  if (snapshot.detectorId === ENSEMBLE_OR_DETECTOR_ID) {
+    if (hasBoardMadPrebucketDrift(snapshot.detectorId, snapshot.params, currentParams)) {
+      return true;
     }
-    return false;
+    return snapshot.params["offprice"] !== currentParams["offprice"];
   }
   for (const key of Object.keys(currentParams)) {
     if (snapshot.params[key] !== currentParams[key]) return true;

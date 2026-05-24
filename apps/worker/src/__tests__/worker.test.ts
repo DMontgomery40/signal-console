@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -13,6 +13,7 @@ import {
 } from "@signal-console/shared";
 
 import { buildWorkerHeartbeatSummary, calculateBackoffDelay, runWorkerCycle } from "../index";
+import { writeHeartbeatJson } from "../heartbeat-emitter";
 
 let tempDir = "";
 
@@ -58,6 +59,7 @@ describe("worker runtime", () => {
     expect(summary.kalshiSourceMarketsObserved).toBe(0);
     expect(summary.nbaGamesObserved).toBe(0);
     expect(summary.nbaSidecarConfigured).toBe(false);
+    expect(summary.nbaSidecarLastSyncAt).toBeNull();
     expect(summary.polymarketGamesMatched).toBe(0);
     expect(summary.polymarketSourceMarketsObserved).toBe(0);
     expect(summary.providerFailures).toEqual([]);
@@ -171,6 +173,7 @@ describe("worker runtime", () => {
       expect(result.summary.kalshiSourceMarketsObserved).toBe(4);
       expect(result.summary.nbaGamesObserved).toBe(3);
       expect(result.summary.nbaSidecarConfigured).toBe(true);
+      expect(result.summary.nbaSidecarLastSyncAt).toBe("2026-04-22T06:00:00.000Z");
       expect(result.summary.polymarketGamesMatched).toBe(2);
       expect(result.summary.polymarketSourceMarketsObserved).toBe(12);
     }
@@ -184,6 +187,35 @@ describe("worker runtime", () => {
     );
     expect(syncNbaSidecar).toHaveBeenCalledOnce();
     expect(syncPolymarket).toHaveBeenCalledOnce();
+  });
+
+  it("does not synthesize nba-sidecar freshness when the sidecar is disabled", () => {
+    const outPath = join(tempDir, "heartbeat-disabled.json");
+
+    writeHeartbeatJson({
+      nbaSidecarConfigured: false,
+      outPath,
+    });
+
+    const parsed = JSON.parse(readFileSync(outPath, "utf8")) as {
+      sources?: Record<string, unknown>;
+    };
+    expect(parsed.sources?.["nba-sidecar"]).toBeUndefined();
+  });
+
+  it("writes nba-sidecar freshness only from the observed sidecar sync time", () => {
+    const outPath = join(tempDir, "heartbeat-sidecar.json");
+
+    writeHeartbeatJson({
+      nbaSidecarConfigured: true,
+      nbaSidecarLastSyncAt: "2026-04-22T06:00:00.000Z",
+      outPath,
+    });
+
+    const parsed = JSON.parse(readFileSync(outPath, "utf8")) as {
+      sources?: Record<string, { lastSyncAt?: string | null }>;
+    };
+    expect(parsed.sources?.["nba-sidecar"]?.lastSyncAt).toBe("2026-04-22T06:00:00.000Z");
   });
 
   it("keeps later market providers running when bet365 is rate-limited", async () => {

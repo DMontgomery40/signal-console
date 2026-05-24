@@ -10,6 +10,8 @@ import {
   upsertSourceMarket,
 } from "@signal-console/shared";
 
+import { buildCanonicalMoneylineInstrumentId, buildStableId } from "./canonical-instruments";
+
 type FetchLike = typeof fetch;
 
 const POLYMARKET_GAMMA_BASE_URL = "https://gamma-api.polymarket.com";
@@ -125,13 +127,6 @@ function toNumber(value: number | string | null | undefined) {
   if (value == null || value === "") return null;
   const n = Number(value);
   return Number.isFinite(n) ? n : null;
-}
-
-function buildStableId(parts: Array<string | number | null | undefined>) {
-  return parts
-    .map((part) => normalizeToken(String(part ?? "")))
-    .filter(Boolean)
-    .join("-");
 }
 
 function buildRawPayloadHash(payload: Record<string, unknown>) {
@@ -436,7 +431,10 @@ export async function syncPolymarketNbaHistorical(options?: {
             participantKey = resolveOutcomeParticipantKey(event, outcomeLabel, game);
             if (!participantKey) continue;
 
-            instrumentId = buildStableId([game.game.id, "moneyline", participantKey]);
+            instrumentId = buildCanonicalMoneylineInstrumentId({
+              gameId: game.game.id,
+              participantKey,
+            });
             displayLabel = `${outcomeLabel} moneyline`;
             rawFamily = "moneyline";
             selection = participantKey;

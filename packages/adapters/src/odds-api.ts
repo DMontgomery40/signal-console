@@ -10,6 +10,8 @@ import {
   upsertSourceMarket,
 } from "@signal-console/shared";
 
+import { buildCanonicalMoneylineInstrumentId, buildStableId } from "./canonical-instruments";
+
 type FetchLike = typeof fetch;
 
 type OddsApiBookmakerName = "Bet365" | "Kalshi";
@@ -178,13 +180,6 @@ function formatLine(line: number | null) {
   }
 
   return `${line}`;
-}
-
-function buildStableId(parts: Array<string | number | null | undefined>) {
-  return parts
-    .map((part) => normalizeToken(String(part ?? "")))
-    .filter(Boolean)
-    .join("-");
 }
 
 function buildRawPayloadHash(payload: Record<string, unknown>) {
@@ -720,7 +715,10 @@ function buildMoneylineRecords(
         sourceSelectionKey: homeSelection.key,
       }),
       instrumentId: autoMap
-        ? buildStableId([game.game.id, "moneyline", homeSelection.label, "moneyline"])
+        ? buildCanonicalMoneylineInstrumentId({
+            gameId: game.game.id,
+            participantKey: homeSelection.key,
+          })
         : null,
     },
     {
@@ -754,7 +752,10 @@ function buildMoneylineRecords(
         sourceSelectionKey: awaySelection.key,
       }),
       instrumentId: autoMap
-        ? buildStableId([game.game.id, "moneyline", awaySelection.label, "moneyline"])
+        ? buildCanonicalMoneylineInstrumentId({
+            gameId: game.game.id,
+            participantKey: awaySelection.key,
+          })
         : null,
     },
   ].filter((record) => record.priceRaw != null);

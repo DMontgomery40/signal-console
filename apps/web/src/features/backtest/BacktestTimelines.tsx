@@ -90,12 +90,16 @@ function groupByGame(
   return map;
 }
 
+function isBoardObservation(obs: BacktestObservation): boolean {
+  return obs.lane === undefined || obs.lane === "board";
+}
+
 function buildGroups(
   snapshotObservations: readonly BacktestObservation[],
   recomputedObservations: readonly BacktestObservation[],
 ): readonly GroupedObservations[] {
-  const snapshotGroups = groupByGame(snapshotObservations);
-  const recomputeGroups = groupByGame(recomputedObservations);
+  const snapshotGroups = groupByGame(snapshotObservations.filter(isBoardObservation));
+  const recomputeGroups = groupByGame(recomputedObservations.filter(isBoardObservation));
   const out: GroupedObservations[] = [];
   for (const [gameId, snapshotRows] of snapshotGroups) {
     const recomputedRows = recomputeGroups.get(gameId) ?? snapshotRows;

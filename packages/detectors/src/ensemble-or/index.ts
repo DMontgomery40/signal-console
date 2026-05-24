@@ -34,12 +34,17 @@ export const Params = z.object({
 
 type ParamsResolved = z.infer<typeof Params>;
 
-// Two events on the same game at the same timestamp from the same lane
-// would otherwise duplicate in the union (off-price-print returns one fire
-// per microstructure event, board-mad returns one per fired bucket — disjoint
-// by lane, but defensively dedup anyway).
+// Two outputs from the same lane can share game + timestamp without being the
+// same event. Off-price prints carry sourceMarketId so simultaneous distinct
+// markets stay distinct, while duplicate rows from the same market collapse.
 function dedupeKey(f: DetectorFire): string {
-  return `${f.gameId}|${f.bucketStart.toISOString()}|${f.lane ?? ""}`;
+  return [
+    f.gameId,
+    f.bucketStart.toISOString(),
+    f.bucketEnd.toISOString(),
+    f.lane ?? "",
+    f.sourceMarketId ?? "",
+  ].join("|");
 }
 
 const uniqueGameIds = (gameIds: readonly string[]): readonly string[] =>

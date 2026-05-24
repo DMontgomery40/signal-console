@@ -10,6 +10,8 @@ import {
   upsertSourceMarket,
 } from "@signal-console/shared";
 
+import { buildCanonicalMoneylineInstrumentId, buildStableId } from "./canonical-instruments";
+
 type FetchLike = typeof fetch;
 
 type PolymarketTeam = {
@@ -165,13 +167,6 @@ function buildSourceMarketId(marketId: string, selectionKey: string) {
   return `pm-${marketId}-${normalizeToken(selectionKey)}`;
 }
 
-function buildStableId(parts: Array<string | number | null | undefined>) {
-  return parts
-    .map((part) => normalizeToken(String(part ?? "")))
-    .filter(Boolean)
-    .join("-");
-}
-
 function buildGameKey(date: string, teamKeys: string[]) {
   return `${date}::${teamKeys
     .map((key) => normalizeToken(key))
@@ -304,12 +299,11 @@ function buildMoneylineSelectionRecords(
       }
 
       const displayLabel = `${marketWindowPrefix(marketType)}${outcome} moneyline`;
-      const instrumentId = buildStableId([
-        game.game.id,
-        "moneyline",
-        outcome,
-        market.sportsMarketType ?? "moneyline",
-      ]);
+      const instrumentId = buildCanonicalMoneylineInstrumentId({
+        gameId: game.game.id,
+        participantKey,
+        period: marketType === "first_half_moneyline" ? "first-half" : null,
+      });
       const sourceSelectionKey = participantKey;
       const sourceMarketId = buildSourceMarketId(market.id, sourceSelectionKey);
       const rawPayloadJson = {
