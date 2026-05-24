@@ -387,6 +387,23 @@ function MicrostructureStrip({
   );
 }
 
+function formatBucketVolume(v: number | null | undefined): string {
+  if (v === null || v === undefined || !Number.isFinite(v) || v <= 0) return "—";
+  if (v >= 1_000_000) return `$${(v / 1_000_000).toFixed(2)}M`;
+  if (v >= 1_000) return `$${(v / 1_000).toFixed(1)}k`;
+  return `$${v.toFixed(0)}`;
+}
+
+// Volume thresholds for highlighting "where the money was". Tuned to the
+// 60s bucket scale — $5k+ is meaningful on a single-game player-prop,
+// $25k+ is a heavy bucket. Adjust with operator feedback over time.
+function volumeHeatClass(v: number | null | undefined): string {
+  if (v === null || v === undefined || !Number.isFinite(v) || v <= 0) return "text-text-md";
+  if (v >= 25_000) return "text-accent-yellow font-semibold";
+  if (v >= 5_000) return "text-accent-yellow";
+  return "text-text-hi";
+}
+
 function MoversTable({ movers }: { readonly movers: readonly FanoutMover[] }): JSX.Element {
   if (movers.length === 0) {
     return (
@@ -404,6 +421,12 @@ function MoversTable({ movers }: { readonly movers: readonly FanoutMover[] }): J
             <th className="py-2 font-normal">ipBefore</th>
             <th className="py-2 font-normal">ipAfter</th>
             <th className="py-2 font-normal">ΔIP</th>
+            <th
+              className="py-2 font-normal"
+              title="Cumulative market volume traded during the 60s bucket window"
+            >
+              $ bucket vol
+            </th>
             <th className="py-2 font-normal">Contribution</th>
             <th className="py-2 font-normal">In bucket</th>
           </tr>
@@ -423,6 +446,12 @@ function MoversTable({ movers }: { readonly movers: readonly FanoutMover[] }): J
                 <td className="tabular py-2 pr-4 font-mono text-text-hi">
                   {formatSignedIp(m.ipDelta)}
                 </td>
+                <td
+                  className={`tabular py-2 pr-4 font-mono ${volumeHeatClass(m.bucketVolume)}`}
+                  data-testid="fanout-mover-bucket-volume"
+                >
+                  {formatBucketVolume(m.bucketVolume)}
+                </td>
                 <td className="tabular py-2 pr-4 font-mono text-text-hi">
                   {m.contributionPct.toFixed(1)}%
                 </td>
@@ -440,7 +469,9 @@ function MoversTable({ movers }: { readonly movers: readonly FanoutMover[] }): J
       <p className="font-mono text-[11px] text-text-lo" data-testid="fanout-movers-caveat">
         <span className="font-semibold text-text-md">In bucket</span> is when the market moved within
         the 60s alert window (0–60s from bucket start). The alert itself confirms at the end of the
-        window. This is NOT lead time over the trading desk.
+        window. This is NOT lead time over the trading desk.{" "}
+        <span className="font-semibold text-text-md">$ bucket vol</span> highlights markets where
+        money actually flowed during the alert window — gold = $5k+, gold-bold = $25k+.
       </p>
     </div>
   );

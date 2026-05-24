@@ -134,6 +134,7 @@ const boardRoutes: FastifyPluginAsync<BoardRoutesOptions> = (app, opts) => {
       "ipDelta",
       "contributionPct",
       "deltaSecondsFromFire",
+      "bucketVolume",
     ],
     properties: {
       sourceMarketId: { type: "string" },
@@ -143,6 +144,9 @@ const boardRoutes: FastifyPluginAsync<BoardRoutesOptions> = (app, opts) => {
       ipDelta: { type: ["number", "null"] },
       contributionPct: { type: "number" },
       deltaSecondsFromFire: { type: "number" },
+      // Cumulative market volume traded during the 60s bucket window.
+      // Null if the market had < 2 in-bucket ticks. "Show me the money".
+      bucketVolume: { type: ["number", "null"] },
     },
   } as const;
   const fanoutMicroEventJsonSchema = {

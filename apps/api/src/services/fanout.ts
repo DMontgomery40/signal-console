@@ -65,6 +65,12 @@ export interface FanoutMover {
   // bucket). NOT a lead-over-the-desk figure. The alert itself confirms at
   // bucket_end = bucket_start + 60s.
   readonly deltaSecondsFromFire: number;
+  // Cumulative market volume traded during the 60s bucket window
+  // (volume_at_last_in_bucket_tick − volume_at_first_in_bucket_tick). Null
+  // if the market had < 2 in-bucket ticks or all volumes were null. This
+  // is the "show me the money" column — large values flag heavy activity
+  // that the IP-only ΔIP/contribution% surface can hide on thin markets.
+  readonly bucketVolume: number | null;
 }
 
 // One Polymarket trade print in the ±5min drilldown window. The off-price
@@ -251,6 +257,7 @@ function loadMovers(
     readonly ipBefore: number | null;
     readonly ipAfter: number | null;
     readonly representativeMs: number | null;
+    readonly bucketVolume: number | null;
   }
 
   const aggregated: MarketAgg[] = [];
@@ -261,6 +268,11 @@ function loadMovers(
     let ipAfter: number | null = null;
     let representativeMs: number | null = null;
     let bestContribution = 0;
+    // Track first/last in-bucket cumulative volume so we can surface
+    // "how much money traded on this market during the 60s bucket" as a
+    // distinct column from contribution % (which is intensity-weighted).
+    let firstInBucketVolume: number | null = null;
+    let lastInBucketVolume: number | null = null;
     for (let i = 0; i < ticks.length; i += 1) {
       const t = ticks[i]!;
       if (t.capturedAtMs < bucketStartMs) {
@@ -269,6 +281,8 @@ function loadMovers(
       }
       if (t.capturedAtMs < bucketEndMs) {
         ipAfter = t.impliedProbability;
+        if (firstInBucketVolume === null) firstInBucketVolume = t.volume;
+        lastInBucketVolume = t.volume;
         // Skip the first tick of the market that lands inside the bucket
         // if there is no prior tick — we can't compute a delta and the
         // detector treats it the same way (LAG returns null).
@@ -286,6 +300,10 @@ function loadMovers(
         }
       }
     }
+    const bucketVolume =
+      firstInBucketVolume !== null && lastInBucketVolume !== null
+        ? Math.max(0, lastInBucketVolume - firstInBucketVolume)
+        : null;
     if (contribution > 0 || ipAfter !== null) {
       aggregated.push({
         sourceMarketId,
@@ -293,6 +311,7 @@ function loadMovers(
         ipBefore,
         ipAfter,
         representativeMs,
+        bucketVolume,
       });
     }
   }
@@ -323,6 +342,7 @@ function loadMovers(
       ipDelta,
       contributionPct: roundTenth(contributionPct),
       deltaSecondsFromFire: roundTenth(deltaSec),
+      bucketVolume: m.bucketVolume,
     };
   });
 }

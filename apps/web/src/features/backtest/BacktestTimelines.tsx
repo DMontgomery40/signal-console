@@ -192,7 +192,16 @@ function TimelineChart({
           />
           <YAxis
             tick={{ fill: colors.textLo, fontSize: 13, fontFamily: "JetBrains Mono" }}
-            width={36}
+            width={56}
+            label={{
+              value: "intensity",
+              angle: -90,
+              position: "insideLeft",
+              fill: colors.textLo,
+              fontFamily: "JetBrains Mono",
+              fontSize: 11,
+              offset: 12,
+            }}
           />
           <Line
             type="monotone"
@@ -260,7 +269,16 @@ function ContextTimeline({
           />
           <YAxis
             tick={{ fill: colors.textLo, fontSize: 13, fontFamily: "JetBrains Mono" }}
-            width={36}
+            width={56}
+            label={{
+              value: "intensity",
+              angle: -90,
+              position: "insideLeft",
+              fill: colors.textLo,
+              fontFamily: "JetBrains Mono",
+              fontSize: 11,
+              offset: 12,
+            }}
           />
           <Tooltip
             contentStyle={{

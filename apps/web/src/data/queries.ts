@@ -106,6 +106,10 @@ const fanoutMoverSchema = z.object({
   ipDelta: z.number().nullable(),
   contributionPct: z.number(),
   deltaSecondsFromFire: z.number(),
+  // Cumulative market volume traded during the 60s bucket. Optional for
+  // back-compat with older API responses that pre-dated the money-move
+  // column.
+  bucketVolume: z.number().nullable().optional(),
 });
 const fanoutMicroEventSchema = z.object({
   eventTimestamp: z.string(),
