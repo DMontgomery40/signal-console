@@ -26,6 +26,7 @@ import {
   type AppLogger,
 } from "@signal-console/shared";
 
+import { writeHeartbeatJson } from "./heartbeat-emitter";
 import { syncNbaSidecarWindow } from "./nba-sidecar";
 
 const workerLogger = createAppLogger({ component: "worker" });
@@ -655,6 +656,16 @@ export function startWorker(options?: {
         intervalMs,
         logger: cycleLogger,
         maxBackoffMs,
+        onHeartbeat: (summary) => {
+          try {
+            writeHeartbeatJson({ providerFailures: summary.providerFailures });
+          } catch (err) {
+            cycleLogger.warn(
+              { error: serializeErrorForLog(err) },
+              "heartbeat.json write failed",
+            );
+          }
+        },
         providerCooldowns,
       });
 
