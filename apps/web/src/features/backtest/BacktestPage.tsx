@@ -58,6 +58,33 @@ function readNumber(v: unknown, fallback: number): number {
   return typeof v === "number" && Number.isFinite(v) ? v : fallback;
 }
 
+// Both board-mad and ensemble-or share the board lane's K/Memory/Warmup knobs.
+// The dials are the marquee Backtest UX so they render for either detector;
+// the difference is just where in the params tree the values live.
+function isBoardLikeDetector(id: string | undefined): boolean {
+  return id === BOARD_MAD_DETECTOR_ID || id === ENSEMBLE_OR_DETECTOR_ID;
+}
+
+function isPlainRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+// Board params live at params.<name> for board-mad and params.board.<name> for
+// ensemble-or. These helpers paper over that so the dial wiring stays simple.
+function readBoardParam(
+  params: Readonly<Record<string, unknown>>,
+  detectorId: string | undefined,
+  name: string,
+  fallback: number,
+): number {
+  if (detectorId === ENSEMBLE_OR_DETECTOR_ID) {
+    const board = params["board"];
+    if (isPlainRecord(board)) return readNumber(board[name], fallback);
+    return fallback;
+  }
+  return readNumber(params[name], fallback);
+}
+
 const MAX_WINDOW_DAYS = 28;
 const MAX_GAMES = 20;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -402,6 +429,21 @@ export function BacktestPage(): JSX.Element {
     setForm((prev) => ({ ...prev, params: { ...prev.params, [name]: next } }));
   }
 
+  // Mirror of updateParam for the board lane's nested params under ensemble-or.
+  // For board-mad it falls back to updateParam.
+  function updateBoardParam(name: string, next: unknown): void {
+    setForm((prev) => {
+      if (prev.detectorId === ENSEMBLE_OR_DETECTOR_ID) {
+        const prevBoard = isPlainRecord(prev.params["board"]) ? prev.params["board"] : {};
+        return {
+          ...prev,
+          params: { ...prev.params, board: { ...prevBoard, [name]: next } },
+        };
+      }
+      return { ...prev, params: { ...prev.params, [name]: next } };
+    });
+  }
+
   function handleDetectorChange(id: string): void {
     const next = detectorRows.find((d) => d.id === id);
     const props = next !== undefined ? parseSchema(next.paramsSchema) : [];
@@ -638,7 +680,7 @@ export function BacktestPage(): JSX.Element {
               bucketSeconds remain in the secondary form. The live-preview
               metric is centered below both dials so the eye tracks "either
               knob moves → fires/game moves" in one visual region. */}
-          {selectedDetector?.id === BOARD_MAD_DETECTOR_ID ? (
+          {isBoardLikeDetector(selectedDetector?.id) ? (
             <div
               className="mt-8 flex flex-col items-center gap-8"
               data-testid="backtest-cry-wolf-dial"
@@ -648,15 +690,25 @@ export function BacktestPage(): JSX.Element {
                 data-testid="backtest-dials-panel"
               >
                 <CryWolfDial
-                  value={readNumber(form.params[KMAD_PARAM_NAME], K_MAD_LIVE)}
+                  value={readBoardParam(
+                    form.params,
+                    selectedDetector?.id,
+                    KMAD_PARAM_NAME,
+                    K_MAD_LIVE,
+                  )}
                   onChange={(next) => {
-                    updateParam(KMAD_PARAM_NAME, next);
+                    updateBoardParam(KMAD_PARAM_NAME, next);
                   }}
                 />
                 <MemoryDial
-                  value={readNumber(form.params[TRAILING_PARAM_NAME], TRAILING_DEFAULT)}
+                  value={readBoardParam(
+                    form.params,
+                    selectedDetector?.id,
+                    TRAILING_PARAM_NAME,
+                    TRAILING_DEFAULT,
+                  )}
                   onChange={(next) => {
-                    updateParam(TRAILING_PARAM_NAME, next);
+                    updateBoardParam(TRAILING_PARAM_NAME, next);
                   }}
                 />
               </div>
@@ -669,7 +721,7 @@ export function BacktestPage(): JSX.Element {
             </div>
           ) : null}
 
-          {selectedDetector?.id === BOARD_MAD_DETECTOR_ID ? (
+          {isBoardLikeDetector(selectedDetector?.id) ? (
             // Warmup is a secondary in-memory-recompute control (US-053 AC #8:
             // demoted from the prominent dial slot, now lives inside the
             // params auto-form). Rendered above the rest of the auto-form
@@ -679,9 +731,14 @@ export function BacktestPage(): JSX.Element {
             // freshCapSeconds) are prebucket-only and need a fresh server run.
             <div className="mt-6" data-testid="backtest-warmup-dial">
               <WarmupDial
-                value={readNumber(form.params[WARMUP_PARAM_NAME], WARMUP_DEFAULT)}
+                value={readBoardParam(
+                  form.params,
+                  selectedDetector?.id,
+                  WARMUP_PARAM_NAME,
+                  WARMUP_DEFAULT,
+                )}
                 onChange={(next) => {
-                  updateParam(WARMUP_PARAM_NAME, next);
+                  updateBoardParam(WARMUP_PARAM_NAME, next);
                 }}
               />
             </div>
@@ -693,13 +750,24 @@ export function BacktestPage(): JSX.Element {
               className="mt-4 grid grid-cols-[max-content_1fr] gap-x-8"
             >
               {parsedProps
-                .filter(
-                  (p) =>
+                .filter((p) => {
+                  // Ensemble-or's top-level params are nested objects (board,
+                  // offprice) that parseSchema returns as kind="unknown". They
+                  // render as bare placeholder rows ("BOARD —", "OFFPRICE —")
+                  // with no controls — useless and confusing. Hide them; the
+                  // dials own the board lane and off-price thresholds run at
+                  // their defaults until we add nested sub-controls.
+                  if (selectedDetector.id === ENSEMBLE_OR_DETECTOR_ID) {
+                    return p.kind.kind !== "unknown";
+                  }
+                  // Board-mad: the K/Memory/Warmup dials replace those rows.
+                  return (
                     selectedDetector.id !== BOARD_MAD_DETECTOR_ID ||
                     (p.name !== KMAD_PARAM_NAME &&
                       p.name !== TRAILING_PARAM_NAME &&
-                      p.name !== WARMUP_PARAM_NAME),
-                )
+                      p.name !== WARMUP_PARAM_NAME)
+                  );
+                })
                 .map((p) => (
                   <ParamRow
                     key={p.name}

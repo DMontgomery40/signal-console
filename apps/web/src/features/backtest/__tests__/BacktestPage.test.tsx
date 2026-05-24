@@ -369,9 +369,24 @@ describe("BacktestPage", () => {
       if (!(sel instanceof HTMLSelectElement)) throw new Error("not a select");
       expect(sel.value).toBe("ensemble-or");
     });
-    // The Cry Wolf dial is board-mad-only; selecting ensemble-or hides it
-    // (users who want to K-sweep switch to board-mad explicitly).
-    expect(screen.queryByTestId("backtest-cry-wolf-dial")).toBeNull();
+    // Marquee feature — the Cry Wolf K dial + Memory dial + Warmup dial
+    // ALL render for ensemble-or too (wired to the nested params.board.*
+    // path). User explicitly insisted on this in feedback after seeing
+    // the dial-less ensemble-or view.
+    expect(screen.getByTestId("backtest-cry-wolf-dial")).toBeDefined();
+    expect(screen.getByTestId("backtest-warmup-dial")).toBeDefined();
+    // The Cry Wolf dial starts at K_MAD_LIVE = 3 even when the nested
+    // params.board.kMad isn't pre-seeded (readBoardParam fallback).
+    const dial = screen.getByTestId("cry-wolf-dial");
+    expect(dial.getAttribute("aria-valuenow")).toBe("3");
+    // And the unhelpful BOARD/OFFPRICE placeholder rows that parseSchema
+    // returns for ensemble-or's nested objects must NOT render — the user
+    // saw bare "BOARD —" / "OFFPRICE —" lines and called it out.
+    const paramForm = screen.queryByTestId("backtest-param-form");
+    if (paramForm !== null) {
+      expect(paramForm.textContent ?? "").not.toMatch(/BOARD\s*—/i);
+      expect(paramForm.textContent ?? "").not.toMatch(/OFFPRICE\s*—/i);
+    }
   });
 
   it("blocks the Run button when window exceeds 28 days", async () => {
