@@ -76,6 +76,10 @@ const observationJsonSchema = {
     intensity: { type: "number" },
     baselineMedian: { type: "number" },
     baselineMad: { type: "number" },
+    // Optional: ensemble-or tags each observation with its lane so the UI
+    // can render board fires (intensity-vs-threshold timeline) differently
+    // from off-price-print fires (point-in-time tape prints).
+    lane: { type: "string", enum: ["board", "offprice"] },
   },
 } as const;
 

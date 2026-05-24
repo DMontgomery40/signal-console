@@ -27,6 +27,10 @@ import {
   Params as BoardMadParams,
 } from "@signal-console/detectors/board-mad";
 import {
+  detector as ensembleOr,
+  Params as EnsembleOrParams,
+} from "@signal-console/detectors/ensemble-or";
+import {
   detector as offPricePrint,
   Params as OffPricePrintParams,
 } from "@signal-console/detectors/off-price-print";
@@ -54,6 +58,9 @@ export interface BacktestObservation {
   readonly intensity: number;
   readonly baselineMedian: number;
   readonly baselineMad: number;
+  // Set by composite detectors (ensemble-or) so the UI can render board fires
+  // and off-price-print fires differently. Single-lane runs leave it undefined.
+  readonly lane?: "board" | "offprice";
 }
 
 export interface BacktestStats {
@@ -208,6 +215,25 @@ function resolveDispatch(
         run: (w) => offPricePrint.run(w, params),
       };
     }
+    case ensembleOr.id: {
+      const parsed = EnsembleOrParams.safeParse(rawParams);
+      if (!parsed.success) {
+        throw new BacktestError("invalid_params", parsed.error.message);
+      }
+      const params = parsed.data;
+      // detector_version includes the board-mad version because the board
+      // lane's algorithm version is the dominant invalidation axis (the
+      // off-price-print lane is a pure threshold filter and changes are
+      // captured by params_hash). Mirrors boardMadDetectorVersion() so the
+      // cache key invalidates when the live K_MAD setting changes.
+      return {
+        detectorId: ensembleOr.id,
+        detectorVersion: `${ensembleOr.version}+board=${boardMadDetectorVersion(defaults)}+off=${offPricePrint.version}`,
+        params,
+        sources: ["ticks", "microstructure"],
+        run: (w) => ensembleOr.run(w, params),
+      };
+    }
     default:
       throw new BacktestError("unknown_detector", `unknown detector: ${detectorId}`);
   }
@@ -259,7 +285,7 @@ function loadObservations(
 ): readonly BacktestObservation[] {
   const rows = cacheDb
     .prepare(
-      `SELECT game_id, bucket_start, bucket_end, fired, intensity, baseline_median, baseline_mad
+      `SELECT game_id, bucket_start, bucket_end, fired, intensity, baseline_median, baseline_mad, detail_json
        FROM detector_observations
        WHERE run_id = ?
        ORDER BY game_id, bucket_start`,
@@ -267,7 +293,20 @@ function loadObservations(
     .all(runId);
   return rows.map((row): BacktestObservation => {
     if (!isRecord(row)) throw new Error("observation row not an object");
-    return {
+    const detailJson = row["detail_json"];
+    let lane: "board" | "offprice" | undefined;
+    if (typeof detailJson === "string" && detailJson.length > 0) {
+      try {
+        const parsed: unknown = JSON.parse(detailJson);
+        if (isRecord(parsed)) {
+          const candidate = parsed["lane"];
+          if (candidate === "board" || candidate === "offprice") lane = candidate;
+        }
+      } catch {
+        lane = undefined;
+      }
+    }
+    const base = {
       gameId: pickString(row, "game_id"),
       bucketStart: pickString(row, "bucket_start"),
       bucketEnd: pickString(row, "bucket_end"),
@@ -276,12 +315,13 @@ function loadObservations(
       baselineMedian: pickNumber(row, "baseline_median"),
       baselineMad: pickNumber(row, "baseline_mad"),
     };
+    return lane === undefined ? base : { ...base, lane };
   });
 }
 
 function buildObservationsFromResult(result: DetectorResult): readonly BacktestObservation[] {
   if (result.buckets.length > 0) {
-    return result.buckets.map(
+    const out: BacktestObservation[] = result.buckets.map(
       (b): BacktestObservation => ({
         gameId: b.gameId,
         bucketStart: b.bucketStart.toISOString(),
@@ -290,12 +330,32 @@ function buildObservationsFromResult(result: DetectorResult): readonly BacktestO
         intensity: b.intensity,
         baselineMedian: b.baselineMedian,
         baselineMad: b.baselineMad,
+        lane: "board",
       }),
     );
+    // Non-board lane fires (e.g. off-price-print events when running
+    // ensemble-or) aren't represented in buckets — they're point-in-time
+    // tape prints, not per-minute aggregates. Append them so the response
+    // carries both lanes.
+    for (const f of result.fires) {
+      if (f.lane === "offprice") {
+        out.push({
+          gameId: f.gameId,
+          bucketStart: f.bucketStart.toISOString(),
+          bucketEnd: f.bucketEnd.toISOString(),
+          fired: 1,
+          intensity: f.intensity,
+          baselineMedian: f.baselineMedian,
+          baselineMad: f.baselineMad,
+          lane: "offprice",
+        });
+      }
+    }
+    return out;
   }
-  // Detectors without per-bucket output (e.g. off-price-print) emit fires
-  // directly; persist each fire as a fired=1 observation with the same
-  // bucketStart/End so the response shape stays uniform.
+  // Detectors without per-bucket output (e.g. off-price-print run alone)
+  // emit fires directly; persist each fire as a fired=1 observation with
+  // the same bucketStart/End so the response shape stays uniform.
   return result.fires.map(
     (f): BacktestObservation => ({
       gameId: f.gameId,
@@ -305,6 +365,7 @@ function buildObservationsFromResult(result: DetectorResult): readonly BacktestO
       intensity: f.intensity,
       baselineMedian: f.baselineMedian,
       baselineMad: f.baselineMad,
+      ...(f.lane === undefined ? {} : { lane: f.lane }),
     }),
   );
 }
@@ -347,7 +408,7 @@ function persistRun(cacheDb: Database.Database, args: PersistArgs): number {
     `INSERT INTO detector_observations (
        run_id, game_id, bucket_start, bucket_end, fired,
        intensity, baseline_median, baseline_mad, detail_json
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   const tx = cacheDb.transaction((): number => {
     const result = insertRun.run(
@@ -364,6 +425,7 @@ function persistRun(cacheDb: Database.Database, args: PersistArgs): number {
     );
     const runId = Number(result.lastInsertRowid);
     for (const obs of args.observations) {
+      const detail = obs.lane === undefined ? null : JSON.stringify({ lane: obs.lane });
       insertObs.run(
         runId,
         obs.gameId,
@@ -373,6 +435,7 @@ function persistRun(cacheDb: Database.Database, args: PersistArgs): number {
         obs.intensity,
         obs.baselineMedian,
         obs.baselineMad,
+        detail,
       );
     }
     return runId;

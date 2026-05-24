@@ -18,6 +18,7 @@
 import type { z } from "zod";
 
 import { detector as boardMad } from "./board-mad";
+import { detector as ensembleOr } from "./ensemble-or";
 import { detector as offPricePrint } from "./off-price-print";
 import type { Detector, Source } from "./types";
 
@@ -44,4 +45,5 @@ export type DetectorRegistry = ReadonlyMap<string, RegisteredDetector>;
 export const registry: DetectorRegistry = new Map<string, RegisteredDetector>([
   [boardMad.id, meta(boardMad)],
   [offPricePrint.id, meta(offPricePrint)],
+  [ensembleOr.id, meta(ensembleOr)],
 ]);

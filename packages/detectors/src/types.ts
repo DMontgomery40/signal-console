@@ -58,6 +58,13 @@ export type DetectorWindow = {
 // (used by /v1/board observations for downstream UI). `gameId` is required so
 // the cache write path (US-021) can populate detector_observations.game_id
 // without a separate join.
+//
+// `lane` is set by composite detectors (ensemble-or) so the UI can render
+// board fires and off-price-print fires with different visual treatments
+// (e.g. solid green vs red dashed). Single-lane detectors leave it undefined;
+// downstream consumers default to the detector's id for back-compat.
+export type DetectorFireLane = "board" | "offprice";
+
 export type DetectorFire = {
   readonly gameId: string;
   readonly bucketStart: Date;
@@ -65,6 +72,7 @@ export type DetectorFire = {
   readonly intensity: number;
   readonly baselineMedian: number;
   readonly baselineMad: number;
+  readonly lane?: DetectorFireLane;
 };
 
 export type DetectorStats = {

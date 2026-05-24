@@ -1,6 +1,8 @@
 // US-026 wired board-mad. US-027 added off-price-print so the registry now
 // ships with two detectors as required by PRD §10. US-048 adds the `sources`
 // closed-set field so the UI can surface a SOURCES chip per detector.
+// Ensemble-OR (Stage 1, suspend-signal report §8.1) was added later — the
+// recommended Live/Backtest default that runs both lanes in one pass.
 
 import { describe, expect, it } from "vitest";
 
@@ -27,8 +29,17 @@ describe("detector registry", () => {
     expect(entry.paramsSchema).toBeDefined();
   });
 
-  it("ships with two detectors", () => {
-    expect(registry.size).toBe(2);
+  it("contains ensemble-or (Stage 1 from suspend-signal report §8.1)", () => {
+    const entry = registry.get("ensemble-or");
+    expect(entry).toBeDefined();
+    if (entry === undefined) return;
+    expect(entry.id).toBe("ensemble-or");
+    expect(entry.displayName).toContain("Stage 1");
+    expect(entry.paramsSchema).toBeDefined();
+  });
+
+  it("ships with three detectors (board-mad + off-price-print + ensemble-or)", () => {
+    expect(registry.size).toBe(3);
   });
 
   it("every registered detector declares a non-empty sources array (US-048)", () => {
