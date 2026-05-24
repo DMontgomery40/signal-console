@@ -21,6 +21,12 @@ scripts/ralph/.playwright-mcp/
 data/*.sqlite
 data/*.sqlite-wal
 data/*.sqlite-shm
+data/*.sqlite.pre-*
+data/*.sqlite.corrupt-*
 
 # Worker runtime heartbeat (updated each ingest cycle)
 apps/worker/data/heartbeat.json
+
+# Editor and assistant local state
+.agents/
+.claude/scheduled_tasks.lock
