@@ -477,8 +477,20 @@ function computeWatermarkHash(args: WatermarkArgs): string {
                  AND qt.captured_at <= ?`,
             )
             .get(gameId, tickWindow.start.toISOString(), tickWindow.end.toISOString());
-    const mme =
+    const mmeWindowStart =
       usesMicrostructure && args.scope.kind === "window"
+        ? args.scope.windowStart
+        : usesMicrostructure
+          ? new Date(0).toISOString()
+          : null;
+    const mmeWindowEnd =
+      usesMicrostructure && args.scope.kind === "window"
+        ? args.scope.windowEnd
+        : usesMicrostructure
+          ? new Date(8640000000000000).toISOString()
+          : null;
+    const mme =
+      usesMicrostructure && mmeWindowStart !== null && mmeWindowEnd !== null
         ? args.goldDb
             .prepare(
               `SELECT COUNT(*) AS cnt,
@@ -491,7 +503,32 @@ function computeWatermarkHash(args: WatermarkArgs): string {
                  AND event_timestamp >= ?
                  AND event_timestamp <= ?`,
             )
-            .get(gameId, args.scope.windowStart, args.scope.windowEnd)
+            .get(gameId, mmeWindowStart, mmeWindowEnd)
+        : null;
+    // off-price-distance is derived from the LATEST prior quote tick (causal
+    // subquery in loadMicrostructureForGames). Track upstream quote_ticks
+    // state for the source_markets referenced by microstructure events so a
+    // cached off-price run invalidates when those priors change.
+    const mmeQt =
+      usesMicrostructure && mmeWindowStart !== null && mmeWindowEnd !== null
+        ? args.goldDb
+            .prepare(
+              `SELECT COUNT(*) AS cnt,
+                      COALESCE(MAX(qt.id), 0) AS max_id,
+                      COALESCE(MAX(qt.captured_at), '') AS max_captured_at
+               FROM quote_ticks qt
+               WHERE qt.captured_at <= ?
+                 AND qt.source_market_id IN (
+                   SELECT DISTINCT source_market_id
+                   FROM market_microstructure_events
+                   WHERE game_id = ?
+                     AND source = 'polymarket'
+                     AND event_type = 'trade'
+                     AND event_timestamp >= ?
+                     AND event_timestamp <= ?
+                 )`,
+            )
+            .get(mmeWindowEnd, gameId, mmeWindowStart, mmeWindowEnd)
         : null;
     const pbp = readPbpBounds(args.goldDb, gameId);
     return {
@@ -515,6 +552,14 @@ function computeWatermarkHash(args: WatermarkArgs): string {
               cnt: getNumber(mme, "cnt"),
               max_event_timestamp: getString(mme, "max_event_timestamp"),
               max_id: getNumber(mme, "max_id"),
+            },
+      microstructure_quote_ticks:
+        mmeQt === null
+          ? null
+          : {
+              cnt: getNumber(mmeQt, "cnt"),
+              max_captured_at: getString(mmeQt, "max_captured_at"),
+              max_id: getNumber(mmeQt, "max_id"),
             },
       nba_play_by_play_actions: pbp
         ? {
