@@ -1,6 +1,6 @@
 # NBA Detector Bake-Off
 
-Generated: 2026-05-25T01:39:46.247Z
+Generated: 2026-05-25T08:29:54.287Z
 
 This is an offline research artifact, not an official NBA source of truth. It scores every locally surfaced incident candidate we could ground from the previous report and archive trail, then labels anchor/data gaps instead of pretending they are misses. Positive lead seconds mean the first matching fire happened after the disputed play; negative lead seconds mean a pre-play warning.
 
@@ -16,33 +16,33 @@ This is an offline research artifact, not an official NBA source of truth. It sc
 
 | Algorithm                       | Caught | Pre/post caught | Mean fires/game | Episodes/game | P95 fires | Max fires | Outlier games | Median lag seconds | Report read                                                                                                                  |
 | ------------------------------- | -----: | --------------: | --------------: | ------------: | --------: | --------: | ------------: | -----------------: | ---------------------------------------------------------------------------------------------------------------------------- |
-| A09_volume_heavy_short          |    6/6 |             1/5 |           23.05 |         16.68 |     38.75 |        73 |             1 |               66.7 | caution: Highest recall, but it is a noisy volume amplifier until flow/depth normalization and episode ranking are in place. |
-| A16_rv_bv_jump                  |    5/6 |             3/2 |           16.48 |            15 |      29.9 |        63 |             1 |               -6.8 | caution: A rough jump proxy, not true RV/BV over signed high-frequency returns.                                              |
-| A01_legacy_60_vw_k3             |    5/6 |             2/3 |           16.71 |         11.77 |     29.95 |        33 |             0 |               23.2 | caution: Useful sensitive control, but fixed 60s wall buckets mix live play, whistles, timeouts, and free throws.            |
-| A21_historical5_fanout_cooldown |    4/6 |             2/2 |           11.94 |         11.94 |     17.95 |        26 |             0 |               14.9 | usable comparator; no special warning from the current report rules.                                                         |
-| A04_game12_recent4              |    4/6 |             2/2 |           15.29 |         12.37 |      27.9 |        57 |             2 |               14.9 | caution: 2 game(s) hit the fire-count outlier rule.                                                                          |
-| A07_final5_close_suppressed     |    4/6 |             2/2 |           16.31 |         13.13 |     28.85 |        59 |             2 |               14.9 | pending: Late-game suppression is not proven because the current scoreable incident set has no final-five-close fires.       |
-| A08_final60_foul_mode           |    4/6 |             2/2 |           16.31 |         13.13 |     28.85 |        59 |             2 |               14.9 | pending: Final-minute foul-mode suppression is untested by the current incident denominator.                                 |
-| A12_board_fanout_range          |    4/6 |             2/2 |              17 |         14.03 |        26 |        58 |             1 |               14.9 | caution: 1 game(s) hit the fire-count outlier rule.                                                                          |
-| A17_clutch_har_fanout           |    4/6 |             2/2 |           17.11 |          13.9 |     29.85 |        60 |             1 |               14.9 | pending: Name overstates proof; HAR/clutch behavior needs late-game scoreable incidents.                                     |
-| A18_historical5_live_ramp       |    4/6 |             2/2 |           17.97 |         14.18 |     30.95 |        55 |             1 |               14.9 | caution: Historical prior is directionally important, but this incident set mostly does not validate opening behavior.       |
+| A16_rv_bv_jump                  |    5/6 |             3/2 |           14.63 |         12.94 |     34.55 |        75 |             4 |               -6.8 | caution: A rough jump proxy, not true RV/BV over signed high-frequency returns.                                              |
+| A09_volume_heavy_short          |    5/6 |             2/3 |           20.35 |         15.52 |     36.85 |        79 |             3 |               45.7 | caution: Highest recall, but it is a noisy volume amplifier until flow/depth normalization and episode ranking are in place. |
+| A06_wall4_timeout_sensitive     |    5/6 |             2/3 |            25.5 |         19.65 |      44.7 |        79 |             1 |               45.7 | weak: The worst fire burden in the current run; short wall memory alone is too jumpy.                                        |
+| A21_historical5_fanout_cooldown |    4/6 |             2/2 |           12.27 |         12.27 |        19 |        36 |             1 |               14.9 | caution: 1 game(s) hit the fire-count outlier rule.                                                                          |
+| A01_legacy_60_vw_k3             |    4/6 |             2/2 |           12.85 |         10.44 |     25.85 |        41 |             2 |               40.4 | caution: Useful sensitive control, but fixed 60s wall buckets mix live play, whistles, timeouts, and free throws.            |
+| A18_historical5_live_ramp       |    4/6 |             2/2 |           16.77 |         13.47 |     38.45 |        81 |             4 |               14.9 | caution: Historical prior is directionally important, but this incident set mostly does not validate opening behavior.       |
+| A15_cusum_shift                 |    4/6 |             2/2 |              18 |         14.85 |     39.45 |        79 |             4 |               14.9 | caution: 4 game(s) hit the fire-count outlier rule.                                                                          |
+| A19_historical5_fanout          |    4/6 |             2/2 |           19.02 |         15.06 |     39.55 |        81 |             3 |               14.9 | caution: Fanout guard needs independent-market de-duplication; current raw fanout can still add fires.                       |
+| A20_coverage_norm_historical5   |    4/6 |             1/3 |           19.19 |         15.53 |      36.6 |        73 |             3 |               44.9 | caution: 3 game(s) hit the fire-count outlier rule.                                                                          |
+| A13_cross_source_confirm        |    3/6 |             1/2 |           12.27 |         10.52 |        22 |        25 |             0 |               36.6 | pending: Same-bucket cross-source confirmation mostly measures source coverage and latency.                                  |
 
 ## Fire-Count Outliers
 
 | Algorithm           | Game           | Fires | Episodes | Quote pairs | Active markets | Diagnosis                                                                   |
 | ------------------- | -------------- | ----: | -------: | ----------: | -------------: | --------------------------------------------------------------------------- |
-| A02_legacy_60_vw_k6 | nba-0042500155 |    26 |       18 |        1562 |             62 | threshold-heavy: high fires despite modest quote density                    |
-| A02_legacy_60_vw_k6 | nba-0042500312 |    26 |       19 |        7955 |            370 | coverage-heavy: many markets or quote pairs can inflate raw board intensity |
-| A02_legacy_60_vw_k6 | nba-0042500107 |    23 |       20 |         821 |             43 | threshold-heavy: high fires despite modest quote density                    |
-| A02_legacy_60_vw_k6 | nba-0042500124 |    23 |       15 |         603 |             62 | threshold-heavy: high fires despite modest quote density                    |
-| A02_legacy_60_vw_k6 | nba-0042500126 |    23 |       15 |        1146 |             62 | threshold-heavy: high fires despite modest quote density                    |
-| A03_opening_ramp_30 | nba-0042500302 |    71 |       43 |        7744 |            371 | coverage-heavy: many markets or quote pairs can inflate raw board intensity |
-| A03_opening_ramp_30 | nba-0042500312 |    51 |       27 |        7955 |            370 | coverage-heavy: many markets or quote pairs can inflate raw board intensity |
-| A03_opening_ramp_30 | nba-0042500207 |    40 |       19 |       12218 |            344 | coverage-heavy: many markets or quote pairs can inflate raw board intensity |
-| A04_game12_recent4  | nba-0042500302 |    57 |       43 |        7744 |            371 | coverage-heavy: many markets or quote pairs can inflate raw board intensity |
-| A04_game12_recent4  | nba-0042500312 |    45 |       29 |        7955 |            370 | coverage-heavy: many markets or quote pairs can inflate raw board intensity |
-| A05_game6_fast      | nba-0042500302 |    61 |       40 |        7744 |            371 | coverage-heavy: many markets or quote pairs can inflate raw board intensity |
-| A05_game6_fast      | nba-0042500312 |    58 |       30 |        7955 |            370 | coverage-heavy: many markets or quote pairs can inflate raw board intensity |
+| A01_legacy_60_vw_k3 | nba-0042500313 |    41 |       36 |       12438 |            300 | coverage-heavy: many markets or quote pairs can inflate raw board intensity |
+| A01_legacy_60_vw_k3 | nba-0042500314 |    40 |       40 |        9710 |            318 | coverage-heavy: many markets or quote pairs can inflate raw board intensity |
+| A02_legacy_60_vw_k6 | nba-0042500314 |    40 |       40 |        9710 |            318 | coverage-heavy: many markets or quote pairs can inflate raw board intensity |
+| A02_legacy_60_vw_k6 | nba-0042500313 |    32 |       28 |       12438 |            300 | coverage-heavy: many markets or quote pairs can inflate raw board intensity |
+| A02_legacy_60_vw_k6 | nba-0042500302 |    23 |       21 |       11892 |            374 | coverage-heavy: many markets or quote pairs can inflate raw board intensity |
+| A03_opening_ramp_30 | nba-0042500313 |    82 |       50 |       12438 |            300 | coverage-heavy: many markets or quote pairs can inflate raw board intensity |
+| A03_opening_ramp_30 | nba-0042500302 |    51 |       35 |       11892 |            374 | coverage-heavy: many markets or quote pairs can inflate raw board intensity |
+| A03_opening_ramp_30 | nba-0042500314 |    47 |       46 |        9710 |            318 | coverage-heavy: many markets or quote pairs can inflate raw board intensity |
+| A03_opening_ramp_30 | nba-0042500303 |    38 |       19 |        8541 |            329 | coverage-heavy: many markets or quote pairs can inflate raw board intensity |
+| A04_game12_recent4  | nba-0042500313 |    79 |       50 |       12438 |            300 | coverage-heavy: many markets or quote pairs can inflate raw board intensity |
+| A04_game12_recent4  | nba-0042500314 |    46 |       46 |        9710 |            318 | coverage-heavy: many markets or quote pairs can inflate raw board intensity |
+| A04_game12_recent4  | nba-0042500302 |    43 |       30 |       11892 |            374 | coverage-heavy: many markets or quote pairs can inflate raw board intensity |
 
 ## Actionable Formula Adjustments
 
