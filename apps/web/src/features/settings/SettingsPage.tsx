@@ -346,6 +346,9 @@ const BASELINE_DEFAULTS: DetectorDefaults = {
   recentWallWeight: BOARD_MAD_RECENT_WALL_WEIGHT_DEFAULT,
   pbpPreBufferMs: PBP_PRE_BUFFER_MS_DEFAULT,
   pbpPostBufferMs: PBP_POST_BUFFER_MS_DEFAULT,
+  // Phase B3: off-price-print thresholds, runtime-tunable.
+  offPriceMinVolumeShare: 0.1,
+  offPriceMinOffPriceDistance: 0.4,
 };
 
 const YELLOW_FLASH_MS = 200;

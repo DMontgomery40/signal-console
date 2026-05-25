@@ -19,14 +19,19 @@ import { ExplainerCard, explainers } from "@signal-console/ui";
 import type { ExplainerId } from "@signal-console/ui";
 
 import { ApiUnreachableBanner, isNetworkError } from "../../components/ApiUnreachableBanner";
+import { PromotionDialog } from "../../components/PromotionDialog";
 import { QueryErrorBanner } from "../../components/QueryErrorBanner";
 import {
   useBacktest,
   useDetectors,
+  useScheduleDetectorDefaults,
+  useSettings,
+  useUpdateDetectorDefaults,
   type BacktestObservation,
   type BacktestRequest,
   type BacktestResponse,
   type BacktestStats,
+  type DetectorDefaults,
   type DetectorEntry,
 } from "../../data/queries";
 import { defaultValuesFor, parseSchema, type ParsedProperty } from "../../lib/paramsSchema";
@@ -205,6 +210,16 @@ function parseBoardProfileId(value: string): BoardProfileId {
     if (profile.id === value) return profile.id;
   }
   return "custom";
+}
+
+// Phase B4: next 09:00 UTC for scheduled promote-to-live. Mirrors the
+// SettingsPage helper nextUtcNineAm() — keeping them in sync; both surfaces
+// land on the same off-game-hours window per David's spec (msg 04 today).
+function nextUtcNineAmIso(now = new Date()): string {
+  const next = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1, 9, 0, 0, 0),
+  );
+  return next.toISOString();
 }
 
 function readBoardKMad(
@@ -696,6 +711,16 @@ function selectInitialDetector(rows: readonly DetectorEntry[]): string {
 export function BacktestPage(): JSX.Element {
   const detectorsQuery = useDetectors();
   const runMutation = useBacktest();
+  // Phase B4 (2026-05-25): live-defaults read + promote-to-live mutation
+  // hooks. Settings poll feeds the parity banner ("these params match live:
+  // Yes/No") and the PromotionDialog's apply/schedule actions.
+  const settingsQuery = useSettings();
+  const promoteMutation = useUpdateDetectorDefaults();
+  const promoteScheduleMutation = useScheduleDetectorDefaults();
+  const [pendingPromote, setPendingPromote] = useState<{
+    readonly next: DetectorDefaults;
+    readonly effectiveAt: string;
+  } | null>(null);
 
   const [form, setForm] = useState<FormState>(() => ({
     startDate: daysAgoIso(2),
@@ -899,8 +924,115 @@ export function BacktestPage(): JSX.Element {
   );
   const currentProfile = inferBoardProfile(currentBaselineMode, currentBucketSeconds);
 
+  // Phase B4: live-parity computation + promote-to-live actions.
+  const liveDefaults = settingsQuery.data?.detectorDefaults ?? null;
+  const liveProfile =
+    liveDefaults !== null
+      ? inferBoardProfile(liveDefaults.baselineMode, liveDefaults.bucketSeconds)
+      : null;
+  // Parity check: do the form's board-mad knobs match the live defaults?
+  // Only meaningful for board-mad or ensemble-or detectors; we compare the
+  // board-lane params either way (ensemble's offprice thresholds are also
+  // covered when offPrice* values are part of the comparison, see B3).
+  const boardLikeForParity = boardLikeSelected;
+  const paramsMatchLive =
+    liveDefaults !== null && boardLikeForParity
+      ? currentBaselineMode === liveDefaults.baselineMode &&
+        currentBucketSeconds === liveDefaults.bucketSeconds &&
+        currentOpeningBaselineBuckets === liveDefaults.openingBaselineBuckets &&
+        currentOpeningRampCompleteBuckets === liveDefaults.openingRampCompleteBuckets &&
+        currentMemoryBuckets === liveDefaults.trailingBuckets &&
+        currentWarmupBuckets === liveDefaults.warmupBuckets &&
+        currentSensitivity === liveDefaults.kMadLive
+      : null;
+  const canPromote = boardLikeForParity && liveDefaults !== null && paramsMatchLive === false;
+
+  function buildPromoteDefaults(): DetectorDefaults | null {
+    if (liveDefaults === null) return null;
+    // Narrow the current baselineMode string to the enum the API expects.
+    // Defensively fall back to the live profile when the form holds a value
+    // that doesn't match (e.g. an unknown profile chosen via custom config).
+    const narrowedMode: DetectorDefaults["baselineMode"] =
+      currentBaselineMode === BOARD_MAD_BASELINE_MODE_TRAILING ||
+      currentBaselineMode === BOARD_MAD_BASELINE_MODE_OPENING_RAMP ||
+      currentBaselineMode === BOARD_MAD_BASELINE_MODE_HISTORICAL_BLEND
+        ? currentBaselineMode
+        : liveDefaults.baselineMode;
+    return {
+      ...liveDefaults,
+      baselineMode: narrowedMode,
+      bucketSeconds: currentBucketSeconds,
+      openingBaselineBuckets: currentOpeningBaselineBuckets,
+      openingRampCompleteBuckets: currentOpeningRampCompleteBuckets,
+      trailingBuckets: currentMemoryBuckets,
+      warmupBuckets: currentWarmupBuckets,
+      kMadLive: currentSensitivity,
+    };
+  }
+
+  function openPromoteDialog(): void {
+    const next = buildPromoteDefaults();
+    if (next === null) return;
+    setPendingPromote({ next, effectiveAt: nextUtcNineAmIso() });
+  }
+
+  function applyPromoteNow(): void {
+    if (pendingPromote === null) return;
+    promoteMutation.mutate(pendingPromote.next, {
+      onSuccess: () => {
+        setPendingPromote(null);
+      },
+    });
+  }
+
+  function schedulePromote(): void {
+    if (pendingPromote === null) return;
+    promoteScheduleMutation.mutate(
+      { defaults: pendingPromote.next, effectiveAt: pendingPromote.effectiveAt },
+      {
+        onSuccess: () => {
+          setPendingPromote(null);
+        },
+      },
+    );
+  }
+
+  const promoteError =
+    promoteMutation.error?.message ?? promoteScheduleMutation.error?.message ?? undefined;
+
   return (
     <section data-testid="backtest-page">
+      {pendingPromote !== null ? (
+        <PromotionDialog
+          dataTestIdRoot="backtest-promote"
+          title="Promote these backtest params to live"
+          body={
+            <>
+              <p>
+                Writes the live detector defaults read by Recent and Live (
+                <span className="font-mono text-text-md">
+                  ~/signal-console/data/detector-defaults.json
+                </span>
+                ). The runtime detector version gets a defaults hash and old cached runs miss
+                naturally — next /v1/board call recomputes against the new profile.
+              </p>
+              <p className="mt-3">
+                Schedule lands at <span className="font-mono">{pendingPromote.effectiveAt}</span>{" "}
+                (next 09:00 UTC, off NBA hours per David&apos;s playbook).
+              </p>
+            </>
+          }
+          effectiveAt={pendingPromote.effectiveAt}
+          onApplyNow={applyPromoteNow}
+          onSchedule={schedulePromote}
+          onCancel={() => {
+            setPendingPromote(null);
+          }}
+          isApplying={promoteMutation.isPending}
+          isScheduling={promoteScheduleMutation.isPending}
+          errorMessage={promoteError}
+        />
+      ) : null}
       {detectorsBanner}
 
       <div className="flex items-baseline justify-between">
@@ -1069,6 +1201,53 @@ export function BacktestPage(): JSX.Element {
                   Replays the current window and control settings.
                 </span>
               </div>
+              {/* Phase B4: parity banner + Apply-to-Live button. Only meaningful
+                  for board-mad / ensemble-or (board lane); off-price-print
+                  standalone doesn't have live-promotable knobs surfaced in
+                  this form yet. liveDefaults can be null during initial load
+                  or if /v1/settings is unreachable. */}
+              {boardLikeForParity && liveDefaults !== null && liveProfile !== null ? (
+                <div
+                  className="mt-4 flex flex-wrap items-center gap-3 border border-surface-2 bg-surface-0-from/50 px-3 py-2"
+                  data-testid="backtest-live-parity"
+                >
+                  <span className="font-mono text-xs uppercase tracking-wider text-text-lo">
+                    Live profile:
+                  </span>
+                  <span
+                    className="font-mono text-xs text-text-hi"
+                    data-testid="backtest-live-profile"
+                  >
+                    {liveProfile}
+                  </span>
+                  <span
+                    className={
+                      paramsMatchLive === true
+                        ? "font-mono text-xs text-accent-green"
+                        : "font-mono text-xs text-accent-yellow"
+                    }
+                    data-testid="backtest-live-match"
+                  >
+                    {paramsMatchLive === true
+                      ? "these params match live"
+                      : "these params differ from live"}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={openPromoteDialog}
+                    disabled={!canPromote}
+                    className="ml-auto border border-accent-yellow px-3 py-1 text-xs font-mono uppercase tracking-wider text-text-hi hover:bg-accent-yellow hover:text-surface-0-from disabled:opacity-50"
+                    data-testid="backtest-apply-to-live"
+                    title={
+                      canPromote === true
+                        ? "Open the promote-to-live dialog"
+                        : "Already matches live, nothing to promote"
+                    }
+                  >
+                    Apply to live
+                  </button>
+                </div>
+              ) : null}
               {runMutation.isError ? (
                 <span
                   data-testid="backtest-run-error"

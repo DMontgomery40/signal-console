@@ -284,6 +284,9 @@ const detectorDefaultsSchema = z.object({
   recentWallWeight: z.number(),
   pbpPreBufferMs: z.number().int(),
   pbpPostBufferMs: z.number().int(),
+  // Phase B3: off-price-print thresholds, runtime-tunable.
+  offPriceMinVolumeShare: z.number().default(0.1),
+  offPriceMinOffPriceDistance: z.number().default(0.4),
 });
 const settingsSchema = z.object({
   db: dbInfoSchema,
