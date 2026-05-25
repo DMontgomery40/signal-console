@@ -311,7 +311,14 @@ describe("backtest route (US-034)", () => {
     expect(secondBody["observations"]).toEqual(firstBody["observations"]);
   });
 
-  it("fails closed for board-lane backtests when PBP is missing, even if quote ticks exist", async () => {
+  // AMENDED 2026-05-25 (audit-fix A0-followup #1, Codex review P1):
+  // The runner loads ticks via the scheduled-start anchor when PBP is
+  // missing (clockSource="scheduled"). Cache identity includes clockSource +
+  // tipoffAnchorUtc, so the scheduled-anchored result invalidates when PBP
+  // arrives. The OLD "fails closed even when ticks exist" behavior is now
+  // preserved only for games with NEITHER PBP NOR scheduled_start — see
+  // the next test.
+  it("loads ticks via scheduled-start fallback when PBP is missing, then invalidates when PBP arrives", async () => {
     seedGoldDb(ctx.goldDbPath, [{ id: "nba-no-pbp-backtest-1", tickCount: 1200 }]);
     const app = await startApp();
     const payload = {
@@ -321,6 +328,8 @@ describe("backtest route (US-034)", () => {
       game_ids: ["nba-no-pbp-backtest-1"],
     };
 
+    // PBP is missing but games.scheduled_start exists (default 2026-05-23T03:00:00Z
+    // from seedGoldDb). Detector sees ticks via the scheduled-anchored window.
     const first = await app.inject({
       method: "POST",
       url: "/v1/backtest",
@@ -328,21 +337,70 @@ describe("backtest route (US-034)", () => {
       payload,
     });
     expect(first.statusCode).toBe(200);
-    const firstBody = asRecord(first.json(), "first no-pbp");
-    expect(firstBody["observations"]).toEqual([]);
+    const firstBody = asRecord(first.json(), "first scheduled-anchored");
+    const firstObs = firstBody["observations"];
+    if (!Array.isArray(firstObs)) throw new Error("observations not array");
+    expect(firstObs.length).toBeGreaterThan(0);
 
-    seedQuoteTick(ctx.goldDbPath, "mkt-nba-no-pbp-backtest-1-0", "2026-05-23T03:10:00.000Z", 0.99);
-
-    const second = await app.inject({
+    // Same payload again → cache hit, same runId.
+    const cached = await app.inject({
       method: "POST",
       url: "/v1/backtest",
       headers: authHeaders(),
       payload,
     });
-    expect(second.statusCode).toBe(200);
-    const secondBody = asRecord(second.json(), "second no-pbp");
-    expect(secondBody["runId"]).toBe(firstBody["runId"]);
-    expect(secondBody["observations"]).toEqual([]);
+    expect(cached.statusCode).toBe(200);
+    const cachedBody = asRecord(cached.json(), "scheduled cache hit");
+    expect(cachedBody["runId"]).toBe(firstBody["runId"]);
+
+    // PBP arrives → clockSource flips to "pbp" → watermark hash changes →
+    // new runId. This is the cache-invalidation contract that closes the
+    // "scheduled fallback silently lingering after PBP catches up" gap.
+    const goldDb = new Database(ctx.goldDbPath);
+    try {
+      const insertPbp = goldDb.prepare(
+        `INSERT INTO nba_play_by_play_actions (game_id, time_actual) VALUES (?, ?)`,
+      );
+      insertPbp.run("nba-no-pbp-backtest-1", "2026-05-23T03:00:00.000Z");
+      insertPbp.run("nba-no-pbp-backtest-1", "2026-05-23T04:30:00.000Z");
+    } finally {
+      goldDb.close();
+    }
+
+    const afterPbp = await app.inject({
+      method: "POST",
+      url: "/v1/backtest",
+      headers: authHeaders(),
+      payload,
+    });
+    expect(afterPbp.statusCode).toBe(200);
+    const afterPbpBody = asRecord(afterPbp.json(), "after-pbp");
+    expect(afterPbpBody["runId"]).not.toBe(firstBody["runId"]);
+  });
+
+  it("fails closed when neither PBP nor scheduled_start exists for the game", async () => {
+    // Seed an empty schema (tables created, no games row inserted) so the
+    // gold DB exists but resolveGameTimingContext returns clockSource="none"
+    // for the requested gameId. resolveEffectiveTickWindow returns null →
+    // ticks = [] → no observations. This is the genuine no-anchor case.
+    seedGoldDb(ctx.goldDbPath, []);
+    const app = await startApp();
+    const payload = {
+      detector_id: "board-mad",
+      params: defaultBoardMadParams(3.0),
+      window: { start: "2026-05-23T02:30:00Z", end: "2026-05-23T05:00:00Z" },
+      game_ids: ["nba-no-anchor-at-all"],
+    };
+
+    const first = await app.inject({
+      method: "POST",
+      url: "/v1/backtest",
+      headers: authHeaders(),
+      payload,
+    });
+    expect(first.statusCode).toBe(200);
+    const firstBody = asRecord(first.json(), "no-anchor first");
+    expect(firstBody["observations"]).toEqual([]);
   });
 
   it("treats explicit game_ids as a canonical set for cache and stats", async () => {

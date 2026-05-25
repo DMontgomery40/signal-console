@@ -181,10 +181,25 @@ export function runDetector(spec: RunSpec): RunResult {
       );
 
       // 2. Resolve effective per-game tick windows (PBP MIN..MAX + buffers,
-      //    intersected with requested window in window-scope).
+      //    intersected with requested window in window-scope). When PBP is
+      //    missing but scheduled_start exists, the timing context drives a
+      //    scheduled-anchored window so the detector still loads ticks during
+      //    PBP lag (cache invalidates when PBP arrives because clockSource +
+      //    tipoffAnchor are in the watermark hash).
+      const timingByGame = new Map<string, GameTimingContext>(
+        timingContexts.map((t) => [t.gameId, t]),
+      );
       const tickWindows = new Map<string, EffectiveTickWindow | null>();
       for (const gameId of gameIds) {
-        tickWindows.set(gameId, resolveEffectiveTickWindow(goldDb, gameId, spec.scope, defaults));
+        const timing = timingByGame.get(gameId);
+        if (timing === undefined) {
+          tickWindows.set(gameId, null);
+          continue;
+        }
+        tickWindows.set(
+          gameId,
+          resolveEffectiveTickWindow(goldDb, gameId, spec.scope, defaults, timing),
+        );
       }
 
       // 3. Historical priors (only for board-mad/ensemble-or in historical-blend).
@@ -360,24 +375,58 @@ interface EffectiveTickWindow {
   readonly end: Date;
 }
 
+// Estimate for a scheduled-fallback game's duration when PBP MAX(time_actual)
+// isn't available. NBA regulation is 48 min + halftime + commercial breaks
+// (~2h30m wall), plus possible OT(s). 4 hours is the conservative bound that
+// covers multi-OT games without pulling in next-day quote traffic. Cache
+// identity carries clockSource="scheduled", so the recompute on PBP arrival
+// uses the real PBP window and this estimate doesn't outlive the lag period.
+const SCHEDULED_GAME_DURATION_MS = 4 * 60 * 60 * 1000;
+
 function resolveEffectiveTickWindow(
-  goldDb: GoldDbHandle,
-  gameId: string,
+  _goldDb: GoldDbHandle,
+  _gameId: string,
   scope: RunScope,
   defaults: DetectorDefaults,
+  timing: GameTimingContext,
 ): EffectiveTickWindow | null {
-  const pbp = readPbpBounds(goldDb, gameId);
-  if (pbp === null) return null; // Fail-closed: no PBP → no trustworthy tick window.
-  const pbpStart = new Date(pbp.minUtc.getTime() - defaults.pbpPreBufferMs);
-  const pbpEnd = new Date(pbp.maxUtc.getTime() + defaults.pbpPostBufferMs);
-  if (scope.kind === "game") {
-    return { start: pbpStart, end: pbpEnd };
-  }
+  // Per audit-fix A0-followup #1 (Codex review 2026-05-25): when PBP is
+  // missing but scheduled_start exists, do NOT fail closed. Load ticks using
+  // the scheduled anchor with a conservative game-duration estimate so live
+  // PBP lag and offline backtests over scheduled-only games both produce
+  // observations. Cache identity already includes clockSource + tipoffAnchor
+  // (computeWatermarkHash), so the cache invalidates and recomputes when real
+  // PBP arrives — no stale "scheduled" result lingering after PBP catches up.
+  const baseWindow: { start: Date; end: Date } | null = (() => {
+    if (timing.clockSource === "pbp" && timing.pbpMinUtc !== null && timing.pbpMaxUtc !== null) {
+      return {
+        start: new Date(timing.pbpMinUtc.getTime() - defaults.pbpPreBufferMs),
+        end: new Date(timing.pbpMaxUtc.getTime() + defaults.pbpPostBufferMs),
+      };
+    }
+    if (timing.clockSource === "scheduled") {
+      // PBP missing → scheduled fallback bounds the wall window.
+      return {
+        start: new Date(timing.scheduledStartUtc.getTime() - defaults.pbpPreBufferMs),
+        end: new Date(
+          timing.scheduledStartUtc.getTime() +
+            SCHEDULED_GAME_DURATION_MS +
+            defaults.pbpPostBufferMs,
+        ),
+      };
+    }
+    // clockSource === "none" → genuinely no anchor → fail closed (no fake
+    // fires). resolveGameTimingContext returns "none" only when both PBP and
+    // scheduled are absent.
+    return null;
+  })();
+  if (baseWindow === null) return null;
+  if (scope.kind === "game") return baseWindow;
   // Window scope: intersect with requested window.
   const reqStart = new Date(scope.windowStart);
   const reqEnd = new Date(scope.windowEnd);
-  const start = pbpStart.getTime() > reqStart.getTime() ? pbpStart : reqStart;
-  const end = pbpEnd.getTime() < reqEnd.getTime() ? pbpEnd : reqEnd;
+  const start = baseWindow.start.getTime() > reqStart.getTime() ? baseWindow.start : reqStart;
+  const end = baseWindow.end.getTime() < reqEnd.getTime() ? baseWindow.end : reqEnd;
   if (start.getTime() > end.getTime()) return null;
   return { start, end };
 }
