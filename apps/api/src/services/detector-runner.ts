@@ -44,11 +44,12 @@ import type {
 } from "@signal-console/detectors";
 import type Database from "better-sqlite3";
 
+import { buildBoardMadHistoricalPriors, loadBoardMadTicksForGame } from "./board-mad-context";
 import {
-  buildBoardMadHistoricalPriors,
-  loadBoardMadTicksForGame,
-} from "./board-mad-context";
-import { boardMadDetectorVersion, readDetectorDefaults, type DetectorDefaults } from "./detector-defaults";
+  boardMadDetectorVersion,
+  readDetectorDefaults,
+  type DetectorDefaults,
+} from "./detector-defaults";
 import { loadMicrostructureForGames } from "./loaders/microstructure-loader";
 
 export type { ClockSource, GameTimingContext } from "@signal-console/detectors";
@@ -112,10 +113,7 @@ export class RunnerError extends Error {
 // to games.scheduled_start tagged clockSource="scheduled" so the math has a
 // real anchor instead of "first nonzero market bucket." When both are missing,
 // clockSource="none" and downstream baseline computation will refuse to warm.
-export function resolveGameTimingContext(
-  goldDb: GoldDbHandle,
-  gameId: string,
-): GameTimingContext {
+export function resolveGameTimingContext(goldDb: GoldDbHandle, gameId: string): GameTimingContext {
   const pbp = readPbpBounds(goldDb, gameId);
   const scheduled = readScheduledStart(goldDb, gameId);
   const scheduledStartUtc = scheduled ?? null;
@@ -169,7 +167,12 @@ export function runDetector(spec: RunSpec): RunResult {
         // Window scope can legitimately have zero games (caller is testing a
         // window with no eligible games). Return an empty result without
         // touching the cache; persistence requires at least one game.
-        return emptyResult(spec.detectorId, dispatch.detectorVersion, paramsHash, dispatch.resolvedParams);
+        return emptyResult(
+          spec.detectorId,
+          dispatch.detectorVersion,
+          paramsHash,
+          dispatch.resolvedParams,
+        );
       }
 
       // 1. Resolve per-game timing contexts (single source of tipoff truth).
@@ -181,10 +184,7 @@ export function runDetector(spec: RunSpec): RunResult {
       //    intersected with requested window in window-scope).
       const tickWindows = new Map<string, EffectiveTickWindow | null>();
       for (const gameId of gameIds) {
-        tickWindows.set(
-          gameId,
-          resolveEffectiveTickWindow(goldDb, gameId, spec.scope, defaults),
-        );
+        tickWindows.set(gameId, resolveEffectiveTickWindow(goldDb, gameId, spec.scope, defaults));
       }
 
       // 3. Historical priors (only for board-mad/ensemble-or in historical-blend).
@@ -386,13 +386,21 @@ function scopeGameIds(scope: RunScope): readonly string[] {
   return scope.kind === "game" ? [scope.gameId] : scope.gameIds;
 }
 
-function scopeStart(scope: RunScope, windows: Map<string, EffectiveTickWindow | null>, now: Date): Date {
+function scopeStart(
+  scope: RunScope,
+  windows: Map<string, EffectiveTickWindow | null>,
+  now: Date,
+): Date {
   if (scope.kind === "window") return new Date(scope.windowStart);
   const w = windows.get(scope.gameId);
   return w?.start ?? now;
 }
 
-function scopeEnd(scope: RunScope, windows: Map<string, EffectiveTickWindow | null>, now: Date): Date {
+function scopeEnd(
+  scope: RunScope,
+  windows: Map<string, EffectiveTickWindow | null>,
+  now: Date,
+): Date {
   if (scope.kind === "window") return new Date(scope.windowEnd);
   const w = windows.get(scope.gameId);
   return w?.end ?? now;
@@ -500,13 +508,14 @@ function computeWatermarkHash(args: WatermarkArgs): string {
             scheduledStartUtc: timing.scheduledStartUtc.toISOString(),
           }
         : null,
-      market_microstructure_events: mme
-        ? {
-            cnt: getNumber(mme, "cnt"),
-            max_event_timestamp: getString(mme, "max_event_timestamp"),
-            max_id: getNumber(mme, "max_id"),
-          }
-        : null,
+      market_microstructure_events:
+        mme === null
+          ? null
+          : {
+              cnt: getNumber(mme, "cnt"),
+              max_event_timestamp: getString(mme, "max_event_timestamp"),
+              max_id: getNumber(mme, "max_id"),
+            },
       nba_play_by_play_actions: pbp
         ? {
             max_time_actual: pbp.maxUtc.toISOString(),
@@ -768,9 +777,10 @@ function loadObservations(
   });
 }
 
-function splitObservations(
-  observations: readonly PersistedObservation[],
-): { readonly buckets: readonly DetectorBucket[]; readonly fires: readonly DetectorFire[] } {
+function splitObservations(observations: readonly PersistedObservation[]): {
+  readonly buckets: readonly DetectorBucket[];
+  readonly fires: readonly DetectorFire[];
+} {
   const buckets: DetectorBucket[] = [];
   const fires: DetectorFire[] = [];
   for (const o of observations) {
@@ -874,9 +884,7 @@ function readPbpBounds(
 function readScheduledStart(goldDb: GoldDbHandle, gameId: string): Date | null {
   let row: unknown;
   try {
-    row = goldDb
-      .prepare(`SELECT scheduled_start FROM games WHERE id = ? LIMIT 1`)
-      .get(gameId);
+    row = goldDb.prepare(`SELECT scheduled_start FROM games WHERE id = ? LIMIT 1`).get(gameId);
   } catch {
     return null;
   }
@@ -891,7 +899,9 @@ function readScheduledStart(goldDb: GoldDbHandle, gameId: string): Date | null {
 // --- pure helpers -----------------------------------------------------------
 
 function uniqueGameIds(gameIds: readonly string[]): readonly string[] {
-  return Array.from(new Set(gameIds.map((id) => id.trim()).filter((id) => id.length > 0))).toSorted();
+  return Array.from(
+    new Set(gameIds.map((id) => id.trim()).filter((id) => id.length > 0)),
+  ).toSorted();
 }
 
 function sha256Hex(input: string): string {
