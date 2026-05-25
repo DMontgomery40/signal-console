@@ -1391,4 +1391,151 @@ describe("BacktestPage", () => {
     setWindow("2026-05-07", "2026-05-13");
     expect(screen.queryByTestId("backtest-pbp-anchored")).toBeNull();
   });
+
+  // Phase B-followup #2 (Codex review P2/P3): ensemble offprice parity +
+  // Apply-to-Live regression tests. The B-followup code added these
+  // capabilities to BacktestPage but shipped without test coverage.
+
+  function makeSettingsBody(opts: {
+    readonly offPriceMinVolumeShare?: number;
+    readonly offPriceMinOffPriceDistance?: number;
+    readonly kMadLive?: number;
+  }): unknown {
+    return {
+      db: {
+        path: "/tmp/gold.sqlite",
+        sizeBytes: 1024,
+        walBytes: 0,
+        pageCount: 4,
+        pageSize: 4096,
+        lastModified: "2026-05-25T00:00:00Z",
+        mode: "read-only",
+      },
+      cacheDb: { path: "/tmp/cache.sqlite", sizeBytes: 0, pageCount: 0 },
+      sources: {
+        ingestPaused: false,
+        bySource: {
+          bet365: { lastSyncAt: null, lastError: null, rateLimitCooldown: null },
+          kalshi: { lastSyncAt: null, lastError: null, rateLimitCooldown: null },
+          polymarket: { lastSyncAt: null, lastError: null, rateLimitCooldown: null },
+        },
+      },
+      errors: [],
+      about: { appVersion: "0.0.0", detectorVersions: [], dbSchemaVersion: 1 },
+      detectorDefaults: {
+        kMadLive: opts.kMadLive ?? 3.0,
+        baselineMode: "opening-ramp",
+        bucketSeconds: 60,
+        openingBaselineBuckets: 4,
+        openingRampCompleteBuckets: 20,
+        trailingBuckets: 20,
+        warmupBuckets: 8,
+        freshCapSeconds: 300,
+        historicalLastGames: 5,
+        historicalAwayWeight: 0.5,
+        historicalPriorWeight: 1,
+        historicalRampCompleteGameMinutes: 12,
+        trailingGameMinutes: 12,
+        recentWallMinutes: 4,
+        recentWallWeight: 1.5,
+        pbpPreBufferMs: 300000,
+        pbpPostBufferMs: 60000,
+        offPriceMinVolumeShare: opts.offPriceMinVolumeShare ?? 0.1,
+        offPriceMinOffPriceDistance: opts.offPriceMinOffPriceDistance ?? 0.4,
+      },
+    };
+  }
+
+  function mockEnsembleSettingsAndBacktest(opts: {
+    readonly settings: unknown;
+    readonly capturePromote?: (body: unknown) => void;
+  }): void {
+    fetchMock.mockImplementation(async (input, init) => {
+      await Promise.resolve();
+      const url = urlOf(input);
+      if (url.startsWith("/v1/detectors")) return jsonResponse(ENSEMBLE_DETECTORS_RESPONSE);
+      if (url.startsWith("/v1/settings/detector-defaults") && init?.method === "POST") {
+        const body: unknown = typeof init.body === "string" ? JSON.parse(init.body) : init.body;
+        opts.capturePromote?.(body);
+        return jsonResponse(body);
+      }
+      if (url.startsWith("/v1/settings")) return jsonResponse(opts.settings);
+      if (url.startsWith("/v1/backtest") && init?.method === "POST") {
+        return jsonResponse({
+          runId: 1,
+          stats: { firesPerGame: 0, totalFires: 0, gamesInWindow: 1 },
+          observations: [],
+        });
+      }
+      return new Response("not found", { status: 404 });
+    });
+  }
+
+  it("parity banner reads 'matches live' when ensemble form params equal live defaults", async () => {
+    // Live has offPriceMinOffPriceDistance=0.4 (default); form's offprice
+    // also defaults to 0.4. Board fields also default-match. Banner should
+    // read "matches live" once the live-defaults query resolves.
+    mockEnsembleSettingsAndBacktest({
+      settings: makeSettingsBody({ offPriceMinOffPriceDistance: 0.4 }),
+    });
+    render(<BacktestPage />, { wrapper: makeWrapper() });
+    await waitFor(() => {
+      const m = screen.queryByTestId("backtest-live-match");
+      expect(m?.textContent).toBe("these params match live");
+    });
+  });
+
+  it("parity banner reads 'differs from live' when ensemble offprice threshold diverges", async () => {
+    // Live has offPriceMinOffPriceDistance=0.7; form still at 0.4 default.
+    // Pre-Codex-P2 fix, paramsMatchLive only compared board fields, so this
+    // banner would falsely read "matches live" — proving the contract was
+    // wrong. After P2, the offprice mismatch flips the banner.
+    mockEnsembleSettingsAndBacktest({
+      settings: makeSettingsBody({ offPriceMinOffPriceDistance: 0.7 }),
+    });
+    render(<BacktestPage />, { wrapper: makeWrapper() });
+    await waitFor(() => {
+      const m = screen.queryByTestId("backtest-live-match");
+      expect(m?.textContent).toBe("these params differ from live");
+    });
+  });
+
+  it("Apply-to-Live includes ensemble offprice thresholds in the POST body", async () => {
+    let promoted: unknown = null;
+    mockEnsembleSettingsAndBacktest({
+      // Live has 0.1/0.4 (defaults); form will match because it starts at
+      // OffPricePrintParams Zod defaults too. Flip ONE live field so the
+      // form (still at defaults) diverges and canPromote becomes true.
+      settings: makeSettingsBody({ kMadLive: 4.0 }),
+      capturePromote: (body) => {
+        promoted = body;
+      },
+    });
+    render(<BacktestPage />, { wrapper: makeWrapper() });
+    await waitFor(() => {
+      expect(screen.getByTestId("backtest-apply-to-live")).not.toBeNull();
+    });
+    // Apply to live → opens dialog → click Apply now.
+    fireEvent.click(screen.getByTestId("backtest-apply-to-live"));
+    await waitFor(() => {
+      expect(screen.queryByTestId("backtest-promote-apply-now")).not.toBeNull();
+    });
+    fireEvent.click(screen.getByTestId("backtest-promote-apply-now"));
+    await waitFor(() => {
+      expect(promoted).not.toBeNull();
+    });
+    // The promote payload MUST carry offPriceMinVolumeShare +
+    // offPriceMinOffPriceDistance. Pre-Codex-P2 fix, ensemble promotes
+    // wrote only board fields and silently used whatever live had for
+    // offprice.
+    function isRecord(v: unknown): v is Readonly<Record<string, unknown>> {
+      return typeof v === "object" && v !== null && !Array.isArray(v);
+    }
+    if (!isRecord(promoted)) throw new Error("promoted shape");
+    expect(promoted["offPriceMinVolumeShare"]).toBe(0.1);
+    expect(promoted["offPriceMinOffPriceDistance"]).toBe(0.4);
+    // Sanity: board fields also present (the form's defaults flow through).
+    expect(typeof promoted["kMadLive"]).toBe("number");
+    expect(typeof promoted["baselineMode"]).toBe("string");
+  });
 });

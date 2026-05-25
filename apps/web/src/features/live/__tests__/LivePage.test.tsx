@@ -21,6 +21,11 @@ function makeWrapper(): (props: { children: ReactNode }) => JSX.Element {
 // pre-computed body via a WeakMap keyed on the Response itself.
 const responseBodyText = new WeakMap<Response, string>();
 
+// Per-mock K override. mockLiveAndBoard sets this when the test wants the
+// ensemble adapter to echo a specific K back (e.g. to prove the chart K
+// comes from the ensemble response, not from any fallback). Default 3.0.
+const adapterEnsembleKByGame = new Map<string, number>();
+
 function jsonResponse(body: unknown, init?: ResponseInit): Response {
   const text = JSON.stringify(body);
   const res = new Response(text, {
@@ -84,49 +89,6 @@ function boardResponse(opts: {
   return jsonResponse({ gameId: opts.gameId, runId: 1, k: 3.0, observations });
 }
 
-// Minimal /v1/settings response so useSettings resolves and LivePage can
-// read kMadLive. Tests don't exercise the full settings UI here.
-function settingsResponse(): Response {
-  return jsonResponse({
-    db: {
-      path: "/tmp/test.sqlite",
-      mode: "read-only",
-      sizeBytes: 0,
-      walBytes: 0,
-      journalMode: "wal",
-    },
-    cacheDb: { path: "/tmp/cache.sqlite", sizeBytes: 0, pageCount: 0 },
-    sources: {
-      bet365: { lastSyncAt: null, lastError: null },
-      kalshi: { lastSyncAt: null, lastError: null },
-      polymarket: { lastSyncAt: null, lastError: null },
-    },
-    errors: [],
-    about: { appVersion: "0.0.0", detectorVersions: [], dbSchemaVersion: 1 },
-    detectorDefaults: {
-      kMadLive: 3,
-      baselineMode: "opening-ramp",
-      bucketSeconds: 60,
-      openingBaselineBuckets: 4,
-      openingRampCompleteBuckets: 20,
-      trailingBuckets: 20,
-      warmupBuckets: 8,
-      freshCapSeconds: 300,
-      historicalLastGames: 5,
-      historicalAwayWeight: 0.5,
-      historicalPriorWeight: 1,
-      historicalRampCompleteGameMinutes: 12,
-      trailingGameMinutes: 12,
-      recentWallMinutes: 4,
-      recentWallWeight: 1.5,
-      pbpPreBufferMs: 300000,
-      pbpPostBufferMs: 60000,
-      offPriceMinVolumeShare: 0.1,
-      offPriceMinOffPriceDistance: 0.4,
-    },
-  });
-}
-
 function microstructureResponse(opts: {
   gameId: string;
   eventTimestamps?: readonly string[];
@@ -184,7 +146,6 @@ function mockLiveAndBoard(
     if (url.startsWith("/v1/ensemble-or/")) {
       return adaptBoardAndMicroToEnsemble(board, micro).clone();
     }
-    if (url.startsWith("/v1/settings")) return settingsResponse().clone();
     // Defensive: legacy paths still get served so any test that explicitly
     // mocks /v1/board or /v1/microstructure doesn't break (none should
     // remain post-P1, but no need to delete the safety net).
@@ -247,6 +208,11 @@ function adaptBoardAndMicroToEnsemble(board: Response, micro: Response): Respons
   return jsonResponse({
     gameId: boardJson.gameId,
     runId: 1,
+    // Echo back the per-game K override set via mockLiveAndBoard so tests
+    // can prove the Live chart reads K from the ensemble response. Default
+    // 3.0 mirrors the production fallback in LivePage; legacy tests that
+    // don't set an override still see "3.0".
+    k: adapterEnsembleKByGame.get(boardJson.gameId) ?? 3.0,
     boardObservations: boardJson.observations,
     fires: [...boardFires, ...offpriceFires],
   });
@@ -372,24 +338,14 @@ describe("LivePage", () => {
     vi.restoreAllMocks();
   });
 
-  it("renders the no-game placeholder when gameId is null and fires no game-scoped requests", () => {
-    // AMENDED 2026-05-25 (Codex review P1): LivePage now reads
-    // /v1/settings for the live kMad (replaces the kMad that used to come
-    // from /v1/board's response). /v1/settings has no gameId — it fires
-    // unconditionally. Game-scoped routes still gate on a non-empty
-    // gameId, which is the actual behavior this test cares about.
-    fetchMock.mockImplementation(async (input) => {
-      await Promise.resolve();
-      const url = urlOf(input);
-      if (url.startsWith("/v1/settings")) return settingsResponse().clone();
-      return new Response("not found", { status: 404 });
-    });
+  it("renders the no-game placeholder when gameId is null and fires no requests", () => {
+    // AMENDED 2026-05-25 (Codex B-followup review P1): K now comes from the
+    // ensemble route, not from /v1/settings, so LivePage makes NO requests
+    // at all when gameId is null. All game-scoped queries gate on
+    // non-empty id.
     render(<LivePage gameId={null} />, { wrapper: makeWrapper() });
     expect(screen.getByTestId("live-no-game")).toBeDefined();
-    const calledUrls = fetchMock.mock.calls.map((c) => urlOf(c[0]));
-    expect(calledUrls.some((u) => u.startsWith("/v1/live/"))).toBe(false);
-    expect(calledUrls.some((u) => u.startsWith("/v1/ensemble-or/"))).toBe(false);
-    expect(calledUrls.some((u) => u.startsWith("/v1/board/"))).toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("renders the gameId in the title and a back-to-recent link", async () => {
@@ -482,7 +438,14 @@ describe("LivePage", () => {
     });
   });
 
-  it("renders the live sensitivity value", async () => {
+  it("renders the live sensitivity value from the ensemble response (not from any fallback)", async () => {
+    // Codex B-followup review P1 (2026-05-25): the rendered K must come
+    // from /v1/ensemble-or's `k` field, NOT from a separate /v1/settings
+    // round-trip or any fallback. Set a NON-default K (4.5) via the
+    // adapter override so passing the assertion requires the chart to
+    // have actually read ensemble.data.k — the production fallback
+    // (3.0) would fail this assertion.
+    adapterEnsembleKByGame.set(GAME_ID, 4.5);
     mockLiveAndBoard(
       fetchMock,
       liveResponse({ gameId: GAME_ID, tickCount: 0 }),
@@ -490,8 +453,9 @@ describe("LivePage", () => {
     );
     render(<LivePage gameId={GAME_ID} />, { wrapper: makeWrapper() });
     await waitFor(() => {
-      expect(screen.getByTestId("live-k").textContent).toBe("3.0");
+      expect(screen.getByTestId("live-k").textContent).toBe("4.5");
     });
+    adapterEnsembleKByGame.delete(GAME_ID);
   });
 
   it("renders the live meta line with tick count after live data resolves", async () => {

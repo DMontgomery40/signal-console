@@ -71,10 +71,17 @@ const fireJsonSchema = {
 
 const responseSchema = {
   type: "object",
-  required: ["gameId", "runId", "boardObservations", "fires"],
+  required: ["gameId", "runId", "k", "boardObservations", "fires"],
   properties: {
     gameId: { type: "string" },
     runId: { type: "integer" },
+    // AMENDED 2026-05-25 (Codex B-followup review P1): resolved K value the
+    // runner actually computed with. LivePage draws the alert threshold from
+    // this, NOT from /v1/settings, to eliminate the race where the live
+    // threshold line is drawn against a K different from the K that
+    // produced the fires (would happen if /v1/settings lags or defaults
+    // change between requests).
+    k: { type: "number" },
     boardObservations: { type: "array", items: boardObservationJsonSchema },
     fires: { type: "array", items: fireJsonSchema },
   },
@@ -114,10 +121,10 @@ const ensembleOrRoutes: FastifyPluginAsync<EnsembleOrRoutesOptions> = (app, opts
       const defaults = readDetectorDefaults();
       // Resolve live board-mad params from detector-defaults so the
       // ensemble's board lane behaves identically to /v1/board/:gameId.
-      // Off-price-print params: B3 will expose minVolumeShare /
-      // minOffPriceDistance through detector-defaults; for now the Zod
-      // defaults inside OffPricePrintParams (0.1 / 0.4) apply via the
-      // ensemble-or Params schema's default merge.
+      // Off-price thresholds (offPriceMinVolumeShare,
+      // offPriceMinOffPriceDistance) also come from detector-defaults
+      // (phase B3 landed). Cache identity covers both lanes via the
+      // runner's paramsHash, so changing either invalidates correctly.
       const liveBoardParams = BoardMadParams.parse({
         kMad: defaults.kMadLive,
         baselineMode: defaults.baselineMode,
@@ -151,6 +158,11 @@ const ensembleOrRoutes: FastifyPluginAsync<EnsembleOrRoutesOptions> = (app, opts
       reply.send({
         gameId: parsed.data.gameId,
         runId: result.runId,
+        // Echo back the resolved K so the chart draws threshold lines from
+        // the SAME K that produced these fires. LivePage no longer needs
+        // a separate /v1/settings round-trip for this number (Codex
+        // B-followup review P1, 2026-05-25).
+        k: liveBoardParams.kMad,
         boardObservations: result.buckets.map((b) => ({
           bucketStart: b.bucketStart.toISOString(),
           bucketEnd: b.bucketEnd.toISOString(),

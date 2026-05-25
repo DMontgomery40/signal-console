@@ -1,16 +1,19 @@
 // LivePage (US-031 / PRD §FR-20, US-206).
 //
-// Opt-in current-game live view: polls /v1/live/:gameId and /v1/board/:gameId
-// every 30 s and renders a Recharts intensity timeline with fire markers from
-// /v1/board observations at the live sensitivity default.
+// Opt-in current-game live view: polls /v1/live/:gameId and /v1/ensemble-or/:gameId
+// every 30 s and renders a Recharts intensity timeline with fire markers
+// from the Stage-1 cascade (board-mad board lane + off-price-print lane).
 //
-// AC pins from US-031:
-//   • Polls useLive(gameId) and useBoard(gameId) at refetchInterval=30000.
-//   • Timeline shows intensity (line) + fire markers (yellow dots on fired=1).
+// AMENDED 2026-05-25 (Codex review P1, then B-followup review P1):
+//   • Polls useLive(gameId) and useEnsembleOr(gameId) at refetchInterval=30000.
+//   • Timeline shows board intensity (line) + fire markers (yellow dots on
+//     fired=1) + off-price markers (red ReferenceLines).
+//   • K for the threshold line comes from the ensemble response itself
+//     (k field) so the chart's threshold is drawn against the SAME K the
+//     runner used to compute the fires — no /v1/settings race.
 //   • No silent-rebuild helpers imported from packages/db or packages/detectors.
-//     Pre-aggregated median/MAD values arrive as data fields on the board API
-//     response; those are not function calls and not imports. (See US-028's
-//     grep-guard convention — never name the forbidden symbol in comments.)
+//     Pre-aggregated median/MAD values arrive as data fields on the ensemble
+//     API response; those are not function calls and not imports.
 
 import type { JSX } from "react";
 import {
@@ -32,7 +35,6 @@ import { QueryErrorBanner } from "../../components/QueryErrorBanner";
 import {
   useEnsembleOr,
   useLive,
-  useSettings,
   type BoardObservation,
   type EnsembleOrBoardObservation,
   type EnsembleOrFire,
@@ -274,7 +276,6 @@ export function LivePage({ gameId }: LivePageProps): JSX.Element {
   // The earlier "/v1/microstructure events labeled as off-price prints" only
   // filtered by volume_share — wrong domain, didn't apply offPriceMinOffPriceDistance.
   const ensemble = useEnsembleOr(safeId, { refetchInterval: POLL_MS });
-  const settings = useSettings();
 
   if (gameId === null) {
     return <InvalidGameFallback />;
@@ -318,7 +319,13 @@ export function LivePage({ gameId }: LivePageProps): JSX.Element {
         eventTimestamp: f.bucketStart,
       }),
     );
-  const k = settings.data?.detectorDefaults.kMadLive ?? 3.0;
+  // Codex B-followup review P1 (2026-05-25): K comes from the ensemble
+  // response itself, NOT a separate /v1/settings round-trip. The runner
+  // computed these fires with this K; threshold line drawn against this K
+  // is guaranteed consistent. The 3.0 fallback only fires on first paint
+  // before the ensemble query resolves (and ensembleOrSchema's z.number()
+  // .default(3.0) also covers older API versions that don't return k).
+  const k = ensemble.data?.k ?? 3.0;
   const chartData = buildChartData(observations, k);
   const tickCount = live.data?.ticks.length ?? 0;
   const lastWindowEnd = live.data?.windowEnd ?? null;

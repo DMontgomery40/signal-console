@@ -227,6 +227,11 @@ const ensembleOrFireSchema = z.object({
 const ensembleOrSchema = z.object({
   gameId: z.string(),
   runId: z.number().int(),
+  // Resolved K the runner computed with (Codex B-followup review P1) —
+  // single source of truth for the Live chart's threshold line, eliminates
+  // the /v1/settings race. Default applied if an older API serves a
+  // response without the field; LivePage degrades gracefully.
+  k: z.number().default(3.0),
   boardObservations: z.array(ensembleOrBoardObservationSchema),
   fires: z.array(ensembleOrFireSchema),
 });

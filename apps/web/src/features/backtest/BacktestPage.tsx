@@ -1413,10 +1413,11 @@ export function BacktestPage(): JSX.Element {
               .filter((p) => {
                 // Ensemble-or's top-level params are nested objects (board,
                 // offprice) that parseSchema returns as kind="unknown". They
-                // render as bare placeholder rows ("BOARD —", "OFFPRICE —")
-                // with no controls. Hide them; the dials own the board lane
-                // and off-price thresholds run at their defaults until we add
-                // nested sub-controls.
+                // render as bare placeholder rows with no controls. Hide them;
+                // the dials own the board lane, and off-price thresholds are
+                // runtime-tunable through Settings (phase B3) — the parity
+                // banner + Apply-to-Live flow read/write them via
+                // readEnsembleOffpriceParams (Codex review P2 fix).
                 if (selectedDetector.id === ENSEMBLE_OR_DETECTOR_ID) {
                   return p.kind.kind !== "unknown";
                 }
