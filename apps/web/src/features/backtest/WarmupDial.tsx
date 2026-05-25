@@ -1,7 +1,7 @@
 // Opening-holdoff slider (US-042).
 //
-// Controls `warmupBuckets`: the number of leading non-empty intensity buckets
-// suppressed before the detector can emit its first fire. It sits beside the
+// Controls `warmupBuckets`: an elapsed holdoff of N * bucketSeconds before
+// the detector can emit its first fire. It sits beside the
 // volatility-lookback slider because the two timing choices jointly decide how
 // quickly the signal trusts current-game data.
 
@@ -23,7 +23,7 @@ const HOLDOFF_FAST = Math.max(HOLDOFF_MIN, Math.round(HOLDOFF_DEFAULT / 2));
 const HOLDOFF_EARLIEST = HOLDOFF_MIN;
 
 const TOOLTIP_TEXT =
-  "Opening holdoff: suppress the first N non-empty intensity buckets. Once the holdoff ends, the selected prior sample decides which buckets set median and MAD.";
+  "Opening holdoff: suppress fires until N bucket durations have elapsed. Once the holdoff ends, the selected prior sample decides which buckets set median and MAD.";
 
 interface SnapChip {
   readonly label: string;
@@ -80,8 +80,8 @@ export function WarmupDial({ value, bucketSeconds, onChange }: WarmupDialProps):
       data-warmup-value={String(clamped)}
       className="flex flex-col select-none"
     >
-      <div className="flex items-start justify-between gap-4">
-        <div>
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+        <div className="min-w-0">
           <div className="text-text-lo text-xs uppercase tracking-[0.08em] font-sans">
             <ExplainerCard id="warmup-buckets">Opening holdoff</ExplainerCard>
           </div>
@@ -89,16 +89,16 @@ export function WarmupDial({ value, bucketSeconds, onChange }: WarmupDialProps):
             Opening buckets that cannot fire while the game builds enough context.
           </p>
         </div>
-        <div className="text-right">
+        <div className="shrink-0 sm:text-right">
           <span
             data-testid="warmup-dial-headline"
-            className="tabular font-mono text-text-hi text-3xl leading-none"
+            className="tabular font-mono text-text-hi text-2xl leading-none sm:text-3xl"
           >
             {String(clamped)}
           </span>
           <span
             data-testid="warmup-dial-headline-detail"
-            className="ml-2 tabular font-mono text-sm text-text-md"
+            className="ml-2 tabular font-mono text-xs text-text-md sm:text-sm"
           >
             ({duration})
           </span>
@@ -131,8 +131,8 @@ export function WarmupDial({ value, bucketSeconds, onChange }: WarmupDialProps):
         {SNAP_CHIPS.map((chip) => {
           const active = clamped === chip.value;
           const className = active
-            ? "border border-accent-green bg-accent-green px-2.5 py-0.5 text-xs font-mono uppercase tracking-wider text-surface-1"
-            : "border border-accent-green bg-transparent px-2.5 py-0.5 text-xs font-mono uppercase tracking-wider text-accent-green hover:bg-accent-green/10";
+            ? "border border-accent-green bg-accent-green px-2 py-0.5 text-[11px] font-mono uppercase tracking-wider text-surface-1 sm:px-2.5 sm:text-xs"
+            : "border border-accent-green bg-transparent px-2 py-0.5 text-[11px] font-mono uppercase tracking-wider text-accent-green hover:bg-accent-green/10 sm:px-2.5 sm:text-xs";
           return (
             <button
               key={chip.value}

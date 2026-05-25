@@ -82,7 +82,7 @@ No bouncy springs, no parallax, no scroll-jacking, no entrance animations on ini
 
 **This is a rotary dial — a circular knob you turn — not a horizontal slider.** The original plan, the video, and the trader mental model all say "dial." The UI must match that — a tactile-looking knob that a desk operator would reach to grab.
 
-Backtest has one primary threshold rotary, Sensitivity for `kMad`, plus a grouped Signal timing panel for the opening-game mechanics. Inside that panel, Prior sample selects `baselineMode`, Opening sample controls `openingBaselineBuckets`, Ramp complete controls `openingRampCompleteBuckets`, Volatility lookback is the slider for `trailingBuckets`, and Opening holdoff is the slider for `warmupBuckets`. The timing sliders show the integer bucket count plus a smaller parenthetical duration computed exactly as `bucketCount × bucketSeconds`.
+Backtest has one primary threshold rotary, Sensitivity for `kMad`, plus a grouped Signal timing panel for the opening-game mechanics. Inside that panel, Prior sample selects `baselineMode`, Opening sample controls `openingBaselineBuckets`, Ramp complete controls `openingRampCompleteBuckets`, Volatility lookback is the slider for `trailingBuckets`, and Opening holdoff is the slider for `warmupBuckets`. The timing sliders show the integer bucket count plus a smaller parenthetical duration computed exactly as `bucketCount × bucketSeconds`; alert activation and lookback memory both use that elapsed duration, not the count of market observations.
 
 **Aesthetic level:** ~20% of the way from "minimal flat" toward "fully rendered 3D knob." Inspiration: an analog audio potentiometer (Sennheiser volume, Yamaha mixing console, hi-fi tuning dial). It looks like a real thing, but the depth is implied by flat hairlines, not raster shadows. **NO** dynamic shadows, **NO** 3D / WebGL rendering, **NO** haptics, **NO** GPU-blurred glows.
 
@@ -185,7 +185,7 @@ Many numbers and concepts in this app (`kMad`, `fires/game`, the various detecto
 │   in LaTeX, a note on why this estimator vs another.     │
 │   Readable by a "normal-small nerd" — not IMO-only.      │
 │                                                          │
-│   intensity_t > median(B_{t-W..t-1}) + sensitivity · MAD │
+│   intensity_i > median({B_j: e_i-W <= e_j < e_i}) + sensitivity · MAD │
 │                                                          │
 │   (Above renders via KaTeX block-math.)                  │
 │ </text-md mono>                                          │

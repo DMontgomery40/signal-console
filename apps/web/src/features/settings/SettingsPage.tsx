@@ -24,11 +24,27 @@ import type { ChangeEvent, JSX, ReactNode } from "react";
 
 import {
   BOARD_MAD_BASELINE_MODE_DEFAULT,
+  BOARD_MAD_BASELINE_MODE_HISTORICAL_BLEND,
   BOARD_MAD_BASELINE_MODE_OPENING_RAMP,
   BOARD_MAD_BASELINE_MODE_TRAILING,
+  BOARD_MAD_BUCKET_SECONDS_DEFAULT,
+  BOARD_MAD_BUCKET_SECONDS_MAX,
+  BOARD_MAD_BUCKET_SECONDS_MIN,
   BOARD_MAD_FRESH_CAP_SECONDS_DEFAULT,
   BOARD_MAD_FRESH_CAP_SECONDS_MAX,
   BOARD_MAD_FRESH_CAP_SECONDS_MIN,
+  BOARD_MAD_HISTORICAL_AWAY_WEIGHT_DEFAULT,
+  BOARD_MAD_HISTORICAL_AWAY_WEIGHT_MAX,
+  BOARD_MAD_HISTORICAL_AWAY_WEIGHT_MIN,
+  BOARD_MAD_HISTORICAL_LAST_GAMES_DEFAULT,
+  BOARD_MAD_HISTORICAL_LAST_GAMES_MAX,
+  BOARD_MAD_HISTORICAL_LAST_GAMES_MIN,
+  BOARD_MAD_HISTORICAL_PRIOR_WEIGHT_DEFAULT,
+  BOARD_MAD_HISTORICAL_PRIOR_WEIGHT_MAX,
+  BOARD_MAD_HISTORICAL_PRIOR_WEIGHT_MIN,
+  BOARD_MAD_HISTORICAL_RAMP_COMPLETE_GAME_MINUTES_DEFAULT,
+  BOARD_MAD_HISTORICAL_RAMP_COMPLETE_GAME_MINUTES_MAX,
+  BOARD_MAD_HISTORICAL_RAMP_COMPLETE_GAME_MINUTES_MIN,
   BOARD_MAD_K_MAD_MAX,
   BOARD_MAD_K_MAD_MIN,
   BOARD_MAD_OPENING_BASELINE_BUCKETS_DEFAULT,
@@ -37,9 +53,18 @@ import {
   BOARD_MAD_OPENING_RAMP_COMPLETE_BUCKETS_DEFAULT,
   BOARD_MAD_OPENING_RAMP_COMPLETE_BUCKETS_MAX,
   BOARD_MAD_OPENING_RAMP_COMPLETE_BUCKETS_MIN,
+  BOARD_MAD_RECENT_WALL_MINUTES_DEFAULT,
+  BOARD_MAD_RECENT_WALL_MINUTES_MAX,
+  BOARD_MAD_RECENT_WALL_MINUTES_MIN,
+  BOARD_MAD_RECENT_WALL_WEIGHT_DEFAULT,
+  BOARD_MAD_RECENT_WALL_WEIGHT_MAX,
+  BOARD_MAD_RECENT_WALL_WEIGHT_MIN,
   BOARD_MAD_TRAILING_BUCKETS_DEFAULT,
   BOARD_MAD_TRAILING_BUCKETS_MAX,
   BOARD_MAD_TRAILING_BUCKETS_MIN,
+  BOARD_MAD_TRAILING_GAME_MINUTES_DEFAULT,
+  BOARD_MAD_TRAILING_GAME_MINUTES_MAX,
+  BOARD_MAD_TRAILING_GAME_MINUTES_MIN,
   BOARD_MAD_WARMUP_BUCKETS_DEFAULT,
   BOARD_MAD_WARMUP_BUCKETS_MAX,
   BOARD_MAD_WARMUP_BUCKETS_MIN,
@@ -52,6 +77,7 @@ import { ApiUnreachableBanner, isNetworkError } from "../../components/ApiUnreac
 import { QueryErrorBanner } from "../../components/QueryErrorBanner";
 import {
   useClearCache,
+  useScheduleDetectorDefaults,
   useSettings,
   useUpdateDetectorDefaults,
   type DetectorDefaults,
@@ -150,6 +176,16 @@ const NUMERIC_DETECTOR_DEFAULT_FIELDS: ReadonlyArray<{
     unit: "× MAD",
   },
   {
+    key: "bucketSeconds",
+    label: "Bucket size",
+    explainerId: "settings-bucket-seconds",
+    step: 10,
+    integer: true,
+    min: BOARD_MAD_BUCKET_SECONDS_MIN,
+    max: BOARD_MAD_BUCKET_SECONDS_MAX,
+    unit: "seconds",
+  },
+  {
     key: "openingBaselineBuckets",
     label: "Opening sample",
     explainerId: "settings-opening-baseline-buckets",
@@ -200,6 +236,76 @@ const NUMERIC_DETECTOR_DEFAULT_FIELDS: ReadonlyArray<{
     unit: "seconds",
   },
   {
+    key: "historicalLastGames",
+    label: "Historical games",
+    explainerId: "settings-historical-last-games",
+    step: 1,
+    integer: true,
+    min: BOARD_MAD_HISTORICAL_LAST_GAMES_MIN,
+    max: BOARD_MAD_HISTORICAL_LAST_GAMES_MAX,
+    unit: "games",
+  },
+  {
+    key: "historicalAwayWeight",
+    label: "Away/home split",
+    explainerId: "settings-historical-away-weight",
+    step: 0.05,
+    integer: false,
+    min: BOARD_MAD_HISTORICAL_AWAY_WEIGHT_MIN,
+    max: BOARD_MAD_HISTORICAL_AWAY_WEIGHT_MAX,
+    unit: "away share",
+  },
+  {
+    key: "historicalPriorWeight",
+    label: "Opening prior share",
+    explainerId: "settings-historical-prior-weight",
+    step: 0.05,
+    integer: false,
+    min: BOARD_MAD_HISTORICAL_PRIOR_WEIGHT_MIN,
+    max: BOARD_MAD_HISTORICAL_PRIOR_WEIGHT_MAX,
+    unit: "share",
+  },
+  {
+    key: "historicalRampCompleteGameMinutes",
+    label: "History ramp-out",
+    explainerId: "settings-historical-ramp-complete-game-minutes",
+    step: 0.5,
+    integer: false,
+    min: BOARD_MAD_HISTORICAL_RAMP_COMPLETE_GAME_MINUTES_MIN,
+    max: BOARD_MAD_HISTORICAL_RAMP_COMPLETE_GAME_MINUTES_MAX,
+    unit: "game min",
+  },
+  {
+    key: "trailingGameMinutes",
+    label: "Game-clock memory",
+    explainerId: "settings-trailing-game-minutes",
+    step: 0.5,
+    integer: false,
+    min: BOARD_MAD_TRAILING_GAME_MINUTES_MIN,
+    max: BOARD_MAD_TRAILING_GAME_MINUTES_MAX,
+    unit: "game min",
+  },
+  {
+    key: "recentWallMinutes",
+    label: "Recent all-clock tack-on",
+    explainerId: "settings-recent-wall-minutes",
+    step: 0.5,
+    integer: false,
+    min: BOARD_MAD_RECENT_WALL_MINUTES_MIN,
+    max: BOARD_MAD_RECENT_WALL_MINUTES_MAX,
+    unit: "wall min",
+  },
+  {
+    key: "recentWallWeight",
+    label: "Recent tack-on weight",
+    explainerId: "settings-recent-wall-weight",
+    step: 0.1,
+    integer: false,
+    min: BOARD_MAD_RECENT_WALL_WEIGHT_MIN,
+    max: BOARD_MAD_RECENT_WALL_WEIGHT_MAX,
+    unit: "×",
+  },
+  {
     key: "pbpPreBufferMs",
     label: "PBP pre-buffer",
     explainerId: "settings-pbp-pre-buffer-ms",
@@ -225,16 +331,95 @@ const PBP_POST_BUFFER_MS_DEFAULT = 60_000;
 const BASELINE_DEFAULTS: DetectorDefaults = {
   kMadLive: K_MAD_LIVE,
   baselineMode: BOARD_MAD_BASELINE_MODE_DEFAULT,
+  bucketSeconds: BOARD_MAD_BUCKET_SECONDS_DEFAULT,
   openingBaselineBuckets: BOARD_MAD_OPENING_BASELINE_BUCKETS_DEFAULT,
   openingRampCompleteBuckets: BOARD_MAD_OPENING_RAMP_COMPLETE_BUCKETS_DEFAULT,
   trailingBuckets: BOARD_MAD_TRAILING_BUCKETS_DEFAULT,
   warmupBuckets: BOARD_MAD_WARMUP_BUCKETS_DEFAULT,
   freshCapSeconds: BOARD_MAD_FRESH_CAP_SECONDS_DEFAULT,
+  historicalLastGames: BOARD_MAD_HISTORICAL_LAST_GAMES_DEFAULT,
+  historicalAwayWeight: BOARD_MAD_HISTORICAL_AWAY_WEIGHT_DEFAULT,
+  historicalPriorWeight: BOARD_MAD_HISTORICAL_PRIOR_WEIGHT_DEFAULT,
+  historicalRampCompleteGameMinutes: BOARD_MAD_HISTORICAL_RAMP_COMPLETE_GAME_MINUTES_DEFAULT,
+  trailingGameMinutes: BOARD_MAD_TRAILING_GAME_MINUTES_DEFAULT,
+  recentWallMinutes: BOARD_MAD_RECENT_WALL_MINUTES_DEFAULT,
+  recentWallWeight: BOARD_MAD_RECENT_WALL_WEIGHT_DEFAULT,
   pbpPreBufferMs: PBP_PRE_BUFFER_MS_DEFAULT,
   pbpPostBufferMs: PBP_POST_BUFFER_MS_DEFAULT,
 };
 
 const YELLOW_FLASH_MS = 200;
+
+type DetectorProfileId = "opening-ramp-live" | "historical-blend" | "legacy-trailing" | "custom";
+
+const DETECTOR_PROFILE_PRESETS: ReadonlyArray<{
+  readonly id: Exclude<DetectorProfileId, "custom">;
+  readonly label: string;
+  readonly patch: Partial<DetectorDefaults>;
+}> = [
+  {
+    id: "opening-ramp-live",
+    label: "Opening ramp live",
+    patch: {
+      baselineMode: BOARD_MAD_BASELINE_MODE_OPENING_RAMP,
+      bucketSeconds: 60,
+      openingBaselineBuckets: 4,
+      openingRampCompleteBuckets: 20,
+      trailingBuckets: 20,
+      warmupBuckets: 8,
+    },
+  },
+  {
+    id: "historical-blend",
+    label: "Historical to live",
+    patch: {
+      baselineMode: BOARD_MAD_BASELINE_MODE_HISTORICAL_BLEND,
+      bucketSeconds: 30,
+      openingBaselineBuckets: 3,
+      openingRampCompleteBuckets: 16,
+      trailingBuckets: 24,
+      warmupBuckets: 4,
+      historicalLastGames: BOARD_MAD_HISTORICAL_LAST_GAMES_DEFAULT,
+      historicalAwayWeight: BOARD_MAD_HISTORICAL_AWAY_WEIGHT_DEFAULT,
+      historicalPriorWeight: BOARD_MAD_HISTORICAL_PRIOR_WEIGHT_DEFAULT,
+      historicalRampCompleteGameMinutes: BOARD_MAD_HISTORICAL_RAMP_COMPLETE_GAME_MINUTES_DEFAULT,
+      trailingGameMinutes: BOARD_MAD_TRAILING_GAME_MINUTES_DEFAULT,
+      recentWallMinutes: BOARD_MAD_RECENT_WALL_MINUTES_DEFAULT,
+      recentWallWeight: BOARD_MAD_RECENT_WALL_WEIGHT_DEFAULT,
+    },
+  },
+  {
+    id: "legacy-trailing",
+    label: "Legacy rolling",
+    patch: {
+      baselineMode: BOARD_MAD_BASELINE_MODE_TRAILING,
+      bucketSeconds: 60,
+      trailingBuckets: 20,
+      warmupBuckets: 8,
+    },
+  },
+];
+
+function inferDetectorProfile(defaults: DetectorDefaults): DetectorProfileId {
+  if (defaults.baselineMode === BOARD_MAD_BASELINE_MODE_HISTORICAL_BLEND) return "historical-blend";
+  if (defaults.baselineMode === BOARD_MAD_BASELINE_MODE_TRAILING) return "legacy-trailing";
+  if (defaults.bucketSeconds === 60) return "opening-ramp-live";
+  return "custom";
+}
+
+function parseDetectorProfileId(value: string): DetectorProfileId {
+  for (const profile of DETECTOR_PROFILE_PRESETS) {
+    if (profile.id === value) return profile.id;
+  }
+  return "custom";
+}
+
+function nextUtcNineAm(now = new Date()): string {
+  const next = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1, 9, 0, 0, 0),
+  );
+  return next.toISOString();
+}
 
 function DetectorDefaultsSection({
   defaults,
@@ -242,7 +427,13 @@ function DetectorDefaultsSection({
   readonly defaults: DetectorDefaults;
 }): JSX.Element {
   const mutation = useUpdateDetectorDefaults();
+  const scheduleMutation = useScheduleDetectorDefaults();
   const [draft, setDraft] = useState<DetectorDefaults>(defaults);
+  const [pendingProfile, setPendingProfile] = useState<{
+    readonly label: string;
+    readonly next: DetectorDefaults;
+    readonly effectiveAt: string;
+  } | null>(null);
   // Per-field "flash" set — populated immediately after a successful POST so
   // the changed field briefly highlights yellow per AC #3.
   const [flashing, setFlashing] = useState<ReadonlySet<keyof DetectorDefaults>>(new Set());
@@ -286,7 +477,11 @@ function DetectorDefaultsSection({
   }
 
   function updateBaselineMode(raw: string): void {
-    if (raw !== BOARD_MAD_BASELINE_MODE_TRAILING && raw !== BOARD_MAD_BASELINE_MODE_OPENING_RAMP) {
+    if (
+      raw !== BOARD_MAD_BASELINE_MODE_TRAILING &&
+      raw !== BOARD_MAD_BASELINE_MODE_OPENING_RAMP &&
+      raw !== BOARD_MAD_BASELINE_MODE_HISTORICAL_BLEND
+    ) {
       return;
     }
     const next: DetectorDefaults = { ...draft, baselineMode: raw };
@@ -304,8 +499,100 @@ function DetectorDefaultsSection({
     commitNext(key, next);
   }
 
+  function chooseProfile(profileId: DetectorProfileId): void {
+    if (profileId === "custom") return;
+    const preset = DETECTOR_PROFILE_PRESETS.find((profile) => profile.id === profileId);
+    if (preset === undefined) return;
+    const next: DetectorDefaults = { ...draft, ...preset.patch };
+    setPendingProfile({ label: preset.label, next, effectiveAt: nextUtcNineAm() });
+  }
+
+  function applyPendingProfileNow(): void {
+    if (pendingProfile === null) return;
+    mutation.mutate(pendingProfile.next, {
+      onSuccess: () => {
+        setDraft(pendingProfile.next);
+        setPendingProfile(null);
+      },
+    });
+  }
+
+  function schedulePendingProfile(): void {
+    if (pendingProfile === null) return;
+    scheduleMutation.mutate(
+      { defaults: pendingProfile.next, effectiveAt: pendingProfile.effectiveAt },
+      {
+        onSuccess: () => {
+          setPendingProfile(null);
+        },
+      },
+    );
+  }
+
   return (
     <section data-testid="settings-detector-defaults" className="mt-8">
+      {pendingProfile === null ? null : (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="detector-profile-confirm-title"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-surface-0-from/85 px-4"
+          data-testid="detector-profile-confirmation"
+        >
+          <div className="max-w-xl border border-accent-yellow bg-surface-1 p-5 shadow-lg">
+            <h4
+              id="detector-profile-confirm-title"
+              className="text-text-hi text-base font-semibold"
+            >
+              Promote {pendingProfile.label}
+            </h4>
+            <p className="mt-3 text-sm text-text-md">
+              This writes the live detector defaults used by Recent and Live. New board-mad requests
+              will pick it up within 5 seconds after the effective time, the runtime detector
+              version gets a defaults hash, and old cached runs miss naturally.
+            </p>
+            <p className="mt-3 text-sm text-text-md">
+              Rollback is the same operation in reverse: choose Opening ramp live or Legacy rolling
+              here, apply it, and the next request recomputes against that profile. Scheduled
+              changes are stored beside detector-defaults.json and are promoted on the first API
+              read at or after {pendingProfile.effectiveAt}.
+            </p>
+            {mutation.isError || scheduleMutation.isError ? (
+              <p className="mt-3 font-mono text-xs text-accent-yellow">
+                {(mutation.error ?? scheduleMutation.error)?.message}
+              </p>
+            ) : null}
+            <div className="mt-5 flex flex-wrap gap-3">
+              <button
+                type="button"
+                onClick={applyPendingProfileNow}
+                className="border border-accent-yellow px-3 py-2 text-xs font-mono uppercase tracking-wider text-text-hi hover:bg-accent-yellow hover:text-surface-0-from"
+                data-testid="detector-profile-apply-now"
+              >
+                Apply now
+              </button>
+              <button
+                type="button"
+                onClick={schedulePendingProfile}
+                className="border border-surface-2 px-3 py-2 text-xs font-mono uppercase tracking-wider text-text-md hover:border-accent-yellow hover:text-text-hi"
+                data-testid="detector-profile-schedule"
+              >
+                Schedule 09:00 UTC
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setPendingProfile(null);
+                }}
+                className="px-3 py-2 text-xs font-mono uppercase tracking-wider text-text-lo hover:text-text-hi"
+                data-testid="detector-profile-cancel"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <h3 className="text-text-hi text-base font-semibold">
         <ExplainerCard id="settings-detector-defaults">
           <span>Detector defaults</span>
@@ -320,7 +607,34 @@ function DetectorDefaultsSection({
         ; the API picks them up within 5 s and bumps the board-mad version so cached results
         recompute on next access.
       </p>
-      <dl className="mt-4 grid grid-cols-[180px_1fr] gap-y-3 text-sm">
+      <dl className="mt-4 grid grid-cols-1 gap-x-4 gap-y-3 text-sm sm:grid-cols-[180px_minmax(0,1fr)]">
+        <div
+          data-testid="detector-default-row"
+          data-field="profile"
+          data-dirty="0"
+          data-flashing="0"
+          className="contents"
+        >
+          <ExplainDt id="settings-detector-defaults">Profile</ExplainDt>
+          <dd>
+            <select
+              value={inferDetectorProfile(draft)}
+              onChange={(e: ChangeEvent<HTMLSelectElement>) => {
+                chooseProfile(parseDetectorProfileId(e.target.value));
+              }}
+              data-testid="detector-default-profile"
+              aria-label="Detector default profile"
+              className="w-64 border border-surface-2 bg-surface-0-from px-2 py-1 text-sm font-mono text-text-hi focus:border-accent-green focus:outline-none"
+            >
+              {DETECTOR_PROFILE_PRESETS.map((profile) => (
+                <option key={profile.id} value={profile.id}>
+                  {profile.label}
+                </option>
+              ))}
+              <option value="custom">Custom</option>
+            </select>
+          </dd>
+        </div>
         <div
           data-testid="detector-default-row"
           data-field="baselineMode"
@@ -344,10 +658,13 @@ function DetectorDefaultsSection({
                 }}
                 data-testid="detector-default-input-baselineMode"
                 aria-label="Prior sample"
-                className="w-52 border border-surface-2 bg-surface-0 px-2 py-1 text-sm font-mono text-text-hi focus:border-accent-green focus:outline-none"
+                className="w-52 border border-surface-2 bg-surface-0-from px-2 py-1 text-sm font-mono text-text-hi focus:border-accent-green focus:outline-none"
               >
                 <option value={BOARD_MAD_BASELINE_MODE_TRAILING}>rolling current game</option>
                 <option value={BOARD_MAD_BASELINE_MODE_OPENING_RAMP}>opening sample ramp</option>
+                <option value={BOARD_MAD_BASELINE_MODE_HISTORICAL_BLEND}>
+                  historical to live ramp
+                </option>
               </select>
               {defaults.baselineMode === BASELINE_DEFAULTS.baselineMode ? null : (
                 <button
@@ -408,7 +725,7 @@ function DetectorDefaultsSection({
                     }}
                     data-testid={`detector-default-input-${field.key}`}
                     aria-label={field.label}
-                    className="w-32 border border-surface-2 bg-surface-0 px-2 py-1 text-sm font-mono text-text-hi tabular focus:border-accent-green focus:outline-none"
+                    className="w-32 border border-surface-2 bg-surface-0-from px-2 py-1 text-sm font-mono text-text-hi tabular focus:border-accent-green focus:outline-none"
                   />
                   <span className="tabular font-mono text-xs text-text-lo">{field.unit}</span>
                   {isBaseline ? null : (

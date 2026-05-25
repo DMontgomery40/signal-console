@@ -16,6 +16,7 @@ import {
   type UseQueryResult,
 } from "@tanstack/react-query";
 import {
+  BOARD_MAD_BASELINE_MODE_HISTORICAL_BLEND,
   BOARD_MAD_BASELINE_MODE_OPENING_RAMP,
   BOARD_MAD_BASELINE_MODE_TRAILING,
 } from "@signal-console/detectors/board-mad/config";
@@ -64,16 +65,24 @@ const gameRowSchema = z.object({
 const gamesListSchema = z.object({ games: z.array(gameRowSchema) });
 
 // /v1/board/:gameId — mirrors apps/api/src/routes/board.ts.
-const boardObservationSchema = z.object({
-  bucketStart: z.string(),
-  bucketEnd: z.string(),
-  fired: z.number().int(),
-  intensity: z.number(),
-  baselineMedian: z.number(),
-  baselineMad: z.number(),
-  lane: z.enum(["board", "offprice"]).optional(),
-  sourceMarketId: z.string().optional(),
-});
+const boardObservationSchema = z
+  .object({
+    bucketStart: z.string(),
+    bucketEnd: z.string(),
+    fired: z.number().int(),
+    intensity: z.number(),
+    baselineMedian: z.number(),
+    baselineMad: z.number(),
+    warmedUp: z.boolean().optional(),
+    lane: z.enum(["board", "offprice"]).optional(),
+    sourceMarketId: z.string().optional(),
+  })
+  .transform((obs) => ({
+    ...obs,
+    warmedUp:
+      obs.warmedUp ??
+      (obs.fired > 0 || obs.baselineMedian !== 0 || obs.baselineMad !== 0),
+  }));
 const boardSchema = z.object({
   gameId: z.string(),
   runId: z.number().int(),
@@ -255,12 +264,24 @@ const aboutInfoSchema = z.object({
 // (US-053). The shape mirrors apps/api/src/services/detector-defaults.ts.
 const detectorDefaultsSchema = z.object({
   kMadLive: z.number(),
-  baselineMode: z.enum([BOARD_MAD_BASELINE_MODE_TRAILING, BOARD_MAD_BASELINE_MODE_OPENING_RAMP]),
+  baselineMode: z.enum([
+    BOARD_MAD_BASELINE_MODE_TRAILING,
+    BOARD_MAD_BASELINE_MODE_OPENING_RAMP,
+    BOARD_MAD_BASELINE_MODE_HISTORICAL_BLEND,
+  ]),
+  bucketSeconds: z.number().int(),
   openingBaselineBuckets: z.number().int(),
   openingRampCompleteBuckets: z.number().int(),
   trailingBuckets: z.number().int(),
   warmupBuckets: z.number().int(),
   freshCapSeconds: z.number().int(),
+  historicalLastGames: z.number().int(),
+  historicalAwayWeight: z.number(),
+  historicalPriorWeight: z.number(),
+  historicalRampCompleteGameMinutes: z.number(),
+  trailingGameMinutes: z.number(),
+  recentWallMinutes: z.number(),
+  recentWallWeight: z.number(),
   pbpPreBufferMs: z.number().int(),
   pbpPostBufferMs: z.number().int(),
 });
@@ -517,6 +538,45 @@ export function useUpdateDetectorDefaults(): UseMutationResult<
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: updateDetectorDefaultsRequest,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["settings"] });
+    },
+  });
+}
+
+const scheduledDetectorDefaultsSchema = z.object({
+  effectiveAt: z.string(),
+  defaults: detectorDefaultsSchema,
+});
+export type ScheduledDetectorDefaults = z.infer<typeof scheduledDetectorDefaultsSchema>;
+
+async function scheduleDetectorDefaultsRequest(body: {
+  readonly defaults: DetectorDefaults;
+  readonly effectiveAt: string;
+}): Promise<ScheduledDetectorDefaults> {
+  const res = await fetch(`${API_BASE_URL}/v1/settings/detector-defaults/schedule`, {
+    method: "POST",
+    headers: { "X-Signal-Token": SIGNAL_TOKEN, "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(
+      `HTTP ${String(res.status)} ${res.statusText} for /v1/settings/detector-defaults/schedule: ${text}`,
+    );
+  }
+  const json: unknown = await res.json();
+  return scheduledDetectorDefaultsSchema.parse(json);
+}
+
+export function useScheduleDetectorDefaults(): UseMutationResult<
+  ScheduledDetectorDefaults,
+  Error,
+  { readonly defaults: DetectorDefaults; readonly effectiveAt: string }
+> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: scheduleDetectorDefaultsRequest,
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["settings"] });
     },

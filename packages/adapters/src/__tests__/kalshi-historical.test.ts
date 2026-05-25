@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ResearchGameCard } from "@signal-console/domain";
 import {
@@ -146,10 +146,11 @@ const kalshiCandlesticksByMarket: Record<string, unknown> = {
   },
 };
 
-function buildFetchImpl(requestedUrls: URL[] = []) {
-  return (async (input: string | URL) => {
+function buildFetchImpl(requestedUrls: URL[] = [], requestInits: RequestInit[] = []) {
+  return (async (input: string | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? new URL(input) : input;
     requestedUrls.push(new URL(url.toString()));
+    if (init) requestInits.push(init);
     if (url.pathname.endsWith("/events")) {
       return {
         json: async () => kalshiEventsPayload,
@@ -187,6 +188,7 @@ describe("kalshi historical adapter", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     resetDatabase();
     delete process.env.SIGNAL_CONSOLE_DB_PATH;
     if (tempDir) {
@@ -259,6 +261,254 @@ describe("kalshi historical adapter", () => {
     );
     expect(historicalRuns).toHaveLength(2);
     expect(historicalRuns.every((run) => run.status === "ok")).toBe(true);
+  });
+
+  it("passes abort signals to historical event and candle requests", async () => {
+    seedPastGame();
+
+    const requestInits: RequestInit[] = [];
+    const run = await syncKalshiNbaHistorical({
+      fetchImpl: buildFetchImpl([], requestInits),
+      now: () => new Date("2026-04-23T12:00:00.000Z"),
+    });
+
+    expect(run.ok).toBe(true);
+    expect(requestInits.length).toBeGreaterThan(0);
+    expect(requestInits.every((init) => init.signal instanceof AbortSignal)).toBe(true);
+  });
+
+  it("pushes maxEvents down to the Kalshi events page limit", async () => {
+    seedPastGame();
+
+    const requestedUrls: URL[] = [];
+    const run = await syncKalshiNbaHistorical({
+      fetchImpl: buildFetchImpl(requestedUrls),
+      maxEvents: 1,
+      now: () => new Date("2026-04-23T12:00:00.000Z"),
+    });
+
+    const eventRequest = requestedUrls.find((url) => url.pathname.endsWith("/events"));
+    expect(eventRequest?.searchParams.get("limit")).toBe("1");
+    expect(run.eventsSeen).toBe(1);
+  });
+
+  it("clamps Kalshi candle requests to the NBA game window instead of market open-to-close", async () => {
+    seedPastGame();
+
+    const requestedUrls: URL[] = [];
+    const payload = structuredClone(kalshiEventsPayload);
+    payload.events[0]!.markets[0]!.open_time = "2026-04-20T00:00:00Z";
+    payload.events[0]!.markets[0]!.close_time = "2026-04-24T00:00:00Z";
+    payload.events[0]!.markets = [payload.events[0]!.markets[0]!];
+
+    const fetchImpl = (async (input: string | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? new URL(input) : input;
+      if (url.pathname.endsWith("/events")) {
+        requestedUrls.push(new URL(url.toString()));
+        return {
+          json: async () => payload,
+          ok: true,
+          status: 200,
+        } as unknown as Response;
+      }
+      return buildFetchImpl(requestedUrls)(input, init);
+    }) as unknown as typeof fetch;
+
+    const run = await syncKalshiNbaHistorical({
+      fetchImpl,
+      now: () => new Date("2026-04-23T12:00:00.000Z"),
+    });
+
+    expect(run.ok).toBe(true);
+    const candleRequests = requestedUrls.filter(
+      (url) =>
+        url.pathname.includes("/markets/KXNBAGAME-26APR22PHXOKC-") &&
+        url.pathname.endsWith("/candlesticks"),
+    );
+    expect(candleRequests.length).toBeGreaterThan(0);
+    expect(candleRequests[0]?.searchParams.get("start_ts")).toBe(
+      String(Date.parse("2026-04-22T23:00:00.000Z") / 1000),
+    );
+    expect(candleRequests.at(-1)?.searchParams.get("end_ts")).toBe(
+      String(Date.parse("2026-04-23T03:30:00.000Z") / 1000),
+    );
+  });
+
+  it("uses date filters to choose persisted Kalshi games for historical repair", async () => {
+    seedPastGame();
+    upsertGame({
+      awayParticipant: {
+        abbreviation: "LAL",
+        key: "lal",
+        name: "Los Angeles Lakers",
+        shortName: "Lakers",
+        side: "away",
+      },
+      homeParticipant: {
+        abbreviation: "BOS",
+        key: "bos",
+        name: "Boston Celtics",
+        shortName: "Celtics",
+        side: "home",
+      },
+      id: "nba-older-game",
+      league: "NBA",
+      scheduledStart: "2026-04-20T23:30:00.000Z",
+      sourceGameKeyNba: "0042500190",
+      sport: "basketball",
+    });
+    for (const gameId of ["nba-0042500200", "nba-older-game"]) {
+      upsertMarketInstrument({
+        displayLabel: `${gameId} prop`,
+        family: "player-prop",
+        gameId,
+        id: `${gameId}-instrument`,
+        inPlay: false,
+        line: 24.5,
+        participantKey: "devin-booker",
+        selection: "over",
+      });
+      upsertSourceMarket({
+        gameId,
+        id: `kalshi-${gameId}`,
+        instrumentId: `${gameId}-instrument`,
+        mappingStatus: "auto",
+        rawFamily: "points",
+        rawLabel: `${gameId} prop`,
+        rawMetadata: {
+          closeTime: "2026-04-24T00:00:00Z",
+          openTime: "2026-04-20T00:00:00Z",
+          seriesTicker: "KXNBAPTS",
+        },
+        source: "kalshi",
+        sourceMarketKey: `${gameId}-ticker`,
+        sourceSelectionKey: "over",
+      });
+    }
+
+    const requestedUrls: URL[] = [];
+    const fetchImpl = (async (input: string | URL) => {
+      const url = typeof input === "string" ? new URL(input) : input;
+      requestedUrls.push(new URL(url.toString()));
+      if (url.pathname.endsWith("/events")) {
+        return {
+          json: async () => ({ cursor: "", events: [] }),
+          ok: true,
+          status: 200,
+        } as unknown as Response;
+      }
+      return {
+        json: async () => ({ candlesticks: [] }),
+        ok: true,
+        status: 200,
+      } as unknown as Response;
+    }) as unknown as typeof fetch;
+
+    const run = await syncKalshiNbaHistorical({
+      dateFrom: "2026-04-22",
+      dateTo: "2026-04-23",
+      fetchImpl,
+      now: () => new Date("2026-04-23T12:00:00.000Z"),
+    });
+
+    expect(run.marketsConsidered).toBe(1);
+    const candleRequests = requestedUrls.filter((url) => url.pathname.endsWith("/candlesticks"));
+    expect(candleRequests).toHaveLength(5);
+    expect(candleRequests[0]?.pathname).toContain("nba-0042500200-ticker");
+  });
+
+  it("applies maxMarkets to persisted Kalshi historical repair targets", async () => {
+    seedPastGame();
+    for (const suffix of ["one", "two"]) {
+      upsertMarketInstrument({
+        displayLabel: `${suffix} prop`,
+        family: "player-prop",
+        gameId: "nba-0042500200",
+        id: `${suffix}-instrument`,
+        inPlay: false,
+        line: 24.5,
+        participantKey: "devin-booker",
+        selection: "over",
+      });
+      upsertSourceMarket({
+        gameId: "nba-0042500200",
+        id: `kalshi-${suffix}`,
+        instrumentId: `${suffix}-instrument`,
+        mappingStatus: "auto",
+        rawFamily: "points",
+        rawLabel: `${suffix} prop`,
+        rawMetadata: {
+          closeTime: "2026-04-24T00:00:00Z",
+          openTime: "2026-04-20T00:00:00Z",
+          seriesTicker: "KXNBAPTS",
+        },
+        source: "kalshi",
+        sourceMarketKey: `KXNBAPTS-${suffix}`,
+        sourceSelectionKey: "over",
+      });
+    }
+
+    const requestedUrls: URL[] = [];
+    const fetchImpl = (async (input: string | URL) => {
+      const url = typeof input === "string" ? new URL(input) : input;
+      requestedUrls.push(new URL(url.toString()));
+      return {
+        json: async () =>
+          url.pathname.endsWith("/events") ? { cursor: "", events: [] } : { candlesticks: [] },
+        ok: true,
+        status: 200,
+      } as unknown as Response;
+    }) as unknown as typeof fetch;
+
+    const run = await syncKalshiNbaHistorical({
+      dateFrom: "2026-04-22",
+      dateTo: "2026-04-23",
+      fetchImpl,
+      maxMarkets: 1,
+      now: () => new Date("2026-04-23T12:00:00.000Z"),
+    });
+
+    expect(run.marketsConsidered).toBe(1);
+    expect(requestedUrls.filter((url) => url.pathname.endsWith("/candlesticks"))).toHaveLength(5);
+  });
+
+  it("caps Kalshi retry-after waits during historical requests", async () => {
+    seedPastGame();
+    vi.useFakeTimers();
+
+    let eventsCalls = 0;
+    const requestedUrls: URL[] = [];
+    const fetchImpl = (async (input: string | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? new URL(input) : input;
+      requestedUrls.push(new URL(url.toString()));
+      if (url.pathname.endsWith("/events")) {
+        eventsCalls += 1;
+        if (eventsCalls === 1) {
+          return {
+            headers: new Headers({ "retry-after": "999" }),
+            json: async () => ({}),
+            ok: false,
+            status: 429,
+          } as unknown as Response;
+        }
+      }
+      return buildFetchImpl()(input, init);
+    }) as unknown as typeof fetch;
+
+    const runPromise = syncKalshiNbaHistorical({
+      fetchImpl,
+      maxEvents: 1,
+      now: () => new Date("2026-04-23T12:00:00.000Z"),
+    });
+
+    await vi.advanceTimersByTimeAsync(250);
+    await vi.advanceTimersByTimeAsync(5_000);
+    await vi.advanceTimersByTimeAsync(1_000);
+    const run = await runPromise;
+
+    expect(run.ok).toBe(true);
+    expect(eventsCalls).toBe(2);
+    expect(requestedUrls.filter((url) => url.pathname.endsWith("/events"))).toHaveLength(2);
   });
 
   it("ignores Kalshi events that cannot be matched to a canonical game", async () => {

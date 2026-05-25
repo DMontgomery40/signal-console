@@ -3,7 +3,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode, JSX } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
-import { LivePage, snapEventToBucket } from "../LivePage";
+import { LivePage, buildChartData, offPriceMarkersForDomain } from "../LivePage";
 
 function makeWrapper(): (props: { children: ReactNode }) => JSX.Element {
   const client = new QueryClient({
@@ -56,6 +56,7 @@ function boardResponse(opts: {
       intensity: 0.1 + i * 0.01,
       baselineMedian: 0.1,
       baselineMad: 0.02,
+      warmedUp: true,
     });
   }
   for (let i = 0; i < opts.firesCount; i++) {
@@ -67,9 +68,40 @@ function boardResponse(opts: {
       intensity: 1.5 + i * 0.1,
       baselineMedian: 0.1,
       baselineMad: 0.05,
+      warmedUp: true,
     });
   }
   return jsonResponse({ gameId: opts.gameId, runId: 1, k: 3.0, observations });
+}
+
+function microstructureResponse(opts: {
+  gameId: string;
+  eventTimestamps?: readonly string[];
+}): Response {
+  const events = (opts.eventTimestamps ?? []).map((eventTimestamp, i) => ({
+    id: i + 1,
+    source: "polymarket",
+    sourceMarketId: `poly-${String(i)}`,
+    gameId: opts.gameId,
+    instrumentId: `inst-${String(i)}`,
+    eventType: "trade",
+    apiSurface: "trades",
+    eventTimestamp,
+    capturedAt: eventTimestamp,
+    price: 0.62,
+    previousPrice: 0.58,
+    tradePrice: 0.62,
+    size: 100,
+    notional: 62,
+    volume: 1000,
+    finalMarketVolume: 2500,
+    volumeShare: 0.4,
+    bestBid: null,
+    bestAsk: null,
+    spread: null,
+    depthScore: null,
+  }));
+  return jsonResponse({ gameId: opts.gameId, theta: 0.1, events });
 }
 
 type FetchFn = typeof fetch;
@@ -84,39 +116,145 @@ function mockLiveAndBoard(
   fetchMock: ReturnType<typeof vi.fn<FetchFn>>,
   live: Response,
   board: Response,
+  micro: Response = microstructureResponse({ gameId: GAME_ID }),
 ): void {
   fetchMock.mockImplementation(async (input) => {
     await Promise.resolve();
     const url = urlOf(input);
     if (url.startsWith("/v1/live/")) return live.clone();
     if (url.startsWith("/v1/board/")) return board.clone();
+    if (url.startsWith("/v1/microstructure/")) return micro.clone();
     return new Response("not found", { status: 404 });
   });
 }
 
 const GAME_ID = "nba-0042500313";
 
-describe("snapEventToBucket", () => {
-  const buckets = [
-    { bucketStart: "2026-05-23T03:00:00Z", bucketEnd: "2026-05-23T03:01:00Z" },
-    { bucketStart: "2026-05-23T03:01:00Z", bucketEnd: "2026-05-23T03:02:00Z" },
-  ] as const;
-
-  it("returns the bucket whose [start, end) contains the event", () => {
-    expect(snapEventToBucket("2026-05-23T03:00:30Z", buckets)).toBe("2026-05-23T03:00:00Z");
-    expect(snapEventToBucket("2026-05-23T03:01:15Z", buckets)).toBe("2026-05-23T03:01:00Z");
+describe("offPriceMarkersForDomain", () => {
+  it("keeps off-price events inside the visible chart time range even when they are between sparse board buckets", () => {
+    const markers = offPriceMarkersForDomain(
+      [
+        {
+          id: 1,
+          source: "polymarket",
+          sourceMarketId: "poly-1",
+          gameId: GAME_ID,
+          instrumentId: "inst-1",
+          eventType: "trade",
+          apiSurface: "trades",
+          eventTimestamp: "2026-05-23T03:01:30Z",
+          capturedAt: "2026-05-23T03:01:30Z",
+          price: 0.62,
+          previousPrice: 0.58,
+          tradePrice: 0.62,
+          size: 100,
+          notional: 62,
+          volume: 1000,
+          finalMarketVolume: 2500,
+          volumeShare: 0.4,
+          bestBid: null,
+          bestAsk: null,
+          spread: null,
+          depthScore: null,
+        },
+      ],
+      {
+        minMs: Date.parse("2026-05-23T03:00:00Z"),
+        maxMs: Date.parse("2026-05-23T03:03:00Z"),
+      },
+    );
+    expect(markers).toEqual([{ id: 1, timeMs: Date.parse("2026-05-23T03:01:30Z") }]);
   });
 
-  it("returns null when the event is before the first bucket", () => {
-    expect(snapEventToBucket("2026-05-23T02:59:00Z", buckets)).toBeNull();
+  it("drops off-price events outside the visible chart time range", () => {
+    const markers = offPriceMarkersForDomain(
+      [
+        {
+          id: 1,
+          source: "polymarket",
+          sourceMarketId: "poly-1",
+          gameId: GAME_ID,
+          instrumentId: "inst-1",
+          eventType: "trade",
+          apiSurface: "trades",
+          eventTimestamp: "2026-05-23T03:05:00Z",
+          capturedAt: "2026-05-23T03:05:00Z",
+          price: 0.62,
+          previousPrice: 0.58,
+          tradePrice: 0.62,
+          size: 100,
+          notional: 62,
+          volume: 1000,
+          finalMarketVolume: 2500,
+          volumeShare: 0.4,
+          bestBid: null,
+          bestAsk: null,
+          spread: null,
+          depthScore: null,
+        },
+      ],
+      {
+        minMs: Date.parse("2026-05-23T03:00:00Z"),
+        maxMs: Date.parse("2026-05-23T03:03:00Z"),
+      },
+    );
+    expect(markers).toEqual([]);
+  });
+});
+
+describe("buildChartData", () => {
+  it("puts the visible alert threshold on every chart point as baseline median plus K times MAD", () => {
+    const data = buildChartData(
+      [
+        {
+          bucketStart: "2026-05-23T03:00:00Z",
+          bucketEnd: "2026-05-23T03:01:00Z",
+          fired: 0,
+          intensity: 0.22,
+          baselineMedian: 0.1,
+          baselineMad: 0.03,
+          warmedUp: true,
+        },
+      ],
+      3,
+    );
+    expect(data).toEqual([
+      {
+        timeMs: Date.parse("2026-05-23T03:00:00Z"),
+        bucketStart: "2026-05-23T03:00:00Z",
+        bucketEnd: "2026-05-23T03:01:00Z",
+        intensity: 0.22,
+        threshold: 0.19,
+        fired: 0,
+      },
+    ]);
   });
 
-  it("returns null when the event is after the last bucket (no last-bucket fallback)", () => {
-    expect(snapEventToBucket("2026-05-23T03:05:00Z", buckets)).toBeNull();
-  });
-
-  it("returns null for an empty bucket list", () => {
-    expect(snapEventToBucket("2026-05-23T03:00:30Z", [])).toBeNull();
+  it("does not draw warmup sentinel zeros as an alert threshold", () => {
+    const data = buildChartData(
+      [
+        {
+          bucketStart: "2026-05-23T03:00:00Z",
+          bucketEnd: "2026-05-23T03:01:00Z",
+          fired: 0,
+          intensity: 42,
+          baselineMedian: 0,
+          baselineMad: 0,
+          warmedUp: false,
+        },
+        {
+          bucketStart: "2026-05-23T03:01:00Z",
+          bucketEnd: "2026-05-23T03:02:00Z",
+          fired: 0,
+          intensity: 45,
+          baselineMedian: 40,
+          baselineMad: 5,
+          warmedUp: true,
+        },
+      ],
+      3,
+    );
+    expect(data.map((d) => d.threshold)).toEqual([null, 55]);
   });
 });
 
@@ -165,6 +303,7 @@ describe("LivePage", () => {
     const calledUrls = fetchMock.mock.calls.map((c) => urlOf(c[0]));
     expect(calledUrls.some((u) => u.startsWith(`/v1/live/${GAME_ID}`))).toBe(true);
     expect(calledUrls.some((u) => u.startsWith(`/v1/board/${GAME_ID}`))).toBe(true);
+    expect(calledUrls.some((u) => u.startsWith(`/v1/microstructure/${GAME_ID}`))).toBe(true);
   });
 
   it("renders the intensity timeline once board data resolves with fires", async () => {
@@ -178,6 +317,29 @@ describe("LivePage", () => {
       expect(screen.queryByTestId("live-timeline")).not.toBeNull();
     });
     expect(screen.getByTestId("live-fires-count").textContent).toBe("2");
+  });
+
+  it("renders the alert threshold line and off-price markers on the live chart", async () => {
+    mockLiveAndBoard(
+      fetchMock,
+      liveResponse({ gameId: GAME_ID, tickCount: 0 }),
+      boardResponse({ gameId: GAME_ID, firesCount: 1, nonFiresCount: 4 }),
+      microstructureResponse({
+        gameId: GAME_ID,
+        eventTimestamps: ["2026-05-23T03:02:30Z"],
+      }),
+    );
+    const { container } = render(<LivePage gameId={GAME_ID} />, { wrapper: makeWrapper() });
+    await waitFor(() => {
+      expect(screen.queryByTestId("live-timeline")).not.toBeNull();
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId("live-offprice-count").textContent).toBe("1");
+    });
+    expect(screen.getByTestId("live-threshold-legend").textContent).toContain(
+      "active alert threshold",
+    );
+    expect(container.querySelector("[data-testid='live-timeline']")).not.toBeNull();
   });
 
   it("shows the empty-state when board observations is empty", async () => {

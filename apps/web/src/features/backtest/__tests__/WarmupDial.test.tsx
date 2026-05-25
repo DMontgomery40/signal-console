@@ -34,7 +34,7 @@ describe("WarmupDial", () => {
     render(<WarmupDial value={8} bucketSeconds={60} onChange={() => {}} />);
     const slider = screen.getByTestId("warmup-dial-slider");
     expect(slider.getAttribute("title")).toBe(
-      "Opening holdoff: suppress the first N non-empty intensity buckets. Once the holdoff ends, the selected prior sample decides which buckets set median and MAD.",
+      "Opening holdoff: suppress fires until N bucket durations have elapsed. Once the holdoff ends, the selected prior sample decides which buckets set median and MAD.",
     );
   });
 

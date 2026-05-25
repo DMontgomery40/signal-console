@@ -43,6 +43,7 @@ import { MemoryDial } from "./MemoryDial";
 import { PbpAnchoredIncidents } from "./PbpAnchoredIncidents";
 import { WarmupDial } from "./WarmupDial";
 import {
+  BOARD_MAD_BASELINE_MODE_HISTORICAL_BLEND,
   BOARD_MAD_BASELINE_MODE_DEFAULT,
   BOARD_MAD_BASELINE_MODE_OPENING_RAMP,
   BOARD_MAD_BASELINE_MODE_TRAILING,
@@ -53,7 +54,14 @@ import {
   BOARD_MAD_OPENING_RAMP_COMPLETE_BUCKETS_MAX,
   BOARD_MAD_OPENING_RAMP_COMPLETE_BUCKETS_MIN,
   BOARD_MAD_BUCKET_SECONDS_DEFAULT,
+  BOARD_MAD_HISTORICAL_AWAY_WEIGHT_DEFAULT,
+  BOARD_MAD_HISTORICAL_LAST_GAMES_DEFAULT,
+  BOARD_MAD_HISTORICAL_PRIOR_WEIGHT_DEFAULT,
+  BOARD_MAD_HISTORICAL_RAMP_COMPLETE_GAME_MINUTES_DEFAULT,
+  BOARD_MAD_RECENT_WALL_MINUTES_DEFAULT,
+  BOARD_MAD_RECENT_WALL_WEIGHT_DEFAULT,
   BOARD_MAD_TRAILING_BUCKETS_DEFAULT,
+  BOARD_MAD_TRAILING_GAME_MINUTES_DEFAULT,
   BOARD_MAD_WARMUP_BUCKETS_DEFAULT,
   K_MAD_LIVE,
 } from "@signal-console/detectors/board-mad/config";
@@ -65,6 +73,13 @@ const OPENING_BASELINE_PARAM_NAME = "openingBaselineBuckets";
 const OPENING_RAMP_COMPLETE_PARAM_NAME = "openingRampCompleteBuckets";
 const TRAILING_PARAM_NAME = "trailingBuckets";
 const WARMUP_PARAM_NAME = "warmupBuckets";
+const HISTORICAL_LAST_GAMES_PARAM_NAME = "historicalLastGames";
+const HISTORICAL_AWAY_WEIGHT_PARAM_NAME = "historicalAwayWeight";
+const HISTORICAL_PRIOR_WEIGHT_PARAM_NAME = "historicalPriorWeight";
+const HISTORICAL_RAMP_GAME_MINUTES_PARAM_NAME = "historicalRampCompleteGameMinutes";
+const TRAILING_GAME_MINUTES_PARAM_NAME = "trailingGameMinutes";
+const RECENT_WALL_MINUTES_PARAM_NAME = "recentWallMinutes";
+const RECENT_WALL_WEIGHT_PARAM_NAME = "recentWallWeight";
 const BUCKET_SECONDS_DEFAULT = BOARD_MAD_BUCKET_SECONDS_DEFAULT;
 const BASELINE_MODE_DEFAULT = BOARD_MAD_BASELINE_MODE_DEFAULT;
 const OPENING_BASELINE_DEFAULT = BOARD_MAD_OPENING_BASELINE_BUCKETS_DEFAULT;
@@ -75,6 +90,57 @@ const OPENING_RAMP_COMPLETE_MIN = BOARD_MAD_OPENING_RAMP_COMPLETE_BUCKETS_MIN;
 const OPENING_RAMP_COMPLETE_MAX = BOARD_MAD_OPENING_RAMP_COMPLETE_BUCKETS_MAX;
 const TRAILING_DEFAULT = BOARD_MAD_TRAILING_BUCKETS_DEFAULT;
 const WARMUP_DEFAULT = BOARD_MAD_WARMUP_BUCKETS_DEFAULT;
+
+type BoardProfileId = "opening-ramp-live" | "historical-blend" | "legacy-trailing" | "custom";
+
+const BOARD_PROFILE_PRESETS: ReadonlyArray<{
+  readonly id: Exclude<BoardProfileId, "custom">;
+  readonly label: string;
+  readonly patch: Readonly<Record<string, number | string>>;
+}> = [
+  {
+    id: "opening-ramp-live",
+    label: "Opening ramp live",
+    patch: {
+      [BASELINE_MODE_PARAM_NAME]: BOARD_MAD_BASELINE_MODE_OPENING_RAMP,
+      [BUCKET_SECONDS_PARAM_NAME]: 60,
+      [OPENING_BASELINE_PARAM_NAME]: 4,
+      [OPENING_RAMP_COMPLETE_PARAM_NAME]: 20,
+      [TRAILING_PARAM_NAME]: 20,
+      [WARMUP_PARAM_NAME]: 8,
+    },
+  },
+  {
+    id: "historical-blend",
+    label: "Historical to live",
+    patch: {
+      [BASELINE_MODE_PARAM_NAME]: BOARD_MAD_BASELINE_MODE_HISTORICAL_BLEND,
+      [BUCKET_SECONDS_PARAM_NAME]: 30,
+      [OPENING_BASELINE_PARAM_NAME]: 3,
+      [OPENING_RAMP_COMPLETE_PARAM_NAME]: 16,
+      [TRAILING_PARAM_NAME]: 24,
+      [WARMUP_PARAM_NAME]: 4,
+      [HISTORICAL_LAST_GAMES_PARAM_NAME]: BOARD_MAD_HISTORICAL_LAST_GAMES_DEFAULT,
+      [HISTORICAL_AWAY_WEIGHT_PARAM_NAME]: BOARD_MAD_HISTORICAL_AWAY_WEIGHT_DEFAULT,
+      [HISTORICAL_PRIOR_WEIGHT_PARAM_NAME]: BOARD_MAD_HISTORICAL_PRIOR_WEIGHT_DEFAULT,
+      [HISTORICAL_RAMP_GAME_MINUTES_PARAM_NAME]:
+        BOARD_MAD_HISTORICAL_RAMP_COMPLETE_GAME_MINUTES_DEFAULT,
+      [TRAILING_GAME_MINUTES_PARAM_NAME]: BOARD_MAD_TRAILING_GAME_MINUTES_DEFAULT,
+      [RECENT_WALL_MINUTES_PARAM_NAME]: BOARD_MAD_RECENT_WALL_MINUTES_DEFAULT,
+      [RECENT_WALL_WEIGHT_PARAM_NAME]: BOARD_MAD_RECENT_WALL_WEIGHT_DEFAULT,
+    },
+  },
+  {
+    id: "legacy-trailing",
+    label: "Legacy rolling",
+    patch: {
+      [BASELINE_MODE_PARAM_NAME]: BOARD_MAD_BASELINE_MODE_TRAILING,
+      [BUCKET_SECONDS_PARAM_NAME]: 60,
+      [TRAILING_PARAM_NAME]: 20,
+      [WARMUP_PARAM_NAME]: 8,
+    },
+  },
+];
 
 function readNumber(v: unknown, fallback: number): number {
   return typeof v === "number" && Number.isFinite(v) ? v : fallback;
@@ -123,6 +189,22 @@ function readBoardStringParam(
     return fallback;
   }
   return readString(params[name], fallback);
+}
+
+function inferBoardProfile(baselineMode: string, bucketSeconds: number): BoardProfileId {
+  if (baselineMode === BOARD_MAD_BASELINE_MODE_HISTORICAL_BLEND) return "historical-blend";
+  if (baselineMode === BOARD_MAD_BASELINE_MODE_TRAILING) return "legacy-trailing";
+  if (baselineMode === BOARD_MAD_BASELINE_MODE_OPENING_RAMP && bucketSeconds === 60) {
+    return "opening-ramp-live";
+  }
+  return "custom";
+}
+
+function parseBoardProfileId(value: string): BoardProfileId {
+  for (const profile of BOARD_PROFILE_PRESETS) {
+    if (profile.id === value) return profile.id;
+  }
+  return "custom";
 }
 
 function readBoardKMad(
@@ -178,9 +260,9 @@ const SECTION_LABEL_CLASS =
 const FIELD_LABEL_CLASS = "text-text-lo text-xs uppercase tracking-[0.08em] font-sans";
 const FIELD_HINT_CLASS = "text-text-lo tabular font-mono text-xs";
 const INPUT_CLASS =
-  "border border-surface-2 bg-surface-0 px-2 py-1 text-sm font-mono text-text-hi tabular focus:border-accent-green focus:outline-none";
-const NUMBER_INPUT_CLASS = `${INPUT_CLASS} w-32`;
-const SELECT_CLASS = `${INPUT_CLASS} w-40`;
+  "border border-surface-2 bg-surface-0-from px-2 py-1 text-sm font-mono text-text-hi tabular focus:border-accent-green focus:outline-none";
+const NUMBER_INPUT_CLASS = `${INPUT_CLASS} w-full max-w-32`;
+const SELECT_CLASS = `${INPUT_CLASS} w-full max-w-56`;
 const TEXTAREA_CLASS = `${INPUT_CLASS} w-full min-h-24 font-mono`;
 const BUTTON_PRIMARY_CLASS =
   "border border-accent-yellow bg-transparent px-4 py-1.5 text-sm font-mono uppercase tracking-wider text-accent-yellow hover:bg-accent-yellow/10 disabled:cursor-not-allowed disabled:opacity-50";
@@ -350,12 +432,14 @@ function ParamRow({
 }
 
 interface SignalTimingPanelProps {
+  readonly profileValue: BoardProfileId;
   readonly baselineMode: string;
   readonly memoryValue: number;
   readonly bucketSeconds: number;
   readonly openingBaselineValue: number;
   readonly openingRampCompleteValue: number;
   readonly warmupValue: number;
+  readonly onProfileChange: (next: BoardProfileId) => void;
   readonly onBaselineModeChange: (next: string) => void;
   readonly onMemoryChange: (next: number) => void;
   readonly onOpeningBaselineChange: (next: number) => void;
@@ -364,12 +448,14 @@ interface SignalTimingPanelProps {
 }
 
 function SignalTimingPanel({
+  profileValue,
   baselineMode,
   memoryValue,
   bucketSeconds,
   openingBaselineValue,
   openingRampCompleteValue,
   warmupValue,
+  onProfileChange,
   onBaselineModeChange,
   onMemoryChange,
   onOpeningBaselineChange,
@@ -379,7 +465,7 @@ function SignalTimingPanel({
   return (
     <div
       data-testid="backtest-signal-timing-panel"
-      className="border border-surface-2 bg-surface-0/70 px-5 py-4"
+      className="border border-surface-2 bg-surface-0-from/70 px-4 py-4 sm:px-5"
     >
       <div className="border-b border-surface-2 pb-3">
         <ExplainerCard id="baseline-timing-controls">
@@ -392,9 +478,30 @@ function SignalTimingPanel({
           graduates, and the opening holdoff before the first fire can happen.
         </p>
       </div>
-      <div className="mt-5 grid gap-6">
-        <div className="grid gap-3">
-          <label className="flex flex-col gap-1">
+      <div className="mt-4 grid min-w-0 gap-4">
+        <div className="grid min-w-0 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <label className="flex min-w-0 flex-col gap-1">
+            <span className={FIELD_LABEL_CLASS}>
+              <ExplainerCard id="settings-detector-defaults">Profile</ExplainerCard>
+            </span>
+            <select
+              value={profileValue}
+              onChange={(e) => {
+                onProfileChange(parseBoardProfileId(e.target.value));
+              }}
+              className={SELECT_CLASS}
+              data-testid="backtest-baseline-profile"
+              aria-label="baseline profile"
+            >
+              {BOARD_PROFILE_PRESETS.map((profile) => (
+                <option key={profile.id} value={profile.id}>
+                  {profile.label}
+                </option>
+              ))}
+              <option value="custom">Custom</option>
+            </select>
+          </label>
+          <label className="flex min-w-0 flex-col gap-1">
             <span className={FIELD_LABEL_CLASS}>
               <ExplainerCard id="baseline-source-mode">Prior sample</ExplainerCard>
             </span>
@@ -409,54 +516,70 @@ function SignalTimingPanel({
             >
               <option value={BOARD_MAD_BASELINE_MODE_TRAILING}>Rolling current game</option>
               <option value={BOARD_MAD_BASELINE_MODE_OPENING_RAMP}>Opening sample ramp</option>
+              <option value={BOARD_MAD_BASELINE_MODE_HISTORICAL_BLEND}>
+                Historical to live ramp
+              </option>
             </select>
           </label>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <label className="flex flex-col gap-1">
-              <span className={FIELD_LABEL_CLASS}>
-                <ExplainerCard id="settings-opening-baseline-buckets">Opening sample</ExplainerCard>
-              </span>
-              <input
-                type="number"
-                min={OPENING_BASELINE_MIN}
-                max={OPENING_BASELINE_MAX}
-                step={1}
-                value={String(openingBaselineValue)}
-                onChange={(e) => {
-                  const parsed = Number.parseInt(e.target.value, 10);
-                  if (Number.isFinite(parsed)) onOpeningBaselineChange(parsed);
-                }}
-                className={NUMBER_INPUT_CLASS}
-                data-testid="backtest-opening-baseline-buckets"
-                aria-label="opening baseline buckets"
-              />
-            </label>
-            <label className="flex flex-col gap-1">
-              <span className={FIELD_LABEL_CLASS}>
-                <ExplainerCard id="settings-opening-ramp-complete-buckets">
-                  Ramp complete
-                </ExplainerCard>
-              </span>
-              <input
-                type="number"
-                min={OPENING_RAMP_COMPLETE_MIN}
-                max={OPENING_RAMP_COMPLETE_MAX}
-                step={1}
-                value={String(openingRampCompleteValue)}
-                onChange={(e) => {
-                  const parsed = Number.parseInt(e.target.value, 10);
-                  if (Number.isFinite(parsed)) onOpeningRampCompleteChange(parsed);
-                }}
-                className={NUMBER_INPUT_CLASS}
-                data-testid="backtest-opening-ramp-complete-buckets"
-                aria-label="opening ramp complete buckets"
-              />
-            </label>
-          </div>
+          <label className="flex min-w-0 flex-col gap-1">
+            <span className={FIELD_LABEL_CLASS}>
+              <ExplainerCard id="settings-opening-baseline-buckets">Opening sample</ExplainerCard>
+            </span>
+            <input
+              type="number"
+              min={OPENING_BASELINE_MIN}
+              max={OPENING_BASELINE_MAX}
+              step={1}
+              value={String(openingBaselineValue)}
+              onChange={(e) => {
+                const parsed = Number.parseInt(e.target.value, 10);
+                if (Number.isFinite(parsed)) onOpeningBaselineChange(parsed);
+              }}
+              className={NUMBER_INPUT_CLASS}
+              data-testid="backtest-opening-baseline-buckets"
+              aria-label="opening baseline buckets"
+            />
+          </label>
+          <label className="flex min-w-0 flex-col gap-1">
+            <span className={FIELD_LABEL_CLASS}>
+              <ExplainerCard id="settings-opening-ramp-complete-buckets">
+                Ramp complete
+              </ExplainerCard>
+            </span>
+            <input
+              type="number"
+              min={OPENING_RAMP_COMPLETE_MIN}
+              max={OPENING_RAMP_COMPLETE_MAX}
+              step={1}
+              value={String(openingRampCompleteValue)}
+              onChange={(e) => {
+                const parsed = Number.parseInt(e.target.value, 10);
+                if (Number.isFinite(parsed)) onOpeningRampCompleteChange(parsed);
+              }}
+              className={NUMBER_INPUT_CLASS}
+              data-testid="backtest-opening-ramp-complete-buckets"
+              aria-label="opening ramp complete buckets"
+            />
+          </label>
         </div>
-        <MemoryDial value={memoryValue} bucketSeconds={bucketSeconds} onChange={onMemoryChange} />
-        <div className="border-t border-surface-2 pt-5" data-testid="backtest-warmup-dial">
-          <WarmupDial value={warmupValue} bucketSeconds={bucketSeconds} onChange={onWarmupChange} />
+        <div className="grid gap-4 lg:grid-cols-2">
+          <div className="min-w-0">
+            <MemoryDial
+              value={memoryValue}
+              bucketSeconds={bucketSeconds}
+              onChange={onMemoryChange}
+            />
+          </div>
+          <div
+            className="min-w-0 border-t border-surface-2 pt-4 lg:border-l lg:border-t-0 lg:pl-4 lg:pt-0"
+            data-testid="backtest-warmup-dial"
+          >
+            <WarmupDial
+              value={warmupValue}
+              bucketSeconds={bucketSeconds}
+              onChange={onWarmupChange}
+            />
+          </div>
         </div>
       </div>
     </div>
@@ -537,8 +660,8 @@ function formatFiresPerGamePreview(
 
 // True when any param that the client cannot re-apply has drifted from the
 // snapshot's last-run values. Board-like detectors can recompute sensitivity,
-// volatility lookback, and opening holdoff in memory, but bucket/weighting/freshness changes still need
-// a server run.
+// volatility lookback, and opening holdoff in memory, but bucket/weighting/freshness
+// and historical-prior context changes still need a server run.
 function snapshotIsStale(
   snapshot: RunSnapshot,
   currentParams: Readonly<Record<string, unknown>>,
@@ -626,6 +749,25 @@ export function BacktestPage(): JSX.Element {
       }
       return { ...prev, params: { ...prev.params, [name]: next } };
     });
+  }
+
+  function updateBoardParams(patch: Readonly<Record<string, unknown>>): void {
+    setForm((prev) => {
+      if (prev.detectorId === ENSEMBLE_OR_DETECTOR_ID) {
+        const prevBoard = isPlainRecord(prev.params["board"]) ? prev.params["board"] : {};
+        return {
+          ...prev,
+          params: { ...prev.params, board: { ...prevBoard, ...patch } },
+        };
+      }
+      return { ...prev, params: { ...prev.params, ...patch } };
+    });
+  }
+
+  function applyBoardProfile(profileId: BoardProfileId): void {
+    if (profileId === "custom") return;
+    const preset = BOARD_PROFILE_PRESETS.find((profile) => profile.id === profileId);
+    if (preset !== undefined) updateBoardParams(preset.patch);
   }
 
   function handleDetectorChange(id: string): void {
@@ -755,6 +897,7 @@ export function BacktestPage(): JSX.Element {
     WARMUP_PARAM_NAME,
     WARMUP_DEFAULT,
   );
+  const currentProfile = inferBoardProfile(currentBaselineMode, currentBucketSeconds);
 
   return (
     <section data-testid="backtest-page">
@@ -778,7 +921,7 @@ export function BacktestPage(): JSX.Element {
           handleRun();
         }}
       >
-        <div className="grid gap-8 xl:grid-cols-[minmax(300px,420px)_minmax(150px,220px)_minmax(360px,1fr)] xl:items-start">
+        <div className="grid min-w-0 gap-6 xl:grid-cols-[minmax(280px,380px)_minmax(0,1fr)] xl:items-start xl:gap-8">
           <div className="space-y-8">
             {/* Date range */}
             <div data-testid="backtest-window">
@@ -911,28 +1054,25 @@ export function BacktestPage(): JSX.Element {
                 )}
               </div>
             </div>
-          </div>
 
-          <div
-            className="flex h-full min-h-[120px] items-center justify-center xl:min-h-[320px]"
-            data-testid="backtest-run-hub"
-          >
-            <div className="flex flex-col items-center gap-3 text-center">
-              <button
-                type="submit"
-                disabled={!canRun}
-                className={`${BUTTON_PRIMARY_CLASS} px-7 py-2 text-base`}
-                data-testid="backtest-run-button"
-              >
-                {runMutation.isPending ? "Running…" : "Run"}
-              </button>
-              <span className="max-w-[18ch] text-xs text-text-lo">
-                Replays the current window and control settings.
-              </span>
+            <div className="border-t border-surface-1 pt-6" data-testid="backtest-run-hub">
+              <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center">
+                <button
+                  type="submit"
+                  disabled={!canRun}
+                  className={`${BUTTON_PRIMARY_CLASS} px-7 py-2 text-base`}
+                  data-testid="backtest-run-button"
+                >
+                  {runMutation.isPending ? "Running…" : "Run"}
+                </button>
+                <span className="max-w-[28ch] text-xs text-text-lo">
+                  Replays the current window and control settings.
+                </span>
+              </div>
               {runMutation.isError ? (
                 <span
                   data-testid="backtest-run-error"
-                  className="font-mono text-xs text-accent-yellow"
+                  className="mt-3 block font-mono text-xs text-accent-yellow"
                 >
                   {runMutation.error.message}
                 </span>
@@ -941,49 +1081,51 @@ export function BacktestPage(): JSX.Element {
           </div>
 
           {boardLikeSelected ? (
-            <SignalTimingPanel
-              baselineMode={currentBaselineMode}
-              memoryValue={currentMemoryBuckets}
-              bucketSeconds={currentBucketSeconds}
-              openingBaselineValue={currentOpeningBaselineBuckets}
-              openingRampCompleteValue={currentOpeningRampCompleteBuckets}
-              warmupValue={currentWarmupBuckets}
-              onBaselineModeChange={(next) => {
-                updateBoardParam(BASELINE_MODE_PARAM_NAME, next);
-              }}
-              onMemoryChange={(next) => {
-                updateBoardParam(TRAILING_PARAM_NAME, next);
-              }}
-              onOpeningBaselineChange={(next) => {
-                updateBoardParam(OPENING_BASELINE_PARAM_NAME, next);
-              }}
-              onOpeningRampCompleteChange={(next) => {
-                updateBoardParam(OPENING_RAMP_COMPLETE_PARAM_NAME, next);
-              }}
-              onWarmupChange={(next) => {
-                updateBoardParam(WARMUP_PARAM_NAME, next);
-              }}
-            />
-          ) : (
-            <div className="hidden xl:block" aria-hidden="true" />
-          )}
+            <div className="min-w-0 space-y-6">
+              <SignalTimingPanel
+                profileValue={currentProfile}
+                baselineMode={currentBaselineMode}
+                memoryValue={currentMemoryBuckets}
+                bucketSeconds={currentBucketSeconds}
+                openingBaselineValue={currentOpeningBaselineBuckets}
+                openingRampCompleteValue={currentOpeningRampCompleteBuckets}
+                warmupValue={currentWarmupBuckets}
+                onProfileChange={applyBoardProfile}
+                onBaselineModeChange={(next) => {
+                  updateBoardParam(BASELINE_MODE_PARAM_NAME, next);
+                }}
+                onMemoryChange={(next) => {
+                  updateBoardParam(TRAILING_PARAM_NAME, next);
+                }}
+                onOpeningBaselineChange={(next) => {
+                  updateBoardParam(OPENING_BASELINE_PARAM_NAME, next);
+                }}
+                onOpeningRampCompleteChange={(next) => {
+                  updateBoardParam(OPENING_RAMP_COMPLETE_PARAM_NAME, next);
+                }}
+                onWarmupChange={(next) => {
+                  updateBoardParam(WARMUP_PARAM_NAME, next);
+                }}
+              />
+              <div
+                className="flex flex-col items-center gap-4 border border-surface-2 bg-surface-0-from/70 px-4 py-5 sm:px-5"
+                data-testid="backtest-sensitivity-dial"
+              >
+                <SensitivityDial
+                  value={currentSensitivity}
+                  firesPerGamePreview={firesPerGamePreview}
+                  onChange={(next) => {
+                    updateBoardParam(KMAD_PARAM_NAME, next);
+                  }}
+                />
+                <p className="max-w-[42ch] text-center text-xs text-text-md">
+                  The center readout is estimated fires per game for the last run. It updates in
+                  memory as sensitivity moves.
+                </p>
+              </div>
+            </div>
+          ) : null}
         </div>
-
-        {boardLikeSelected ? (
-          <div className="flex flex-col items-center gap-4" data-testid="backtest-sensitivity-dial">
-            <SensitivityDial
-              value={currentSensitivity}
-              firesPerGamePreview={firesPerGamePreview}
-              onChange={(next) => {
-                updateBoardParam(KMAD_PARAM_NAME, next);
-              }}
-            />
-            <p className="max-w-[42ch] text-center text-xs text-text-md">
-              The center readout is estimated fires per game for the last run. It updates in memory
-              as sensitivity moves.
-            </p>
-          </div>
-        ) : null}
 
         {selectedDetector !== undefined && parsedProps.length > 0 ? (
           <div

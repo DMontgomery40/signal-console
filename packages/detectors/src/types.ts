@@ -24,6 +24,9 @@ export type Tick = {
   readonly impliedProbability: number | null;
   readonly volume: number;
   readonly isHeartbeat: boolean;
+  // Seconds of NBA game clock elapsed at capturedAt, when the API loader can
+  // derive it from PBP period/clock. Null/undefined keeps wall-clock behavior.
+  readonly gameElapsedSeconds?: number | null;
 };
 
 // Polymarket trade-print row from market_microstructure_events. The off-price-print
@@ -50,7 +53,15 @@ export type DetectorWindow = {
   readonly start: Date;
   readonly end: Date;
   readonly ticks?: readonly Tick[];
+  readonly boardMadHistoricalPriors?: readonly BoardMadHistoricalPrior[];
   readonly microstructureEvents?: readonly MicrostructureEvent[];
+};
+
+export type BoardMadHistoricalPrior = {
+  readonly gameId: string;
+  readonly median: number;
+  readonly mad: number;
+  readonly sampleSize: number;
 };
 
 // One detector fire. Bucket-start is the detector output (the bucket whose
@@ -85,7 +96,8 @@ export type DetectorStats = {
 // Per-bucket observation, fired or not. US-047 needs the surrounding context
 // (prior buckets + the firing bucket) to render the drilldown timeline, so
 // the detector now exposes every bucket alongside the fires-only slice.
-// baselineMedian/baselineMad are 0 during warmup (no trailing window yet).
+// warmedUp explicitly separates "no active threshold yet" from a real zero
+// baseline so chart/API consumers do not draw a fake threshold at zero.
 export type DetectorBucket = {
   readonly gameId: string;
   readonly bucketStart: Date;
@@ -93,6 +105,7 @@ export type DetectorBucket = {
   readonly intensity: number;
   readonly baselineMedian: number;
   readonly baselineMad: number;
+  readonly warmedUp: boolean;
   readonly fired: boolean;
 };
 

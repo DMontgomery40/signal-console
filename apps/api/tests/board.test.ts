@@ -125,6 +125,77 @@ function seedGoldDb(path: string, games: readonly SeedGame[]): void {
   db.close();
 }
 
+function seedSparseElapsedWarmupGoldDb(path: string, gameId: string): void {
+  seedGoldDb(path, [{ id: gameId, markets: 1, seedPbp: false, tickCount: 0 }]);
+  const db = new Database(path);
+  try {
+    const insertTick = db.prepare(
+      `INSERT INTO quote_ticks (
+         source_market_id, captured_at, implied_probability, volume, is_heartbeat
+       ) VALUES (?, ?, ?, ?, 0)`,
+    );
+    const insertPbp = db.prepare(
+      `INSERT INTO nba_play_by_play_actions (game_id, time_actual) VALUES (?, ?)`,
+    );
+    const marketId = `mkt-${gameId}-0`;
+    insertTick.run(marketId, "2026-05-23T02:59:30.000Z", 0.4, 10);
+    insertTick.run(marketId, "2026-05-23T03:00:00.000Z", 0.41, 10);
+    insertTick.run(marketId, "2026-05-23T03:04:00.000Z", 0.42, 10);
+    insertTick.run(marketId, "2026-05-23T03:08:00.000Z", 0.92, 10);
+    insertPbp.run(gameId, "2026-05-23T03:00:00.000Z");
+    insertPbp.run(gameId, "2026-05-23T03:10:00.000Z");
+  } finally {
+    db.close();
+  }
+}
+
+function seedSparseElapsedMemoryGoldDb(path: string, gameId: string): void {
+  seedGoldDb(path, [{ id: gameId, markets: 1, seedPbp: false, tickCount: 0 }]);
+  const db = new Database(path);
+  try {
+    db.exec(`
+      ALTER TABLE nba_play_by_play_actions ADD COLUMN period INTEGER;
+      ALTER TABLE nba_play_by_play_actions ADD COLUMN clock TEXT;
+    `);
+    const insertTick = db.prepare(
+      `INSERT INTO quote_ticks (
+         source_market_id, captured_at, implied_probability, volume, is_heartbeat
+       ) VALUES (?, ?, ?, ?, 0)`,
+    );
+    const insertPbp = db.prepare(
+      `INSERT INTO nba_play_by_play_actions (game_id, time_actual, period, clock)
+       VALUES (?, ?, ?, ?)`,
+    );
+    const marketId = `mkt-${gameId}-0`;
+    const tick = (iso: string, ip: number): void => {
+      insertTick.run(marketId, iso, ip, 10);
+    };
+    const pbp = (iso: string, period: number, clock: string): void => {
+      insertPbp.run(gameId, iso, period, clock);
+    };
+
+    tick("2026-05-23T02:59:30.000Z", 0.4);
+    tick("2026-05-23T03:00:00.000Z", 0.9);
+    tick("2026-05-23T03:04:00.000Z", 0.41);
+    tick("2026-05-23T03:08:00.000Z", 0.91);
+    tick("2026-05-23T03:12:00.000Z", 0.91);
+    tick("2026-05-23T03:16:00.000Z", 0.91);
+    tick("2026-05-23T03:20:00.000Z", 0.91);
+    tick("2026-05-23T03:24:00.000Z", 0.91);
+    tick("2026-05-23T03:28:00.000Z", 0.91);
+    tick("2026-05-23T03:32:00.000Z", 0.93);
+    tick("2026-05-23T03:36:00.000Z", 0.96);
+
+    pbp("2026-05-23T03:00:00.000Z", 1, "PT12M00.00S");
+    pbp("2026-05-23T03:04:00.000Z", 1, "PT08M00.00S");
+    pbp("2026-05-23T03:08:00.000Z", 1, "PT04M00.00S");
+    pbp("2026-05-23T03:32:00.000Z", 3, "PT04M00.00S");
+    pbp("2026-05-23T03:36:00.000Z", 4, "PT12M00.00S");
+  } finally {
+    db.close();
+  }
+}
+
 beforeEach(() => {
   ctx.tempDir = mkdtempSync(join(tmpdir(), "signal-console-board-"));
   ctx.tokenPath = join(ctx.tempDir, "token");
@@ -264,6 +335,9 @@ describe("board route (US-021)", () => {
     expect(body["k"]).toBe(3.0);
     expect(typeof body["runId"]).toBe("number");
     expect(isUnknownArray(body["observations"])).toBe(true);
+    const observations = readObservations(body);
+    expect(observations.some((o) => asRecord(o, "observation")["warmedUp"] === false)).toBe(true);
+    expect(observations.some((o) => asRecord(o, "observation")["warmedUp"] === true)).toBe(true);
   });
 
   it("GET /v1/board/:gameId returns identical observations on a second (warm) call", async () => {
@@ -286,6 +360,89 @@ describe("board route (US-021)", () => {
     const secondBody = asRecord(second.json(), "second body");
     expect(secondBody["runId"]).toBe(firstBody["runId"]);
     expect(readObservations(secondBody)).toEqual(readObservations(firstBody));
+  });
+
+  it("GET /v1/board/:gameId activates after 8 elapsed minutes even when only three sparse board buckets exist", async () => {
+    seedSparseElapsedWarmupGoldDb(ctx.goldDbPath, "nba-sparse-warmup-1");
+    const app = await startApp();
+    const res = await app.inject({
+      method: "GET",
+      url: "/v1/board/nba-sparse-warmup-1",
+      headers: authHeaders(),
+    });
+    expect(res.statusCode).toBe(200);
+    const observations = readObservations(res.json()).map((o) => asRecord(o, "observation"));
+    expect(
+      observations.map((o) => ({
+        bucketStart: o["bucketStart"],
+        warmedUp: o["warmedUp"],
+        fired: o["fired"],
+      })),
+    ).toEqual([
+      { bucketStart: "2026-05-23T03:00:00.000Z", warmedUp: false, fired: 0 },
+      { bucketStart: "2026-05-23T03:04:00.000Z", warmedUp: false, fired: 0 },
+      { bucketStart: "2026-05-23T03:08:00.000Z", warmedUp: true, fired: 1 },
+    ]);
+  });
+
+  it("GET /v1/board/:gameId uses elapsed game minutes for trailing memory, not sparse activity count", async () => {
+    seedSparseElapsedMemoryGoldDb(ctx.goldDbPath, "nba-sparse-memory-1");
+    const app = await startApp();
+    const res = await app.inject({
+      method: "GET",
+      url: "/v1/board/nba-sparse-memory-1",
+      headers: authHeaders(),
+    });
+    expect(res.statusCode).toBe(200);
+    const observations = readObservations(res.json()).map((o) => asRecord(o, "observation"));
+    const late = observations.find((o) => o["bucketStart"] === "2026-05-23T03:36:00.000Z");
+    expect(late).toBeDefined();
+    expect(late?.["warmedUp"]).toBe(true);
+    expect(late?.["fired"]).toBe(1);
+    expect(late?.["baselineMedian"]).toBeCloseTo(0.02 * Math.log1p(10), 8);
+    expect(late?.["baselineMad"]).toBeCloseTo(1e-9, 12);
+  });
+
+  it("persists warmedUp in detail_json so warm calls do not confuse warmup with a zero threshold", async () => {
+    seedGoldDb(ctx.goldDbPath, [{ id: "nba-warmed-contract-1", tickCount: 1200 }]);
+    const app = await startApp();
+    const first = await app.inject({
+      method: "GET",
+      url: "/v1/board/nba-warmed-contract-1",
+      headers: authHeaders(),
+    });
+    expect(first.statusCode).toBe(200);
+    const firstBody = asRecord(first.json(), "first body");
+    const runId = firstBody["runId"];
+    if (typeof runId !== "number") throw new Error("runId not a number");
+    const firstObs = readObservations(firstBody).map((o) => asRecord(o, "observation"));
+    expect(firstObs[0]?.["warmedUp"]).toBe(false);
+    expect(firstObs.some((o) => o["warmedUp"] === true)).toBe(true);
+
+    const cacheDb = new Database(ctx.cacheDbPath, { readonly: true });
+    try {
+      const detailRows = cacheDb
+        .prepare(
+          `SELECT detail_json
+           FROM detector_observations
+           WHERE run_id = ?
+           ORDER BY bucket_start`,
+        )
+        .all(runId);
+      expect(detailRows.some((row) => asRecord(row, "detail row")["detail_json"] !== null)).toBe(
+        true,
+      );
+    } finally {
+      cacheDb.close();
+    }
+
+    const second = await app.inject({
+      method: "GET",
+      url: "/v1/board/nba-warmed-contract-1",
+      headers: authHeaders(),
+    });
+    expect(second.statusCode).toBe(200);
+    expect(readObservations(second.json())).toEqual(readObservations(firstBody));
   });
 
   it("invalidates cached board runs when the PBP minimum bound changes", async () => {

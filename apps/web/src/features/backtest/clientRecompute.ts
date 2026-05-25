@@ -6,18 +6,21 @@
 //
 //   - kMad                       : changes the fire threshold
 //   - baselineMode               : chooses rolling current-game vs opening-ramp prior
-//   - openingBaselineBuckets     : sets the opening-ramp sample size
+//   - openingBaselineBuckets     : sets the opening-ramp sample duration
 //   - openingRampCompleteBuckets : sets when opening-ramp reaches rolling memory
-//   - trailingBuckets            : changes which prior intensities feed median + MAD
-//   - warmupBuckets              : changes the index at which a bucket is allowed to fire
+//   - trailingBuckets            : changes the elapsed lookback feeding median + MAD
+//   - warmupBuckets              : changes the elapsed-time holdoff before a bucket can fire
 //
-// Three params CANNOT be recomputed from observations alone because they
-// change which ticks roll into which bucket (i.e. they change the intensity
-// values themselves, which the client doesn't have raw inputs for):
+// Historical-blend params and prebucket params CANNOT be recomputed from
+// observations alone because they change which ticks roll into which bucket
+// (i.e. they change the intensity values themselves, or they need same-side
+// historical priors/game-clock elapsed context that the client snapshot does
+// not carry):
 //
 //   - bucketSeconds  : re-buckets the underlying ticks
 //   - weighting      : log(1+v)*|Δp| versus just |Δp| per tick
 //   - freshCapSeconds: gap filter at the tick level
+//   - historicalLastGames / historical* / trailingGameMinutes / recentWall*: server-side context
 //
 // Editing those three should mark the result as "stale" so the user knows the
 // shown numbers no longer match the current form values.
@@ -28,12 +31,14 @@
 
 import {
   resolveBoardMadBaseline,
+  type BoardMadBaselineEntry,
   type BoardMadBaselineMode,
 } from "@signal-console/detectors/board-mad/baseline";
 import {
   BOARD_MAD_BASELINE_MODE_DEFAULT,
   BOARD_MAD_BASELINE_MODE_OPENING_RAMP,
   BOARD_MAD_BASELINE_MODE_TRAILING,
+  BOARD_MAD_BUCKET_SECONDS_DEFAULT,
   BOARD_MAD_OPENING_BASELINE_BUCKETS_DEFAULT,
   BOARD_MAD_OPENING_RAMP_COMPLETE_BUCKETS_DEFAULT,
   BOARD_MAD_TRAILING_BUCKETS_DEFAULT,
@@ -53,6 +58,7 @@ export const ENSEMBLE_OR_DETECTOR_ID = "ensemble-or";
 // keys (the form holds the full param record) and read only what we need.
 export interface BoardMadRecomputeParams {
   readonly baselineMode: BoardMadBaselineMode;
+  readonly bucketSeconds: number;
   readonly kMad: number;
   readonly openingBaselineBuckets: number;
   readonly openingRampCompleteBuckets: number;
@@ -62,6 +68,7 @@ export interface BoardMadRecomputeParams {
 
 const DEFAULT_BOARD_RECOMPUTE_PARAMS: BoardMadRecomputeParams = {
   baselineMode: BOARD_MAD_BASELINE_MODE_DEFAULT,
+  bucketSeconds: BOARD_MAD_BUCKET_SECONDS_DEFAULT,
   kMad: K_MAD_LIVE,
   openingBaselineBuckets: BOARD_MAD_OPENING_BASELINE_BUCKETS_DEFAULT,
   openingRampCompleteBuckets: BOARD_MAD_OPENING_RAMP_COMPLETE_BUCKETS_DEFAULT,
@@ -75,6 +82,13 @@ export const BOARD_MAD_PREBUCKET_PARAMS: readonly string[] = [
   "bucketSeconds",
   "weighting",
   "freshCapSeconds",
+  "historicalLastGames",
+  "historicalAwayWeight",
+  "historicalPriorWeight",
+  "historicalRampCompleteGameMinutes",
+  "trailingGameMinutes",
+  "recentWallMinutes",
+  "recentWallWeight",
 ];
 export const BOARD_MAD_RECOMPUTE_PARAMS: readonly string[] = [
   "baselineMode",
@@ -116,6 +130,8 @@ function readBoardMadRecomputeParams(
   const boardParams = boardParamsForDetector(detectorId, params);
   if (boardParams === null) return null;
   const baselineMode = boardParams["baselineMode"] ?? DEFAULT_BOARD_RECOMPUTE_PARAMS.baselineMode;
+  const bucketSeconds =
+    boardParams["bucketSeconds"] ?? DEFAULT_BOARD_RECOMPUTE_PARAMS.bucketSeconds;
   const kMad = boardParams["kMad"] ?? DEFAULT_BOARD_RECOMPUTE_PARAMS.kMad;
   const openingBaselineBuckets =
     boardParams["openingBaselineBuckets"] ?? DEFAULT_BOARD_RECOMPUTE_PARAMS.openingBaselineBuckets;
@@ -132,6 +148,7 @@ function readBoardMadRecomputeParams(
   ) {
     return null;
   }
+  if (typeof bucketSeconds !== "number" || !Number.isInteger(bucketSeconds)) return null;
   if (typeof kMad !== "number" || !Number.isFinite(kMad)) return null;
   if (typeof openingBaselineBuckets !== "number" || !Number.isInteger(openingBaselineBuckets)) {
     return null;
@@ -146,6 +163,7 @@ function readBoardMadRecomputeParams(
   if (typeof warmupBuckets !== "number" || !Number.isInteger(warmupBuckets)) return null;
   return {
     baselineMode,
+    bucketSeconds,
     kMad,
     openingBaselineBuckets,
     openingRampCompleteBuckets,
@@ -197,6 +215,17 @@ function groupByGame(observations: readonly BacktestObservation[]): readonly Gro
   return groups;
 }
 
+function observationToBaselineEntry(
+  observation: BacktestObservation,
+  fallbackBucket: number,
+): BoardMadBaselineEntry {
+  const parsed = Date.parse(observation.bucketStart);
+  return {
+    bucket: Number.isFinite(parsed) ? Math.floor(parsed / 1000) : fallbackBucket,
+    intensity: observation.intensity,
+  };
+}
+
 // Same shape as BacktestObservation; `fired`, `baselineMedian`, `baselineMad`
 // are the recomputed values; `intensity` is preserved from the original
 // observation since the client can't recompute it.
@@ -216,11 +245,13 @@ export function recomputeBoardMad(
   const totalFires = { count: 0 };
   const out: RecomputedObservation[] = [];
   for (const group of groups) {
-    const intensities = group.observations.map((o) => o.intensity);
+    const entries = group.observations.map((o, i) =>
+      observationToBaselineEntry(o, i * params.bucketSeconds),
+    );
     for (let i = 0; i < group.observations.length; i++) {
       const obs = group.observations[i];
       if (obs === undefined) continue;
-      const baseline = resolveBoardMadBaseline(intensities, i, params);
+      const baseline = resolveBoardMadBaseline(entries, i, params);
       const threshold = baseline.median + params.kMad * baseline.mad;
       const fired = obs.intensity > 0 && obs.intensity >= threshold ? 1 : 0;
       const effectiveFired = baseline.warmedUp ? fired : 0;

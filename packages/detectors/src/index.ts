@@ -4,6 +4,7 @@ export type {
   DetectorResult,
   DetectorStats,
   DetectorWindow,
+  BoardMadHistoricalPrior,
   MicrostructureEvent,
   Source,
   Tick,

@@ -25,7 +25,9 @@ import { openCacheDb, openGoldDb, v_games } from "@signal-console/db";
 import {
   detector as boardMad,
   Params as BoardMadParams,
+  type ParamsResolved as BoardMadParamsResolved,
 } from "@signal-console/detectors/board-mad";
+import { BOARD_MAD_BASELINE_MODE_HISTORICAL_BLEND } from "@signal-console/detectors/board-mad/config";
 import {
   detector as ensembleOr,
   Params as EnsembleOrParams,
@@ -47,6 +49,7 @@ import {
   readDetectorDefaults,
   type DetectorDefaults,
 } from "./detector-defaults";
+import { buildBoardMadHistoricalPriors, loadBoardMadTicksForGame } from "./board-mad-context";
 import { parseStrictIsoTimestamp } from "./timestamps";
 
 type GoldDbHandle = ReturnType<typeof openGoldDb>;
@@ -122,6 +125,10 @@ export function runBacktest(args: RunBacktestArgs): BacktestResult {
   try {
     const goldDb = openGoldDb(args.goldDbPath);
     try {
+      const historicalPriors =
+        dispatch.boardMadParams?.baselineMode === BOARD_MAD_BASELINE_MODE_HISTORICAL_BLEND
+          ? buildBoardMadHistoricalPriors(goldDb, sortedGameIds, dispatch.boardMadParams)
+          : [];
       const watermarkHash = computeWindowWatermarkHash(
         goldDb,
         sortedGameIds,
@@ -129,6 +136,7 @@ export function runBacktest(args: RunBacktestArgs): BacktestResult {
         windowEnd,
         dispatch.sources,
         defaults,
+        historicalPriors,
       );
       const hit = lookupRun(cacheDb, {
         detectorId: dispatch.detectorId,
@@ -156,6 +164,7 @@ export function runBacktest(args: RunBacktestArgs): BacktestResult {
           dispatch.sources.includes("ticks") && sortedGameIds.length > 0
             ? loadTicks(goldDb, sortedGameIds, windowStart, windowEnd, defaults)
             : [],
+        boardMadHistoricalPriors: historicalPriors,
         microstructureEvents:
           dispatch.sources.includes("microstructure") && sortedGameIds.length > 0
             ? loadMicrostructure(goldDb, sortedGameIds, windowStart, windowEnd)
@@ -195,6 +204,7 @@ interface Dispatch {
   readonly detectorId: string;
   readonly detectorVersion: string;
   readonly params: unknown;
+  readonly boardMadParams?: BoardMadParamsResolved;
   readonly sources: readonly SourceKind[];
   readonly run: (window: DetectorWindow) => DetectorResult;
 }
@@ -217,6 +227,7 @@ function resolveDispatch(
         detectorId: boardMad.id,
         detectorVersion: boardMadDetectorVersion(defaults),
         params,
+        boardMadParams: params,
         sources: ["ticks"],
         run: (w) => boardMad.run(w, params),
       };
@@ -565,7 +576,7 @@ function loadTicks(
   // 4-day requested window over one game produces ~1200 buckets covering
   // 29 hours instead of ~155 buckets covering ~155 min (the actual play
   // time), and the detector fires ~14-17x too many times.
-  const allRows = gameIds.flatMap((gameId): readonly unknown[] => {
+  const allRows = gameIds.flatMap((gameId): readonly Tick[] => {
     const bound = resolvePerGameInPlayWindow(
       goldDb,
       gameId,
@@ -575,35 +586,9 @@ function loadTicks(
       defaults.pbpPostBufferMs,
     );
     if (bound === null) return [];
-    return goldDb
-      .prepare(
-        `SELECT sm.game_id AS game_id,
-                qt.source_market_id AS source_market_id,
-                qt.captured_at AS captured_at,
-                qt.implied_probability AS implied_probability,
-                COALESCE(qt.volume, 0) AS volume,
-                qt.is_heartbeat AS is_heartbeat
-         FROM quote_ticks qt
-         JOIN source_markets sm ON sm.id = qt.source_market_id
-         WHERE sm.game_id = ?
-           AND qt.captured_at >= ?
-           AND qt.captured_at <= ?
-         ORDER BY qt.source_market_id, qt.captured_at`,
-      )
-      .all(gameId, bound.start, bound.end);
+    return loadBoardMadTicksForGame(goldDb, gameId, bound.start, bound.end);
   });
-  return allRows.map((row): Tick => {
-    if (!isRecord(row)) throw new Error("tick row not an object");
-    const ip = row["implied_probability"];
-    return {
-      gameId: pickString(row, "game_id"),
-      sourceMarketId: pickString(row, "source_market_id"),
-      capturedAt: new Date(pickString(row, "captured_at")),
-      impliedProbability: ip === null ? null : typeof ip === "number" ? ip : null,
-      volume: pickNumber(row, "volume"),
-      isHeartbeat: pickNumber(row, "is_heartbeat") === 1,
-    };
-  });
+  return allRows;
 }
 
 function loadMicrostructure(
@@ -667,6 +652,7 @@ function computeWindowWatermarkHash(
   windowEnd: string,
   sources: readonly SourceKind[],
   defaults: DetectorDefaults,
+  historicalPriors: readonly unknown[],
 ): string {
   const usesTicks = sources.includes("ticks");
   const usesMicrostructure = sources.includes("microstructure");
@@ -765,6 +751,7 @@ function computeWindowWatermarkHash(
       pbpPostBufferMs: usesTicks ? defaults.pbpPostBufferMs : null,
       pbpPreBufferMs: usesTicks ? defaults.pbpPreBufferMs : null,
       perGame,
+      board_mad_historical_priors: historicalPriors,
       sources,
       windowEnd,
       windowStart,

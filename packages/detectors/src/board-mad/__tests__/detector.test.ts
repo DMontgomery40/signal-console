@@ -5,9 +5,16 @@ import {
   BOARD_MAD_BASELINE_MODE_DEFAULT,
   BOARD_MAD_BUCKET_SECONDS_DEFAULT,
   BOARD_MAD_FRESH_CAP_SECONDS_DEFAULT,
+  BOARD_MAD_HISTORICAL_AWAY_WEIGHT_DEFAULT,
+  BOARD_MAD_HISTORICAL_LAST_GAMES_DEFAULT,
+  BOARD_MAD_HISTORICAL_PRIOR_WEIGHT_DEFAULT,
+  BOARD_MAD_HISTORICAL_RAMP_COMPLETE_GAME_MINUTES_DEFAULT,
   BOARD_MAD_OPENING_BASELINE_BUCKETS_DEFAULT,
   BOARD_MAD_OPENING_RAMP_COMPLETE_BUCKETS_DEFAULT,
+  BOARD_MAD_RECENT_WALL_MINUTES_DEFAULT,
+  BOARD_MAD_RECENT_WALL_WEIGHT_DEFAULT,
   BOARD_MAD_TRAILING_BUCKETS_DEFAULT,
+  BOARD_MAD_TRAILING_GAME_MINUTES_DEFAULT,
   BOARD_MAD_WARMUP_BUCKETS_DEFAULT,
   BOARD_MAD_WEIGHTING_DEFAULT,
   K_MAD_LIVE,
@@ -26,7 +33,7 @@ const windowOf = (gameIds: readonly string[], ticks: readonly Tick[]): DetectorW
 describe("board-mad detector", () => {
   it("identity matches PRD §10", () => {
     expect(detector.id).toBe("board-mad");
-    expect(detector.version).toBe("1.2.0");
+    expect(detector.version).toBe("1.5.0");
     expect(detector.displayName).toBe("Board MAD (whole-board volatility)");
   });
 
@@ -40,6 +47,15 @@ describe("board-mad detector", () => {
     expect(p.baselineMode).toBe(BOARD_MAD_BASELINE_MODE_DEFAULT);
     expect(p.openingBaselineBuckets).toBe(BOARD_MAD_OPENING_BASELINE_BUCKETS_DEFAULT);
     expect(p.openingRampCompleteBuckets).toBe(BOARD_MAD_OPENING_RAMP_COMPLETE_BUCKETS_DEFAULT);
+    expect(p.historicalLastGames).toBe(BOARD_MAD_HISTORICAL_LAST_GAMES_DEFAULT);
+    expect(p.historicalAwayWeight).toBe(BOARD_MAD_HISTORICAL_AWAY_WEIGHT_DEFAULT);
+    expect(p.historicalPriorWeight).toBe(BOARD_MAD_HISTORICAL_PRIOR_WEIGHT_DEFAULT);
+    expect(p.historicalRampCompleteGameMinutes).toBe(
+      BOARD_MAD_HISTORICAL_RAMP_COMPLETE_GAME_MINUTES_DEFAULT,
+    );
+    expect(p.trailingGameMinutes).toBe(BOARD_MAD_TRAILING_GAME_MINUTES_DEFAULT);
+    expect(p.recentWallMinutes).toBe(BOARD_MAD_RECENT_WALL_MINUTES_DEFAULT);
+    expect(p.recentWallWeight).toBe(BOARD_MAD_RECENT_WALL_WEIGHT_DEFAULT);
     expect(p.freshCapSeconds).toBe(BOARD_MAD_FRESH_CAP_SECONDS_DEFAULT);
   });
 

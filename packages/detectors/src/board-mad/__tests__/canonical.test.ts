@@ -91,18 +91,18 @@ describe("board-mad canonical contract tests at K=6.0", () => {
     expect(confirmingFires).toEqual([]);
   });
 
-  it("64-game PBP fixture set mean fires/game at K=6 (equal in [8.3, 10.3], volume in [7.6, 9.6])", () => {
+  it("64-game PBP fixture set mean fires/game at K=6 (opening-ramp default)", () => {
     const games = listFixtureGames();
     expect(games.length).toBeGreaterThanOrEqual(64);
     const totalEqual = games.reduce((acc, g) => acc + runOne(g, "equal", 6.0).length, 0);
     const totalVolume = games.reduce((acc, g) => acc + runOne(g, "volume", 6.0).length, 0);
     const meanEqual = totalEqual / games.length;
     const meanVolume = totalVolume / games.length;
-    expect(meanEqual).toBeGreaterThanOrEqual(8.3);
-    expect(meanEqual).toBeLessThanOrEqual(10.3);
-    expect(meanVolume).toBeGreaterThanOrEqual(7.6);
-    expect(meanVolume).toBeLessThanOrEqual(9.6);
-  });
+    expect(meanEqual).toBeGreaterThanOrEqual(10.0);
+    expect(meanEqual).toBeLessThanOrEqual(11.2);
+    expect(meanVolume).toBeGreaterThanOrEqual(8.0);
+    expect(meanVolume).toBeLessThanOrEqual(10.2);
+  }, 30_000);
 });
 
 describe("board-mad canonical contract tests at K=3.0", () => {

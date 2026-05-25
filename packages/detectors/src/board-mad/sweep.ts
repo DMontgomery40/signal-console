@@ -1,10 +1,9 @@
-// K-sweep step for board-mad. Given a pre-bucketed BucketSeries (one
-// {bucket, intensity} pair per non-empty bucket per game), apply the selected
-// causal signal timing mode plus K·MAD threshold per K value. K is the only
-// Sensitivity dial knob (US-037) so this is the sub-second half of the
-// detector: precompute the per-bucket baseline (median+MAD over the selected
-// prior sample) and the per-bucket {bucketStart, bucketEnd} Dates once —
-// depends on signal timing, not K — then per K just iterate and compare
+// K-sweep step for board-mad. Given a BucketSeries of market observations per
+// game, apply the selected causal signal timing mode plus K·MAD threshold per K
+// value. K is the only Sensitivity dial knob (US-037) so this is the sub-second
+// half of the detector: precompute each observation's baseline (median+MAD over
+// the selected prior sample) and {bucketStart, bucketEnd} Dates once — depends
+// on signal timing, not K — then per K just iterate and compare
 // intensity >= median + K·MAD.
 //
 // runSweep matches US-033's signature exactly: it returns one entry per K
@@ -41,13 +40,19 @@ const baselinesForGame = (
   params: SweepParams,
 ): readonly Baseline[] => {
   const entries = game.buckets;
-  // Pre-extract intensities once so the per-bucket trailing-window slice
-  // doesn't have to walk through { bucket, intensity } objects via .map.
-  const intensities = entries.map((e) => e.intensity);
   return entries.map((e, i): Baseline => {
     const bucketStart = new Date(e.bucket * 1000);
     const bucketEnd = new Date((e.bucket + bucketSeconds) * 1000);
-    const baseline = resolveBoardMadBaseline(intensities, i, params);
+    const baseline = resolveBoardMadBaseline(
+      entries,
+      i,
+      game.historicalPrior === undefined
+        ? params
+        : {
+            ...params,
+            historicalPrior: game.historicalPrior,
+          },
+    );
     return {
       gameId: game.gameId,
       bucketStart,
@@ -90,6 +95,7 @@ const detectorBucketsFromBaselines = (
         intensity: b.intensity,
         baselineMedian: 0,
         baselineMad: 0,
+        warmedUp: false,
         fired: false,
       };
     }
@@ -102,6 +108,7 @@ const detectorBucketsFromBaselines = (
       intensity: b.intensity,
       baselineMedian: b.median,
       baselineMad: b.mad,
+      warmedUp: true,
       fired,
     };
   });

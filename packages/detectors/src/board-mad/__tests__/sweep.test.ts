@@ -2,16 +2,25 @@ import { describe, expect, it } from "vitest";
 
 import {
   BOARD_MAD_BASELINE_MODE_DEFAULT,
+  BOARD_MAD_BASELINE_MODE_HISTORICAL_BLEND,
   BOARD_MAD_BASELINE_MODE_OPENING_RAMP,
+  BOARD_MAD_BASELINE_MODE_TRAILING,
   BOARD_MAD_BUCKET_SECONDS_DEFAULT,
   BOARD_MAD_FRESH_CAP_SECONDS_DEFAULT,
+  BOARD_MAD_HISTORICAL_AWAY_WEIGHT_DEFAULT,
+  BOARD_MAD_HISTORICAL_LAST_GAMES_DEFAULT,
+  BOARD_MAD_HISTORICAL_PRIOR_WEIGHT_DEFAULT,
+  BOARD_MAD_HISTORICAL_RAMP_COMPLETE_GAME_MINUTES_DEFAULT,
   BOARD_MAD_OPENING_BASELINE_BUCKETS_DEFAULT,
   BOARD_MAD_OPENING_RAMP_COMPLETE_BUCKETS_DEFAULT,
+  BOARD_MAD_RECENT_WALL_MINUTES_DEFAULT,
+  BOARD_MAD_RECENT_WALL_WEIGHT_DEFAULT,
   BOARD_MAD_TRAILING_BUCKETS_DEFAULT,
+  BOARD_MAD_TRAILING_GAME_MINUTES_DEFAULT,
   BOARD_MAD_WARMUP_BUCKETS_DEFAULT,
 } from "../config";
 import type { BucketSeries } from "../prebucket";
-import { runSweep, type SweepParams } from "../sweep";
+import { runForK, runSweep, type SweepParams } from "../sweep";
 
 const DEFAULT_PARAMS: SweepParams = {
   baselineMode: BOARD_MAD_BASELINE_MODE_DEFAULT,
@@ -19,6 +28,13 @@ const DEFAULT_PARAMS: SweepParams = {
   freshCapSeconds: BOARD_MAD_FRESH_CAP_SECONDS_DEFAULT,
   openingBaselineBuckets: BOARD_MAD_OPENING_BASELINE_BUCKETS_DEFAULT,
   openingRampCompleteBuckets: BOARD_MAD_OPENING_RAMP_COMPLETE_BUCKETS_DEFAULT,
+  historicalAwayWeight: BOARD_MAD_HISTORICAL_AWAY_WEIGHT_DEFAULT,
+  historicalLastGames: BOARD_MAD_HISTORICAL_LAST_GAMES_DEFAULT,
+  historicalPriorWeight: BOARD_MAD_HISTORICAL_PRIOR_WEIGHT_DEFAULT,
+  historicalRampCompleteGameMinutes: BOARD_MAD_HISTORICAL_RAMP_COMPLETE_GAME_MINUTES_DEFAULT,
+  trailingGameMinutes: BOARD_MAD_TRAILING_GAME_MINUTES_DEFAULT,
+  recentWallMinutes: BOARD_MAD_RECENT_WALL_MINUTES_DEFAULT,
+  recentWallWeight: BOARD_MAD_RECENT_WALL_WEIGHT_DEFAULT,
   trailingBuckets: BOARD_MAD_TRAILING_BUCKETS_DEFAULT,
   warmupBuckets: BOARD_MAD_WARMUP_BUCKETS_DEFAULT,
   weighting: "volume",
@@ -87,15 +103,15 @@ describe("runSweep", () => {
   // US-042 AC #10: runSweep over (kMad, warmupBuckets) pairs must respond to
   // warmupBuckets — specifically a lower warmup gate must produce >= fires
   // than a higher one on the same bucket series, and on a series with spikes
-  // inside the [low_warmup, high_warmup) eligibility-gap window the counts
-  // must strictly differ. An eligible bucket can only ADD to the fire count
+  // inside the [low_warmup, high_warmup) activation-gap window the counts
+  // must strictly differ. An active bucket can only ADD to the fire count
   // (never remove from it), so monotonicity holds globally; the strictly-
   // greater leg proves warmupBuckets is a real sweep axis, not silently
   // ignored when only kMad varies.
   it("warmupBuckets=2 produces > fires than warmupBuckets=8 when spikes land in the warmup gap", () => {
     // Single-game series of 40 buckets. Calm baseline near 0.05, with spikes
     // of magnitude 1.0 at indices 3, 5, 7 — all inside the [2, 8) window where
-    // a warmup=2 detector treats them as eligible but a warmup=8 detector
+    // a warmup=2 detector treats them as active but a warmup=8 detector
     // suppresses them. A further spike at index 25 fires under both warmups
     // (so neither count is zero, which would make >= trivially true).
     const spikeIndices = new Set([3, 5, 7, 25]);
@@ -124,7 +140,68 @@ describe("runSweep", () => {
     expect(lowCount).toBeGreaterThan(highCount);
   });
 
-  it("opening-ramp baseline can judge first eligible bucket against the opening sample", () => {
+  it("warmup gate uses elapsed time from tip-off, not market observation count", () => {
+    const sparseEightMinuteSeries: BucketSeries = {
+      bucketSeconds: BOARD_MAD_BUCKET_SECONDS_DEFAULT,
+      weighting: "volume",
+      freshCapSeconds: BOARD_MAD_FRESH_CAP_SECONDS_DEFAULT,
+      perGame: [
+        {
+          gameId: "synth-sparse-warmup",
+          buckets: [
+            { bucket: 0, intensity: 1 },
+            { bucket: 4 * 60, intensity: 1 },
+            { bucket: 8 * 60, intensity: 10 },
+          ],
+        },
+      ],
+    };
+
+    const result = runForK(sparseEightMinuteSeries, 1.0, {
+      ...DEFAULT_PARAMS,
+      warmupBuckets: 8,
+    });
+
+    expect(result.buckets.map((bucket) => bucket.warmedUp)).toEqual([false, false, true]);
+    expect(result.fires.map((fire) => fire.bucketStart.toISOString())).toEqual([
+      "1970-01-01T00:08:00.000Z",
+    ]);
+  });
+
+  it("trailing memory uses elapsed game time, not market observation count", () => {
+    const sparseLongGameSeries: BucketSeries = {
+      bucketSeconds: BOARD_MAD_BUCKET_SECONDS_DEFAULT,
+      weighting: "volume",
+      freshCapSeconds: BOARD_MAD_FRESH_CAP_SECONDS_DEFAULT,
+      perGame: [
+        {
+          gameId: "synth-sparse-memory",
+          buckets: [
+            { bucket: 0, gameElapsedSeconds: 0, intensity: 10 },
+            { bucket: 4 * 60, gameElapsedSeconds: 4 * 60, intensity: 11 },
+            { bucket: 8 * 60, gameElapsedSeconds: 8 * 60, intensity: 12 },
+            { bucket: 32 * 60, gameElapsedSeconds: 32 * 60, intensity: 1 },
+            { bucket: 36 * 60, gameElapsedSeconds: 36 * 60, intensity: 2 },
+          ],
+        },
+      ],
+    };
+
+    const result = runForK(sparseLongGameSeries, 3.0, {
+      ...DEFAULT_PARAMS,
+      baselineMode: BOARD_MAD_BASELINE_MODE_TRAILING,
+      trailingBuckets: 20,
+      warmupBuckets: 8,
+    });
+    const lateBucket = result.buckets.at(-1);
+
+    expect(lateBucket?.bucketStart.toISOString()).toBe("1970-01-01T00:36:00.000Z");
+    expect(lateBucket?.baselineMedian).toBe(1);
+    expect(lateBucket?.baselineMad).toBe(1e-9);
+    expect(lateBucket?.fired).toBe(true);
+  });
+
+  it("opening-ramp baseline can judge the first active alert check against the opening sample", () => {
     const openingRampSeries: BucketSeries = {
       bucketSeconds: BOARD_MAD_BUCKET_SECONDS_DEFAULT,
       weighting: "volume",
@@ -139,7 +216,10 @@ describe("runSweep", () => {
         },
       ],
     };
-    const trailing = runSweep(openingRampSeries, [1.0], DEFAULT_PARAMS);
+    const trailing = runSweep(openingRampSeries, [1.0], {
+      ...DEFAULT_PARAMS,
+      baselineMode: BOARD_MAD_BASELINE_MODE_TRAILING,
+    });
     const openingRamp = runSweep(openingRampSeries, [1.0], {
       ...DEFAULT_PARAMS,
       baselineMode: BOARD_MAD_BASELINE_MODE_OPENING_RAMP,
@@ -151,6 +231,41 @@ describe("runSweep", () => {
     expect(openingRamp[0]?.fires.map((fire) => fire.bucketStart.toISOString())).toEqual([
       "1970-01-01T00:08:00.000Z",
     ]);
+  });
+
+  it("historical-blend starts from same-side priors then fades by game clock", () => {
+    const series: BucketSeries = {
+      bucketSeconds: 30,
+      weighting: "volume",
+      freshCapSeconds: BOARD_MAD_FRESH_CAP_SECONDS_DEFAULT,
+      perGame: [
+        {
+          gameId: "synth-historical",
+          historicalPrior: { median: 10, mad: 2, sampleSize: 20 },
+          buckets: Array.from({ length: 28 }, (_, i) => ({
+            bucket: i * 30,
+            gameElapsedSeconds: i === 27 ? 12 * 60 : i * 30,
+            intensity: i === 0 ? 1 : 5,
+          })),
+        },
+      ],
+    };
+    const result = runForK(series, 3.0, {
+      ...DEFAULT_PARAMS,
+      baselineMode: BOARD_MAD_BASELINE_MODE_HISTORICAL_BLEND,
+      bucketSeconds: 30,
+      historicalPriorWeight: 1,
+      historicalRampCompleteGameMinutes: 12,
+      recentWallMinutes: 0,
+      trailingGameMinutes: 12,
+      warmupBuckets: 1,
+    });
+
+    const firstEligible = result.buckets[1];
+    const rampedOut = result.buckets[27];
+    expect(firstEligible?.baselineMedian).toBeGreaterThan(9);
+    expect(firstEligible?.baselineMad).toBeGreaterThan(1);
+    expect(rampedOut?.baselineMedian).toBeLessThan(6);
   });
 
   it("over 100 K-values on a 28-day-equivalent bucket series scales from a shared baseline pass", () => {

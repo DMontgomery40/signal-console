@@ -1,24 +1,24 @@
 ---
 name: tests
-description: "Skill for the Tests area of signal-console. 58 symbols across 12 files."
+description: "Skill for the Tests area of signal-console. 56 symbols across 12 files."
 ---
 
 # Tests
 
-58 symbols | 12 files | Cohesion: 100%
+56 symbols | 12 files | Cohesion: 100%
 
 ## When to Use
 
 - Working with code in `apps/`
-- Understanding how buildServer work
+- Understanding how buildServer, resolvePort work
 - Modifying tests-related functionality
 
 ## Key Files
 
 | File | Symbols |
 |------|---------|
-| `apps/api/tests/board.test.ts` | startApp, isRecord, isUnknownArray, asRecord, readObservations (+3) |
 | `apps/api/tests/fanout.test.ts` | startApp, isRecord, isUnknownArray, asRecord, readArray (+2) |
+| `apps/api/tests/board.test.ts` | startApp, isRecord, isUnknownArray, asRecord, readObservations (+1) |
 | `apps/api/tests/cache.test.ts` | startApp, rowCounts, extractCount, isRecord, asRecord (+1) |
 | `apps/api/tests/detectors.test.ts` | startApp, isRecord, asRecord, isUnknownArray, fetchDetectorRows (+1) |
 | `apps/api/tests/games.test.ts` | startApp, isRecord, ids, sports, tagsForGet |
@@ -32,32 +32,33 @@ description: "Skill for the Tests area of signal-console. 58 symbols across 12 f
 
 Start here when exploring this area:
 
-- **`buildServer`** (Function) — `apps/api/src/server.ts:38`
+- **`buildServer`** (Function) — `apps/api/src/server.ts:40`
+- **`resolvePort`** (Function) — `apps/api/src/server.ts:83`
 
 ## Key Symbols
 
 | Symbol | Type | File | Line |
 |--------|------|------|------|
-| `buildServer` | Function | `apps/api/src/server.ts` | 38 |
-| `resolvePort` | Function | `apps/api/src/server.ts` | 81 |
-| `resolveHost` | Function | `apps/api/src/server.ts` | 91 |
-| `start` | Function | `apps/api/src/server.ts` | 96 |
+| `buildServer` | Function | `apps/api/src/server.ts` | 40 |
+| `resolvePort` | Function | `apps/api/src/server.ts` | 83 |
+| `resolveHost` | Function | `apps/api/src/server.ts` | 96 |
+| `start` | Function | `apps/api/src/server.ts` | 101 |
 | `startApp` | Function | `apps/api/tests/auth.test.ts` | 34 |
-| `startApp` | Function | `apps/api/tests/backtest.test.ts` | 137 |
-| `startApp` | Function | `apps/api/tests/board.test.ts` | 136 |
+| `startApp` | Function | `apps/api/tests/backtest.test.ts` | 221 |
+| `startApp` | Function | `apps/api/tests/board.test.ts` | 145 |
 | `startApp` | Function | `apps/api/tests/cache.test.ts` | 146 |
 | `startApp` | Function | `apps/api/tests/detectors.test.ts` | 52 |
-| `startApp` | Function | `apps/api/tests/fanout.test.ts` | 148 |
+| `startApp` | Function | `apps/api/tests/fanout.test.ts` | 171 |
 | `startApp` | Function | `apps/api/tests/games.test.ts` | 95 |
-| `startApp` | Function | `apps/api/tests/health.test.ts` | 48 |
+| `startApp` | Function | `apps/api/tests/health.test.ts` | 161 |
 | `startApp` | Function | `apps/api/tests/live.test.ts` | 118 |
 | `startApp` | Function | `apps/api/tests/microstructure.test.ts` | 112 |
-| `startApp` | Function | `apps/api/tests/settings.test.ts` | 84 |
-| `isRecord` | Function | `apps/api/tests/board.test.ts` | 150 |
-| `isUnknownArray` | Function | `apps/api/tests/board.test.ts` | 154 |
-| `asRecord` | Function | `apps/api/tests/board.test.ts` | 158 |
-| `readObservations` | Function | `apps/api/tests/board.test.ts` | 163 |
-| `countRunsForGame` | Function | `apps/api/tests/board.test.ts` | 170 |
+| `startApp` | Function | `apps/api/tests/settings.test.ts` | 86 |
+| `isRecord` | Function | `apps/api/tests/board.test.ts` | 159 |
+| `isUnknownArray` | Function | `apps/api/tests/board.test.ts` | 163 |
+| `asRecord` | Function | `apps/api/tests/board.test.ts` | 167 |
+| `readObservations` | Function | `apps/api/tests/board.test.ts` | 172 |
+| `countRunsForGame` | Function | `apps/api/tests/board.test.ts` | 179 |
 
 ## How to Explore
 

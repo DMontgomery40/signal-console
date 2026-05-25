@@ -3,16 +3,26 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import type { ReactNode, JSX } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
+  BOARD_MAD_BASELINE_MODE_HISTORICAL_BLEND,
   BOARD_MAD_BASELINE_MODE_DEFAULT,
   BOARD_MAD_BASELINE_MODE_OPENING_RAMP,
+  BOARD_MAD_BASELINE_MODE_TRAILING,
+  BOARD_MAD_BUCKET_SECONDS_DEFAULT,
   BOARD_MAD_FRESH_CAP_SECONDS_DEFAULT,
+  BOARD_MAD_HISTORICAL_AWAY_WEIGHT_DEFAULT,
+  BOARD_MAD_HISTORICAL_LAST_GAMES_DEFAULT,
+  BOARD_MAD_HISTORICAL_PRIOR_WEIGHT_DEFAULT,
+  BOARD_MAD_HISTORICAL_RAMP_COMPLETE_GAME_MINUTES_DEFAULT,
   BOARD_MAD_K_MAD_MAX,
   BOARD_MAD_K_MAD_MIN,
   BOARD_MAD_OPENING_BASELINE_BUCKETS_DEFAULT,
   BOARD_MAD_OPENING_BASELINE_BUCKETS_MAX,
   BOARD_MAD_OPENING_BASELINE_BUCKETS_MIN,
   BOARD_MAD_OPENING_RAMP_COMPLETE_BUCKETS_DEFAULT,
+  BOARD_MAD_RECENT_WALL_MINUTES_DEFAULT,
+  BOARD_MAD_RECENT_WALL_WEIGHT_DEFAULT,
   BOARD_MAD_TRAILING_BUCKETS_DEFAULT,
+  BOARD_MAD_TRAILING_GAME_MINUTES_DEFAULT,
   BOARD_MAD_WARMUP_BUCKETS_DEFAULT,
   K_MAD_LIVE,
 } from "@signal-console/detectors/board-mad/config";
@@ -62,13 +72,22 @@ function parseJsonUnknown(s: string): unknown {
 interface DetectorDefaultsFixture {
   readonly kMadLive: number;
   readonly baselineMode:
-    | typeof BOARD_MAD_BASELINE_MODE_DEFAULT
-    | typeof BOARD_MAD_BASELINE_MODE_OPENING_RAMP;
+    | typeof BOARD_MAD_BASELINE_MODE_OPENING_RAMP
+    | typeof BOARD_MAD_BASELINE_MODE_TRAILING
+    | typeof BOARD_MAD_BASELINE_MODE_HISTORICAL_BLEND;
+  readonly bucketSeconds: number;
   readonly openingBaselineBuckets: number;
   readonly openingRampCompleteBuckets: number;
   readonly trailingBuckets: number;
   readonly warmupBuckets: number;
   readonly freshCapSeconds: number;
+  readonly historicalLastGames: number;
+  readonly historicalAwayWeight: number;
+  readonly historicalPriorWeight: number;
+  readonly historicalRampCompleteGameMinutes: number;
+  readonly trailingGameMinutes: number;
+  readonly recentWallMinutes: number;
+  readonly recentWallWeight: number;
   readonly pbpPreBufferMs: number;
   readonly pbpPostBufferMs: number;
 }
@@ -76,11 +95,19 @@ interface DetectorDefaultsFixture {
 const DEFAULT_DETECTOR_DEFAULTS: DetectorDefaultsFixture = {
   kMadLive: K_MAD_LIVE,
   baselineMode: BOARD_MAD_BASELINE_MODE_DEFAULT,
+  bucketSeconds: BOARD_MAD_BUCKET_SECONDS_DEFAULT,
   openingBaselineBuckets: BOARD_MAD_OPENING_BASELINE_BUCKETS_DEFAULT,
   openingRampCompleteBuckets: BOARD_MAD_OPENING_RAMP_COMPLETE_BUCKETS_DEFAULT,
   trailingBuckets: BOARD_MAD_TRAILING_BUCKETS_DEFAULT,
   warmupBuckets: BOARD_MAD_WARMUP_BUCKETS_DEFAULT,
   freshCapSeconds: BOARD_MAD_FRESH_CAP_SECONDS_DEFAULT,
+  historicalLastGames: BOARD_MAD_HISTORICAL_LAST_GAMES_DEFAULT,
+  historicalAwayWeight: BOARD_MAD_HISTORICAL_AWAY_WEIGHT_DEFAULT,
+  historicalPriorWeight: BOARD_MAD_HISTORICAL_PRIOR_WEIGHT_DEFAULT,
+  historicalRampCompleteGameMinutes: BOARD_MAD_HISTORICAL_RAMP_COMPLETE_GAME_MINUTES_DEFAULT,
+  trailingGameMinutes: BOARD_MAD_TRAILING_GAME_MINUTES_DEFAULT,
+  recentWallMinutes: BOARD_MAD_RECENT_WALL_MINUTES_DEFAULT,
+  recentWallWeight: BOARD_MAD_RECENT_WALL_WEIGHT_DEFAULT,
   pbpPreBufferMs: 5 * 60 * 1000,
   pbpPostBufferMs: 60_000,
 };
@@ -458,7 +485,7 @@ describe("SettingsPage > Detector defaults (US-053)", () => {
       expect(screen.getByTestId("settings-detector-defaults")).toBeDefined();
     });
     const rows = screen.getAllByTestId("detector-default-row");
-    expect(rows.length).toBe(9);
+    expect(rows.length).toBe(18);
     const baselineMode = screen.getByTestId("detector-default-input-baselineMode");
     if (!(baselineMode instanceof HTMLSelectElement)) throw new Error("not select");
     expect(baselineMode.value).toBe(BOARD_MAD_BASELINE_MODE_DEFAULT);
@@ -532,10 +559,75 @@ describe("SettingsPage > Detector defaults (US-053)", () => {
     const obj = asRecord(parsed, "body");
     expect(obj["kMadLive"]).toBe(5.5);
     expect(obj["baselineMode"]).toBe(BOARD_MAD_BASELINE_MODE_DEFAULT);
+    expect(obj["bucketSeconds"]).toBe(BOARD_MAD_BUCKET_SECONDS_DEFAULT);
     expect(obj["openingBaselineBuckets"]).toBe(BOARD_MAD_OPENING_BASELINE_BUCKETS_DEFAULT);
     expect(obj["openingRampCompleteBuckets"]).toBe(BOARD_MAD_OPENING_RAMP_COMPLETE_BUCKETS_DEFAULT);
     expect(obj["trailingBuckets"]).toBe(BOARD_MAD_TRAILING_BUCKETS_DEFAULT);
     expect(obj["warmupBuckets"]).toBe(BOARD_MAD_WARMUP_BUCKETS_DEFAULT);
+    expect(obj["historicalLastGames"]).toBe(BOARD_MAD_HISTORICAL_LAST_GAMES_DEFAULT);
+    expect(obj["historicalAwayWeight"]).toBe(BOARD_MAD_HISTORICAL_AWAY_WEIGHT_DEFAULT);
+    expect(obj["historicalPriorWeight"]).toBe(BOARD_MAD_HISTORICAL_PRIOR_WEIGHT_DEFAULT);
+    expect(obj["historicalRampCompleteGameMinutes"]).toBe(
+      BOARD_MAD_HISTORICAL_RAMP_COMPLETE_GAME_MINUTES_DEFAULT,
+    );
+    expect(obj["trailingGameMinutes"]).toBe(BOARD_MAD_TRAILING_GAME_MINUTES_DEFAULT);
+    expect(obj["recentWallMinutes"]).toBe(BOARD_MAD_RECENT_WALL_MINUTES_DEFAULT);
+    expect(obj["recentWallWeight"]).toBe(BOARD_MAD_RECENT_WALL_WEIGHT_DEFAULT);
+  });
+
+  it("profile promotion opens a confirmation and schedules the historical defaults", async () => {
+    fetchMock.mockImplementation(async (input, init) => {
+      const url = urlOf(input);
+      await Promise.resolve();
+      if (url.startsWith("/v1/settings/detector-defaults/schedule") && init?.method === "POST") {
+        return jsonResponse({ scheduled: true });
+      }
+      return jsonResponse(makeSettings());
+    });
+
+    render(<SettingsPage />, { wrapper: makeWrapper() });
+
+    const profile = await waitFor(() => screen.getByTestId("detector-default-profile"));
+    if (!(profile instanceof HTMLSelectElement)) throw new Error("not select");
+    fireEvent.change(profile, { target: { value: "historical-blend" } });
+
+    const dialog = await waitFor(() => screen.getByTestId("detector-profile-confirmation"));
+    expect(dialog.textContent).toContain("Recent and Live");
+    expect(dialog.textContent).toContain("Rollback");
+    fireEvent.click(screen.getByTestId("detector-profile-schedule"));
+
+    await waitFor(() => {
+      const posts = fetchMock.mock.calls.filter((c) => {
+        const url = urlOf(c[0]);
+        return url.startsWith("/v1/settings/detector-defaults/schedule") && c[1]?.method === "POST";
+      });
+      expect(posts.length).toBe(1);
+    });
+    const post = fetchMock.mock.calls.find((c) => {
+      const url = urlOf(c[0]);
+      return url.startsWith("/v1/settings/detector-defaults/schedule") && c[1]?.method === "POST";
+    });
+    if (post === undefined) throw new Error("missing schedule POST");
+    const body = post[1]?.body;
+    if (typeof body !== "string") throw new Error("body not string");
+    const obj = asRecord(parseJsonUnknown(body), "body");
+    const defaults = asRecord(obj["defaults"], "defaults");
+    expect(obj["effectiveAt"]).toMatch(/T09:00:00\.000Z$/);
+    expect(defaults["baselineMode"]).toBe(BOARD_MAD_BASELINE_MODE_HISTORICAL_BLEND);
+    expect(defaults["bucketSeconds"]).toBe(30);
+    expect(defaults["openingBaselineBuckets"]).toBe(3);
+    expect(defaults["openingRampCompleteBuckets"]).toBe(16);
+    expect(defaults["trailingBuckets"]).toBe(24);
+    expect(defaults["warmupBuckets"]).toBe(4);
+    expect(defaults["historicalLastGames"]).toBe(BOARD_MAD_HISTORICAL_LAST_GAMES_DEFAULT);
+    expect(defaults["historicalAwayWeight"]).toBe(BOARD_MAD_HISTORICAL_AWAY_WEIGHT_DEFAULT);
+    expect(defaults["historicalPriorWeight"]).toBe(BOARD_MAD_HISTORICAL_PRIOR_WEIGHT_DEFAULT);
+    expect(defaults["historicalRampCompleteGameMinutes"]).toBe(
+      BOARD_MAD_HISTORICAL_RAMP_COMPLETE_GAME_MINUTES_DEFAULT,
+    );
+    expect(defaults["trailingGameMinutes"]).toBe(BOARD_MAD_TRAILING_GAME_MINUTES_DEFAULT);
+    expect(defaults["recentWallMinutes"]).toBe(BOARD_MAD_RECENT_WALL_MINUTES_DEFAULT);
+    expect(defaults["recentWallWeight"]).toBe(BOARD_MAD_RECENT_WALL_WEIGHT_DEFAULT);
   });
 
   it("POSTs the full detector-default payload when prior sample changes", async () => {
@@ -545,7 +637,7 @@ describe("SettingsPage > Detector defaults (US-053)", () => {
       if (url.startsWith("/v1/settings/detector-defaults") && init?.method === "POST") {
         return jsonResponse({
           ...DEFAULT_DETECTOR_DEFAULTS,
-          baselineMode: BOARD_MAD_BASELINE_MODE_OPENING_RAMP,
+          baselineMode: BOARD_MAD_BASELINE_MODE_TRAILING,
         });
       }
       return jsonResponse(makeSettings());
@@ -557,7 +649,7 @@ describe("SettingsPage > Detector defaults (US-053)", () => {
       screen.getByTestId("detector-default-input-baselineMode"),
     );
     if (!(baselineMode instanceof HTMLSelectElement)) throw new Error("not select");
-    fireEvent.change(baselineMode, { target: { value: BOARD_MAD_BASELINE_MODE_OPENING_RAMP } });
+    fireEvent.change(baselineMode, { target: { value: BOARD_MAD_BASELINE_MODE_TRAILING } });
 
     await waitFor(() => {
       const posts = fetchMock.mock.calls.filter((c) => {
@@ -574,7 +666,7 @@ describe("SettingsPage > Detector defaults (US-053)", () => {
     const body = post[1]?.body;
     if (typeof body !== "string") throw new Error("body not string");
     const obj = asRecord(parseJsonUnknown(body), "body");
-    expect(obj["baselineMode"]).toBe(BOARD_MAD_BASELINE_MODE_OPENING_RAMP);
+    expect(obj["baselineMode"]).toBe(BOARD_MAD_BASELINE_MODE_TRAILING);
     expect(obj["openingBaselineBuckets"]).toBe(BOARD_MAD_OPENING_BASELINE_BUCKETS_DEFAULT);
     expect(obj["openingRampCompleteBuckets"]).toBe(BOARD_MAD_OPENING_RAMP_COMPLETE_BUCKETS_DEFAULT);
     expect(obj["trailingBuckets"]).toBe(BOARD_MAD_TRAILING_BUCKETS_DEFAULT);

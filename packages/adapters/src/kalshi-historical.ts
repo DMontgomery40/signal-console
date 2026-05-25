@@ -24,7 +24,6 @@ const HOURS_PER_DAY = 24;
 const DAYS_PER_WEEK = 7;
 const DAYS_PER_YEAR = 365;
 const MILLISECONDS_PER_MINUTE = SECONDS_PER_MINUTE * MILLISECONDS_PER_SECOND;
-const MILLISECONDS_PER_HOUR = MINUTES_PER_HOUR * MILLISECONDS_PER_MINUTE;
 const KALSHI_ONE_MINUTE_CANDLE_INTERVAL_MINUTES = 1;
 const KALSHI_ONE_HOUR_CANDLE_INTERVAL_MINUTES = MINUTES_PER_HOUR;
 const KALSHI_ONE_DAY_CANDLE_INTERVAL_MINUTES = HOURS_PER_DAY * MINUTES_PER_HOUR;
@@ -38,8 +37,8 @@ const KALSHI_ONE_HOUR_CANDLE_MAX_WINDOW_SECONDS =
 const KALSHI_ONE_DAY_CANDLE_MAX_WINDOW_SECONDS =
   DAYS_PER_YEAR * HOURS_PER_DAY * MINUTES_PER_HOUR * SECONDS_PER_MINUTE;
 const KALSHI_DEFAULT_CANDLE_MAX_WINDOW_SECONDS = KALSHI_ONE_HOUR_CANDLE_MAX_WINDOW_SECONDS;
-const KALSHI_HISTORICAL_FALLBACK_WINDOW_BEFORE_HOURS = HOURS_PER_DAY;
-const KALSHI_HISTORICAL_FALLBACK_WINDOW_AFTER_HOURS = 6;
+const KALSHI_NBA_CANDLE_WINDOW_BEFORE_TIP_MINUTES = 30;
+const KALSHI_NBA_CANDLE_WINDOW_AFTER_TIP_MINUTES = 4 * MINUTES_PER_HOUR;
 export const KALSHI_NBA_HISTORICAL_CANDLE_SECONDS =
   KALSHI_ONE_MINUTE_CANDLE_INTERVAL_MINUTES * SECONDS_PER_MINUTE;
 export const KALSHI_NBA_HISTORICAL_PERIOD_INTERVAL_MINUTES =
@@ -53,9 +52,14 @@ const CANDLESTICK_MAX_WINDOW_SECONDS_BY_INTERVAL: Record<
   [KALSHI_ONE_DAY_CANDLE_INTERVAL_MINUTES]: KALSHI_ONE_DAY_CANDLE_MAX_WINDOW_SECONDS,
 };
 const DEFAULT_INTER_REQUEST_MS = 250;
+const DEFAULT_KALSHI_EVENTS_PAGE_LIMIT = 200;
 const INITIAL_RETRY_AFTER_WAIT_MS = MILLISECONDS_PER_SECOND;
-const MAX_RETRY_AFTER_WAIT_MS = 30 * MILLISECONDS_PER_SECOND;
-const MAX_RETRIES_ON_429 = 5;
+const MAX_RETRY_AFTER_WAIT_SECONDS = 5;
+const MAX_RETRY_AFTER_WAIT_MS = MAX_RETRY_AFTER_WAIT_SECONDS * MILLISECONDS_PER_SECOND;
+const MAX_RETRIES_ON_429 = 2;
+const KALSHI_HISTORICAL_FETCH_TIMEOUT_SECONDS = 15;
+const KALSHI_HISTORICAL_FETCH_TIMEOUT_MS =
+  KALSHI_HISTORICAL_FETCH_TIMEOUT_SECONDS * MILLISECONDS_PER_SECOND;
 
 function sleep(ms: number) {
   return new Promise<void>((resolve) => {
@@ -66,33 +70,50 @@ function sleep(ms: number) {
 async function fetchWithRateLimit(
   fetchImpl: FetchLike,
   url: string,
-  options?: { interRequestMs?: number },
+  options?: { interRequestMs?: number; timeoutMs?: number },
 ): Promise<Response> {
   const interRequestMs = options?.interRequestMs ?? DEFAULT_INTER_REQUEST_MS;
+  const timeoutMs = options?.timeoutMs ?? KALSHI_HISTORICAL_FETCH_TIMEOUT_MS;
   let attempt = 0;
   let waitMs = INITIAL_RETRY_AFTER_WAIT_MS;
+  const fetchWithTimeout = async () => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    timeout.unref?.();
+    try {
+      return await fetchImpl(url, { signal: controller.signal });
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") {
+        throw new Error(`Kalshi historical request timed out after ${timeoutMs}ms.`);
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeout);
+    }
+  };
 
   while (attempt <= MAX_RETRIES_ON_429) {
     if (attempt === 0 && interRequestMs > 0) {
       await sleep(interRequestMs);
     }
-    const response = await fetchImpl(url);
+    const response = await fetchWithTimeout();
     if (response.status !== 429) {
       return response;
     }
 
     const retryAfterHeader = response.headers?.get?.("retry-after");
     const retryAfterSeconds = retryAfterHeader ? Number(retryAfterHeader) : NaN;
-    const delay = Number.isFinite(retryAfterSeconds)
-      ? retryAfterSeconds * MILLISECONDS_PER_SECOND
-      : waitMs;
+    const delay = Math.min(
+      Number.isFinite(retryAfterSeconds) ? retryAfterSeconds * MILLISECONDS_PER_SECOND : waitMs,
+      MAX_RETRY_AFTER_WAIT_MS,
+    );
 
     await sleep(delay);
     waitMs = Math.min(waitMs * 2, MAX_RETRY_AFTER_WAIT_MS);
     attempt += 1;
   }
 
-  return fetchImpl(url);
+  return fetchWithTimeout();
 }
 
 const MONTH_ABBREVIATIONS: Record<string, number> = {
@@ -331,27 +352,22 @@ function parseJsonObject(value: string | null | undefined) {
   }
 }
 
-function chooseHistoricalWindow(target: KalshiHistoricalTarget) {
-  const scheduledMs = Date.parse(target.scheduledStart);
-  const openMs = Date.parse(target.openTime ?? "");
-  const closeMs = Date.parse(target.closeTime ?? "");
-  const fallbackStart = Number.isFinite(scheduledMs)
-    ? scheduledMs - KALSHI_HISTORICAL_FALLBACK_WINDOW_BEFORE_HOURS * MILLISECONDS_PER_HOUR
-    : Number.NaN;
-  const fallbackEnd = Number.isFinite(scheduledMs)
-    ? scheduledMs + KALSHI_HISTORICAL_FALLBACK_WINDOW_AFTER_HOURS * MILLISECONDS_PER_HOUR
-    : Number.NaN;
+function chooseHistoricalWindow(input: {
+  closeTime?: string | null;
+  openTime?: string | null;
+  scheduledStart: string;
+}) {
+  const scheduledMs = Date.parse(input.scheduledStart);
+  if (!Number.isFinite(scheduledMs)) return null;
 
-  const startMs = Number.isFinite(openMs)
-    ? openMs
-    : Number.isFinite(fallbackStart)
-      ? fallbackStart
-      : Number.NaN;
-  const endMs = Number.isFinite(closeMs)
-    ? closeMs
-    : Number.isFinite(fallbackEnd)
-      ? fallbackEnd
-      : Number.NaN;
+  const openMs = Date.parse(input.openTime ?? "");
+  const closeMs = Date.parse(input.closeTime ?? "");
+  const gameWindowStart =
+    scheduledMs - KALSHI_NBA_CANDLE_WINDOW_BEFORE_TIP_MINUTES * MILLISECONDS_PER_MINUTE;
+  const gameWindowEnd =
+    scheduledMs + KALSHI_NBA_CANDLE_WINDOW_AFTER_TIP_MINUTES * MILLISECONDS_PER_MINUTE;
+  const startMs = Math.max(Number.isFinite(openMs) ? openMs : gameWindowStart, gameWindowStart);
+  const endMs = Math.min(Number.isFinite(closeMs) ? closeMs : gameWindowEnd, gameWindowEnd);
 
   if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
     return null;
@@ -361,6 +377,13 @@ function chooseHistoricalWindow(target: KalshiHistoricalTarget) {
     endTs: Math.floor(endMs / MILLISECONDS_PER_SECOND),
     startTs: Math.floor(startMs / MILLISECONDS_PER_SECOND),
   };
+}
+
+function isWithinScheduledDateRange(game: ResearchGameCard, dateFrom?: string, dateTo?: string) {
+  const scheduledDate = game.game.scheduledStart.slice(0, 10);
+  if (dateFrom && scheduledDate < dateFrom.slice(0, 10)) return false;
+  if (dateTo && scheduledDate > dateTo.slice(0, 10)) return false;
+  return true;
 }
 
 function selectExistingKalshiHistoricalTargets(games: ResearchGameCard[]) {
@@ -432,11 +455,15 @@ export async function fetchKalshiSettledNbaEvents(options?: {
   baseUrl?: string;
   fetchImpl?: FetchLike;
   limit?: number;
+  maxEvents?: number;
   maxPages?: number;
 }) {
   const baseUrl = options?.baseUrl ?? KALSHI_DEFAULT_BASE_URL;
   const fetchImpl = options?.fetchImpl ?? fetch;
-  const pageLimit = options?.limit ?? 200;
+  const maxEvents =
+    options?.maxEvents == null || options.maxEvents <= 0 ? null : Math.floor(options.maxEvents);
+  const requestedPageLimit = options?.limit ?? DEFAULT_KALSHI_EVENTS_PAGE_LIMIT;
+  const pageLimit = Math.min(requestedPageLimit, maxEvents ?? requestedPageLimit);
   const maxPages = options?.maxPages ?? 50;
 
   const collected: KalshiEvent[] = [];
@@ -460,6 +487,10 @@ export async function fetchKalshiSettledNbaEvents(options?: {
     const payload = (await response.json()) as KalshiEventsResponse;
     collected.push(...(payload.events ?? []));
 
+    if (maxEvents != null && collected.length >= maxEvents) {
+      break;
+    }
+
     if (!payload.cursor || (payload.events ?? []).length === 0) {
       break;
     }
@@ -467,7 +498,7 @@ export async function fetchKalshiSettledNbaEvents(options?: {
     cursor = payload.cursor;
   }
 
-  return collected;
+  return maxEvents == null ? collected : collected.slice(0, maxEvents);
 }
 
 export async function fetchKalshiCandlesticks(options: {
@@ -618,9 +649,12 @@ async function backfillExistingKalshiHistoricalTarget(options: {
 
 export async function syncKalshiNbaHistorical(options?: {
   baseUrl?: string;
+  dateFrom?: string;
+  dateTo?: string;
   fetchImpl?: FetchLike;
   games?: ResearchGameCard[];
   maxEvents?: number;
+  maxMarkets?: number;
   now?: () => Date;
   periodIntervalMinutes?: typeof KALSHI_NBA_HISTORICAL_PERIOD_INTERVAL_MINUTES;
 }) {
@@ -628,19 +662,25 @@ export async function syncKalshiNbaHistorical(options?: {
   const startedAt = now().toISOString();
   const periodIntervalMinutes =
     options?.periodIntervalMinutes ?? KALSHI_NBA_HISTORICAL_PERIOD_INTERVAL_MINUTES;
+  const maxMarkets =
+    options?.maxMarkets == null || options.maxMarkets <= 0 ? null : Math.floor(options.maxMarkets);
 
   try {
-    const games =
+    const sourceGames =
       options?.games ??
       listResearchGames({
         league: "NBA",
         scope: "all",
         sport: "basketball",
       });
+    const games = sourceGames.filter((game) =>
+      isWithinScheduledDateRange(game, options?.dateFrom, options?.dateTo),
+    );
     const gameIndex = buildGameIndex(games);
     const events = await fetchKalshiSettledNbaEvents({
       baseUrl: options?.baseUrl,
       fetchImpl: options?.fetchImpl,
+      maxEvents: options?.maxEvents,
     });
 
     const maxEvents = options?.maxEvents ?? events.length;
@@ -663,6 +703,9 @@ export async function syncKalshiNbaHistorical(options?: {
       matchedGameIds.add(game.game.id);
 
       for (const market of event.markets ?? []) {
+        if (maxMarkets != null && marketsConsidered >= maxMarkets) {
+          break;
+        }
         if (!market.open_time || !market.close_time) {
           continue;
         }
@@ -674,9 +717,12 @@ export async function syncKalshiNbaHistorical(options?: {
           continue;
         }
 
-        const startTs = Math.floor(new Date(market.open_time).getTime() / MILLISECONDS_PER_SECOND);
-        const endTs = Math.floor(new Date(market.close_time).getTime() / MILLISECONDS_PER_SECOND);
-        if (!Number.isFinite(startTs) || !Number.isFinite(endTs) || endTs <= startTs) {
+        const window = chooseHistoricalWindow({
+          closeTime: market.close_time,
+          openTime: market.open_time,
+          scheduledStart: game.game.scheduledStart,
+        });
+        if (!window) {
           continue;
         }
 
@@ -684,11 +730,11 @@ export async function syncKalshiNbaHistorical(options?: {
         try {
           candles = await fetchKalshiCandlesticks({
             baseUrl: options?.baseUrl,
-            endTs,
+            endTs: window.endTs,
             fetchImpl: options?.fetchImpl,
             marketTicker: market.ticker,
             periodIntervalMinutes,
-            startTs,
+            startTs: window.startTs,
           });
         } catch (error) {
           marketErrors.push({
@@ -810,13 +856,16 @@ export async function syncKalshiNbaHistorical(options?: {
       }
     }
 
-    const selectedGameIds = options?.games
-      ? new Set(games.map((game) => game.game.id))
-      : matchedGameIds;
+    const selectedGameIds =
+      options?.games || options?.dateFrom || options?.dateTo
+        ? new Set(games.map((game) => game.game.id))
+        : matchedGameIds;
     const selectedGames = games.filter((game) => selectedGameIds.has(game.game.id));
-    const existingTargets = selectExistingKalshiHistoricalTargets(selectedGames).filter(
-      (target) => !processedSourceMarketIds.has(target.sourceMarketId),
-    );
+    const remainingMarketBudget =
+      maxMarkets == null ? null : Math.max(0, maxMarkets - marketsConsidered);
+    const existingTargets = selectExistingKalshiHistoricalTargets(selectedGames)
+      .filter((target) => !processedSourceMarketIds.has(target.sourceMarketId))
+      .slice(0, remainingMarketBudget ?? undefined);
 
     for (const target of existingTargets) {
       marketsConsidered += 1;

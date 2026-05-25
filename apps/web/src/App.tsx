@@ -97,17 +97,17 @@ export function App(): JSX.Element {
   const active = activeLabelFor(path);
 
   return (
-    <div className="mx-auto max-w-[1440px] px-12 py-10 text-text-md">
-      <header className="flex items-baseline justify-between">
+    <div className="mx-auto max-w-[1440px] overflow-x-hidden px-4 py-6 text-text-md sm:px-6 sm:py-8 lg:px-12 lg:py-10">
+      <header className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-2">
         <h1 className="font-sans text-2xl font-semibold text-text-hi">Signal Console</h1>
         <span className="tabular font-mono text-xs">
           <span className="text-accent-yellow">v2</span>
-          <span className="text-text-lo"> · scaffold</span>
+          <span className="hidden text-text-lo sm:inline"> · scaffold</span>
         </span>
       </header>
 
-      <nav aria-label="Primary" className="mt-8 border-b border-surface-1">
-        <ul className="flex gap-8">
+      <nav aria-label="Primary" className="mt-6 border-b border-surface-1 sm:mt-8">
+        <ul className="flex flex-wrap gap-x-4 gap-y-1 sm:gap-x-8">
           {NAV_LINKS.map((link) => {
             const isActive = link.label === active;
             return (
@@ -132,7 +132,7 @@ export function App(): JSX.Element {
         </ul>
       </nav>
 
-      <main className="mt-12">
+      <main className="mt-8 sm:mt-12">
         <ErrorBoundary key={routeKey(path)}>{routeContent(path)}</ErrorBoundary>
       </main>
     </div>

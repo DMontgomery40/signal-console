@@ -18,6 +18,8 @@
     "verify:no-hex-literals": "tsx scripts/verify-no-hex-literals.ts",
     "verify:queries": "tsx scripts/verify-queries.ts",
     "cache:reset": "tsx scripts/cache-reset.ts",
+    "backfill:nba-history": "pnpm --filter @signal-console/worker backfill nba-history --since 2026-04-22",
+    "bakeoff:nba-detectors": "tsx scripts/run-nba-detector-bakeoff.ts",
     "verify": "prettier --check . --ignore-unknown && eslint . --max-warnings=0 && tsc --noEmit -p scripts/tsconfig.json && tsx scripts/run-workspace-script.ts typecheck && tsx scripts/verify-no-stale-plan.ts && tsx scripts/verify-no-hex-literals.ts && tsx scripts/verify-queries.ts && tsx scripts/run-workspace-script.ts verify"
   },
   "devDependencies": {

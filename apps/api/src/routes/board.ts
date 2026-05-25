@@ -30,7 +30,15 @@ const paramsJsonSchema = {
 
 const observationJsonSchema = {
   type: "object",
-  required: ["bucketStart", "bucketEnd", "fired", "intensity", "baselineMedian", "baselineMad"],
+  required: [
+    "bucketStart",
+    "bucketEnd",
+    "fired",
+    "intensity",
+    "baselineMedian",
+    "baselineMad",
+    "warmedUp",
+  ],
   properties: {
     bucketStart: { type: "string" },
     bucketEnd: { type: "string" },
@@ -38,6 +46,7 @@ const observationJsonSchema = {
     intensity: { type: "number" },
     baselineMedian: { type: "number" },
     baselineMad: { type: "number" },
+    warmedUp: { type: "boolean" },
   },
 } as const;
 

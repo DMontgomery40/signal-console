@@ -205,7 +205,7 @@ function FiredBucketRow({
       {isExpanded ? (
         <div className="bg-surface-1 px-4 py-4" data-testid="context-panel">
           <p className="mb-3 font-mono text-xs uppercase tracking-[0.08em] text-text-lo">
-            Context: prior 20 buckets + this fire
+            Context: prior elapsed lookback + this fire
           </p>
           <ContextTimeline series={contextSeries} focusBucketStart={obs.bucketStart} k={k} />
           <FanoutPanel gameId={gameId} bucketStart={obs.bucketStart} />

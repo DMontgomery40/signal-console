@@ -13,8 +13,8 @@
 //      later tick: weighted = |delta(impliedProbability)| * w, where w is
 //      log1p(volume) for "volume" weighting or 1 for "equal".
 //   4. Sum contributions per (gameId, bucket-start). Buckets with zero
-//      contribution are absent from the output — preserves the sparse-series
-//      semantics the trailing-baseline window depends on.
+//      contribution are absent from the output; downstream baseline windows
+//      use elapsed time, not sparse array index count.
 //
 // The "bucket" value in BucketEntry is unix seconds (the bucket-start). The
 // bucketSeconds, weighting, and freshCapSeconds inputs that produced the
@@ -28,11 +28,17 @@ import type { Weighting } from "./params";
 export interface BucketEntry {
   readonly bucket: number;
   readonly intensity: number;
+  readonly gameElapsedSeconds?: number | null;
 }
 
 export interface BucketSeriesGame {
   readonly gameId: string;
   readonly buckets: readonly BucketEntry[];
+  readonly historicalPrior?: {
+    readonly median: number;
+    readonly mad: number;
+    readonly sampleSize: number;
+  };
 }
 
 export interface BucketSeries {
@@ -46,12 +52,20 @@ export interface PrebucketOptions {
   readonly weighting?: Weighting;
   readonly freshCapSeconds?: number;
   readonly gameIds?: readonly string[];
+  readonly historicalPriors?: ReadonlyMap<
+    string,
+    { readonly median: number; readonly mad: number; readonly sampleSize: number }
+  >;
 }
 
 const DEFAULT_WEIGHTING: Weighting = BOARD_MAD_WEIGHTING_DEFAULT;
 const DEFAULT_FRESH_CAP_SECONDS = BOARD_MAD_FRESH_CAP_SECONDS_DEFAULT;
 
-type Contribution = { readonly bucket: number; readonly weighted: number };
+type Contribution = {
+  readonly bucket: number;
+  readonly weighted: number;
+  readonly gameElapsedSeconds?: number | null;
+};
 
 const sanitise = (ticks: readonly Tick[]): readonly Tick[] =>
   ticks.filter(
@@ -84,7 +98,7 @@ const contributionFromPair = (
   const curSec = cur.capturedAt.getTime() / 1000;
   const bucket = Math.floor(curSec / bucketSeconds) * bucketSeconds;
   const weight = weighting === "equal" ? 1 : Math.log1p(cur.volume);
-  return { bucket, weighted: delta * weight };
+  return { bucket, gameElapsedSeconds: cur.gameElapsedSeconds ?? null, weighted: delta * weight };
 };
 
 const contributionsFromSortedTicks = (
@@ -104,12 +118,17 @@ const sumByBucket = (contribs: readonly Contribution[]): readonly BucketEntry[] 
   const uniqueBuckets = Array.from(new Set(contribs.map((c) => c.bucket))).toSorted(
     (a, b) => a - b,
   );
-  return uniqueBuckets.map(
-    (b): BucketEntry => ({
+  return uniqueBuckets.map((b): BucketEntry => {
+    const bucketContribs = contribs.filter((c) => c.bucket === b);
+    const elapsedValues = bucketContribs
+      .map((c) => c.gameElapsedSeconds)
+      .filter((value): value is number => Number.isFinite(value));
+    return {
       bucket: b,
-      intensity: contribs.reduce((acc, c) => (c.bucket === b ? acc + c.weighted : acc), 0),
-    }),
-  );
+      gameElapsedSeconds: elapsedValues.length === 0 ? null : Math.max(...elapsedValues),
+      intensity: bucketContribs.reduce((acc, c) => acc + c.weighted, 0),
+    };
+  });
 };
 
 const buildGameSeries = (
@@ -140,7 +159,9 @@ export function prebucket(
   const gameIds = uniqueGameIds(options?.gameIds ?? discoverGameIds(ticks));
   const perGame: readonly BucketSeriesGame[] = gameIds.map((gameId) => {
     const gameTicks = ticks.filter((t) => t.gameId === gameId);
-    return buildGameSeries(gameId, gameTicks, bucketSeconds, freshCapSeconds, weighting);
+    const series = buildGameSeries(gameId, gameTicks, bucketSeconds, freshCapSeconds, weighting);
+    const historicalPrior = options?.historicalPriors?.get(gameId);
+    return historicalPrior === undefined ? series : { ...series, historicalPrior };
   });
   return { bucketSeconds, weighting, freshCapSeconds, perGame };
 }

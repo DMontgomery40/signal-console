@@ -28,7 +28,7 @@ The "Sensitivity adapter" is not a new algorithm — it is the existing `K_MAD` 
 - **Reliability:** Dead-reliable, lightweight, read-only API path. Zero writes to the gold DB from the API/UI/cache layer.
 - **Performance budgets:** Recent (24-h list) < 500 ms warm / < 2 s cold for ~20 games; one game's live view < 300 ms; one market's timeline < 300 ms; backtest 28-day / ~20-game first sweep < 60 s, cached subsequent K change < 1 s; Settings < 100 ms.
 - **Focus:** **Three** primary views — Recent (default), Live (opt-in), Backtest (dials). One additional view (Detectors) for registry browsing, and Settings for diagnostics. Nothing else.
-- **Headline feature:** The Sensitivity adapter — a continuous Backtest dial with two labelled snap points (`3.0` sensitive/live default, `6.0` calm comparison preset). The Signal timing panel exposes `baselineMode`, `openingBaselineBuckets`, `openingRampCompleteBuckets`, `trailingBuckets`, and `warmupBuckets` with exact wall-clock durations from `bucketSeconds` where applicable.
+- **Headline feature:** The Sensitivity adapter — a continuous Backtest dial with two labelled snap points (`3.0` sensitive/live default, `6.0` calm comparison preset). The Signal timing panel exposes `baselineMode`, `openingBaselineBuckets`, `openingRampCompleteBuckets`, `trailingBuckets`, and `warmupBuckets` with exact elapsed durations from `bucketSeconds` where applicable.
 - **Extensibility:** Detector registry; new detector = one file under `packages/detectors/src/<name>/index.ts` + one line in `registry.ts`.
 - **Math honesty:** K = 3.0 is the live/Recent/default operating value. K = 6.0 is a Backtest-only calmer preset. Both declared once in `packages/detectors/src/board-mad/config.ts`. K is a compute parameter, never persisted in the gold DB.
 - **Stay focused:** the old repo was 73k LOC of bloat; the new one should be small by intent. No hard per-file or total LOC ceiling — judgment over numbers.
@@ -142,7 +142,7 @@ The new repo should be **small by intent** — the old repo was 73k LOC of bloat
 
 This is the only novel UI element in the rebuild; getting it right is the headline.
 
-**What it is.** A slider on the Backtest tab that adjusts `K_MAD` (the multiplier on the trailing MAD in the board-volatility fire rule `intensity > median(prior 20 buckets) + K · MAD(prior 20 buckets)`).
+**What it is.** A slider on the Backtest tab that adjusts `K_MAD` (the multiplier on the trailing MAD in the board-volatility fire rule `intensity > median(prior elapsed lookback) + K · MAD(prior elapsed lookback)`).
 
 **Range and presets.** Continuous slider `2.0 ≤ K ≤ 8.0`, step `0.25`. Default position is the **live K = 3.0**; the dial exists to explore sensitivity around that anchor. Two labelled snap points matching the video narration:
 
@@ -172,7 +172,7 @@ TDD + SDD principles fail if the math under test is wrong. The new repo honours 
 1. **Canonical live default:** `K_MAD_LIVE = 3.0`, weighting `"volume"` — the sensitive setting from the video/bakeoff: ~18 fires/game, "catches 5 of 6" per that artifact. This is what Recent, Live, and any non-Backtest surface uses. Justification: for a suspend-signal whose miss cost (an exposed bad market) exceeds the per-fire review cost, the higher-recall setting wins.
 2. **Backtest calm preset:** `K_MAD_CALM = 6.0` — the calmer comparison from the research report (`scripts/board_signal_v2.py:33`): ~9 fires/game. The "catches N of 6" number is **not** committed to in the plan/UI unless and until a current bakeoff artifact supports it; the dial UI labels the preset by fire-rate only.
 3. Both constants live in `packages/detectors/src/board-mad/config.ts`, re-exported as the only K values the API, UI, and cache layer consume. **No other file declares a default for K.**
-4. **K is a compute parameter, not a persisted dimension.** The `board-mad` detector defaults to the `scripts/board_signal_v2.py` rolling-current-game baseline: for each game, iterate `quote_ticks` in time order, bucket by 60 s, compute a causal baseline `median(prior trailingBuckets) + K · MAD(prior trailingBuckets)` on the fly, fire when current bucket intensity exceeds the threshold (after `warmupBuckets`, with a 300 s fresh-cap on per-market deltas and the `is_heartbeat` / `0.500` opening-anchor sanitations). Backtest also exposes `baselineMode="opening-ramp"`, where the first eligible buckets can compare against `openingBaselineBuckets` from the opening sample and graduate to rolling memory at `openingRampCompleteBuckets`. **Nothing about K lives in the gold DB**; it is purely a knob inside the detector's compute loop.
+4. **K is a compute parameter, not a persisted dimension.** The `board-mad` detector iterates `quote_ticks` in time order, buckets by the configured `bucketSeconds`, computes a causal baseline `median(selected prior sample) + K · MAD(selected prior sample)` on the fly, and fires when current bucket intensity exceeds the threshold (after elapsed holdoff `warmupBuckets × bucketSeconds`, with a 300 s fresh-cap on per-market deltas and the `is_heartbeat` / `0.500` opening-anchor sanitations). The live default prior sample is `baselineMode="opening-ramp"`: first active alert checks compare against the opening elapsed duration `openingBaselineBuckets × bucketSeconds` and graduate to rolling memory at `openingRampCompleteBuckets × bucketSeconds`. Backtest and Settings also expose `baselineMode="historical-blend"`, which starts from last-five same-side NBA priors, fades them out by game-clock elapsed time, uses game-clock memory for the current-game baseline, and can add a short wall-clock recent tack-on for timeout/dead-ball betting bursts. **Nothing about K lives in the gold DB**; it is purely a knob inside the detector's compute loop.
 5. **The gold DB's `board_volatility_baselines` table is NOT a fire decision store.** Its rows are expected-range bands (p50/p75/p90/p99) keyed by phase / source / core-family for UI band overlays, written by the old worker. The new app may read them for a band overlay; it does **not** depend on them for any fire decision. The `cohortKey` label in `nba-predict`'s TypeScript runtime embeds K only for display purposes (`game-state-volatility.ts:697`, `:880`), not as a persisted key.
 6. **Detector contract tests** (`packages/detectors/src/board-mad/__tests__/canonical.test.ts`) run against committed JSON fixture extracts (small slices of `quote_ticks` for the two anchored games — **not** against the gold DB). The tests lock in outcomes at **both** K values:
 
@@ -275,15 +275,22 @@ const Params = z.object({
   weighting: z.enum(["volume", "equal"]).default("volume"),   // live default: volume-weighted
   trailingBuckets: z.number().int().min(5).max(60).default(20),
   warmupBuckets: z.number().int().min(2).max(20).default(8),
-  baselineMode: z.enum(["trailing", "opening-ramp"]).default("trailing"),
+  baselineMode: z.enum(["trailing", "opening-ramp", "historical-blend"]).default("opening-ramp"),
   openingBaselineBuckets: z.number().int().min(1).max(60).default(4),
   openingRampCompleteBuckets: z.number().int().min(2).max(120).default(20),
+  historicalLastGames: z.number().int().min(1).max(20).default(5),
+  historicalAwayWeight: z.number().min(0).max(1).default(0.5),
+  historicalPriorWeight: z.number().min(0).max(1).default(1),
+  historicalRampCompleteGameMinutes: z.number().min(1).max(48).default(12),
+  trailingGameMinutes: z.number().min(1).max(48).default(12),
+  recentWallMinutes: z.number().min(0).max(20).default(4),
+  recentWallWeight: z.number().min(0).max(5).default(1.5),
   freshCapSeconds: z.number().int().min(30).max(3600).default(300),
 });
 
 export const detector: Detector<typeof Params> = {
   id: "board-mad",
-  version: "1.2.0",
+  version: "1.5.0",
   displayName: "Board MAD (whole-board volatility)",
   paramsSchema: Params,
   run(window, params) {
@@ -627,13 +634,13 @@ Three sections, no buttons that mutate (except "clear cache"):
 - [ ] Typecheck/lint passes.
 
 #### US-006: Port `board-mad` detector from `board_signal_v2.py`
-**Description:** As a developer, I need a TypeScript port of `scripts/board_signal_v2.py` as the canonical `board-mad` detector, including the rolling-current-game `median + K·MAD` baseline, configurable signal timing, 8-bucket warmup default, 300 s fresh cap, and `is_heartbeat`/`0.500` sanitations.
+**Description:** As a developer, I need a TypeScript port of `scripts/board_signal_v2.py` as the canonical `board-mad` detector, including the rolling-current-game `median + K·MAD` baseline, configurable signal timing, 8-minute elapsed warmup default at 60 s buckets, 300 s fresh cap, and `is_heartbeat`/`0.500` sanitations.
 
 **Acceptance Criteria:**
 - [ ] `packages/detectors/src/board-mad/index.ts` exports `detector: Detector<Params>` matching the §10 sketch (id `board-mad`, version `1.0.0`, displayName `"Board MAD (whole-board volatility)"`).
 - [ ] `packages/detectors/src/board-mad/config.ts` declares `K_MAD_LIVE = 3.0` and `K_MAD_CALM = 6.0`; these are the **only** declarations of either K value in the repo (enforced by `pnpm verify:no-stale-plan`).
-- [ ] Detector iterates `quote_ticks` in time order, bucketed by `bucketSeconds` (default 60), applies the selected signal timing mode, fires when current bucket intensity exceeds threshold, after the `warmupBuckets` warmup, with `freshCapSeconds` per-market delta cap, and the `is_heartbeat`/`0.500` opening-anchor sanitations.
-- [ ] Detector defaults match `nba-predict` `BOARD_VW_K_MAD = 3` for the live path: `kMad=3.0`, `weighting="volume"`, `baselineMode="trailing"`, `openingBaselineBuckets=4`, `openingRampCompleteBuckets=20`, `trailingBuckets=20`, `warmupBuckets=8`, `freshCapSeconds=300`.
+- [ ] Detector iterates `quote_ticks` in time order, bucketed by `bucketSeconds` (default 60), applies the selected signal timing mode, fires when current bucket intensity exceeds threshold, after the elapsed `warmupBuckets × bucketSeconds` warmup, with `freshCapSeconds` per-market delta cap, and the `is_heartbeat`/`0.500` opening-anchor sanitations.
+- [ ] Detector defaults match `nba-predict` `BOARD_VW_K_MAD = 3` for the live path with the elapsed-time opening-ramp profile: `kMad=3.0`, `weighting="volume"`, `baselineMode="opening-ramp"`, `openingBaselineBuckets=4`, `openingRampCompleteBuckets=20`, `trailingBuckets=20`, `warmupBuckets=8`, `freshCapSeconds=300`.
 - [ ] `eslint-plugin-functional` (`no-let`, `no-mutation`) passes in this package.
 - [ ] Total LOC under `packages/detectors/src/board-mad/` is ≤ 250.
 - [ ] Typecheck/lint passes.
@@ -987,8 +994,8 @@ Three sections, no buttons that mutate (except "clear cache"):
 - [ ] Detector dropdown lists registry entries; selecting one renders its params schema.
 - [ ] Sensitivity dial: continuous rotary control over `kMad` = 2.0–8.0, step 0.25, **default 3.0**.
 - [ ] Volatility-lookback slider: integer `trailingBuckets` = 5–60, step 1, **default 20**, with a visible duration readout computed from `trailingBuckets × bucketSeconds` (for example, 20 buckets × 60 s = 20 min).
-- [ ] Opening-holdoff slider: integer `warmupBuckets` = 2–20, step 1, **default 8**, with a visible duration readout computed from `warmupBuckets × bucketSeconds`.
-- [ ] Prior sample controls: `baselineMode` defaults to `"trailing"` and can switch to `"opening-ramp"`; opening-ramp uses `openingBaselineBuckets` (default 4) from the opening sample and reaches full rolling memory at `openingRampCompleteBuckets` (default 20).
+- [ ] Opening-holdoff slider: integer `warmupBuckets` = 2–20, step 1, **default 8**, with a visible elapsed duration readout computed from `warmupBuckets × bucketSeconds`.
+- [ ] Profile + prior sample controls: live defaults start at `"opening-ramp"`; Backtest and Settings can switch to `"historical-blend"` or legacy `"trailing"`. Historical mode uses last-five same-side priors, 50/50 away/home by default, ramps to current-game-only by 12 game minutes, measures 30 s wall-clock buckets, keeps 12 game minutes of current memory, and can blend in the last 4 wall minutes at 1.5× weight.
 - [ ] Two labelled snap points: "Sensitive — live default" at K=3.0; "Calm — comparison preset" at K=6.0.
 - [ ] As either recompute dial moves: estimated fires/game updates live (in-memory recompute, no DB scan, < 1 s response).
 - [ ] Per-game small timeline shows fire markers at the chosen K.
@@ -1082,7 +1089,7 @@ Three sections, no buttons that mutate (except "clear cache"):
 
 **Detectors and math**
 - FR-7: `packages/detectors/src/board-mad/config.ts` is the **only** file in the repo declaring `K_MAD_LIVE = 3.0` or `K_MAD_CALM = 6.0`. No other file hardcodes either value.
-- FR-8: The `board-mad` detector implements `intensity > median(selected prior sample) + K · MAD(selected prior sample)`, after `warmupBuckets` warmup, with `freshCapSeconds` per-market delta cap and the `is_heartbeat`/`0.500` opening-anchor sanitations, in `O(bucket)` time. The default selected prior sample is rolling current-game `trailingBuckets`; `baselineMode="opening-ramp"` starts from `openingBaselineBuckets` at game open and reaches rolling memory at `openingRampCompleteBuckets`.
+- FR-8: The `board-mad` detector implements `intensity > median(selected prior sample) + K · MAD(selected prior sample)`, after elapsed `warmupBuckets × bucketSeconds` warmup, with `freshCapSeconds` per-market delta cap and the `is_heartbeat`/`0.500` opening-anchor sanitations, in `O(bucket)` time. The default selected prior sample is `baselineMode="opening-ramp"`: it starts from `openingBaselineBuckets × bucketSeconds` elapsed game context and reaches rolling memory at `openingRampCompleteBuckets × bucketSeconds`. `baselineMode="historical-blend"` starts from last-five same-side historical priors, fades by NBA game-clock elapsed time, uses `trailingGameMinutes` for current-game memory, and blends a short `recentWallMinutes` wall-clock tack-on with `recentWallWeight`.
 - FR-9: K is a compute parameter; nothing about K is ever persisted in the gold DB.
 - FR-10: Detector contract tests must assert: Hartenstein fires at K=6 with bucket-start `2026-05-08T03:12:00Z` and watcher-end `03:13:00Z`; Reaves no-fire at K=6 on both game ids; K=3 snapshots locked for both incidents and 64-game mean.
 - FR-11: Any future change to `K_MAD_LIVE` or `K_MAD_CALM` must be accompanied by fresh contract-test snapshots AND a bumped `detector_version` in the detector module.
@@ -1099,7 +1106,7 @@ Three sections, no buttons that mutate (except "clear cache"):
 - FR-18: The web app has exactly five routes: `/`, `/live/:id`, `/backtest`, `/detectors`, `/settings`.
 - FR-19: Recent (`/`) does not auto-refresh on first load.
 - FR-20: Live (`/live/:id`) is opt-in (user must click into a game) and polls at 30 s.
-- FR-21: Backtest's Sensitivity dial defaults to `kMad=3.0` with labelled snap points at 3.0 ("Sensitive — live default") and 6.0 ("Calm — comparison preset"); Signal timing defaults to `baselineMode="trailing"`, `openingBaselineBuckets=4`, `openingRampCompleteBuckets=20`, `trailingBuckets=20`, and `warmupBuckets=8`, and displays exact durations from `bucketSeconds`.
+- FR-21: Backtest's Sensitivity dial defaults to `kMad=3.0` with labelled snap points at 3.0 ("Sensitive — live default") and 6.0 ("Calm — comparison preset"); Signal timing defaults to `baselineMode="opening-ramp"`, `openingBaselineBuckets=4`, `openingRampCompleteBuckets=20`, `trailingBuckets=20`, and `warmupBuckets=8`, and displays exact durations from `bucketSeconds`.
 - FR-22: Moving the Backtest dials never changes the K or trailing-window values used by Recent or Live (FR-16 enforces this at the API level).
 - FR-23: The Backtest first 28-d / 20-game sweep completes in < 60 s; subsequent K or trailing-window changes complete in < 1 s.
 

@@ -29,9 +29,10 @@ import {
   detector as boardMad,
   Params as BoardMadParams,
 } from "@signal-console/detectors/board-mad";
-import type { Tick } from "@signal-console/detectors";
+import { BOARD_MAD_BASELINE_MODE_HISTORICAL_BLEND } from "@signal-console/detectors/board-mad/config";
 import Database from "better-sqlite3";
 
+import { buildBoardMadHistoricalPriors, loadBoardMadTicksForGame } from "./board-mad-context";
 import { boardMadDetectorVersion, readDetectorDefaults } from "./detector-defaults";
 
 type GoldDbHandle = ReturnType<typeof openGoldDb>;
@@ -43,6 +44,7 @@ export interface BoardObservation {
   readonly intensity: number;
   readonly baselineMedian: number;
   readonly baselineMad: number;
+  readonly warmedUp: boolean;
 }
 
 export interface BoardResult {
@@ -68,8 +70,16 @@ export function getOrComputeBoard(args: GetOrComputeBoardArgs): BoardResult {
   const resolvedParams = BoardMadParams.parse({
     kMad: defaults.kMadLive,
     baselineMode: defaults.baselineMode,
+    bucketSeconds: defaults.bucketSeconds,
+    historicalAwayWeight: defaults.historicalAwayWeight,
+    historicalLastGames: defaults.historicalLastGames,
+    historicalPriorWeight: defaults.historicalPriorWeight,
+    historicalRampCompleteGameMinutes: defaults.historicalRampCompleteGameMinutes,
     openingBaselineBuckets: defaults.openingBaselineBuckets,
     openingRampCompleteBuckets: defaults.openingRampCompleteBuckets,
+    recentWallMinutes: defaults.recentWallMinutes,
+    recentWallWeight: defaults.recentWallWeight,
+    trailingGameMinutes: defaults.trailingGameMinutes,
     trailingBuckets: defaults.trailingBuckets,
     warmupBuckets: defaults.warmupBuckets,
     freshCapSeconds: defaults.freshCapSeconds,
@@ -85,7 +95,11 @@ export function getOrComputeBoard(args: GetOrComputeBoardArgs): BoardResult {
     const goldDb = openGoldDb(args.goldDbPath);
     try {
       const window = resolveInPlayWindow(goldDb, args.gameId, pbpPreMs, pbpPostMs);
-      const watermarkHash = computeGameWatermarkHash(goldDb, args.gameId, window);
+      const historicalPriors =
+        resolvedParams.baselineMode === BOARD_MAD_BASELINE_MODE_HISTORICAL_BLEND
+          ? buildBoardMadHistoricalPriors(goldDb, [args.gameId], resolvedParams)
+          : [];
+      const watermarkHash = computeGameWatermarkHash(goldDb, args.gameId, window, historicalPriors);
       const hit = lookupRun(cacheDb, {
         detectorVersion,
         paramsHash,
@@ -101,10 +115,23 @@ export function getOrComputeBoard(args: GetOrComputeBoardArgs): BoardResult {
         };
       }
       const startNs = process.hrtime.bigint();
-      const ticks: readonly Tick[] =
-        window === null ? [] : loadTicks(goldDb, args.gameId, window.start, window.end);
+      const ticks =
+        window === null
+          ? []
+          : loadBoardMadTicksForGame(
+              goldDb,
+              args.gameId,
+              window.start.toISOString(),
+              window.end.toISOString(),
+            );
       const result = boardMad.run(
-        { gameIds: [args.gameId], start: window?.start ?? now, end: window?.end ?? now, ticks },
+        {
+          gameIds: [args.gameId],
+          start: window?.start ?? now,
+          end: window?.end ?? now,
+          ticks,
+          boardMadHistoricalPriors: historicalPriors,
+        },
         resolvedParams,
       );
       const computeMs = Number((process.hrtime.bigint() - startNs) / 1_000_000n);
@@ -120,6 +147,7 @@ export function getOrComputeBoard(args: GetOrComputeBoardArgs): BoardResult {
           intensity: b.intensity,
           baselineMedian: b.baselineMedian,
           baselineMad: b.baselineMad,
+          warmedUp: b.warmedUp,
         }),
       );
       const runId = persistRun(cacheDb, {
@@ -177,7 +205,7 @@ function lookupRun(cacheDb: Database.Database, args: LookupArgs): CacheHit | nul
 function loadObservations(cacheDb: Database.Database, runId: number): readonly BoardObservation[] {
   const rows = cacheDb
     .prepare(
-      `SELECT bucket_start, bucket_end, fired, intensity, baseline_median, baseline_mad
+      `SELECT bucket_start, bucket_end, fired, intensity, baseline_median, baseline_mad, detail_json
        FROM detector_observations
        WHERE run_id = ?
        ORDER BY bucket_start`,
@@ -192,8 +220,29 @@ function loadObservations(cacheDb: Database.Database, runId: number): readonly B
       intensity: pickNumber(row, "intensity"),
       baselineMedian: pickNumber(row, "baseline_median"),
       baselineMad: pickNumber(row, "baseline_mad"),
+      warmedUp: readObservationWarmedUp(row),
     };
   });
+}
+
+function readObservationWarmedUp(row: Record<string, unknown>): boolean {
+  const raw = row["detail_json"];
+  if (typeof raw === "string" && raw.length > 0) {
+    try {
+      const parsed: unknown = JSON.parse(raw);
+      if (isRecord(parsed) && typeof parsed["warmedUp"] === "boolean") {
+        return parsed["warmedUp"];
+      }
+    } catch {
+      // Older or hand-edited cache rows fall through to the derived backfill
+      // rule below; API callers still receive a complete response shape.
+    }
+  }
+  return (
+    pickNumber(row, "fired") > 0 ||
+    pickNumber(row, "baseline_median") !== 0 ||
+    pickNumber(row, "baseline_mad") !== 0
+  );
 }
 
 interface PersistArgs {
@@ -220,7 +269,7 @@ function persistRun(cacheDb: Database.Database, args: PersistArgs): number {
     `INSERT INTO detector_observations (
        run_id, game_id, bucket_start, bucket_end, fired,
        intensity, baseline_median, baseline_mad, detail_json
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   const tx = cacheDb.transaction((): number => {
     const result = insertRun.run(
@@ -257,6 +306,7 @@ function persistRun(cacheDb: Database.Database, args: PersistArgs): number {
         obs.intensity,
         obs.baselineMedian,
         obs.baselineMad,
+        JSON.stringify({ warmedUp: obs.warmedUp }),
       );
     }
     return runId;
@@ -308,40 +358,11 @@ function resolveInPlayWindow(
   return null;
 }
 
-function loadTicks(goldDb: GoldDbHandle, gameId: string, start: Date, end: Date): readonly Tick[] {
-  const rows = goldDb
-    .prepare(
-      `SELECT qt.source_market_id AS source_market_id,
-              qt.captured_at AS captured_at,
-              qt.implied_probability AS implied_probability,
-              COALESCE(qt.volume, 0) AS volume,
-              qt.is_heartbeat AS is_heartbeat
-       FROM quote_ticks qt
-       JOIN source_markets sm ON sm.id = qt.source_market_id
-       WHERE sm.game_id = ?
-         AND qt.captured_at >= ?
-         AND qt.captured_at <= ?
-       ORDER BY qt.source_market_id, qt.captured_at`,
-    )
-    .all(gameId, start.toISOString(), end.toISOString());
-  return rows.map((row): Tick => {
-    if (!isRecord(row)) throw new Error("tick row not an object");
-    const ip = row["implied_probability"];
-    return {
-      gameId,
-      sourceMarketId: pickString(row, "source_market_id"),
-      capturedAt: new Date(pickString(row, "captured_at")),
-      impliedProbability: ip === null ? null : typeof ip === "number" ? ip : null,
-      volume: pickNumber(row, "volume"),
-      isHeartbeat: pickNumber(row, "is_heartbeat") === 1,
-    };
-  });
-}
-
 function computeGameWatermarkHash(
   goldDb: GoldDbHandle,
   gameId: string,
   tickWindow: InPlayWindow | null,
+  historicalPriors: readonly unknown[],
 ): string {
   const qt =
     tickWindow === null
@@ -373,6 +394,7 @@ function computeGameWatermarkHash(
       max_captured_at: getString(qt, "max_captured_at"),
       max_id: getNumber(qt, "max_id"),
     },
+    board_mad_historical_priors: historicalPriors,
   };
   return sha256Hex(canonicalJson(tuple));
 }

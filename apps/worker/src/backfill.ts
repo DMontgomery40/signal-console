@@ -27,6 +27,7 @@ type BackfillTarget =
   | "kalshi-historical"
   | "kalshi-trades"
   | "nba"
+  | "nba-history"
   | "polymarket"
   | "polymarket-trades";
 
@@ -45,6 +46,8 @@ type BackfillOptions = {
 };
 
 const DEFAULT_LOOKBACK_DAYS = 30;
+const DEFAULT_NBA_HISTORY_SINCE = "2026-04-22";
+const UTC_BACKFILL_ANCHOR_HOUR = 12;
 
 function parseArgs(argv: string[]): BackfillOptions {
   const args: Record<string, string | undefined> = {};
@@ -59,6 +62,7 @@ function parseArgs(argv: string[]): BackfillOptions {
       token === "polymarket" ||
       token === "polymarket-trades" ||
       token === "nba" ||
+      token === "nba-history" ||
       token === "bet365-historical" ||
       token === "bet365-internal" ||
       token === "bet365-direct" ||
@@ -91,7 +95,7 @@ function parseArgs(argv: string[]): BackfillOptions {
     gameId: args.gameId,
     league: args.league,
     lookaheadDays: asNumber(args.lookaheadDays),
-    lookbackDays: asNumber(args.lookbackDays) ?? DEFAULT_LOOKBACK_DAYS,
+    lookbackDays: asNumber(args.lookbackDays),
     maxEvents: asNumber(args.maxEvents),
     maxTickers: asNumber(args.maxTickers),
     periodIntervalMinutes:
@@ -110,6 +114,7 @@ function printUsage() {
     "",
     "Usage:",
     "  pnpm backfill nba [--lookbackDays 365] [--lookaheadDays 0]",
+    "  pnpm backfill nba-history [--since 2026-04-22] [--until YYYY-MM-DD] [--maxEvents N]",
     "  pnpm backfill kalshi [--since 2026-04-20] [--maxEvents N]",
     `  pnpm backfill kalshi-historical [--maxEvents N] [--periodInterval ${String(
       KALSHI_NBA_HISTORICAL_PERIOD_INTERVAL_MINUTES,
@@ -122,7 +127,7 @@ function printUsage() {
     "  pnpm backfill bet365-direct      # Playwright scrape, needs BET365_SESSION_STATE_PATH",
     "  pnpm backfill all",
     "",
-    "Order matters: run `nba` first so canonical games exist before matching market events.",
+    "Order matters: run `nba` first so canonical games exist before matching market events. `nba-history` runs NBA PBP, Kalshi direct+1m candles, Polymarket 1m history, and Bet365 historical in that order.",
   ];
 
   for (const line of lines) {
@@ -131,9 +136,14 @@ function printUsage() {
 }
 
 async function runNba(logger: ReturnType<typeof createAppLogger>, options: BackfillOptions) {
+  const anchorDate = options.until?.slice(0, 10);
   const summary = await syncNbaSidecarWindow({
     lookaheadDays: options.lookaheadDays ?? 0,
     lookbackDays: options.lookbackDays ?? DEFAULT_LOOKBACK_DAYS,
+    now: anchorDate
+      ? () =>
+          new Date(`${anchorDate}T${String(UTC_BACKFILL_ANCHOR_HOUR).padStart(2, "0")}:00:00.000Z`)
+      : undefined,
   });
   if (!summary.ok) {
     throw new Error(
@@ -161,7 +171,10 @@ async function runKalshiHistorical(
   options: BackfillOptions,
 ) {
   const summary = await syncKalshiNbaHistorical({
+    dateFrom: options.since,
+    dateTo: options.until,
     maxEvents: options.maxEvents,
+    maxMarkets: options.maxTickers,
     periodIntervalMinutes:
       options.periodIntervalMinutes ?? KALSHI_NBA_HISTORICAL_PERIOD_INTERVAL_MINUTES,
   });
@@ -240,6 +253,53 @@ async function runBet365Direct(logger: ReturnType<typeof createAppLogger>) {
   return summary;
 }
 
+function daysBetweenUtcDates(since: string, until: string): number {
+  const sinceMs = Date.parse(`${since.slice(0, 10)}T00:00:00Z`);
+  const untilMs = Date.parse(`${until.slice(0, 10)}T00:00:00Z`);
+  if (!Number.isFinite(sinceMs) || !Number.isFinite(untilMs)) return DEFAULT_LOOKBACK_DAYS;
+  return Math.max(0, Math.ceil((untilMs - sinceMs) / (24 * 60 * 60 * 1000)));
+}
+
+function todayUtcDate(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+async function runNbaHistory(logger: ReturnType<typeof createAppLogger>, options: BackfillOptions) {
+  const since = options.since ?? DEFAULT_NBA_HISTORY_SINCE;
+  const until = options.until ?? todayUtcDate();
+  const failures: string[] = [];
+  const historyOptions: BackfillOptions = {
+    ...options,
+    fidelityMinutes: options.fidelityMinutes ?? 1,
+    lookaheadDays: options.lookaheadDays ?? 0,
+    lookbackDays: options.lookbackDays ?? daysBetweenUtcDates(since, until),
+    periodIntervalMinutes: KALSHI_NBA_HISTORICAL_PERIOD_INTERVAL_MINUTES,
+    since,
+    until,
+  };
+  const runHistoryStep = async (label: string, run: () => Promise<unknown>) => {
+    logger.info({ label }, "NBA all-source historical backfill step starting.");
+    try {
+      await run();
+    } catch (error) {
+      const serialized = serializeErrorForLog(error);
+      failures.push(`${label}: ${serialized.message}`);
+      logger.error({ error: serialized, label }, "NBA all-source historical backfill step failed.");
+    }
+  };
+
+  logger.info({ since, until }, "NBA all-source historical backfill starting.");
+  await runHistoryStep("nba-sidecar", () => runNba(logger, historyOptions));
+  await runHistoryStep("kalshi-direct", () => runKalshi(logger, historyOptions));
+  await runHistoryStep("kalshi-candles", () => runKalshiHistorical(logger, historyOptions));
+  await runHistoryStep("polymarket-history", () => runPolymarket(logger, historyOptions));
+  await runHistoryStep("bet365-history", () => runBet365Historical(logger, historyOptions));
+  if (failures.length > 0) {
+    throw new Error(`NBA all-source historical backfill had failed steps: ${failures.join(" | ")}`);
+  }
+  logger.info({ since, until }, "NBA all-source historical backfill completed.");
+}
+
 export async function runBackfill(argv: string[] = process.argv.slice(2)) {
   if (argv.includes("--help") || argv.includes("-h")) {
     printUsage();
@@ -255,6 +315,9 @@ export async function runBackfill(argv: string[] = process.argv.slice(2)) {
     switch (options.target) {
       case "nba":
         await runNba(logger, options);
+        break;
+      case "nba-history":
+        await runNbaHistory(logger, options);
         break;
       case "kalshi":
         await runKalshi(logger, options);

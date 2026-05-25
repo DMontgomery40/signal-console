@@ -11,18 +11,35 @@ import { fileURLToPath } from "node:url";
 
 import { CACHE_DB_PATH, GOLD_DB_PATH } from "@signal-console/db";
 import {
+  BOARD_MAD_BASELINE_MODE_HISTORICAL_BLEND,
   BOARD_MAD_BASELINE_MODE_OPENING_RAMP,
   BOARD_MAD_BASELINE_MODE_TRAILING,
+  BOARD_MAD_BUCKET_SECONDS_MAX,
+  BOARD_MAD_BUCKET_SECONDS_MIN,
   BOARD_MAD_FRESH_CAP_SECONDS_MAX,
   BOARD_MAD_FRESH_CAP_SECONDS_MIN,
+  BOARD_MAD_HISTORICAL_AWAY_WEIGHT_MAX,
+  BOARD_MAD_HISTORICAL_AWAY_WEIGHT_MIN,
+  BOARD_MAD_HISTORICAL_LAST_GAMES_MAX,
+  BOARD_MAD_HISTORICAL_LAST_GAMES_MIN,
+  BOARD_MAD_HISTORICAL_PRIOR_WEIGHT_MAX,
+  BOARD_MAD_HISTORICAL_PRIOR_WEIGHT_MIN,
+  BOARD_MAD_HISTORICAL_RAMP_COMPLETE_GAME_MINUTES_MAX,
+  BOARD_MAD_HISTORICAL_RAMP_COMPLETE_GAME_MINUTES_MIN,
   BOARD_MAD_K_MAD_MAX,
   BOARD_MAD_K_MAD_MIN,
   BOARD_MAD_OPENING_BASELINE_BUCKETS_MAX,
   BOARD_MAD_OPENING_BASELINE_BUCKETS_MIN,
   BOARD_MAD_OPENING_RAMP_COMPLETE_BUCKETS_MAX,
   BOARD_MAD_OPENING_RAMP_COMPLETE_BUCKETS_MIN,
+  BOARD_MAD_RECENT_WALL_MINUTES_MAX,
+  BOARD_MAD_RECENT_WALL_MINUTES_MIN,
+  BOARD_MAD_RECENT_WALL_WEIGHT_MAX,
+  BOARD_MAD_RECENT_WALL_WEIGHT_MIN,
   BOARD_MAD_TRAILING_BUCKETS_MAX,
   BOARD_MAD_TRAILING_BUCKETS_MIN,
+  BOARD_MAD_TRAILING_GAME_MINUTES_MAX,
+  BOARD_MAD_TRAILING_GAME_MINUTES_MIN,
   BOARD_MAD_WARMUP_BUCKETS_MAX,
   BOARD_MAD_WARMUP_BUCKETS_MIN,
 } from "@signal-console/detectors/board-mad/config";
@@ -30,8 +47,10 @@ import type { FastifyPluginAsync } from "fastify";
 
 import {
   DetectorDefaultsSchema,
+  scheduleDetectorDefaults,
   writeDetectorDefaults,
   type DetectorDefaults,
+  type ScheduledDetectorDefaults,
 } from "../services/detector-defaults";
 import { readSettings, type SettingsResponse } from "../services/settings";
 
@@ -177,11 +196,19 @@ const responseSchema = {
       required: [
         "kMadLive",
         "baselineMode",
+        "bucketSeconds",
         "openingBaselineBuckets",
         "openingRampCompleteBuckets",
         "trailingBuckets",
         "warmupBuckets",
         "freshCapSeconds",
+        "historicalLastGames",
+        "historicalAwayWeight",
+        "historicalPriorWeight",
+        "historicalRampCompleteGameMinutes",
+        "trailingGameMinutes",
+        "recentWallMinutes",
+        "recentWallWeight",
         "pbpPreBufferMs",
         "pbpPostBufferMs",
       ],
@@ -193,7 +220,16 @@ const responseSchema = {
         },
         baselineMode: {
           type: "string",
-          enum: [BOARD_MAD_BASELINE_MODE_TRAILING, BOARD_MAD_BASELINE_MODE_OPENING_RAMP],
+          enum: [
+            BOARD_MAD_BASELINE_MODE_TRAILING,
+            BOARD_MAD_BASELINE_MODE_OPENING_RAMP,
+            BOARD_MAD_BASELINE_MODE_HISTORICAL_BLEND,
+          ],
+        },
+        bucketSeconds: {
+          type: "integer",
+          minimum: BOARD_MAD_BUCKET_SECONDS_MIN,
+          maximum: BOARD_MAD_BUCKET_SECONDS_MAX,
         },
         openingBaselineBuckets: {
           type: "integer",
@@ -220,6 +256,41 @@ const responseSchema = {
           minimum: BOARD_MAD_FRESH_CAP_SECONDS_MIN,
           maximum: BOARD_MAD_FRESH_CAP_SECONDS_MAX,
         },
+        historicalLastGames: {
+          type: "integer",
+          minimum: BOARD_MAD_HISTORICAL_LAST_GAMES_MIN,
+          maximum: BOARD_MAD_HISTORICAL_LAST_GAMES_MAX,
+        },
+        historicalAwayWeight: {
+          type: "number",
+          minimum: BOARD_MAD_HISTORICAL_AWAY_WEIGHT_MIN,
+          maximum: BOARD_MAD_HISTORICAL_AWAY_WEIGHT_MAX,
+        },
+        historicalPriorWeight: {
+          type: "number",
+          minimum: BOARD_MAD_HISTORICAL_PRIOR_WEIGHT_MIN,
+          maximum: BOARD_MAD_HISTORICAL_PRIOR_WEIGHT_MAX,
+        },
+        historicalRampCompleteGameMinutes: {
+          type: "number",
+          minimum: BOARD_MAD_HISTORICAL_RAMP_COMPLETE_GAME_MINUTES_MIN,
+          maximum: BOARD_MAD_HISTORICAL_RAMP_COMPLETE_GAME_MINUTES_MAX,
+        },
+        trailingGameMinutes: {
+          type: "number",
+          minimum: BOARD_MAD_TRAILING_GAME_MINUTES_MIN,
+          maximum: BOARD_MAD_TRAILING_GAME_MINUTES_MAX,
+        },
+        recentWallMinutes: {
+          type: "number",
+          minimum: BOARD_MAD_RECENT_WALL_MINUTES_MIN,
+          maximum: BOARD_MAD_RECENT_WALL_MINUTES_MAX,
+        },
+        recentWallWeight: {
+          type: "number",
+          minimum: BOARD_MAD_RECENT_WALL_WEIGHT_MIN,
+          maximum: BOARD_MAD_RECENT_WALL_WEIGHT_MAX,
+        },
         pbpPreBufferMs: { type: "integer" },
         pbpPostBufferMs: { type: "integer" },
       },
@@ -233,11 +304,19 @@ const detectorDefaultsResponseSchema = {
   required: [
     "kMadLive",
     "baselineMode",
+    "bucketSeconds",
     "openingBaselineBuckets",
     "openingRampCompleteBuckets",
     "trailingBuckets",
     "warmupBuckets",
     "freshCapSeconds",
+    "historicalLastGames",
+    "historicalAwayWeight",
+    "historicalPriorWeight",
+    "historicalRampCompleteGameMinutes",
+    "trailingGameMinutes",
+    "recentWallMinutes",
+    "recentWallWeight",
     "pbpPreBufferMs",
     "pbpPostBufferMs",
   ],
@@ -249,7 +328,16 @@ const detectorDefaultsResponseSchema = {
     },
     baselineMode: {
       type: "string",
-      enum: [BOARD_MAD_BASELINE_MODE_TRAILING, BOARD_MAD_BASELINE_MODE_OPENING_RAMP],
+      enum: [
+        BOARD_MAD_BASELINE_MODE_TRAILING,
+        BOARD_MAD_BASELINE_MODE_OPENING_RAMP,
+        BOARD_MAD_BASELINE_MODE_HISTORICAL_BLEND,
+      ],
+    },
+    bucketSeconds: {
+      type: "integer",
+      minimum: BOARD_MAD_BUCKET_SECONDS_MIN,
+      maximum: BOARD_MAD_BUCKET_SECONDS_MAX,
     },
     openingBaselineBuckets: {
       type: "integer",
@@ -276,8 +364,53 @@ const detectorDefaultsResponseSchema = {
       minimum: BOARD_MAD_FRESH_CAP_SECONDS_MIN,
       maximum: BOARD_MAD_FRESH_CAP_SECONDS_MAX,
     },
+    historicalLastGames: {
+      type: "integer",
+      minimum: BOARD_MAD_HISTORICAL_LAST_GAMES_MIN,
+      maximum: BOARD_MAD_HISTORICAL_LAST_GAMES_MAX,
+    },
+    historicalAwayWeight: {
+      type: "number",
+      minimum: BOARD_MAD_HISTORICAL_AWAY_WEIGHT_MIN,
+      maximum: BOARD_MAD_HISTORICAL_AWAY_WEIGHT_MAX,
+    },
+    historicalPriorWeight: {
+      type: "number",
+      minimum: BOARD_MAD_HISTORICAL_PRIOR_WEIGHT_MIN,
+      maximum: BOARD_MAD_HISTORICAL_PRIOR_WEIGHT_MAX,
+    },
+    historicalRampCompleteGameMinutes: {
+      type: "number",
+      minimum: BOARD_MAD_HISTORICAL_RAMP_COMPLETE_GAME_MINUTES_MIN,
+      maximum: BOARD_MAD_HISTORICAL_RAMP_COMPLETE_GAME_MINUTES_MAX,
+    },
+    trailingGameMinutes: {
+      type: "number",
+      minimum: BOARD_MAD_TRAILING_GAME_MINUTES_MIN,
+      maximum: BOARD_MAD_TRAILING_GAME_MINUTES_MAX,
+    },
+    recentWallMinutes: {
+      type: "number",
+      minimum: BOARD_MAD_RECENT_WALL_MINUTES_MIN,
+      maximum: BOARD_MAD_RECENT_WALL_MINUTES_MAX,
+    },
+    recentWallWeight: {
+      type: "number",
+      minimum: BOARD_MAD_RECENT_WALL_WEIGHT_MIN,
+      maximum: BOARD_MAD_RECENT_WALL_WEIGHT_MAX,
+    },
     pbpPreBufferMs: { type: "integer" },
     pbpPostBufferMs: { type: "integer" },
+  },
+  additionalProperties: false,
+} as const;
+
+const scheduledDetectorDefaultsResponseSchema = {
+  type: "object",
+  required: ["effectiveAt", "defaults"],
+  properties: {
+    effectiveAt: { type: "string" },
+    defaults: detectorDefaultsResponseSchema,
   },
   additionalProperties: false,
 } as const;
@@ -343,6 +476,55 @@ const settingsRoutes: FastifyPluginAsync<SettingsRoutesOptions> = (app, opts) =>
       }
       const written: DetectorDefaults = writeDetectorDefaults(parsed.data);
       reply.send(written);
+    },
+  );
+
+  app.post(
+    "/v1/settings/detector-defaults/schedule",
+    {
+      schema: {
+        tags: ["internal"],
+        summary: "Schedule detector defaults",
+        description:
+          "Validates the detector-defaults payload and writes a pending schedule file. readDetectorDefaults promotes it atomically on the first request at or after effectiveAt.",
+        response: {
+          200: scheduledDetectorDefaultsResponseSchema,
+          400: {
+            type: "object",
+            required: ["error"],
+            properties: {
+              error: { type: "string" },
+              detail: { type: "string" },
+            },
+          },
+        },
+      },
+    },
+    (request, reply) => {
+      const body = isRecord(request.body) ? request.body : {};
+      const effectiveAt = body["effectiveAt"];
+      const defaults = body["defaults"];
+      if (typeof effectiveAt !== "string") {
+        reply.code(400).send({ error: "invalid_schedule", detail: "effectiveAt is required" });
+        return;
+      }
+      const parsed = DetectorDefaultsSchema.safeParse(defaults);
+      if (!parsed.success) {
+        reply.code(400).send({ error: "invalid_defaults", detail: parsed.error.message });
+        return;
+      }
+      try {
+        const scheduled: ScheduledDetectorDefaults = scheduleDetectorDefaults(
+          parsed.data,
+          effectiveAt,
+        );
+        reply.send(scheduled);
+      } catch (error) {
+        reply.code(400).send({
+          error: "invalid_schedule",
+          detail: error instanceof Error ? error.message : String(error),
+        });
+      }
     },
   );
 

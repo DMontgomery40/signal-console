@@ -33,30 +33,30 @@ export const explainers = {
     title: "Board MAD detector",
     eli5: String.raw`This is the headline suspend signal the app exists to surface. The idea is simple: when every market on the same game starts wiggling at once — moneyline, spread, totals, player props all moving together — somebody knows something the market doesn't. A single market moving is noise; a whole board moving in unison is information arriving.
 
-The detector watches every quoted market on a game in real time. Each minute, it sums up how much the implied probabilities are changing across the entire board, weighted by where the money is. Then it compares that minute to how wiggly the board has been over the prior twenty minutes. If the current minute is much wigglier than the prior twenty, it fires — and that's the suspend signal you'd send to a trading desk: "pause this game, prices may be stale."
+The detector watches every quoted market on a game in real time. Each minute, it sums up how much the implied probabilities are changing across the entire board, weighted by where the money is. Then it compares that minute to how wiggly the board has been over the prior twenty elapsed minutes of game context. If the current minute is much wigglier than that recent game context, it fires — and that's the suspend signal you'd send to a trading desk: "pause this game, prices may be stale."
 
-Three controls matter in Backtest. Sensitivity controls how big the spike has to be before firing — lower sensitivity = more fires, higher sensitivity = quieter. Volatility lookback controls how many prior current-game buckets define "normal." Opening holdoff controls how many opening buckets are suppressed before any fire is allowed. Those last two belong together because they jointly decide how much early-game evidence we demand.`,
+Three controls matter in Backtest. Sensitivity controls how big the spike has to be before firing — lower sensitivity = more fires, higher sensitivity = quieter. Volatility lookback controls how much recent elapsed game context defines "normal." Opening holdoff controls how much opening elapsed time is suppressed before any fire is allowed. Those last two belong together because they jointly decide how much early-game evidence we demand.`,
     formal: String.raw`The detector computes a per-game, per-bucket intensity $I_t$ as the weighted sum of absolute implied-probability deltas across all markets $m \in \mathcal{M}_g$ on game $g$ during bucket $t$ (default $\Delta t = 60$ s):
 
 $$I_t = \sum_{m \in \mathcal{M}_g} \sum_{i \in t} w(v_{m,i}) \cdot \left| \Delta p_{m,i} \right|$$
 
 where $\Delta p_{m,i}$ is the implied-probability change between consecutive in-bucket ticks of market $m$ (subject to the $\tau_{\max}$ freshness cap), and $w(v) = \log(1+v)$ is the volume weight. A bucket fires when it exceeds a trailing causal baseline:
 
-$$\text{fire}_t \iff I_t > \mathrm{median}(I_{t-W..t-1}) + S \cdot \mathrm{MAD}(I_{t-W..t-1})$$
+$$\text{fire}_i \iff I_i > \mathrm{median}(\{I_j:e_i-W \le e_j < e_i\}) + S \cdot \mathrm{MAD}(\{I_j:e_i-W \le e_j < e_i\})$$
 
-with trailing window $W$ (default 20), warmup $W_0$ (default 8), and the sensitivity multiplier $S$ (default 3.0 live, 6.0 comparison preset). MAD over standard deviation is deliberate: a single outlier bucket would dominate $\sigma$ but barely move the median, so the threshold remains stable through transient spikes. Canonical reference: \`scripts/board_signal_v2.py\`.`,
+with elapsed trailing window $W=\texttt{trailingBuckets}\cdot\texttt{bucketSeconds}$ (default 20 minutes), warmup $W_0$ (default 8 minutes), and the sensitivity multiplier $S$ (default 3.0 live, 6.0 comparison preset). MAD over standard deviation is deliberate: a single outlier bucket would dominate $\sigma$ but barely move the median, so the threshold remains stable through transient spikes. Canonical reference: \`packages/detectors/src/board-mad/baseline.ts\`.`,
   },
 
   "k-mad": {
     title: "Sensitivity",
     eli5: String.raw`Sensitivity is the dial — the only knob most people will ever touch. It controls how big a board-wide spike has to be before the detector calls it a fire. Lower sensitivity means more fires (we catch more events but you'll also see more false alarms); higher sensitivity means fewer fires (calmer, but you might miss some real events).
 
-The intuition: every minute we compare the current wiggle to the median wiggle of the prior twenty minutes plus the sensitivity value times their typical variation. So at sensitivity 3 the current minute has to be three "typical variations" above the median to count; at sensitivity 6 it has to be six. Higher bar = fewer fires.
+The intuition: every minute we compare the current wiggle to the median wiggle of the recent elapsed lookback plus the sensitivity value times its typical variation. So at sensitivity 3 the current minute has to be three "typical variations" above the median to count; at sensitivity 6 it has to be six. Higher bar = fewer fires.
 
 Two presets are labeled on the dial: "Sensitive" at 3 and "Calm" at 6. Sensitive is what runs in production all day — about 18 fires per game, caught 5 of 6 known suspend events in backtest. Calm is for comparison — about 9 fires per game, quieter but with edge-case misses. The dial in Backtest lets you sweep between them and see what each setting would have caught on past games.`,
     formal: String.raw`Sensitivity is the multiplier on the trailing MAD in the board-MAD fire rule:
 
-$$\text{fire}_t \iff I_t > \mathrm{median}(I_{t-W..t-1}) + S \cdot \mathrm{MAD}(I_{t-W..t-1})$$
+$$\text{fire}_i \iff I_i > \mathrm{median}(\{I_j:e_i-W \le e_j < e_i\}) + S \cdot \mathrm{MAD}(\{I_j:e_i-W \le e_j < e_i\})$$
 
 Choice of sensitivity trades recall against precision. In the suspend-signal application the per-fire review cost (seconds of human attention) is much smaller than the miss cost (an exposed stale market exploited by an informed counterparty), so recall is prioritized and the live default is 3.0.
 
@@ -120,14 +120,14 @@ We choose MAD over $\hat\sigma$ in the fire rule because the trailing window is 
 
   "trailing-baseline": {
     title: "Trailing causal baseline (median + sensitivity·MAD)",
-    eli5: String.raw`This is the heart of the detector — the rule that decides whether the current minute deserves to fire. Read it like a sentence: "the current minute's wiggle is greater than the median wiggle of the prior twenty minutes, plus sensitivity times their typical variation."
+    eli5: String.raw`This is the heart of the detector — the rule that decides whether the current minute deserves to fire. Read it like a sentence: "the current minute's wiggle is greater than the median wiggle of the recent elapsed lookback, plus sensitivity times its typical variation."
 
 Two things to know. First: it's *causal*. We only look backward. The current bucket is judged against history that happened before it — no peeking at future data, no centered windows. This makes the detector usable in real time: at any moment we can score the current bucket against everything we know, with no future-leakage cheating.
 
 Second: it's *trailing*. The window slides. As time moves forward, old buckets fall off the back and new ones join the front. That means the baseline adapts to the game — it knows that the third quarter is naturally noisier than the first, and that what counts as a spike in a sleepy second quarter would just be background activity in clutch time. The threshold breathes with the game.`,
-    formal: String.raw`For bucket $t$ with intensity $I_t$ and a trailing window of length $W$:
+    formal: String.raw`For observation $i$ with intensity $I_i$, elapsed time $e_i$, and an elapsed trailing window $W$:
 
-$$\text{fire}_t \iff I_t > \mathrm{median}(I_{t-W..t-1}) + S \cdot \mathrm{MAD}(I_{t-W..t-1})$$
+$$\text{fire}_i \iff I_i > \mathrm{median}(\{I_j:e_i-W \le e_j < e_i\}) + S \cdot \mathrm{MAD}(\{I_j:e_i-W \le e_j < e_i\})$$
 
 This is a robust, causal, one-sided z-score-style rule. Causal: the comparison set is strictly prior buckets (no leakage). Robust: both $\mathrm{median}$ and $\mathrm{MAD}$ have 50% breakdown — a single contaminated bucket inside the window shifts the threshold by $O(1/W)$ rather than $O(1)$, so the detector self-attenuates against the very signal it is designed to find. Adaptive: as the game progresses, the window slides forward and the threshold tracks regime changes (quarter transitions, late-game leverage, halftime quiets) without explicit phase modeling.
 
@@ -140,32 +140,35 @@ Equivalent formulations under various assumptions (e.g. assuming $I_t \overset{\
 
 Volatility lookback is the rolling lookback. If it says 20 with one-minute buckets, the detector compares the current minute against up to the prior 20 current-game minutes. Shorter lookback reacts faster to basketball phase changes, but it is easier to fool after a quiet stretch.
 
-Opening holdoff is the opening lockout. If it says 8, the first 8 non-empty intensity buckets cannot fire at all. Prior sample decides what the first eligible bucket compares against: the rolling prior window, or an opening sample that ramps toward rolling memory.`,
-    formal: String.raw`For bucket index $i$, volatility lookback is $W = \texttt{trailingBuckets}$ and opening holdoff is $W_0 = \texttt{warmupBuckets}$:
+Opening holdoff is the opening lockout. If it says 8 with one-minute buckets, no alert can fire until 8 minutes of game clock have elapsed. Prior sample decides what the first active alert check compares against: the rolling prior window, an opening sample that ramps toward rolling memory, or same-side historical NBA priors that fade into live current-game memory.`,
+    formal: String.raw`For board observation $i$ with elapsed seconds $e_i$, volatility lookback is an elapsed duration $W = \texttt{trailingBuckets} \cdot \texttt{bucketSeconds}$ and opening holdoff is $W_0 = \texttt{warmupBuckets} \cdot \texttt{bucketSeconds}$:
 
-$$\text{eligible}_i \iff i \ge W_0,\qquad
-\mathcal{B}_i = \{I_j : \max(0, i-W) \le j < i\}$$
+$$\text{active}_i \iff e_i \ge W_0,\qquad
+\mathcal{B}_i = \{I_j : e_i - W \le e_j < e_i\}$$
 
-When eligible, the fire rule is $I_i > \mathrm{median}(\mathcal{B}_i) + S \cdot \mathrm{MAD}(\mathcal{B}_i)$. The default prior sample is rolling current game, so with $W_0=8$ and $W=20$, bucket 8 is judged against 8 prior sparse buckets. The experimental opening-ramp source instead starts with \`openingBaselineBuckets\` from the beginning of the game and reaches full rolling memory at \`openingRampCompleteBuckets\`. Canonical implementation: \`packages/detectors/src/board-mad/baseline.ts\`.`,
+When active, the fire rule is $I_i > \mathrm{median}(\mathcal{B}_i) + S \cdot \mathrm{MAD}(\mathcal{B}_i)$. The default prior sample is opening-ramp: it starts with \`openingBaselineBuckets\` from the beginning of the game and reaches full rolling memory at \`openingRampCompleteBuckets\`. Historical mode blends same-side priors with live game-clock memory and an optional short wall-clock tack-on. Canonical implementation: \`packages/detectors/src/board-mad/baseline.ts\`.`,
   },
 
   "baseline-source-mode": {
     title: "Prior sample",
     eli5: String.raw`Rolling current game is the original behavior: once the holdoff ends, each bucket compares against the most recent prior buckets.
 
-Opening sample ramp is the experiment for the opening minutes. The first eligible bucket can compare against a smaller sample from the start of the game — for example, hold off until bucket 8 but judge it against the first 4 buckets — then the sample grows until it becomes the normal rolling lookback.`,
-    formal: String.raw`\texttt{baselineMode} selects how the prior sample $\mathcal{B}_i$ is chosen after eligibility:
+Opening sample ramp is the live default for the opening minutes. The first active alert check can compare against a smaller elapsed sample from the start of the game — for example, hold off until 8 minutes but judge it against the first 4 elapsed minutes — then the sample grows until it becomes the normal rolling lookback.
+
+Historical to live ramp starts from recent same-side NBA priors — away team as away, home team as home — then fades toward current-game volatility as actual game-clock minutes accumulate.`,
+    formal: String.raw`\texttt{baselineMode} selects how the prior sample $\mathcal{B}_i$ is chosen after opening holdoff. All windows are elapsed-time windows, not slices of the sparse non-empty observation array:
 
 $$
 \mathcal{B}_i =
 \begin{cases}
-\{I_j : \max(0, i-W) \le j < i\}, & \texttt{trailing}\\
-\{I_j : 0 \le j < w_i\}, & \texttt{opening-ramp},\ i < R\\
-\{I_j : \max(0, i-W) \le j < i\}, & \texttt{opening-ramp},\ i \ge R
+\{I_j : e_i-W \le e_j < e_i\}, & \texttt{trailing}\\
+\{I_j : 0 \le e_j \le w_i,\ e_j < e_i\}, & \texttt{opening-ramp},\ e_i < R\\
+\{I_j : e_i-W \le e_j < e_i\}, & \texttt{opening-ramp},\ e_i \ge R\\
+\alpha_e H_g + (1-\alpha_e)L_g, & \texttt{historical-blend}
 \end{cases}
 $$
 
-where $W=\texttt{trailingBuckets}$, $R=\texttt{openingRampCompleteBuckets}$, and $w_i$ grows from $\texttt{openingBaselineBuckets}$ at the first eligible bucket to $W$ at $R$. This is current-game-only; historical team/home-away priors are a separate future source, not silently implied by this mode.`,
+where $W=\texttt{trailingBuckets}\cdot\texttt{bucketSeconds}$, $R=\texttt{openingRampCompleteBuckets}\cdot\texttt{bucketSeconds}$, and $w_i$ grows from $\texttt{openingBaselineBuckets}\cdot\texttt{bucketSeconds}$ at the first active alert check to $W$ at $R$. In \texttt{historical-blend}, $H_g$ is the per-game same-side prior, $L_g$ is the live current-game baseline, and $\alpha_e$ fades to zero by \texttt{historicalRampCompleteGameMinutes}.`,
   },
 
   "fires-per-game": {
@@ -205,27 +208,27 @@ where $\mathcal{M}$ is the set of markets on the game, $p_{m,i}$ is the implied 
     eli5: String.raw`This is how far back the detector looks to figure out what "normal" feels like right now. Twenty buckets at one minute each means a rolling twenty-minute memory: the median of those twenty numbers is the baseline, and the spread among them sets how big a spike has to be to count. Everything the fire rule does is relative to this window.
 
 Make it shorter — say 10 — and the baseline gets twitchy. One quiet stretch followed by a normal flurry will look like a spike because the recent memory was artificially calm. Make it longer — say 40 — and the detector is slow to notice that the game has changed phase. Quarter starts, scoring runs, injury news settling in: all of those shift the natural intensity level, and a long window keeps dragging the old regime forward. Twenty is the compromise: long enough to be stable, short enough to adapt within a single game's arc.`,
-    formal: String.raw`$\texttt{trailingBuckets}$ sets $W$, the length of the lookback window used to estimate both the location (median) and scale (MAD) of the intensity distribution under the null of "no event." The fire rule evaluated at bucket $t$ uses $\{I_{t-W}, \ldots, I_{t-1}\}$:
+    formal: String.raw`$\texttt{trailingBuckets}$ sets $W$, the elapsed lookback duration in bucket units, used to estimate both the location (median) and scale (MAD) of the intensity distribution under the null of "no event." The fire rule evaluated at observation $i$ uses prior observations inside the elapsed window:
 
-$$I_t > \mathrm{median}(I_{t-W..t-1}) + S \cdot \mathrm{MAD}(I_{t-W..t-1})$$
+$$I_i > \mathrm{median}(\{I_j:e_i-W\Delta t \le e_j < e_i\}) + S \cdot \mathrm{MAD}(\{I_j:e_i-W\Delta t \le e_j < e_i\})$$
 
 with $\mathrm{MAD}(x) = \mathrm{median}\!\left(|x_i - \mathrm{median}(x)|\right)$. Both statistics are chosen for robustness — a single contaminated bucket inside the window shifts the threshold by $O(1/W)$ rather than $O(1)$ as a mean/stdev pair would. The choice $W=20$ balances estimator variance (which falls roughly as $1/\sqrt{W}$) against non-stationarity: intra-game regime shifts (quarter transitions, late-game leverage) have characteristic durations on the order of $W \cdot \Delta t \approx 20$ min, so a longer window would systematically lag the current regime. Declared in \`packages/detectors/src/board-mad/config.ts\` and referenced canonically in \`scripts/board_signal_v2.py\`.`,
   },
 
   "warmup-buckets": {
     title: "Opening holdoff (buckets)",
-    eli5: String.raw`This is the opening lockout. For the first N non-empty intensity buckets, the detector refuses to fire no matter how jumpy the board looks. That is separate from Volatility lookback: holdoff says "not yet"; lookback says "once we are allowed to fire, how much current-game history counts as normal?"
+    eli5: String.raw`This is the opening lockout. For the first N bucket durations, the detector refuses to fire no matter how jumpy the board looks. That is separate from Volatility lookback: holdoff says "not yet"; lookback says "once we are allowed to fire, how much current-game history counts as normal?"
 
 Lowering the gate lets the detector act earlier, which is probably worth testing for basketball. The risk is that the baseline may be built from too few prior buckets. With a tiny prior sample, MAD can be near zero, and then ordinary movement can look like a giant spike.`,
-    formal: String.raw`$\texttt{warmupBuckets}$ defines $W_0$, the number of leading sparse buckets for which no fire is emitted regardless of $I_i$:
+    formal: String.raw`$\texttt{warmupBuckets}$ defines $W_0$, an elapsed holdoff measured as $W_0 \cdot \Delta t$. No fire is emitted before that elapsed time, regardless of $I_i$:
 
-$$\text{eligible}_i \iff i \ge W_0$$
+$$\text{active}_i \iff e_i \ge W_0 \cdot \Delta t$$
 
-In rolling-current-game mode, once $i \ge W_0$, the detector does not subtract $W_0$ from the lookback. It uses all prior sparse buckets up to the volatility-lookback cap $W = \texttt{trailingBuckets}$:
+In rolling-current-game mode, once active, the detector does not subtract $W_0$ from the lookback. It uses prior board-move observations inside the elapsed volatility-lookback duration $W = \texttt{trailingBuckets} \cdot \Delta t$:
 
-$$\mathcal{B}_i = \{I_j : \max(0, i-W) \le j < i\}$$
+$$\mathcal{B}_i = \{I_j : e_i - W \le e_j < e_i\}$$
 
-So with $W_0=8$ and $W=20$, the default rolling mode judges the first eligible bucket against 8 prior buckets. Opening-ramp mode can instead judge that same eligible bucket against \`openingBaselineBuckets\` from the start of the game, then graduate toward the full rolling window. See \`packages/detectors/src/board-mad/baseline.ts\`.`,
+So with $W_0=8$ and $\Delta t=60s$, the first active alert check is the first board observation at or after 8 elapsed game minutes. Opening-ramp mode can judge that alert check against \`openingBaselineBuckets\` from the start of the game, then graduate toward the full rolling window. See \`packages/detectors/src/board-mad/baseline.ts\`.`,
   },
 
   "fresh-cap-seconds": {
@@ -364,12 +367,12 @@ The number is a bucket count, and the small time readout is exact: bucket count 
 
 Twenty minutes (the default) is the current compromise: long enough that one quiet stretch doesn't trick the baseline into thinking everything is calm, short enough that the baseline still adapts when the game shifts gears. Crank it down to 10 (Quick) and you'll catch faster phase changes — useful for testing how the detector behaves during scoring runs and late-game leverage. Crank it up to 40 (Steady) and the baseline is harder to spook by a transient burst, but it lags the current regime more.
 
-Volatility lookback is paired with Opening holdoff in the UI because the opening minutes depend on both. At the default 8/20 setup, the first eligible bucket uses 8 prior current-game buckets; the lookback grows until it reaches the full 20.`,
-    formal: String.raw`The Volatility lookback slider exposes $W = \texttt{trailingBuckets}$, the length of the lookback window over which the trailing baseline statistics are estimated. This is distinct from $\texttt{warmupBuckets}$, the gate that suppresses early buckets before the detector can fire. The fire rule evaluated at bucket $t$ is:
+Volatility lookback is paired with Opening holdoff in the UI because the opening minutes depend on both. At the default 8/20 setup, the first active alert check uses current-game context from the opening sample; the lookback grows until it reaches the full 20.`,
+    formal: String.raw`The Volatility lookback slider exposes $W = \texttt{trailingBuckets}\cdot\texttt{bucketSeconds}$, the elapsed length of the lookback window over which the trailing baseline statistics are estimated. This is distinct from $\texttt{warmupBuckets}$, the gate that suppresses early buckets before the detector can fire. The fire rule evaluated at observation $i$ is:
 
-$$\text{fire}_t \iff I_t > \mathrm{median}(I_{t-W..t-1}) + S \cdot \mathrm{MAD}(I_{t-W..t-1})$$
+$$\text{fire}_i \iff I_i > \mathrm{median}(\{I_j:e_i-W \le e_j < e_i\}) + S \cdot \mathrm{MAD}(\{I_j:e_i-W \le e_j < e_i\})$$
 
-The displayed duration is $W \Delta t$, where $\Delta t = \texttt{bucketSeconds}$. Smaller $W$ makes the baseline track local non-stationarity (intra-quarter regime shifts, scoring runs) at the cost of higher estimator variance — the asymptotic standard error of $\mathrm{median}$ on a normal-like null is $\propto 1/\sqrt{W}$, so $W=10$ gives roughly $1.4\times$ the noise of $W=20$. Larger $W$ stabilizes both location and scale at the cost of regime lag; the characteristic time of intra-game phase transitions is $O(20\,\text{min}) = O(W \Delta t)$ at $\Delta t = 60\,\text{s}$, so a window much longer than this systematically drags the prior regime forward into the current one. Snap points: $W=10$ (Quick, intra-quarter), $W=20$ (Default), $W=40$ (Steady, multi-quarter). Canonical reference: \`packages/detectors/src/board-mad/config.ts\`, schema in \`board-mad/params.ts\`.`,
+Smaller $W$ makes the baseline track local non-stationarity (intra-quarter regime shifts, scoring runs) at the cost of higher estimator variance. Larger $W$ stabilizes both location and scale at the cost of regime lag; the characteristic time of intra-game phase transitions is about 20 minutes at the default. Snap points: $W=10$ (Quick, intra-quarter), $W=20$ (Default), $W=40$ (Steady, multi-quarter). Canonical reference: \`packages/detectors/src/board-mad/config.ts\`, schema in \`board-mad/params.ts\`.`,
   },
 
   "settings-detector-defaults": {
@@ -392,40 +395,92 @@ If you're calibrating against labeled events, this is the knob you'll move most.
     formal: String.raw`Runtime override for the sensitivity multiplier in $\text{fire}_t \iff I_t > \mathrm{median}(\cdot) + S \cdot \mathrm{MAD}(\cdot)$, applied to the live board path. The package-declared default in \`packages/detectors/src/board-mad/config.ts\` remains the seed value; this override layers on top through the detector-defaults service and feeds every Live/Recent request.`,
   },
 
+  "settings-bucket-seconds": {
+    title: "Bucket size",
+    eli5: String.raw`How wide each board-volatility measurement is. Sixty seconds is the live default for the opening-ramp profile. The historical profile can use thirty seconds so quick timeout and late-game bursts do not disappear inside a full minute.
+
+Changing this is a real detector change, not a cosmetic chart setting. It changes which quote ticks are summed into each intensity bucket, so cached runs recompute.`,
+    formal: String.raw`Runtime default for \`bucketSeconds\`, the aggregation width $\Delta t$ used by Board MAD prebucket. The historical/live profile keeps memory in game-clock minutes but still measures current intensity in fixed wall-clock buckets, so $\Delta t=30$ s can coexist with a 12-game-minute memory horizon. Canonical implementation: \`packages/detectors/src/board-mad/prebucket.ts\`.`,
+  },
+
   "settings-baseline-mode": {
     title: "Prior sample",
-    eli5: String.raw`Which current-game history the live detector treats as "normal" once the opening holdoff is over. Rolling current game uses the most recent buckets. Opening sample ramp starts from the opening sample and graduates toward the rolling window.`,
-    formal: String.raw`Runtime default for \`baselineMode\`. \`"trailing"\` selects the causal rolling-current-game sample. \`"opening-ramp"\` selects an opening sample sized by \`openingBaselineBuckets\` until it reaches rolling memory at \`openingRampCompleteBuckets\`. This is the same Board MAD baseline resolver used by Backtest: \`packages/detectors/src/board-mad/baseline.ts\`.`,
+    eli5: String.raw`Which history the live detector treats as "normal" once the opening holdoff is over. Rolling current game uses only recent current-game buckets. Opening sample ramp starts from the opening sample and graduates toward rolling memory. Historical to live ramp starts from last-five same-side games, then fades toward current-game volatility.
+
+This is the switch that makes Backtest and live behavior match. If you promote historical mode here, live/Recent use the historical prior path too.`,
+    formal: String.raw`Runtime default for \`baselineMode\`. \`"trailing"\` selects the causal rolling current-game sample. \`"opening-ramp"\` selects an opening current-game sample sized by \`openingBaselineBuckets\` until it reaches rolling memory at \`openingRampCompleteBuckets\`. \`"historical-blend"\` adds per-game priors from last-five away/home games and fades their weight by game-clock elapsed time. Canonical resolver: \`packages/detectors/src/board-mad/baseline.ts\`.`,
   },
 
   "settings-opening-baseline-buckets": {
     title: "Opening sample",
-    eli5: String.raw`How many opening buckets define the early-game baseline when Prior sample is Opening sample ramp. This is the live default version of the Backtest opening-sample control.`,
-    formal: String.raw`Runtime default for \`openingBaselineBuckets\`, the initial opening-ramp sample size. Range $[1, 60]$ buckets; default $4$. It only changes detector math when \`baselineMode="opening-ramp"\`, but it still participates in the defaults hash so cache identity stays exact.`,
+    eli5: String.raw`How many opening buckets define the early-game baseline when Prior sample is Opening sample ramp. This is part of the live default profile and the same control Backtest exposes.`,
+    formal: String.raw`Runtime default for \`openingBaselineBuckets\`, the initial opening-ramp sample duration in bucket units. Range $[1, 60]$; default $4$, which is 4 elapsed minutes when \`bucketSeconds=60\`. It only changes detector math when \`baselineMode="opening-ramp"\`, but it still participates in the defaults hash so cache identity stays exact.`,
   },
 
   "settings-opening-ramp-complete-buckets": {
     title: "Ramp complete",
     eli5: String.raw`The bucket where Opening sample ramp has fully graduated to the regular rolling-memory window. Smaller values trust current-game volatility faster; larger values keep opening behavior in charge longer.`,
-    formal: String.raw`Runtime default for \`openingRampCompleteBuckets\`. Before this bucket, opening-ramp grows the baseline sample from \`openingBaselineBuckets\` toward \`trailingBuckets\`; at and after this bucket, the resolver uses the rolling current-game trailing window. Range $[2, 120]$ buckets; default $20$.`,
+    formal: String.raw`Runtime default for \`openingRampCompleteBuckets\`. Before this elapsed duration, opening-ramp grows the baseline sample from \`openingBaselineBuckets\` toward \`trailingBuckets\`; at and after this elapsed duration, the resolver uses the rolling current-game trailing window. Range $[2, 120]$ bucket units; default $20$.`,
   },
 
   "settings-trailing-buckets": {
     title: "Volatility lookback",
-    eli5: String.raw`Live setting for how many prior buckets feed the median+MAD baseline. Twenty buckets at one minute each = a 20-minute current-game memory window. Same knob Backtest exposes; this is the value the live path commits to.`,
-    formal: String.raw`Live override for $W$ in the trailing-window estimators $\mathrm{median}(I_{t-W..t-1})$ and $\mathrm{MAD}(I_{t-W..t-1})$. Range $[5, 60]$; default $W = 20$. Smaller $W$ adapts faster to non-stationarity, larger $W$ reduces estimator variance. See \`trailing-window-memory\` for the design tradeoff.`,
+    eli5: String.raw`Live setting for how much recent elapsed current-game time feeds the legacy/opening-ramp median+MAD baseline. Twenty buckets at one minute each = a 20-minute current-game window. Historical mode uses game-clock memory too, controlled by Game-clock memory below.`,
+    formal: String.raw`Live override for $W$ in the elapsed trailing-window estimators $\mathrm{median}(\{I_j:e_i-W\Delta t\le e_j<e_i\})$ and $\mathrm{MAD}(\{I_j:e_i-W\Delta t\le e_j<e_i\})$. Range $[5, 60]$; default $W = 20$. Smaller $W$ adapts faster to non-stationarity, larger $W$ reduces estimator variance. See \`trailing-window-memory\` for the design tradeoff.`,
   },
 
   "settings-warmup-buckets": {
     title: "Opening holdoff",
-    eli5: String.raw`How many leading buckets to suppress before the detector is allowed to fire at all. Default 8 buckets — enough current-game history to compute a baseline, not so much that you miss first-quarter information arrivals.`,
-    formal: String.raw`Live override for $W_0$ — the warmup gate at which buckets $t < W_0$ are unconditionally non-fires regardless of $I_t$. Range $[2, 20]$; default $W_0 = 8$. Below $W_0 = 3$ the MAD is structurally near-zero and the rule trips on any nonzero intensity.`,
+    eli5: String.raw`How long the opening lockout lasts before the detector is allowed to fire at all. Default 8 one-minute bucket durations — enough current-game time to compute a baseline, not so much that you miss first-quarter information arrivals.`,
+    formal: String.raw`Live override for $W_0$ — the elapsed warmup gate where buckets with $e_t < W_0 \cdot \Delta t$ are unconditionally non-fires regardless of $I_t$. Range $[2, 20]$; default $W_0 = 8$. Below $W_0 = 3$ the MAD is structurally near-zero and the rule trips on any nonzero intensity.`,
   },
 
   "settings-fresh-cap-seconds": {
     title: "Freshness cap (seconds)",
     eli5: String.raw`If two consecutive ticks on the same market are more than this many seconds apart, the delta between them doesn't count. Stops suspensions and feed dropouts from looking like sudden price moves.`,
     formal: String.raw`Live override for $\tau_{\max}$, the per-market inter-tick gap threshold above which $\Delta p_{m,i}$ is zeroed. Range $[30, 3600]$ s; default $\tau_{\max} = 300$ s. See \`fresh-cap-seconds\` for the empirical rationale.`,
+  },
+
+  "settings-historical-last-games": {
+    title: "Historical games",
+    eli5: String.raw`How many prior same-side games feed the opening historical prior. Five means "last five Cavs road games" for the away side and "last five Knicks home games" for the home side.`,
+    formal: String.raw`Runtime default for \`historicalLastGames\`. The prior builder finds games before the target game where the away team was also away and the home team was also home, then summarizes their opening Board MAD intensities with median and MAD.`,
+  },
+
+  "settings-historical-away-weight": {
+    title: "Away/home split",
+    eli5: String.raw`How the two historical sides are mixed. The default 0.5 is the direct 50/50 idea: half away team in away context, half home team in home context.`,
+    formal: String.raw`\`historicalAwayWeight\` combines side priors as $p = w p_{\text{away}} + (1-w)p_{\text{home}}$. Default $w=0.5$. If one side has no usable prior sample, the available side is used alone.`,
+  },
+
+  "settings-historical-prior-weight": {
+    title: "Opening prior share",
+    eli5: String.raw`How much the historical prior matters at the very beginning. Default 1 means the earliest active baseline starts from history, then game data takes over as the ramp progresses.`,
+    formal: String.raw`\`historicalPriorWeight\` is the starting share of the historical prior before ramp-out. The effective share is $\alpha_t = \alpha_0 \max(0, 1 - e_t / R)$ where $e_t$ is game-clock elapsed seconds and $R$ is \`historicalRampCompleteGameMinutes\` in seconds.`,
+  },
+
+  "settings-historical-ramp-complete-game-minutes": {
+    title: "History ramp-out",
+    eli5: String.raw`The game-clock minute where the historical prior has fully faded out and the baseline is current-game only. Default 12 game minutes.`,
+    formal: String.raw`Runtime default for the historical ramp horizon. At elapsed game time $e_t \ge R$, historical share is zero and the baseline is built from current-game memory only. Wall-clock timeouts do not advance this ramp unless the PBP clock has advanced.`,
+  },
+
+  "settings-trailing-game-minutes": {
+    title: "Game-clock memory",
+    eli5: String.raw`How much current-game action defines normal in historical mode. Default 12 game minutes means timeouts and long dead-ball stretches do not evict useful game action just because wall-clock time passed.`,
+    formal: String.raw`\`trailingGameMinutes\` defines the current-game memory horizon in elapsed NBA game-clock seconds for \`historical-blend\`. Buckets with PBP-derived elapsed time in $[e_t - H, e_t)$ feed the median/MAD estimator.`,
+  },
+
+  "settings-recent-wall-minutes": {
+    title: "Recent all-clock tack-on",
+    eli5: String.raw`The short all-clock memory added on top of game-clock memory. It catches real betting bursts during timeouts and other dead-ball stress windows, where the game clock is frozen but the market is very much alive.`,
+    formal: String.raw`\`recentWallMinutes\` adds a fixed wall-clock lookback to the historical-mode live estimator. Its median/MAD is blended with the game-clock estimator using \`recentWallWeight\`, preserving quick market stress while avoiding a pure wall-clock memory horizon.`,
+  },
+
+  "settings-recent-wall-weight": {
+    title: "Recent tack-on weight",
+    eli5: String.raw`How loudly the recent all-clock window speaks compared with the game-clock memory. Default 1.5 makes the last four wall minutes punch above their size without replacing the 12 game-minute memory.`,
+    formal: String.raw`\`recentWallWeight\` is the relative weight assigned to the recent wall-clock estimator when both the game-clock and wall-clock samples exist. Default $1.5$ means the four-wall-minute estimator has 1.5x the game-memory estimator's weight in the blended median/MAD.`,
   },
 
   "settings-pbp-pre-buffer-ms": {

@@ -13,12 +13,20 @@
 // Backtest UI's Sensitivity dial (US-037) skips this glue and calls prebucket()
 // once then runSweep(...) for in-memory K-sweeping in sub-second time.
 
-import type { Detector, DetectorResult, DetectorStats, DetectorWindow, Tick } from "../types";
+import type {
+  BoardMadHistoricalPrior,
+  Detector,
+  DetectorResult,
+  DetectorStats,
+  DetectorWindow,
+  Tick,
+} from "../types";
 import { Params, type ParamsResolved } from "./params";
 import { prebucket } from "./prebucket";
 import { runForK } from "./sweep";
 
-export { Params } from "./params";
+export { Params };
+export type { ParamsResolved } from "./params";
 
 const ticksForGames = (allTicks: readonly Tick[], gameIds: readonly string[]): readonly Tick[] => {
   const allowed = new Set(gameIds);
@@ -28,9 +36,29 @@ const ticksForGames = (allTicks: readonly Tick[], gameIds: readonly string[]): r
 const uniqueGameIds = (gameIds: readonly string[]): readonly string[] =>
   Array.from(new Set(gameIds));
 
+const historicalPriorMap = (
+  priors: readonly BoardMadHistoricalPrior[] | undefined,
+): ReadonlyMap<string, BoardMadHistoricalPrior> =>
+  new Map((priors ?? []).map((prior) => [prior.gameId, prior]));
+
+// 1.5.0 (2026-05-24): The trailing/opening-ramp baseline sample is selected by
+// elapsed time, not by slicing the sparse non-empty observation array. This
+// keeps "20 one-minute buckets" equal to 20 elapsed minutes from tip-off/game
+// clock, regardless of how many market observations occurred inside that
+// duration. Cached runs from earlier versions must be recomputed.
+//
+// 1.4.0 (2026-05-24): Opening holdoff activation is elapsed time
+// (`warmupBuckets * bucketSeconds`), not the count of market observations.
+// This is a detector semantics change, so cached board-mad runs from earlier
+// versions must be recomputed.
+//
+// 1.3.0 (2026-05-24): Board MAD can now use a historical/live blended
+// baseline. The prebucket series carries game-clock elapsed seconds and an
+// optional per-game historical prior so the sweep can use game-minute memory
+// while still measuring the current 30/60s wall-clock bucket.
+//
 // 1.2.0 (2026-05-24): Signal timing now lives in board-mad/baseline.ts with an
-// explicit opening-ramp mode. Default remains the 1.1.0 rolling current-game
-// behavior, but the new params are part of the cache key.
+// explicit opening-ramp mode. The timing params are part of the cache key.
 //
 // 1.1.0 (2026-05-23): API path (services/backtest.ts loadTicks) now narrows
 // the tick set per-game to the PBP-anchored in-play window before feeding
@@ -42,7 +70,7 @@ const uniqueGameIds = (gameIds: readonly string[]): readonly string[] =>
 // next access — that's the intentional invalidation.
 export const detector: Detector<typeof Params> = {
   id: "board-mad",
-  version: "1.2.0",
+  version: "1.5.0",
   displayName: "Board MAD (whole-board volatility)",
   sources: ["bet365", "kalshi", "polymarket"],
   paramsSchema: Params,
@@ -54,6 +82,7 @@ export const detector: Detector<typeof Params> = {
       weighting: params.weighting,
       freshCapSeconds: params.freshCapSeconds,
       gameIds,
+      historicalPriors: historicalPriorMap(window.boardMadHistoricalPriors),
     });
     const { fires, buckets } = runForK(series, params.kMad, {
       baselineMode: params.baselineMode,
@@ -61,6 +90,13 @@ export const detector: Detector<typeof Params> = {
       freshCapSeconds: params.freshCapSeconds,
       openingBaselineBuckets: params.openingBaselineBuckets,
       openingRampCompleteBuckets: params.openingRampCompleteBuckets,
+      historicalAwayWeight: params.historicalAwayWeight,
+      historicalLastGames: params.historicalLastGames,
+      historicalPriorWeight: params.historicalPriorWeight,
+      historicalRampCompleteGameMinutes: params.historicalRampCompleteGameMinutes,
+      trailingGameMinutes: params.trailingGameMinutes,
+      recentWallMinutes: params.recentWallMinutes,
+      recentWallWeight: params.recentWallWeight,
       trailingBuckets: params.trailingBuckets,
       warmupBuckets: params.warmupBuckets,
       weighting: params.weighting,

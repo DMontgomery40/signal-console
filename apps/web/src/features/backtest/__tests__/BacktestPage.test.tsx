@@ -11,13 +11,21 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { z } from "zod";
 
 import {
+  BOARD_MAD_BASELINE_MODE_HISTORICAL_BLEND,
   BOARD_MAD_BASELINE_MODE_DEFAULT,
   BOARD_MAD_BASELINE_MODE_OPENING_RAMP,
   BOARD_MAD_BASELINE_MODE_TRAILING,
   BOARD_MAD_FRESH_CAP_SECONDS_DEFAULT,
+  BOARD_MAD_HISTORICAL_AWAY_WEIGHT_DEFAULT,
+  BOARD_MAD_HISTORICAL_LAST_GAMES_DEFAULT,
+  BOARD_MAD_HISTORICAL_PRIOR_WEIGHT_DEFAULT,
+  BOARD_MAD_HISTORICAL_RAMP_COMPLETE_GAME_MINUTES_DEFAULT,
   BOARD_MAD_OPENING_BASELINE_BUCKETS_DEFAULT,
   BOARD_MAD_OPENING_RAMP_COMPLETE_BUCKETS_DEFAULT,
+  BOARD_MAD_RECENT_WALL_MINUTES_DEFAULT,
+  BOARD_MAD_RECENT_WALL_WEIGHT_DEFAULT,
   BOARD_MAD_TRAILING_BUCKETS_DEFAULT,
+  BOARD_MAD_TRAILING_GAME_MINUTES_DEFAULT,
   BOARD_MAD_WARMUP_BUCKETS_DEFAULT,
   K_MAD_LIVE,
 } from "@signal-console/detectors/board-mad/config";
@@ -91,7 +99,11 @@ const DETECTORS_RESPONSE = {
           },
           baselineMode: {
             type: "string",
-            enum: [BOARD_MAD_BASELINE_MODE_TRAILING, BOARD_MAD_BASELINE_MODE_OPENING_RAMP],
+            enum: [
+              BOARD_MAD_BASELINE_MODE_TRAILING,
+              BOARD_MAD_BASELINE_MODE_OPENING_RAMP,
+              BOARD_MAD_BASELINE_MODE_HISTORICAL_BLEND,
+            ],
             default: BOARD_MAD_BASELINE_MODE_DEFAULT,
           },
           openingBaselineBuckets: {
@@ -111,6 +123,48 @@ const DETECTORS_RESPONSE = {
             minimum: 30,
             maximum: 3600,
             default: BOARD_MAD_FRESH_CAP_SECONDS_DEFAULT,
+          },
+          historicalLastGames: {
+            type: "integer",
+            minimum: 1,
+            maximum: 20,
+            default: BOARD_MAD_HISTORICAL_LAST_GAMES_DEFAULT,
+          },
+          historicalAwayWeight: {
+            type: "number",
+            minimum: 0,
+            maximum: 1,
+            default: BOARD_MAD_HISTORICAL_AWAY_WEIGHT_DEFAULT,
+          },
+          historicalPriorWeight: {
+            type: "number",
+            minimum: 0,
+            maximum: 1,
+            default: BOARD_MAD_HISTORICAL_PRIOR_WEIGHT_DEFAULT,
+          },
+          historicalRampCompleteGameMinutes: {
+            type: "number",
+            minimum: 1,
+            maximum: 48,
+            default: BOARD_MAD_HISTORICAL_RAMP_COMPLETE_GAME_MINUTES_DEFAULT,
+          },
+          trailingGameMinutes: {
+            type: "number",
+            minimum: 1,
+            maximum: 48,
+            default: BOARD_MAD_TRAILING_GAME_MINUTES_DEFAULT,
+          },
+          recentWallMinutes: {
+            type: "number",
+            minimum: 0,
+            maximum: 20,
+            default: BOARD_MAD_RECENT_WALL_MINUTES_DEFAULT,
+          },
+          recentWallWeight: {
+            type: "number",
+            minimum: 0,
+            maximum: 5,
+            default: BOARD_MAD_RECENT_WALL_WEIGHT_DEFAULT,
           },
         },
       },
@@ -187,7 +241,7 @@ function buildSyntheticBacktest(): {
     // The shipped backtest sets fired/baseline using the SERVER's params.
     // Echo the K=3 default: trailing 20 buckets of all-1.0 intensities have
     // median 1.0, MAD 0 (clamped to 1e-9), so threshold ~= 1.0 — any value
-    // above 1.0 fires after warmup (i >= 8). i==25 has intensity 5 -> fires.
+    // above 1.0 fires after the elapsed 8-minute holdoff. i==25 has intensity 5 -> fires.
     const fired = i === 25 ? 1 : 0;
     observations.push({
       gameId: "nba-0042500222",
@@ -375,6 +429,12 @@ describe("BacktestPage", () => {
     });
   }
 
+  function selectBaselineMode(mode: string): void {
+    const baselineMode = screen.getByTestId("backtest-baseline-mode");
+    if (!(baselineMode instanceof HTMLSelectElement)) throw new Error("baseline mode not a select");
+    fireEvent.change(baselineMode, { target: { value: mode } });
+  }
+
   it("renders the form scaffold with window, scope, detector, and empty results", async () => {
     mockDetectors();
     render(<BacktestPage />, { wrapper: makeWrapper() });
@@ -400,6 +460,9 @@ describe("BacktestPage", () => {
     });
     // kMad is owned by the Sensitivity dial when board-mad is the selected
     // detector; the plain NumberControl row is omitted from the grid.
+    await waitFor(() => {
+      expect(screen.getByTestId("backtest-sensitivity-dial")).not.toBeNull();
+    });
     expect(screen.queryByTestId("backtest-param-kMad")).toBeNull();
     const dial = screen.getByTestId("sensitivity-dial");
     expect(dial.getAttribute("aria-valuenow")).toBe("3");
@@ -439,6 +502,54 @@ describe("BacktestPage", () => {
     expect(screen.getByTestId("memory-dial-headline-detail").textContent).toBe("(10 min)");
     expect(screen.getByTestId("warmup-dial-headline-detail").textContent).toBe("(4 min)");
     expect(screen.getByTestId("memory-dial").getAttribute("aria-valuetext")).toBe("20 (10 min)");
+  });
+
+  it("applies the historical-to-live profile as real backtest params", async () => {
+    const backtest = buildSyntheticBacktest();
+    mockDetectorsAndBacktest(backtest);
+    render(<BacktestPage />, { wrapper: makeWrapper() });
+    await waitFor(() => {
+      expect(screen.getByTestId("backtest-detector-select")).not.toBeNull();
+    });
+
+    const profile = screen.getByTestId("backtest-baseline-profile");
+    if (!(profile instanceof HTMLSelectElement)) throw new Error("profile not a select");
+    fireEvent.change(profile, { target: { value: "historical-blend" } });
+
+    const baselineMode = screen.getByTestId("backtest-baseline-mode");
+    const bucketSeconds = screen.getByTestId("backtest-param-bucketSeconds");
+    if (!(baselineMode instanceof HTMLSelectElement)) throw new Error("baseline mode not a select");
+    if (!(bucketSeconds instanceof HTMLInputElement)) throw new Error("bucketSeconds not an input");
+    expect(baselineMode.value).toBe(BOARD_MAD_BASELINE_MODE_HISTORICAL_BLEND);
+    expect(bucketSeconds.value).toBe("30");
+
+    fireEvent.click(screen.getByTestId("backtest-run-button"));
+    await waitFor(() => {
+      expect(screen.getByTestId("backtest-run-id").textContent).toBe("42");
+    });
+
+    const postCalls = fetchMock.mock.calls.filter(([input, init]) => {
+      const url = urlOf(input);
+      return url.startsWith("/v1/backtest") && init?.method === "POST";
+    });
+    expect(postCalls.length).toBe(1);
+    const [, init] = postCalls[0]!;
+    const body = parsePostBody(init?.body);
+    expect(body.params).toMatchObject({
+      baselineMode: BOARD_MAD_BASELINE_MODE_HISTORICAL_BLEND,
+      bucketSeconds: 30,
+      openingBaselineBuckets: 3,
+      openingRampCompleteBuckets: 16,
+      trailingBuckets: 24,
+      warmupBuckets: 4,
+      historicalLastGames: BOARD_MAD_HISTORICAL_LAST_GAMES_DEFAULT,
+      historicalAwayWeight: BOARD_MAD_HISTORICAL_AWAY_WEIGHT_DEFAULT,
+      historicalPriorWeight: BOARD_MAD_HISTORICAL_PRIOR_WEIGHT_DEFAULT,
+      historicalRampCompleteGameMinutes: BOARD_MAD_HISTORICAL_RAMP_COMPLETE_GAME_MINUTES_DEFAULT,
+      trailingGameMinutes: BOARD_MAD_TRAILING_GAME_MINUTES_DEFAULT,
+      recentWallMinutes: BOARD_MAD_RECENT_WALL_MINUTES_DEFAULT,
+      recentWallWeight: BOARD_MAD_RECENT_WALL_WEIGHT_DEFAULT,
+    });
   });
 
   it("defaults the detector selector to ensemble-or when it is registered (report §8.1 Stage 1)", async () => {
@@ -822,7 +933,7 @@ describe("BacktestPage", () => {
     });
   });
 
-  it("marks bucketSeconds / weighting / freshCapSeconds as re-run required and flags stale results", async () => {
+  it("marks bucket/weight/freshness/historical context params as re-run required and flags stale results", async () => {
     const backtest = buildSyntheticBacktest();
     mockDetectorsAndBacktest(backtest);
     render(<BacktestPage />, { wrapper: makeWrapper() });
@@ -832,6 +943,7 @@ describe("BacktestPage", () => {
     expect(screen.getByTestId("backtest-rerun-hint-bucketSeconds")).not.toBeNull();
     expect(screen.getByTestId("backtest-rerun-hint-weighting")).not.toBeNull();
     expect(screen.getByTestId("backtest-rerun-hint-freshCapSeconds")).not.toBeNull();
+    expect(screen.getByTestId("backtest-rerun-hint-historicalLastGames")).not.toBeNull();
     expect(screen.queryByTestId("backtest-rerun-hint-kMad")).toBeNull();
     expect(screen.queryByTestId("backtest-rerun-hint-trailingBuckets")).toBeNull();
 
@@ -844,6 +956,30 @@ describe("BacktestPage", () => {
     if (!(weighting instanceof HTMLSelectElement)) throw new Error("weighting not a select");
     act(() => {
       fireEvent.change(weighting, { target: { value: "equal" } });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("backtest-stale-warning")).not.toBeNull();
+    });
+  });
+
+  it("flags stale historical-prior tuning after a run because it needs server priors", async () => {
+    const backtest = buildSyntheticBacktest();
+    mockDetectorsAndBacktest(backtest);
+    render(<BacktestPage />, { wrapper: makeWrapper() });
+    await waitFor(() => {
+      expect(screen.getByTestId("backtest-detector-select")).not.toBeNull();
+    });
+
+    fireEvent.click(screen.getByTestId("backtest-run-button"));
+    await waitFor(() => {
+      expect(screen.getByTestId("backtest-run-id").textContent).toBe("42");
+    });
+
+    const historicalLastGames = screen.getByTestId("backtest-param-historicalLastGames");
+    if (!(historicalLastGames instanceof HTMLInputElement)) throw new Error("not input");
+    act(() => {
+      fireEvent.change(historicalLastGames, { target: { value: "6" } });
     });
 
     await waitFor(() => {
@@ -915,6 +1051,7 @@ describe("BacktestPage", () => {
     await waitFor(() => {
       expect(screen.getByTestId("backtest-detector-select")).not.toBeNull();
     });
+    selectBaselineMode(BOARD_MAD_BASELINE_MODE_TRAILING);
     fireEvent.click(screen.getByTestId("backtest-run-button"));
     await waitFor(() => {
       expect(screen.getByTestId("backtest-run-id").textContent).toBe("138");
@@ -991,6 +1128,7 @@ describe("BacktestPage", () => {
       if (!(sel instanceof HTMLSelectElement)) throw new Error("not a select");
       expect(sel.value).toBe("ensemble-or");
     });
+    selectBaselineMode(BOARD_MAD_BASELINE_MODE_TRAILING);
 
     const dial = screen.getByTestId("sensitivity-dial");
     act(() => {

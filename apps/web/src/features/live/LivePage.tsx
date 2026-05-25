@@ -58,43 +58,78 @@ function formatClock(iso: string | null): string {
 }
 
 interface ChartPoint {
+  readonly timeMs: number;
   readonly bucketStart: string;
   readonly bucketEnd: string;
   readonly intensity: number;
+  readonly threshold: number | null;
   readonly fired: number;
 }
 
 // Recharts' `data` prop is typed as a mutable array; return a mutable copy
 // here so we don't need a type-assertion at the call site. The strict ESLint
 // `consistent-type-assertions: never` rule forbids `as` casts repo-wide.
-function buildChartData(observations: readonly BoardObservation[]): ChartPoint[] {
+export function buildChartData(observations: readonly BoardObservation[], k: number): ChartPoint[] {
   return [...observations]
     .sort((a, b) => (a.bucketStart < b.bucketStart ? -1 : a.bucketStart > b.bucketStart ? 1 : 0))
     .map((o) => ({
+      timeMs: Date.parse(o.bucketStart),
       bucketStart: o.bucketStart,
       bucketEnd: o.bucketEnd,
       intensity: o.intensity,
+      threshold: o.warmedUp ? thresholdFor(o, k) : null,
       fired: o.fired,
-    }));
+    }))
+    .filter((p) => Number.isFinite(p.timeMs));
 }
 
-// Snap an off-price-print event to the board bucket whose half-open window
-// [bucketStart, bucketEnd) contains the event (same rule as PbpAnchoredIncidents).
-// Returns null when the event falls outside every bucket (before the first or
-// after the last) so we do not draw a misleading off-axis marker.
-export function snapEventToBucket(
-  eventIso: string,
-  buckets: readonly { readonly bucketStart: string; readonly bucketEnd: string }[],
-): string | null {
-  const eventMs = Date.parse(eventIso);
-  if (!Number.isFinite(eventMs) || buckets.length === 0) return null;
-  for (const b of buckets) {
-    const startMs = Date.parse(b.bucketStart);
-    const endMs = Date.parse(b.bucketEnd);
-    if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) continue;
-    if (startMs <= eventMs && eventMs < endMs) return b.bucketStart;
+function thresholdFor(obs: BoardObservation, k: number): number {
+  return obs.baselineMedian + k * obs.baselineMad;
+}
+
+function formatAxisTime(ms: number): string {
+  return new Date(ms).toISOString().slice(11, 19);
+}
+
+interface ChartDomain {
+  readonly minMs: number;
+  readonly maxMs: number;
+}
+
+function chartDomain(data: readonly ChartPoint[]): ChartDomain | null {
+  const starts = data.map((d) => d.timeMs).filter(Number.isFinite);
+  const ends = data.map((d) => Date.parse(d.bucketEnd)).filter(Number.isFinite);
+  if (starts.length === 0 || ends.length === 0) return null;
+  return {
+    minMs: Math.min(...starts),
+    maxMs: Math.max(...ends),
+  };
+}
+
+function xAxisDomain(domain: ChartDomain | null): [number | "dataMin", number | "dataMax"] {
+  return domain === null ? ["dataMin", "dataMax"] : [domain.minMs, domain.maxMs];
+}
+
+export interface OffPriceMarker {
+  readonly id: number;
+  readonly timeMs: number;
+}
+
+export function offPriceMarkersForDomain(
+  events: readonly MicrostructureEvent[],
+  domain: ChartDomain | null,
+): OffPriceMarker[] {
+  if (domain === null) return [];
+  const seen = new Set<number>();
+  const markers: OffPriceMarker[] = [];
+  for (const ev of events) {
+    const timeMs = Date.parse(ev.eventTimestamp);
+    if (!Number.isFinite(timeMs) || timeMs < domain.minMs || timeMs > domain.maxMs) continue;
+    if (seen.has(timeMs)) continue;
+    seen.add(timeMs);
+    markers.push({ id: ev.id, timeMs });
   }
-  return null;
+  return markers.sort((a, b) => a.timeMs - b.timeMs);
 }
 
 interface IntensityTimelineProps {
@@ -104,9 +139,8 @@ interface IntensityTimelineProps {
 
 function IntensityTimeline({ data, offPriceEvents }: IntensityTimelineProps): JSX.Element {
   const fires = data.filter((d) => d.fired === 1);
-  const offPriceMarkers = offPriceEvents
-    .map((ev) => ({ snapped: snapEventToBucket(ev.eventTimestamp, data), ev }))
-    .filter((m): m is { snapped: string; ev: MicrostructureEvent } => m.snapped !== null);
+  const domain = chartDomain(data);
+  const offPriceMarkers = offPriceMarkersForDomain(offPriceEvents, domain);
   return (
     // Fixed-height container so the layout doesn't shift between empty/loading
     // and the first resolved poll (US-031 AC #6: "renders without a layout-shift
@@ -116,9 +150,11 @@ function IntensityTimeline({ data, offPriceEvents }: IntensityTimelineProps): JS
         <LineChart data={data} margin={{ top: 12, right: 16, bottom: 24, left: 8 }}>
           <CartesianGrid stroke={colors.textLo} strokeOpacity={0.2} strokeDasharray="2 4" />
           <XAxis
-            dataKey="bucketStart"
+            dataKey="timeMs"
+            type="number"
+            domain={xAxisDomain(domain)}
             tick={{ fill: colors.textLo, fontSize: 10, fontFamily: "JetBrains Mono" }}
-            tickFormatter={(v: string) => v.slice(11, 19)}
+            tickFormatter={(v: number) => formatAxisTime(v)}
             minTickGap={32}
           />
           <YAxis
@@ -135,22 +171,35 @@ function IntensityTimeline({ data, offPriceEvents }: IntensityTimelineProps): JS
               color: colors.textHi,
             }}
             labelFormatter={(label) =>
-              typeof label === "string" ? label.slice(11, 19) : String(label)
+              typeof label === "number" ? formatAxisTime(label) : String(label)
             }
           />
           <Line
-            type="monotone"
+            type="linear"
             dataKey="intensity"
+            name="board intensity"
             stroke={colors.accentGreen}
             strokeWidth={1.5}
             dot={false}
             activeDot={{ r: 3, fill: colors.accentGreen, stroke: colors.accentGreen }}
             isAnimationActive={false}
           />
+          <Line
+            type="linear"
+            dataKey="threshold"
+            name="active alert threshold"
+            connectNulls={false}
+            stroke={colors.textLo}
+            strokeWidth={1}
+            strokeDasharray="3 3"
+            dot={false}
+            isAnimationActive={false}
+            data-testid="live-threshold-line"
+          />
           {fires.map((f) => (
             <ReferenceDot
               key={`board-${f.bucketStart}`}
-              x={f.bucketStart}
+              x={f.timeMs}
               y={f.intensity}
               r={4}
               fill={colors.accentYellow}
@@ -158,14 +207,16 @@ function IntensityTimeline({ data, offPriceEvents }: IntensityTimelineProps): JS
               ifOverflow="extendDomain"
             />
           ))}
-          {offPriceMarkers.map((m, idx) => (
+          {offPriceMarkers.map((m) => (
             <ReferenceLine
-              key={`offprice-${m.ev.id}-${String(idx)}`}
-              x={m.snapped}
+              key={`offprice-${String(m.id)}-${String(m.timeMs)}`}
+              x={m.timeMs}
               stroke={colors.negative}
               strokeWidth={1.5}
               strokeDasharray="3 3"
+              strokeOpacity={0.72}
               ifOverflow="extendDomain"
+              data-testid="live-offprice-marker"
             />
           ))}
         </LineChart>
@@ -224,10 +275,10 @@ export function LivePage({ gameId }: LivePageProps): JSX.Element {
   ) : null;
 
   const observations: readonly BoardObservation[] = board.data?.observations ?? [];
-  const chartData = buildChartData(observations);
   const fires = observations.filter((o) => o.fired === 1);
   const offPriceEvents: readonly MicrostructureEvent[] = micro.data?.events ?? [];
   const k = board.data?.k ?? 3.0;
+  const chartData = buildChartData(observations, k);
   const tickCount = live.data?.ticks.length ?? 0;
   const lastWindowEnd = live.data?.windowEnd ?? null;
   const lastTickTime =
@@ -319,7 +370,14 @@ export function LivePage({ gameId }: LivePageProps): JSX.Element {
         >
           <span className="flex items-center gap-2">
             <span aria-hidden className="inline-block h-[1.5px] w-5 bg-accent-green" />
-            $wt intensity
+            board intensity
+          </span>
+          <span className="flex items-center gap-2" data-testid="live-threshold-legend">
+            <span
+              aria-hidden
+              className="inline-block h-0 w-5 border-t border-dashed border-text-lo"
+            />
+            active alert threshold
           </span>
           <span className="flex items-center gap-2">
             <span aria-hidden className="inline-block h-2 w-2 rounded-full bg-accent-yellow" />

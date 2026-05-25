@@ -14,6 +14,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   BASELINE_DEFAULTS,
   invalidateDetectorDefaultsCache,
+  readDetectorDefaults,
   setDetectorDefaultsPath,
 } from "../src/services/detector-defaults";
 import { buildServer } from "../src/server";
@@ -424,6 +425,38 @@ describe("detector-defaults route (US-053)", () => {
     expect(bm).toBeDefined();
     if (bm === undefined) return;
     expect(String(bm["version"])).toMatch(/\+def\.[0-9a-f]{8}$/);
+  });
+
+  it("POST /v1/settings/detector-defaults/schedule writes pending defaults and promotes them after effectiveAt", async () => {
+    seedGoldDb(ctx.goldDbPath);
+    seedCacheDb(ctx.cacheDbPath);
+    const app = await startApp();
+
+    const next = {
+      ...BASELINE_DEFAULTS,
+      kMadLive: 4.25,
+      baselineMode: BOARD_MAD_BASELINE_MODE_OPENING_RAMP,
+      bucketSeconds: 30,
+    };
+    const effectiveAt = "2026-05-25T09:00:00.000Z";
+    const res = await app.inject({
+      method: "POST",
+      url: "/v1/settings/detector-defaults/schedule",
+      headers: { ...authHeaders(), "content-type": "application/json" },
+      payload: { defaults: next, effectiveAt },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = asRecord(res.json(), "body");
+    expect(body["effectiveAt"]).toBe(effectiveAt);
+    const scheduledPath = join(ctx.tempDir, "detector-defaults.json.scheduled.json");
+    const scheduled = asRecord(JSON.parse(readFileSync(scheduledPath, "utf8")), "scheduled");
+    expect(scheduled["effectiveAt"]).toBe(effectiveAt);
+
+    expect(readDetectorDefaults(Date.parse("2026-05-25T08:59:59.000Z")).kMadLive).toBe(
+      BASELINE_DEFAULTS.kMadLive,
+    );
+    invalidateDetectorDefaultsCache();
+    expect(readDetectorDefaults(Date.parse("2026-05-25T09:00:00.000Z")).kMadLive).toBe(4.25);
   });
 
   it("POST /v1/settings/detector-defaults rejects out-of-range values with 400", async () => {

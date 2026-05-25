@@ -16,7 +16,7 @@ const baseTime = new Date("2026-05-08T03:00:00.000Z");
 function ticksWithJump(): readonly Tick[] {
   // Two markets on the same game; baseline 0.40/0.60 with small noise so the
   // trailing baseline is non-zero, then a coordinated outsized jump at minute
-  // 30 that beats median+K*MAD on the prior 20 buckets.
+  // 30 that beats median+K*MAD on the prior elapsed lookback.
   // Note: board-mad strips 0.500 opening-anchor ticks, so we deliberately
   // pick 0.40/0.60 as the baselines.
   const market = (mid: string, basePrice: number, jumpAt: number, jumpTo: number) => {

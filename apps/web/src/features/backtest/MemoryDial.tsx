@@ -1,6 +1,6 @@
 // Volatility-lookback slider (US-053).
 //
-// Controls `trailingBuckets`: how many prior current-game buckets define
+// Controls `trailingBuckets`: how much elapsed current-game time defines
 // "normal" for the trailing median + MAD threshold. It is intentionally a
 // slider, paired visually with the opening holdoff slider, because traders
 // tune those two timing choices together.
@@ -85,8 +85,8 @@ export function MemoryDial({ value, bucketSeconds, onChange }: MemoryDialProps):
       data-memory-value={String(clamped)}
       className="flex flex-col select-none"
     >
-      <div className="flex items-start justify-between gap-4">
-        <div>
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+        <div className="min-w-0">
           <div className="text-text-lo text-xs uppercase tracking-[0.08em] font-sans">
             <ExplainerCard id="trailing-window-memory">Volatility lookback</ExplainerCard>
           </div>
@@ -94,16 +94,16 @@ export function MemoryDial({ value, bucketSeconds, onChange }: MemoryDialProps):
             Recent in-game minutes used to decide what normal board movement looks like.
           </p>
         </div>
-        <div className="text-right">
+        <div className="shrink-0 sm:text-right">
           <span
             data-testid="memory-dial-headline"
-            className="tabular font-mono text-text-hi text-3xl leading-none"
+            className="tabular font-mono text-text-hi text-2xl leading-none sm:text-3xl"
           >
             {String(clamped)}
           </span>
           <span
             data-testid="memory-dial-headline-detail"
-            className="ml-2 tabular font-mono text-sm text-text-md"
+            className="ml-2 tabular font-mono text-xs text-text-md sm:text-sm"
           >
             ({duration})
           </span>
@@ -117,7 +117,7 @@ export function MemoryDial({ value, bucketSeconds, onChange }: MemoryDialProps):
         step={1}
         value={String(clamped)}
         onChange={handleSliderChange}
-        title="Volatility lookback: how many recent current-game buckets feed the trailing median and MAD threshold."
+        title="Volatility lookback: how much recent elapsed current-game time feeds the trailing median and MAD threshold."
         aria-label="Volatility lookback buckets"
         aria-valuemin={LOOKBACK_MIN}
         aria-valuemax={LOOKBACK_MAX}
@@ -136,8 +136,8 @@ export function MemoryDial({ value, bucketSeconds, onChange }: MemoryDialProps):
         {SNAP_CHIPS.map((chip) => {
           const active = clamped === chip.value;
           const className = active
-            ? "border border-accent-green bg-accent-green px-2.5 py-0.5 text-xs font-mono uppercase tracking-wider text-surface-1"
-            : "border border-accent-green bg-transparent px-2.5 py-0.5 text-xs font-mono uppercase tracking-wider text-accent-green hover:bg-accent-green/10";
+            ? "border border-accent-green bg-accent-green px-2 py-0.5 text-[11px] font-mono uppercase tracking-wider text-surface-1 sm:px-2.5 sm:text-xs"
+            : "border border-accent-green bg-transparent px-2 py-0.5 text-[11px] font-mono uppercase tracking-wider text-accent-green hover:bg-accent-green/10 sm:px-2.5 sm:text-xs";
           return (
             <button
               key={chip.value}

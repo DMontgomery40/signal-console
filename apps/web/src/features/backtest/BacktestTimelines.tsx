@@ -9,7 +9,7 @@
 //     clipped Y axis); intensity line in accent-green, fires in accent-yellow
 //   - The card is a clickable button — expands inline to show a fires list
 //     (mirrors GameDetailPage / US-047 UX exactly); clicking a fire expands
-//     further into a context timeline (prior 20 buckets + the fire) plus
+//     further into a context timeline (recent prior observations + the fire) plus
 //     the FanoutPanel (US-051 PBP + movers).
 //
 // Snapshot vs recompute data-flow split is preserved from the original US-038
@@ -175,59 +175,61 @@ function TimelineChart({
   }));
   const fires = recomputedRows.filter((o) => o.fired === 1);
   return (
-    <div className="h-40 w-full" data-testid="backtest-timeline-chart">
-      <ResponsiveContainer width="100%" height="100%">
-        <LineChart data={data} margin={{ top: 8, right: 12, bottom: 28, left: 4 }}>
-          <CartesianGrid stroke={colors.textLo} strokeOpacity={0.15} strokeDasharray="2 4" />
-          <XAxis
-            dataKey="bucketStart"
-            tick={{ fill: colors.textLo, fontSize: 13, fontFamily: "JetBrains Mono" }}
-            tickFormatter={(v: string) => v.slice(11, 16)}
-            minTickGap={72}
-            interval="preserveStartEnd"
-            label={{
-              value: "UTC (HH:MM)",
-              position: "insideBottom",
-              offset: -10,
-              fill: colors.textLo,
-              fontFamily: "JetBrains Mono",
-              fontSize: 11,
-            }}
-          />
-          <YAxis
-            tick={{ fill: colors.textLo, fontSize: 13, fontFamily: "JetBrains Mono" }}
-            width={56}
-            label={{
-              value: "intensity",
-              angle: -90,
-              position: "insideLeft",
-              fill: colors.textLo,
-              fontFamily: "JetBrains Mono",
-              fontSize: 11,
-              offset: 12,
-            }}
-          />
-          <Line
-            type="monotone"
-            dataKey="intensity"
-            stroke={colors.accentGreen}
-            strokeWidth={1.5}
-            dot={false}
-            isAnimationActive={false}
-          />
-          {fires.map((f) => (
-            <ReferenceDot
-              key={f.bucketStart}
-              x={f.bucketStart}
-              y={f.intensity}
-              r={4}
-              fill={colors.accentYellow}
-              stroke={colors.accentYellow}
-              ifOverflow="extendDomain"
+    <div className="w-full overflow-x-auto" data-testid="backtest-timeline-chart">
+      <div className="h-40 min-w-[520px]">
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={data} margin={{ top: 8, right: 12, bottom: 28, left: 4 }}>
+            <CartesianGrid stroke={colors.textLo} strokeOpacity={0.15} strokeDasharray="2 4" />
+            <XAxis
+              dataKey="bucketStart"
+              tick={{ fill: colors.textLo, fontSize: 13, fontFamily: "JetBrains Mono" }}
+              tickFormatter={(v: string) => v.slice(11, 16)}
+              minTickGap={72}
+              interval="preserveStartEnd"
+              label={{
+                value: "UTC (HH:MM)",
+                position: "insideBottom",
+                offset: -10,
+                fill: colors.textLo,
+                fontFamily: "JetBrains Mono",
+                fontSize: 11,
+              }}
             />
-          ))}
-        </LineChart>
-      </ResponsiveContainer>
+            <YAxis
+              tick={{ fill: colors.textLo, fontSize: 13, fontFamily: "JetBrains Mono" }}
+              width={56}
+              label={{
+                value: "intensity",
+                angle: -90,
+                position: "insideLeft",
+                fill: colors.textLo,
+                fontFamily: "JetBrains Mono",
+                fontSize: 11,
+                offset: 12,
+              }}
+            />
+            <Line
+              type="monotone"
+              dataKey="intensity"
+              stroke={colors.accentGreen}
+              strokeWidth={1.5}
+              dot={false}
+              isAnimationActive={false}
+            />
+            {fires.map((f) => (
+              <ReferenceDot
+                key={f.bucketStart}
+                x={f.bucketStart}
+                y={f.intensity}
+                r={4}
+                fill={colors.accentYellow}
+                stroke={colors.accentYellow}
+                ifOverflow="extendDomain"
+              />
+            ))}
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
     </div>
   );
 }
@@ -253,85 +255,87 @@ function ContextTimeline({
   }));
   const focusPoint = data.find((d) => d.bucketStart === focusBucketStart);
   return (
-    <div className="h-44 w-full" data-testid="backtest-context-timeline">
-      <ResponsiveContainer width="100%" height="100%">
-        <LineChart data={data} margin={{ top: 8, right: 12, bottom: 28, left: 4 }}>
-          <CartesianGrid stroke={colors.textLo} strokeOpacity={0.2} strokeDasharray="2 4" />
-          <XAxis
-            dataKey="bucketStart"
-            tick={{ fill: colors.textLo, fontSize: 13, fontFamily: "JetBrains Mono" }}
-            tickFormatter={(v: string) => v.slice(11, 19)}
-            minTickGap={64}
-            label={{
-              value: "UTC (HH:MM:SS)",
-              position: "insideBottom",
-              offset: -10,
-              fill: colors.textLo,
-              fontFamily: "JetBrains Mono",
-              fontSize: 11,
-            }}
-          />
-          <YAxis
-            tick={{ fill: colors.textLo, fontSize: 13, fontFamily: "JetBrains Mono" }}
-            width={56}
-            label={{
-              value: "intensity",
-              angle: -90,
-              position: "insideLeft",
-              fill: colors.textLo,
-              fontFamily: "JetBrains Mono",
-              fontSize: 11,
-              offset: 12,
-            }}
-          />
-          <Tooltip
-            contentStyle={{
-              background: colors.surface1,
-              border: `1px solid ${colors.surface2}`,
-              borderRadius: 0,
-              fontFamily: "JetBrains Mono",
-              fontSize: 11,
-              color: colors.textHi,
-            }}
-            labelFormatter={(label) =>
-              typeof label === "string" ? label.slice(11, 19) : String(label)
-            }
-          />
-          <Line
-            type="monotone"
-            dataKey="intensity"
-            stroke={colors.accentGreen}
-            strokeWidth={1.5}
-            dot={{ r: 2, fill: colors.accentGreen, stroke: colors.accentGreen }}
-            activeDot={false}
-            isAnimationActive={false}
-          />
-          <Line
-            type="monotone"
-            dataKey="threshold"
-            stroke={colors.textLo}
-            strokeWidth={1}
-            strokeDasharray="3 3"
-            dot={false}
-            isAnimationActive={false}
-          />
-          <ReferenceLine
-            x={focusBucketStart}
-            stroke={colors.accentYellow}
-            strokeDasharray="2 3"
-            strokeOpacity={0.6}
-          />
-          {focusPoint !== undefined ? (
-            <ReferenceDot
-              x={focusPoint.bucketStart}
-              y={focusPoint.intensity}
-              r={5}
-              fill={colors.accentYellow}
-              stroke={colors.accentYellow}
+    <div className="w-full overflow-x-auto" data-testid="backtest-context-timeline">
+      <div className="h-44 min-w-[520px]">
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={data} margin={{ top: 8, right: 12, bottom: 28, left: 4 }}>
+            <CartesianGrid stroke={colors.textLo} strokeOpacity={0.2} strokeDasharray="2 4" />
+            <XAxis
+              dataKey="bucketStart"
+              tick={{ fill: colors.textLo, fontSize: 13, fontFamily: "JetBrains Mono" }}
+              tickFormatter={(v: string) => v.slice(11, 19)}
+              minTickGap={64}
+              label={{
+                value: "UTC (HH:MM:SS)",
+                position: "insideBottom",
+                offset: -10,
+                fill: colors.textLo,
+                fontFamily: "JetBrains Mono",
+                fontSize: 11,
+              }}
             />
-          ) : null}
-        </LineChart>
-      </ResponsiveContainer>
+            <YAxis
+              tick={{ fill: colors.textLo, fontSize: 13, fontFamily: "JetBrains Mono" }}
+              width={56}
+              label={{
+                value: "intensity",
+                angle: -90,
+                position: "insideLeft",
+                fill: colors.textLo,
+                fontFamily: "JetBrains Mono",
+                fontSize: 11,
+                offset: 12,
+              }}
+            />
+            <Tooltip
+              contentStyle={{
+                background: colors.surface1,
+                border: `1px solid ${colors.surface2}`,
+                borderRadius: 0,
+                fontFamily: "JetBrains Mono",
+                fontSize: 11,
+                color: colors.textHi,
+              }}
+              labelFormatter={(label) =>
+                typeof label === "string" ? label.slice(11, 19) : String(label)
+              }
+            />
+            <Line
+              type="monotone"
+              dataKey="intensity"
+              stroke={colors.accentGreen}
+              strokeWidth={1.5}
+              dot={{ r: 2, fill: colors.accentGreen, stroke: colors.accentGreen }}
+              activeDot={false}
+              isAnimationActive={false}
+            />
+            <Line
+              type="monotone"
+              dataKey="threshold"
+              stroke={colors.textLo}
+              strokeWidth={1}
+              strokeDasharray="3 3"
+              dot={false}
+              isAnimationActive={false}
+            />
+            <ReferenceLine
+              x={focusBucketStart}
+              stroke={colors.accentYellow}
+              strokeDasharray="2 3"
+              strokeOpacity={0.6}
+            />
+            {focusPoint !== undefined ? (
+              <ReferenceDot
+                x={focusPoint.bucketStart}
+                y={focusPoint.intensity}
+                r={5}
+                fill={colors.accentYellow}
+                stroke={colors.accentYellow}
+              />
+            ) : null}
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
     </div>
   );
 }
@@ -384,12 +388,16 @@ function FiredBucketRow({
         </span>
       </button>
       {isExpanded ? (
-        <div className="bg-surface-1 px-4 py-4" data-testid="backtest-context-panel">
+        <div className="bg-surface-1 px-3 py-4 sm:px-4" data-testid="backtest-context-panel">
           <p className="mb-3 font-mono text-xs uppercase tracking-[0.08em] text-text-lo">
             Context: prior {CONTEXT_PRIOR_BUCKETS} buckets + this fire
           </p>
           <ContextTimeline series={contextSeries} focusBucketStart={obs.bucketStart} k={k} />
-          <FanoutPanel gameId={gameId} bucketStart={obs.bucketStart} />
+          <div className="-mx-1 overflow-x-auto px-1" data-testid="backtest-fanout-scroll">
+            <div className="min-w-[680px]">
+              <FanoutPanel gameId={gameId} bucketStart={obs.bucketStart} />
+            </div>
+          </div>
         </div>
       ) : null}
     </li>
@@ -431,7 +439,7 @@ function GameCard({
         }}
         aria-expanded={isOpen}
         data-testid="backtest-timeline-row-toggle"
-        className="grid w-full grid-cols-[1fr_auto] items-baseline gap-x-6 px-5 py-4 text-left transition-colors duration-fast ease-out hover:bg-surface-2 focus:outline-none focus-visible:bg-surface-2"
+        className="grid w-full grid-cols-1 gap-2 px-4 py-4 text-left transition-colors duration-fast ease-out hover:bg-surface-2 focus:outline-none focus-visible:bg-surface-2 sm:grid-cols-[1fr_auto] sm:items-baseline sm:gap-x-6 sm:px-5"
       >
         <MetaLabel gameId={group.gameId} fromRecompute={fromRecompute} />
         <span
@@ -442,13 +450,13 @@ function GameCard({
         </span>
       </button>
 
-      <div className="px-5 pb-5">
+      <div className="px-4 pb-5 sm:px-5">
         <TimelineChart snapshotRows={group.snapshotRows} recomputedRows={group.recomputedRows} />
       </div>
 
       {isOpen ? (
         <div
-          className="border-t border-surface-2 bg-surface-1 px-5 py-5"
+          className="border-t border-surface-2 bg-surface-1 px-4 py-5 sm:px-5"
           data-testid="backtest-timeline-drilldown"
         >
           <h4 className="text-sm font-semibold text-text-hi">
@@ -462,34 +470,36 @@ function GameCard({
               No fires for this game at sensitivity {k.toFixed(2)}.
             </p>
           ) : (
-            <div className="mt-3 max-h-[60vh] overflow-y-auto bg-surface-0-to">
-              <div
-                role="row"
-                className="grid grid-cols-[1.4fr_1fr_1fr_1fr_1.6fr] gap-x-6 px-2 pb-3 pt-2 text-xs uppercase tracking-[0.08em] text-text-lo"
-              >
-                <span>Bucket start</span>
-                <span>Intensity</span>
-                <span>Baseline med</span>
-                <span>Baseline MAD</span>
-                <span />
+            <div className="mt-3 max-h-[60vh] overflow-auto bg-surface-0-to">
+              <div className="min-w-[760px]">
+                <div
+                  role="row"
+                  className="grid grid-cols-[1.4fr_1fr_1fr_1fr_1.6fr] gap-x-6 px-2 pb-3 pt-2 text-xs uppercase tracking-[0.08em] text-text-lo"
+                >
+                  <span>Bucket start</span>
+                  <span>Intensity</span>
+                  <span>Baseline med</span>
+                  <span>Baseline MAD</span>
+                  <span />
+                </div>
+                <ul data-testid="backtest-fired-bucket-list">
+                  {fires.map((obs) => (
+                    <FiredBucketRow
+                      key={obs.bucketStart}
+                      gameId={group.gameId}
+                      obs={obs}
+                      isExpanded={expandedFire === obs.bucketStart}
+                      onToggle={() => {
+                        setExpandedFire((prev) =>
+                          prev === obs.bucketStart ? null : obs.bucketStart,
+                        );
+                      }}
+                      contextSeries={buildContextSeries(group.recomputedRows, obs.bucketStart)}
+                      k={k}
+                    />
+                  ))}
+                </ul>
               </div>
-              <ul data-testid="backtest-fired-bucket-list">
-                {fires.map((obs) => (
-                  <FiredBucketRow
-                    key={obs.bucketStart}
-                    gameId={group.gameId}
-                    obs={obs}
-                    isExpanded={expandedFire === obs.bucketStart}
-                    onToggle={() => {
-                      setExpandedFire((prev) =>
-                        prev === obs.bucketStart ? null : obs.bucketStart,
-                      );
-                    }}
-                    contextSeries={buildContextSeries(group.recomputedRows, obs.bucketStart)}
-                    k={k}
-                  />
-                ))}
-              </ul>
             </div>
           )}
         </div>

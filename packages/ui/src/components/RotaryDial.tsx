@@ -376,7 +376,7 @@ export function RotaryDial(props: RotaryDialProps): JSX.Element {
           chipFlashing ? "text-text-hi" : "text-accent-yellow",
           "transition-colors",
         ].join(" ")}
-        style={{ fontSize: "96px" }}
+        style={{ fontSize: "clamp(64px, 12vw, 96px)" }}
       >
         {headlineText}
       </div>
@@ -403,7 +403,7 @@ export function RotaryDial(props: RotaryDialProps): JSX.Element {
         viewBox={`${String(-VIEWBOX_HALF)} ${String(-VIEWBOX_HALF)} ${String(VIEWBOX_DIM)} ${String(VIEWBOX_DIM)}`}
         width={KNOB_SVG_PX}
         height={KNOB_SVG_PX}
-        className="mt-4 cursor-pointer focus:outline-none focus-visible:ring-1 focus-visible:ring-accent-green"
+        className="mt-3 h-[190px] w-[190px] cursor-pointer focus:outline-none focus-visible:ring-1 focus-visible:ring-accent-green sm:mt-4 sm:h-[220px] sm:w-[220px]"
       >
         <circle
           cx={0}
@@ -575,7 +575,10 @@ export function RotaryDial(props: RotaryDialProps): JSX.Element {
         )
       ) : null}
 
-      <div className="mt-4 flex items-center gap-3" data-testid={`${testIdPrefix}-chips`}>
+      <div
+        className="mt-4 flex flex-wrap items-center justify-center gap-2 sm:gap-3"
+        data-testid={`${testIdPrefix}-chips`}
+      >
         {snapChips.map((chip) => {
           const active = chip.value === clamped;
           return (
@@ -611,8 +614,8 @@ function SnapChip({
   readonly onClick: () => void;
 }): JSX.Element {
   const className = active
-    ? "border border-accent-green bg-accent-green px-3 py-1 text-xs font-mono uppercase tracking-wider text-surface-1"
-    : "border border-accent-green bg-transparent px-3 py-1 text-xs font-mono uppercase tracking-wider text-accent-green hover:bg-accent-green/10";
+    ? "border border-accent-green bg-accent-green px-2.5 py-1 text-[11px] font-mono uppercase tracking-wider text-surface-1 sm:px-3 sm:text-xs"
+    : "border border-accent-green bg-transparent px-2.5 py-1 text-[11px] font-mono uppercase tracking-wider text-accent-green hover:bg-accent-green/10 sm:px-3 sm:text-xs";
   return (
     <button
       type="button"
