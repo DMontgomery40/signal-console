@@ -183,6 +183,8 @@ function buildSidePrior(
     .toSorted((a, b) => (a.scheduledStart > b.scheduledStart ? -1 : 1))
     .slice(0, Math.max(1, Math.round(params.historicalLastGames)));
 
+  const openingWindowSeconds =
+    Math.max(1, Math.round(params.openingBaselineBuckets)) * params.bucketSeconds;
   const values = previousGames.flatMap((game): readonly number[] => {
     const bound = readPbpBounds(goldDb, game.id);
     if (bound === null) return [];
@@ -192,14 +194,44 @@ function buildSidePrior(
       gameIds: [game.id],
       weighting: params.weighting,
     });
-    return (
-      series.perGame[0]?.buckets
-        .slice(0, Math.max(1, Math.round(params.openingBaselineBuckets)))
-        .map((bucket) => bucket.intensity) ?? []
-    );
+    const gameBuckets = series.perGame[0]?.buckets ?? [];
+    const pbpMinUnixSec = Math.floor(Date.parse(bound.start) / 1000);
+    return selectOpeningWindowValues(gameBuckets, openingWindowSeconds, pbpMinUnixSec);
   });
   if (values.length === 0) return null;
   return { values, sampleSize: values.length };
+}
+
+// AMENDED 2026-05-25 (audit-fix #6, phase A5): historical-prior opening
+// window is selected by ELAPSED TIME from PBP tipoff, not by sparse-bucket
+// count. A prior game with one early bucket and ten quiet minutes used to
+// contribute that one bucket PLUS the next N-1 nonzero buckets from later
+// in the game (because .slice(0, N) walked the sparse-keyset array). That
+// padded the prior with mid-game intensities and biased the baseline. The
+// new filter walks elapsed seconds from PBP MIN(time_actual) — pbpMinUnixSec
+// is derived from the bound that the caller already resolved.
+export function selectOpeningWindowValues(
+  buckets: readonly {
+    readonly bucket: number;
+    readonly intensity: number;
+    readonly gameElapsedSeconds?: number | null;
+  }[],
+  openingWindowSeconds: number,
+  pbpMinUnixSec: number,
+): readonly number[] {
+  return buckets
+    .filter((bucket) => {
+      // Prefer per-tick gameElapsedSeconds (when PBP populated it) so we
+      // get true game-clock elapsed including stoppages. Fall back to wall
+      // elapsed from PBP MIN(time_actual) when null (defensive — historical
+      // games passing the readPbpBounds check should all have PBP rows).
+      const elapsed =
+        typeof bucket.gameElapsedSeconds === "number" && Number.isFinite(bucket.gameElapsedSeconds)
+          ? bucket.gameElapsedSeconds
+          : Math.max(0, bucket.bucket - pbpMinUnixSec);
+      return elapsed < openingWindowSeconds;
+    })
+    .map((bucket) => bucket.intensity);
 }
 
 // AMENDED 2026-05-25 (audit-fix #4, phase A3): weighted median/MAD on raw
