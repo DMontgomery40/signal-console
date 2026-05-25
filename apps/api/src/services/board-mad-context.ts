@@ -1,6 +1,10 @@
 import { prebucket } from "@signal-console/detectors/board-mad/prebucket";
 import type { ParamsResolved } from "@signal-console/detectors/board-mad";
-import { median, medianAbsDev } from "@signal-console/detectors/board-mad/baseline";
+import {
+  weightedMad,
+  weightedMedian,
+  type WeightedSample,
+} from "@signal-console/detectors/board-mad/weighted-stats";
 import type { BoardMadHistoricalPrior, Tick } from "@signal-console/detectors";
 import type Database from "better-sqlite3";
 
@@ -18,9 +22,15 @@ interface GameRow {
   readonly awayKey: string | null;
 }
 
-interface PriorStats {
-  readonly median: number;
-  readonly mad: number;
+// Raw per-side prior samples. AMENDED 2026-05-25 (audit-fix #4, phase A3):
+// per Codex review, the historical-prior combine step now uses weighted
+// median/MAD on the raw pooled samples instead of linear-averaging the two
+// side medians/MADs (statistically meaningless on nonlinear estimators).
+// buildSidePrior returns the raw values + sampleSize so combineSidePriors
+// can assign each sample the right per-side weight before computing the
+// pooled estimators.
+interface SidePriorSamples {
+  readonly values: readonly number[];
   readonly sampleSize: number;
 }
 
@@ -162,7 +172,7 @@ function buildSidePrior(
     | "openingBaselineBuckets"
     | "weighting"
   >,
-): PriorStats | null {
+): SidePriorSamples | null {
   const teamKey = side === "away" ? target.awayKey : target.homeKey;
   if (teamKey === null) return null;
   const previousGames = games
@@ -189,24 +199,53 @@ function buildSidePrior(
     );
   });
   if (values.length === 0) return null;
-  const med = median(values);
-  return { median: med, mad: medianAbsDev(values), sampleSize: values.length };
+  return { values, sampleSize: values.length };
 }
 
-function combineSidePriors(
-  away: PriorStats | null,
-  home: PriorStats | null,
+// AMENDED 2026-05-25 (audit-fix #4, phase A3): weighted median/MAD on raw
+// pooled samples. Per-sample weight = side_weight / side_sample_count so
+// each side contributes its full configured weight regardless of how many
+// underlying samples it produced. Plain concat would let the larger side
+// dominate silently (breaks David's 50/50 intent); linear-averaging the two
+// side medians/MADs (the old behavior) is statistically meaningless on
+// nonlinear estimators; sample repetition would bias MAD by inflating ties.
+// See packages/detectors/src/board-mad/weighted-stats.ts for the median spec
+// + tie convention.
+export function combineSidePriors(
+  away: SidePriorSamples | null,
+  home: SidePriorSamples | null,
   awayWeightRaw: number,
-): PriorStats | null {
+): { readonly median: number; readonly mad: number; readonly sampleSize: number } | null {
   if (away === null && home === null) return null;
-  if (away === null) return home;
-  if (home === null) return away;
   const awayWeight = Math.min(1, Math.max(0, awayWeightRaw));
   const homeWeight = 1 - awayWeight;
+  const weighted: WeightedSample[] = [];
+  if (away !== null && away.values.length > 0 && awayWeight > 0) {
+    const perSample = awayWeight / away.values.length;
+    for (const value of away.values) weighted.push({ value, weight: perSample });
+  }
+  if (home !== null && home.values.length > 0 && homeWeight > 0) {
+    const perSample = homeWeight / home.values.length;
+    for (const value of home.values) weighted.push({ value, weight: perSample });
+  }
+  if (weighted.length === 0) {
+    // Degenerate: both sides exist but one carries all the weight and that
+    // side has no values. Fall back to the present side's raw median/MAD
+    // (no weighting needed when only one side contributes).
+    const fallback = away ?? home;
+    if (fallback === null || fallback.values.length === 0) return null;
+    const equal: WeightedSample[] = fallback.values.map((value) => ({ value, weight: 1 }));
+    return {
+      median: weightedMedian(equal),
+      mad: weightedMad(equal),
+      sampleSize: fallback.sampleSize,
+    };
+  }
+  const totalSampleSize = (away?.sampleSize ?? 0) + (home?.sampleSize ?? 0);
   return {
-    median: away.median * awayWeight + home.median * homeWeight,
-    mad: away.mad * awayWeight + home.mad * homeWeight,
-    sampleSize: away.sampleSize + home.sampleSize,
+    median: weightedMedian(weighted),
+    mad: weightedMad(weighted),
+    sampleSize: totalSampleSize,
   };
 }
 
