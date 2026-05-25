@@ -30,11 +30,12 @@ import { colors } from "@signal-console/ui";
 import { ApiUnreachableBanner, isNetworkError } from "../../components/ApiUnreachableBanner";
 import { QueryErrorBanner } from "../../components/QueryErrorBanner";
 import {
-  useBoard,
+  useEnsembleOr,
   useLive,
-  useMicrostructure,
+  useSettings,
   type BoardObservation,
-  type MicrostructureEvent,
+  type EnsembleOrBoardObservation,
+  type EnsembleOrFire,
 } from "../../data/queries";
 import { navigateTo } from "../../router";
 
@@ -110,13 +111,26 @@ function xAxisDomain(domain: ChartDomain | null): [number | "dataMin", number | 
   return domain === null ? ["dataMin", "dataMax"] : [domain.minMs, domain.maxMs];
 }
 
+// AMENDED 2026-05-25 (Codex review P1): marker id widened to string so the
+// chart can render off-price prints from either the legacy /v1/microstructure
+// shape (numeric DB id) or the new /v1/ensemble-or fire shape (composite key
+// of bucketStart + sourceMarketId). React keys accept either; per-timestamp
+// dedup is preserved.
 export interface OffPriceMarker {
-  readonly id: number;
+  readonly id: string;
   readonly timeMs: number;
 }
 
+// Minimal shape the chart needs to render off-price markers. Both the legacy
+// MicrostructureEvent and the new EnsembleOrFire (offprice lane) can satisfy
+// it via a small mapping in LivePage. Decouples the chart from either source.
+export interface OffPriceMarkerSource {
+  readonly id: string;
+  readonly eventTimestamp: string;
+}
+
 export function offPriceMarkersForDomain(
-  events: readonly MicrostructureEvent[],
+  events: readonly OffPriceMarkerSource[],
   domain: ChartDomain | null,
 ): OffPriceMarker[] {
   if (domain === null) return [];
@@ -134,7 +148,7 @@ export function offPriceMarkersForDomain(
 
 interface IntensityTimelineProps {
   readonly data: ChartPoint[];
-  readonly offPriceEvents: readonly MicrostructureEvent[];
+  readonly offPriceEvents: readonly OffPriceMarkerSource[];
 }
 
 function IntensityTimeline({ data, offPriceEvents }: IntensityTimelineProps): JSX.Element {
@@ -252,32 +266,59 @@ export function LivePage({ gameId }: LivePageProps): JSX.Element {
   // so opening Recent never triggers polling.
   const safeId = gameId ?? "";
   const live = useLive(safeId, { refetchInterval: POLL_MS });
-  const board = useBoard(safeId, { refetchInterval: POLL_MS });
-  // Pair board-mad with off-price-print on the same chart — the report's
-  // headline finding: "pairing it with the big-off-price-bet alarm catches
-  // what either one misses." See innovation-team-suspend-signal-report
-  // §formulas.
-  const micro = useMicrostructure(safeId, { refetchInterval: POLL_MS });
+  // Codex review P1 (2026-05-25): switched from useBoard + useMicrostructure
+  // to useEnsembleOr so the Live UI now reads the Stage-1 cascade math through
+  // the shared runner. /v1/ensemble-or returns board observations (per-bucket
+  // aggregates with warmedUp + fired) AND lane-tagged fires (board + offprice)
+  // computed by the actual off-price-print detector at live default thresholds.
+  // The earlier "/v1/microstructure events labeled as off-price prints" only
+  // filtered by volume_share — wrong domain, didn't apply offPriceMinOffPriceDistance.
+  const ensemble = useEnsembleOr(safeId, { refetchInterval: POLL_MS });
+  const settings = useSettings();
 
   if (gameId === null) {
     return <InvalidGameFallback />;
   }
 
   const networkErrored =
-    (live.isError && isNetworkError(live.error)) || (board.isError && isNetworkError(board.error));
+    (live.isError && isNetworkError(live.error)) ||
+    (ensemble.isError && isNetworkError(ensemble.error));
 
   const banner = networkErrored ? (
-    <ApiUnreachableBanner error={live.error ?? board.error ?? null} />
+    <ApiUnreachableBanner error={live.error ?? ensemble.error ?? null} />
   ) : live.isError ? (
     <QueryErrorBanner query={live} label="Failed to load live ticks" />
-  ) : board.isError ? (
-    <QueryErrorBanner query={board} label="Failed to load board observations" />
+  ) : ensemble.isError ? (
+    <QueryErrorBanner query={ensemble} label="Failed to load ensemble-or observations" />
   ) : null;
 
-  const observations: readonly BoardObservation[] = board.data?.observations ?? [];
+  // Adapter: ensemble-or board lane observations have the same field shape
+  // as the legacy /v1/board observations — pass through unchanged.
+  const observations: readonly BoardObservation[] = (ensemble.data?.boardObservations ?? []).map(
+    (b: EnsembleOrBoardObservation) => ({
+      bucketStart: b.bucketStart,
+      bucketEnd: b.bucketEnd,
+      fired: b.fired,
+      intensity: b.intensity,
+      baselineMedian: b.baselineMedian,
+      baselineMad: b.baselineMad,
+      warmedUp: b.warmedUp,
+    }),
+  );
   const fires = observations.filter((o) => o.fired === 1);
-  const offPriceEvents: readonly MicrostructureEvent[] = micro.data?.events ?? [];
-  const k = board.data?.k ?? 3.0;
+  // Codex review P1: ensemble-or offprice fires → minimal OffPriceMarkerSource
+  // shape the chart consumes. id = `${bucketStart}|${sourceMarketId}` so a
+  // React key collision is impossible across simultaneous markets, and
+  // per-timestamp dedup still happens inside offPriceMarkersForDomain.
+  const offPriceEvents: readonly OffPriceMarkerSource[] = (ensemble.data?.fires ?? [])
+    .filter((f: EnsembleOrFire) => f.lane === "offprice")
+    .map(
+      (f: EnsembleOrFire): OffPriceMarkerSource => ({
+        id: f.sourceMarketId !== undefined ? `${f.bucketStart}|${f.sourceMarketId}` : f.bucketStart,
+        eventTimestamp: f.bucketStart,
+      }),
+    );
+  const k = settings.data?.detectorDefaults.kMadLive ?? 3.0;
   const chartData = buildChartData(observations, k);
   const tickCount = live.data?.ticks.length ?? 0;
   const lastWindowEnd = live.data?.windowEnd ?? null;
@@ -343,14 +384,14 @@ export function LivePage({ gameId }: LivePageProps): JSX.Element {
         </div>
 
         <div className="mt-4">
-          {board.isLoading ? (
+          {ensemble.isLoading ? (
             <div
               className="h-72 w-full bg-surface-1"
               data-testid="live-timeline-loading"
               role="status"
               aria-label="loading timeline"
             />
-          ) : board.isError ? null : observations.length === 0 ? (
+          ) : ensemble.isError ? null : observations.length === 0 ? (
             <div
               className="flex h-72 w-full items-center justify-center bg-surface-1"
               data-testid="live-timeline-empty"

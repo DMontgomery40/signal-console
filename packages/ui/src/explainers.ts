@@ -495,6 +495,18 @@ This is the switch that makes Backtest and live behavior match. If you promote h
     formal: String.raw`Post-game buffer applied to \`MAX(nba_play_by_play_actions.time_actual)\` when narrowing the per-game in-play tick window. Symmetric counterpart to \`settings-pbp-pre-buffer-ms\`; together they bound the in-play tick set that feeds the detector.`,
   },
 
+  "settings-off-price-min-volume-share": {
+    title: "Off-price min volume share",
+    eli5: String.raw`How big a Polymarket trade-print has to be (as a share of total market volume) before it qualifies as a potential off-price signal. 0.1 (10%) by default — small trades get ignored.`,
+    formal: String.raw`\`offPriceMinVolumeShare\` in the runtime detector defaults. Used by both \`/v1/off-price-print/:gameId\` and the offprice lane inside \`/v1/ensemble-or/:gameId\`. The detector requires \`volumeShare >= offPriceMinVolumeShare AND offPriceDistance >= offPriceMinOffPriceDistance\` to fire. Editing this invalidates off-price cache rows via the runner's paramsHash on next access.`,
+  },
+
+  "settings-off-price-min-off-price-distance": {
+    title: "Off-price min distance",
+    eli5: String.raw`How far the trade price has to deviate from the most recent quoted implied probability before it counts as an off-price print. 0.4 by default — trades within 40% of the standing market are noise; trades farther away are the headline signal.`,
+    formal: String.raw`\`offPriceMinOffPriceDistance\` in the runtime detector defaults. The detector compares \`|trade_price - latest_pre-event_implied_probability|\` to this threshold (computed at query time via a causal subquery in \`services/loaders/microstructure-loader.ts\`). Editing this invalidates off-price cache rows via the runner's paramsHash on next access.`,
+  },
+
   "settings-db-path": {
     title: "Gold DB path",
     eli5: String.raw`The absolute path to the 54 GB read-only tick store. All API code opens this through a four-guard wrapper (URI mode=ro, options.readonly:true, fileMustExist:true, PRAGMA query_only=ON) and throws if any of those fails. Nothing in the API layer can write to it.`,

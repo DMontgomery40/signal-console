@@ -14,12 +14,22 @@ function makeWrapper(): (props: { children: ReactNode }) => JSX.Element {
   };
 }
 
+// AMENDED 2026-05-25 (Codex review P1): some tests need the response body
+// synchronously inside the fetch mock handler (the legacy `boardResponse`
+// + `microstructureResponse` fixtures get adapted into the new ensemble-or
+// shape on the fly). Response.json() is async; the adapter looks up the
+// pre-computed body via a WeakMap keyed on the Response itself.
+const responseBodyText = new WeakMap<Response, string>();
+
 function jsonResponse(body: unknown, init?: ResponseInit): Response {
-  return new Response(JSON.stringify(body), {
+  const text = JSON.stringify(body);
+  const res = new Response(text, {
     status: 200,
     headers: { "Content-Type": "application/json" },
     ...init,
   });
+  responseBodyText.set(res, text);
+  return res;
 }
 
 function liveResponse(opts: { gameId: string; tickCount: number }): Response {
@@ -74,6 +84,49 @@ function boardResponse(opts: {
   return jsonResponse({ gameId: opts.gameId, runId: 1, k: 3.0, observations });
 }
 
+// Minimal /v1/settings response so useSettings resolves and LivePage can
+// read kMadLive. Tests don't exercise the full settings UI here.
+function settingsResponse(): Response {
+  return jsonResponse({
+    db: {
+      path: "/tmp/test.sqlite",
+      mode: "read-only",
+      sizeBytes: 0,
+      walBytes: 0,
+      journalMode: "wal",
+    },
+    cacheDb: { path: "/tmp/cache.sqlite", sizeBytes: 0, pageCount: 0 },
+    sources: {
+      bet365: { lastSyncAt: null, lastError: null },
+      kalshi: { lastSyncAt: null, lastError: null },
+      polymarket: { lastSyncAt: null, lastError: null },
+    },
+    errors: [],
+    about: { appVersion: "0.0.0", detectorVersions: [], dbSchemaVersion: 1 },
+    detectorDefaults: {
+      kMadLive: 3,
+      baselineMode: "opening-ramp",
+      bucketSeconds: 60,
+      openingBaselineBuckets: 4,
+      openingRampCompleteBuckets: 20,
+      trailingBuckets: 20,
+      warmupBuckets: 8,
+      freshCapSeconds: 300,
+      historicalLastGames: 5,
+      historicalAwayWeight: 0.5,
+      historicalPriorWeight: 1,
+      historicalRampCompleteGameMinutes: 12,
+      trailingGameMinutes: 12,
+      recentWallMinutes: 4,
+      recentWallWeight: 1.5,
+      pbpPreBufferMs: 300000,
+      pbpPostBufferMs: 60000,
+      offPriceMinVolumeShare: 0.1,
+      offPriceMinOffPriceDistance: 0.4,
+    },
+  });
+}
+
 function microstructureResponse(opts: {
   gameId: string;
   eventTimestamps?: readonly string[];
@@ -118,44 +171,111 @@ function mockLiveAndBoard(
   board: Response,
   micro: Response = microstructureResponse({ gameId: GAME_ID }),
 ): void {
+  // AMENDED 2026-05-25 (Codex review P1): the LivePage now consumes
+  // /v1/ensemble-or instead of /v1/board + /v1/microstructure. We still
+  // accept the legacy `board` + `micro` params so existing call sites
+  // (e.g., the offPriceTimestamps in `renders the alert threshold line...`
+  // test) continue to seed the chart by adapting both into an ensemble-or
+  // response shape. /v1/settings is now also required for the live kMad.
   fetchMock.mockImplementation(async (input) => {
     await Promise.resolve();
     const url = urlOf(input);
     if (url.startsWith("/v1/live/")) return live.clone();
+    if (url.startsWith("/v1/ensemble-or/")) {
+      return adaptBoardAndMicroToEnsemble(board, micro).clone();
+    }
+    if (url.startsWith("/v1/settings")) return settingsResponse().clone();
+    // Defensive: legacy paths still get served so any test that explicitly
+    // mocks /v1/board or /v1/microstructure doesn't break (none should
+    // remain post-P1, but no need to delete the safety net).
     if (url.startsWith("/v1/board/")) return board.clone();
     if (url.startsWith("/v1/microstructure/")) return micro.clone();
     return new Response("not found", { status: 404 });
   });
 }
 
+// Adapt the legacy board + micro test fixtures into the ensemble-or shape.
+// Reads board observations from `board.json()`, micro events from
+// `micro.json()`, and re-emits as { gameId, runId, boardObservations, fires }.
+interface BoardJsonShape {
+  readonly gameId: string;
+  readonly observations: readonly {
+    readonly fired: number;
+    readonly bucketStart: string;
+    readonly bucketEnd: string;
+    readonly intensity: number;
+    readonly baselineMedian: number;
+    readonly baselineMad: number;
+    readonly warmedUp: boolean;
+  }[];
+}
+interface MicroJsonShape {
+  readonly events: readonly { readonly eventTimestamp: string; readonly sourceMarketId: string }[];
+}
+
+function parseBoardJson(text: string): BoardJsonShape {
+  const parsed: unknown = JSON.parse(text);
+  if (typeof parsed !== "object" || parsed === null) throw new Error("board json shape");
+  return parsed as BoardJsonShape; // eslint-disable-line @typescript-eslint/consistent-type-assertions
+}
+function parseMicroJson(text: string): MicroJsonShape {
+  const parsed: unknown = JSON.parse(text);
+  if (typeof parsed !== "object" || parsed === null) throw new Error("micro json shape");
+  return parsed as MicroJsonShape; // eslint-disable-line @typescript-eslint/consistent-type-assertions
+}
+
+function adaptBoardAndMicroToEnsemble(board: Response, micro: Response): Response {
+  const boardJson = parseBoardJson(readSyncBody(board));
+  const microJson = parseMicroJson(readSyncBody(micro));
+  const boardFires = boardJson.observations
+    .filter((o) => o.fired === 1)
+    .map((o) => ({
+      bucketStart: o.bucketStart,
+      bucketEnd: o.bucketEnd,
+      intensity: o.intensity,
+      baselineMedian: o.baselineMedian,
+      baselineMad: o.baselineMad,
+      lane: "board",
+    }));
+  const offpriceFires = microJson.events.map((e) => ({
+    bucketStart: e.eventTimestamp,
+    bucketEnd: e.eventTimestamp,
+    intensity: 0.5,
+    lane: "offprice",
+    sourceMarketId: e.sourceMarketId,
+  }));
+  return jsonResponse({
+    gameId: boardJson.gameId,
+    runId: 1,
+    boardObservations: boardJson.observations,
+    fires: [...boardFires, ...offpriceFires],
+  });
+}
+
+// Synchronously read a cloneable Response body that was built via jsonResponse.
+// Pulls from the WeakMap-side-channel because Response.json() is async and
+// the adapter runs inside the synchronous fetch mock handler.
+function readSyncBody(res: Response): string {
+  const text = responseBodyText.get(res);
+  if (text === undefined) {
+    throw new Error("response was not built via jsonResponse — no body in WeakMap");
+  }
+  return text;
+}
+
 const GAME_ID = "nba-0042500313";
 
 describe("offPriceMarkersForDomain", () => {
   it("keeps off-price events inside the visible chart time range even when they are between sparse board buckets", () => {
+    // OffPriceMarkerSource shape (post-B-followup) is minimal: just id +
+    // eventTimestamp. Numeric ids from the legacy /v1/microstructure route
+    // get stringified at the call site; ensemble-or fires use
+    // `${bucketStart}|${sourceMarketId}` composite keys.
     const markers = offPriceMarkersForDomain(
       [
         {
-          id: 1,
-          source: "polymarket",
-          sourceMarketId: "poly-1",
-          gameId: GAME_ID,
-          instrumentId: "inst-1",
-          eventType: "trade",
-          apiSurface: "trades",
+          id: "1",
           eventTimestamp: "2026-05-23T03:01:30Z",
-          capturedAt: "2026-05-23T03:01:30Z",
-          price: 0.62,
-          previousPrice: 0.58,
-          tradePrice: 0.62,
-          size: 100,
-          notional: 62,
-          volume: 1000,
-          finalMarketVolume: 2500,
-          volumeShare: 0.4,
-          bestBid: null,
-          bestAsk: null,
-          spread: null,
-          depthScore: null,
         },
       ],
       {
@@ -163,34 +283,15 @@ describe("offPriceMarkersForDomain", () => {
         maxMs: Date.parse("2026-05-23T03:03:00Z"),
       },
     );
-    expect(markers).toEqual([{ id: 1, timeMs: Date.parse("2026-05-23T03:01:30Z") }]);
+    expect(markers).toEqual([{ id: "1", timeMs: Date.parse("2026-05-23T03:01:30Z") }]);
   });
 
   it("drops off-price events outside the visible chart time range", () => {
     const markers = offPriceMarkersForDomain(
       [
         {
-          id: 1,
-          source: "polymarket",
-          sourceMarketId: "poly-1",
-          gameId: GAME_ID,
-          instrumentId: "inst-1",
-          eventType: "trade",
-          apiSurface: "trades",
+          id: "1",
           eventTimestamp: "2026-05-23T03:05:00Z",
-          capturedAt: "2026-05-23T03:05:00Z",
-          price: 0.62,
-          previousPrice: 0.58,
-          tradePrice: 0.62,
-          size: 100,
-          notional: 62,
-          volume: 1000,
-          finalMarketVolume: 2500,
-          volumeShare: 0.4,
-          bestBid: null,
-          bestAsk: null,
-          spread: null,
-          depthScore: null,
         },
       ],
       {
@@ -271,10 +372,24 @@ describe("LivePage", () => {
     vi.restoreAllMocks();
   });
 
-  it("renders the no-game placeholder when gameId is null and fires no requests", () => {
+  it("renders the no-game placeholder when gameId is null and fires no game-scoped requests", () => {
+    // AMENDED 2026-05-25 (Codex review P1): LivePage now reads
+    // /v1/settings for the live kMad (replaces the kMad that used to come
+    // from /v1/board's response). /v1/settings has no gameId — it fires
+    // unconditionally. Game-scoped routes still gate on a non-empty
+    // gameId, which is the actual behavior this test cares about.
+    fetchMock.mockImplementation(async (input) => {
+      await Promise.resolve();
+      const url = urlOf(input);
+      if (url.startsWith("/v1/settings")) return settingsResponse().clone();
+      return new Response("not found", { status: 404 });
+    });
     render(<LivePage gameId={null} />, { wrapper: makeWrapper() });
     expect(screen.getByTestId("live-no-game")).toBeDefined();
-    expect(fetchMock).not.toHaveBeenCalled();
+    const calledUrls = fetchMock.mock.calls.map((c) => urlOf(c[0]));
+    expect(calledUrls.some((u) => u.startsWith("/v1/live/"))).toBe(false);
+    expect(calledUrls.some((u) => u.startsWith("/v1/ensemble-or/"))).toBe(false);
+    expect(calledUrls.some((u) => u.startsWith("/v1/board/"))).toBe(false);
   });
 
   it("renders the gameId in the title and a back-to-recent link", async () => {
@@ -290,7 +405,9 @@ describe("LivePage", () => {
     expect(screen.getByTestId("live-back-to-recent")).toBeDefined();
   });
 
-  it("fires GET /v1/live/:gameId and GET /v1/board/:gameId on mount", async () => {
+  it("fires GET /v1/live/:gameId and GET /v1/ensemble-or/:gameId on mount", async () => {
+    // AMENDED 2026-05-25 (Codex review P1): LivePage now consumes the
+    // ensemble-or live route as the unified board + offprice surface.
     mockLiveAndBoard(
       fetchMock,
       liveResponse({ gameId: GAME_ID, tickCount: 2 }),
@@ -302,8 +419,7 @@ describe("LivePage", () => {
     });
     const calledUrls = fetchMock.mock.calls.map((c) => urlOf(c[0]));
     expect(calledUrls.some((u) => u.startsWith(`/v1/live/${GAME_ID}`))).toBe(true);
-    expect(calledUrls.some((u) => u.startsWith(`/v1/board/${GAME_ID}`))).toBe(true);
-    expect(calledUrls.some((u) => u.startsWith(`/v1/microstructure/${GAME_ID}`))).toBe(true);
+    expect(calledUrls.some((u) => u.startsWith(`/v1/ensemble-or/${GAME_ID}`))).toBe(true);
   });
 
   it("renders the intensity timeline once board data resolves with fires", async () => {

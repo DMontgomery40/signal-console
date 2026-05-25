@@ -321,6 +321,30 @@ const NUMERIC_DETECTOR_DEFAULT_FIELDS: ReadonlyArray<{
     integer: true,
     unit: "ms",
   },
+  // Phase B3 / Codex review P3 (2026-05-25): off-price-print thresholds
+  // were API-runtime-tunable but missing from the rendered Settings UI.
+  // Adding them here so the on-prem trader can move sensitivity without
+  // hitting the raw POST endpoint. Both are unit-fraction values [0, 1].
+  {
+    key: "offPriceMinVolumeShare",
+    label: "Off-price min volume share",
+    explainerId: "settings-off-price-min-volume-share",
+    step: 0.05,
+    integer: false,
+    min: 0,
+    max: 1,
+    unit: "share",
+  },
+  {
+    key: "offPriceMinOffPriceDistance",
+    label: "Off-price min distance",
+    explainerId: "settings-off-price-min-off-price-distance",
+    step: 0.05,
+    integer: false,
+    min: 0,
+    max: 1,
+    unit: "Δp",
+  },
 ];
 
 const PBP_PRE_BUFFER_MS_DEFAULT = 5 * 60 * 1000;

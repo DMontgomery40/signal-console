@@ -203,6 +203,34 @@ const microstructureSchema = z.object({
   events: z.array(microstructureEventSchema),
 });
 
+// /v1/ensemble-or/:gameId — mirrors apps/api/src/routes/ensemble-or.ts
+// Stage-1 cascade: board-mad board lane + off-price-print fires from the
+// shared runner.
+const ensembleOrBoardObservationSchema = z.object({
+  bucketStart: z.string(),
+  bucketEnd: z.string(),
+  fired: z.number().int(),
+  intensity: z.number(),
+  baselineMedian: z.number(),
+  baselineMad: z.number(),
+  warmedUp: z.boolean(),
+});
+const ensembleOrFireSchema = z.object({
+  bucketStart: z.string(),
+  bucketEnd: z.string(),
+  intensity: z.number(),
+  baselineMedian: z.number().optional(),
+  baselineMad: z.number().optional(),
+  lane: z.enum(["board", "offprice"]),
+  sourceMarketId: z.string().optional(),
+});
+const ensembleOrSchema = z.object({
+  gameId: z.string(),
+  runId: z.number().int(),
+  boardObservations: z.array(ensembleOrBoardObservationSchema),
+  fires: z.array(ensembleOrFireSchema),
+});
+
 // /v1/detectors — PRD §15 + §10: registry entries. apps/api/src/routes/detectors.ts
 // returns the rows wrapped as { detectors: [...] }; paramsSchema is a JSON
 // Schema object produced via zod-to-json-schema and we keep it as a
@@ -307,6 +335,9 @@ export type QuoteTick = z.infer<typeof quoteTickSchema>;
 export type Live = z.infer<typeof liveSchema>;
 export type MicrostructureEvent = z.infer<typeof microstructureEventSchema>;
 export type Microstructure = z.infer<typeof microstructureSchema>;
+export type EnsembleOrLive = z.infer<typeof ensembleOrSchema>;
+export type EnsembleOrBoardObservation = z.infer<typeof ensembleOrBoardObservationSchema>;
+export type EnsembleOrFire = z.infer<typeof ensembleOrFireSchema>;
 export type FanoutPbpEvent = z.infer<typeof fanoutPbpEventSchema>;
 export type FanoutMover = z.infer<typeof fanoutMoverSchema>;
 export type FanoutMicroEvent = z.infer<typeof fanoutMicroEventSchema>;
@@ -391,6 +422,27 @@ export function useMicrostructure(
       fetchJson(
         `/v1/microstructure/${encodeURIComponent(gameId)}`,
         microstructureSchema,
+        signal,
+      ),
+    enabled: gameId.length > 0,
+    ...(opts?.refetchInterval !== undefined ? { refetchInterval: opts.refetchInterval } : {}),
+  });
+}
+
+// Phase B2 / Codex review P1 (2026-05-25): consume the new live ensemble-or
+// route that the shared runner backs. Returns board lane per-bucket
+// observations (mirrors /v1/board shape) PLUS lane-tagged fires (board +
+// offprice) — the Stage-1 cascade math David's bet365 demo is built around.
+export function useEnsembleOr(
+  gameId: string,
+  opts?: PollOptions,
+): UseQueryResult<EnsembleOrLive, Error> {
+  return useQuery({
+    queryKey: ["ensemble-or", gameId],
+    queryFn: ({ signal }) =>
+      fetchJson(
+        `/v1/ensemble-or/${encodeURIComponent(gameId)}`,
+        ensembleOrSchema,
         signal,
       ),
     enabled: gameId.length > 0,

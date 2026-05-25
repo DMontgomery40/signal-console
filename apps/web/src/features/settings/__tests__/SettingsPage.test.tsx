@@ -485,7 +485,10 @@ describe("SettingsPage > Detector defaults (US-053)", () => {
       expect(screen.getByTestId("settings-detector-defaults")).toBeDefined();
     });
     const rows = screen.getAllByTestId("detector-default-row");
-    expect(rows.length).toBe(18);
+    // Codex review P3 (2026-05-25): off-price thresholds added to the
+    // rendered Settings UI (+2 fields: offPriceMinVolumeShare,
+    // offPriceMinOffPriceDistance). Was 18, now 20.
+    expect(rows.length).toBe(20);
     const baselineMode = screen.getByTestId("detector-default-input-baselineMode");
     if (!(baselineMode instanceof HTMLSelectElement)) throw new Error("not select");
     expect(baselineMode.value).toBe(BOARD_MAD_BASELINE_MODE_DEFAULT);

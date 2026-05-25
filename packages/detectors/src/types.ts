@@ -66,12 +66,12 @@ export type GameTimingContext = {
 // `ticks` and `microstructureEvents` are optional/additive (per US-007 guidance)
 // so each detector reads only the fields it needs without breaking the contract.
 // `timingContexts` carries the per-game tipoff anchors resolved by the runner.
-// As of 2026-05-25 (phase A0) it is plumbed through DetectorWindow and used by
-// the runner for cache identity + scheduled-fallback tick-window resolution.
-// It WILL be consumed inside prebucket/baseline for the PBP-missing elapsed
-// math after audit-fix #2 (phase A2); board-mad currently uses per-tick
-// gameElapsedSeconds with a "first nonzero bucket" wall-time fallback, which
-// is the bug A2 closes. Until A2 lands, this field is read by the runner only.
+// Used by the runner for cache identity + scheduled-fallback tick-window
+// resolution, AND consumed inside packages/detectors/src/board-mad/baseline.ts
+// for the PBP-missing elapsed fallback (per-tick gameElapsedSeconds first,
+// then GameTimingContext.tipoffAnchorUtc; the legacy first-nonzero-bucket
+// fallback only applies to legacy callers that don't supply this field).
+// Phase A0 plumbed it; phase A2 (2026-05-25) made baseline consume it.
 export type DetectorWindow = {
   readonly gameIds: readonly string[];
   readonly start: Date;

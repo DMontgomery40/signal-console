@@ -223,6 +223,29 @@ function nextUtcNineAmIso(now = new Date()): string {
   return next.toISOString();
 }
 
+// Phase B4 amendment (Codex review P2, 2026-05-25): read the ensemble-or
+// form's nested offprice params so the parity banner / Apply-to-Live
+// dialog include them. Defaults match OffPricePrintParams (Zod) — used
+// when the user hasn't explicitly edited offprice fields.
+function readEnsembleOffpriceParams(
+  params: Readonly<Record<string, unknown>>,
+): { readonly minVolumeShare: number; readonly minOffPriceDistance: number } | null {
+  const offprice = params["offprice"];
+  // Use the existing isPlainRecord predicate to narrow `offprice` to an
+  // indexable record without a type assertion. When absent/wrong shape,
+  // fall through to OffPricePrintParams Zod defaults — same values the
+  // runner would resolve.
+  if (!isPlainRecord(offprice)) {
+    return { minVolumeShare: 0.1, minOffPriceDistance: 0.4 };
+  }
+  const minVolumeShare = offprice["minVolumeShare"];
+  const minOffPriceDistance = offprice["minOffPriceDistance"];
+  return {
+    minVolumeShare: typeof minVolumeShare === "number" ? minVolumeShare : 0.1,
+    minOffPriceDistance: typeof minOffPriceDistance === "number" ? minOffPriceDistance : 0.4,
+  };
+}
+
 function readBoardKMad(
   params: Readonly<Record<string, unknown>>,
   detectorId: string | undefined,
@@ -965,18 +988,22 @@ export function BacktestPage(): JSX.Element {
   );
   const currentProfile = inferBoardProfile(currentBaselineMode, currentBucketSeconds);
 
-  // Phase B4: live-parity computation + promote-to-live actions.
+  // Phase B4 + Codex review P2 (2026-05-25): live-parity computation +
+  // promote-to-live actions. For ensemble-or we ALSO compare the offprice
+  // thresholds (the live ensemble route reads them from defaults in
+  // apps/api/src/routes/ensemble-or.ts) so the banner doesn't claim
+  // parity while the offprice thresholds differ silently.
   const liveDefaults = settingsQuery.data?.detectorDefaults ?? null;
   const liveProfile =
     liveDefaults !== null
       ? inferBoardProfile(liveDefaults.baselineMode, liveDefaults.bucketSeconds)
       : null;
-  // Parity check: do the form's board-mad knobs match the live defaults?
-  // Only meaningful for board-mad or ensemble-or detectors; we compare the
-  // board-lane params either way (ensemble's offprice thresholds are also
-  // covered when offPrice* values are part of the comparison, see B3).
+  const isEnsembleSelected = selectedDetector?.id === ENSEMBLE_OR_DETECTOR_ID;
+  const currentEnsembleOffprice = isEnsembleSelected
+    ? readEnsembleOffpriceParams(form.params)
+    : null;
   const boardLikeForParity = boardLikeSelected;
-  const paramsMatchLive =
+  const boardFieldsMatchLive =
     liveDefaults !== null && boardLikeForParity
       ? currentBaselineMode === liveDefaults.baselineMode &&
         currentBucketSeconds === liveDefaults.bucketSeconds &&
@@ -986,6 +1013,17 @@ export function BacktestPage(): JSX.Element {
         currentWarmupBuckets === liveDefaults.warmupBuckets &&
         currentSensitivity === liveDefaults.kMadLive
       : null;
+  const offpriceFieldsMatchLive =
+    liveDefaults !== null && isEnsembleSelected && currentEnsembleOffprice !== null
+      ? currentEnsembleOffprice.minVolumeShare === liveDefaults.offPriceMinVolumeShare &&
+        currentEnsembleOffprice.minOffPriceDistance === liveDefaults.offPriceMinOffPriceDistance
+      : null;
+  const paramsMatchLive: boolean | null =
+    boardFieldsMatchLive === null
+      ? null
+      : isEnsembleSelected
+        ? boardFieldsMatchLive && offpriceFieldsMatchLive === true
+        : boardFieldsMatchLive;
   const canPromote = boardLikeForParity && liveDefaults !== null && paramsMatchLive === false;
 
   function buildPromoteDefaults(): DetectorDefaults | null {
@@ -999,6 +1037,24 @@ export function BacktestPage(): JSX.Element {
       currentBaselineMode === BOARD_MAD_BASELINE_MODE_HISTORICAL_BLEND
         ? currentBaselineMode
         : liveDefaults.baselineMode;
+    // Codex review P2: when promoting an ensemble-or backtest, also write
+    // the offprice thresholds so the live /v1/ensemble-or route sees the
+    // same values the operator was previewing. Standalone board-mad
+    // backtests don't carry offprice params, so we leave those at their
+    // current live values.
+    const offpriceFields: Pick<
+      DetectorDefaults,
+      "offPriceMinVolumeShare" | "offPriceMinOffPriceDistance"
+    > =
+      isEnsembleSelected && currentEnsembleOffprice !== null
+        ? {
+            offPriceMinVolumeShare: currentEnsembleOffprice.minVolumeShare,
+            offPriceMinOffPriceDistance: currentEnsembleOffprice.minOffPriceDistance,
+          }
+        : {
+            offPriceMinVolumeShare: liveDefaults.offPriceMinVolumeShare,
+            offPriceMinOffPriceDistance: liveDefaults.offPriceMinOffPriceDistance,
+          };
     return {
       ...liveDefaults,
       baselineMode: narrowedMode,
@@ -1008,6 +1064,7 @@ export function BacktestPage(): JSX.Element {
       trailingBuckets: currentMemoryBuckets,
       warmupBuckets: currentWarmupBuckets,
       kMadLive: currentSensitivity,
+      ...offpriceFields,
     };
   }
 
