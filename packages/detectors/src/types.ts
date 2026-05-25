@@ -65,9 +65,13 @@ export type GameTimingContext = {
 // backtest job) and handed to run(); detectors do not open the gold DB themselves.
 // `ticks` and `microstructureEvents` are optional/additive (per US-007 guidance)
 // so each detector reads only the fields it needs without breaking the contract.
-// `timingContexts` carries the per-game tipoff anchors resolved by the runner;
-// board-mad consumes them through prebucket/baseline for the PBP-missing
-// fallback so we never use first-nonzero market activity as tipoff.
+// `timingContexts` carries the per-game tipoff anchors resolved by the runner.
+// As of 2026-05-25 (phase A0) it is plumbed through DetectorWindow and used by
+// the runner for cache identity + scheduled-fallback tick-window resolution.
+// It WILL be consumed inside prebucket/baseline for the PBP-missing elapsed
+// math after audit-fix #2 (phase A2); board-mad currently uses per-tick
+// gameElapsedSeconds with a "first nonzero bucket" wall-time fallback, which
+// is the bug A2 closes. Until A2 lands, this field is read by the runner only.
 export type DetectorWindow = {
   readonly gameIds: readonly string[];
   readonly start: Date;
