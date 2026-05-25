@@ -90,7 +90,8 @@ function seedGoldDb(path: string): void {
     `);
 
     const insertGame = db.prepare(
-      `INSERT INTO games (id, sport, scheduled_start) VALUES (?, 'NBA', ?)`,
+      `INSERT INTO games (id, sport, scheduled_start, home_participant_json, away_participant_json)
+       VALUES (?, 'NBA', ?, ?, ?)`,
     );
     const insertMarket = db.prepare(`INSERT INTO source_markets (id, game_id) VALUES (?, ?)`);
     const insertTick = db.prepare(
@@ -108,7 +109,9 @@ function seedGoldDb(path: string): void {
     );
 
     const TIPOFF_MS = Date.parse("2026-05-23T03:00:00.000Z");
-    insertGame.run(GAME_ID, "2026-05-23T03:00:00.000Z");
+    const HOME_JSON = `{"key":"home"}`;
+    const AWAY_JSON = `{"key":"away"}`;
+    insertGame.run(GAME_ID, "2026-05-23T03:00:00.000Z", HOME_JSON, AWAY_JSON);
     insertMarket.run(`mkt-${GAME_ID}`, GAME_ID);
 
     // 30 ticks over 15 minutes (every 30s). One spike at minute 11.
@@ -127,6 +130,27 @@ function seedGoldDb(path: string): void {
       const secondsRemaining = (12 * 60 - periodElapsed) % 60;
       const clock = `PT${String(minutesRemaining).padStart(2, "0")}M${String(secondsRemaining).padStart(2, "0")}.00S`;
       insertPbp.run(GAME_ID, new Date(tMs).toISOString(), 1, clock);
+    }
+
+    // Prior game with the same home/away team keys, scheduled the day before.
+    // Used by historical-blend mode tests to populate buildBoardMadHistoricalPriors.
+    const PRIOR_GAME_ID = "nba-parity-prior";
+    const PRIOR_TIPOFF_MS = TIPOFF_MS - 24 * 60 * 60 * 1000;
+    insertGame.run(PRIOR_GAME_ID, new Date(PRIOR_TIPOFF_MS).toISOString(), HOME_JSON, AWAY_JSON);
+    insertMarket.run(`mkt-${PRIOR_GAME_ID}`, PRIOR_GAME_ID);
+    for (let i = 0; i < 20; i += 1) {
+      const tMs = PRIOR_TIPOFF_MS + i * 60_000;
+      const ip = 0.45 + ((i * 0.011) % 0.1);
+      insertTick.run(`mkt-${PRIOR_GAME_ID}`, new Date(tMs).toISOString(), ip, 12);
+    }
+    for (let i = 0; i < 20; i += 1) {
+      const tMs = PRIOR_TIPOFF_MS + i * 60_000;
+      const elapsedSec = i * 60;
+      const periodElapsed = elapsedSec % (12 * 60);
+      const minutesRemaining = Math.floor((12 * 60 - periodElapsed) / 60);
+      const secondsRemaining = (12 * 60 - periodElapsed) % 60;
+      const clock = `PT${String(minutesRemaining).padStart(2, "0")}M${String(secondsRemaining).padStart(2, "0")}.00S`;
+      insertPbp.run(PRIOR_GAME_ID, new Date(tMs).toISOString(), 1, clock);
     }
 
     // 5 microstructure trade prints scattered in the game window. Two cross
@@ -279,6 +303,42 @@ describe("detector-runner parity (audit-fix phase A0)", () => {
     expect(timing?.gameId).toBe(GAME_ID);
     expect(timing?.clockSource).toBe("pbp");
     expect(timing?.tipoffAnchorUtc.toISOString()).toBe("2026-05-23T03:00:00.000Z");
+  });
+
+  // Phase B1 regression (2026-05-25): ensemble-or with historical-blend nested
+  // board params must produce byte-identical board-lane buckets to standalone
+  // board-mad with the same params. This is closed-by-construction in A0a
+  // because both dispatches route through the same runner code path that
+  // builds historicalPriors when boardMadParams.baselineMode === HISTORICAL_BLEND.
+  // This test pins that the historical-prior pipeline reaches BOTH dispatches
+  // (the pre-runner bug at backtest.ts:128-131 only built priors for the
+  // standalone case; ensemble silently got priors=[]).
+  it("ensemble-or historical-blend board lane equals standalone board-mad historical-blend", () => {
+    const boardParamsBlend = {
+      ...DEFAULT_BOARD_PARAMS,
+      baselineMode: "historical-blend" as const,
+    };
+    const standalone = runDetector({
+      detectorId: "board-mad",
+      params: boardParamsBlend,
+      scope: { kind: "game", gameId: GAME_ID },
+      goldDbPath: ctx.goldDbPath,
+      cacheDbPath: ctx.cacheDbPath,
+    });
+    const ensemble = runDetector({
+      detectorId: "ensemble-or",
+      params: { board: boardParamsBlend },
+      scope: { kind: "game", gameId: GAME_ID },
+      goldDbPath: ctx.goldDbPath,
+      cacheDbPath: ctx.cacheDbPath,
+    });
+
+    // Both dispatches must have invoked buildBoardMadHistoricalPriors and
+    // produced identical board-lane math from the prior game seeded in
+    // seedGoldDb. Byte-identical buckets is the contract.
+    const standaloneKeys = standalone.buckets.map(bucketKey).toSorted();
+    const ensembleKeys = ensemble.buckets.map(bucketKey).toSorted();
+    expect(ensembleKeys).toEqual(standaloneKeys);
   });
 
   it("cache hit on second call returns identical result without re-running detector", () => {
