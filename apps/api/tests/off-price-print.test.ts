@@ -15,6 +15,8 @@ import { buildServer } from "../src/server";
 import {
   invalidateDetectorDefaultsCache,
   setDetectorDefaultsPath,
+  writeDetectorDefaults,
+  BASELINE_DEFAULTS,
 } from "../src/services/detector-defaults";
 
 type FastifyApp = Awaited<ReturnType<typeof buildServer>>;
@@ -196,6 +198,45 @@ describe("off-price-print live route (phase B2)", () => {
     const secondFires = secondBody["fires"];
     if (!Array.isArray(firstFires) || !Array.isArray(secondFires)) throw new Error("fires shape");
     expect(secondFires.length).toBe(firstFires.length);
+  });
+
+  it("phase B3: raising minOffPriceDistance via detector-defaults suppresses the fire", async () => {
+    // The seeded MME event has off-price-distance ≈ 0.4944. At the baseline
+    // default threshold 0.4 it fires (proven in the first test). Raise the
+    // threshold to 0.7 via /v1/settings/detector-defaults → cache key changes
+    // → recompute → no fire.
+    const app = await startApp();
+    const first = await app.inject({
+      method: "GET",
+      url: `/v1/off-price-print/${GAME_ID}`,
+      headers: authHeaders(),
+    });
+    const firstJson: unknown = first.json();
+    if (!isRecord(firstJson)) throw new Error("first body shape");
+    const firstBody = firstJson;
+    const firstFires = firstBody["fires"];
+    if (!Array.isArray(firstFires)) throw new Error("first fires shape");
+    expect(firstFires.length).toBe(1);
+
+    // Tighten the threshold above the seeded event's distance.
+    writeDetectorDefaults({
+      ...BASELINE_DEFAULTS,
+      offPriceMinOffPriceDistance: 0.7,
+    });
+
+    const second = await app.inject({
+      method: "GET",
+      url: `/v1/off-price-print/${GAME_ID}`,
+      headers: authHeaders(),
+    });
+    expect(second.statusCode).toBe(200);
+    const secondJson: unknown = second.json();
+    if (!isRecord(secondJson)) throw new Error("second body shape");
+    const secondFires = secondJson["fires"];
+    if (!Array.isArray(secondFires)) throw new Error("second fires shape");
+    expect(secondFires.length).toBe(0);
+    // runId differs because params changed → paramsHash changed → cache miss.
+    expect(secondJson["runId"]).not.toBe(firstBody["runId"]);
   });
 
   it("returns 400 for invalid params shape", async () => {

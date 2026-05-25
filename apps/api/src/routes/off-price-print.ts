@@ -14,6 +14,7 @@ import { CACHE_DB_PATH, GOLD_DB_PATH } from "@signal-console/db";
 import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 
+import { readDetectorDefaults } from "../services/detector-defaults";
 import { runDetector } from "../services/detector-runner";
 
 export interface OffPricePrintRoutesOptions {
@@ -81,12 +82,17 @@ const offPricePrintRoutes: FastifyPluginAsync<OffPricePrintRoutesOptions> = (app
         reply.code(400).send({ error: "invalid params" });
         return;
       }
-      // Off-price-print params: B3 will surface minVolumeShare /
-      // minOffPriceDistance through detector-defaults; for now the Zod
-      // defaults in OffPricePrintParams (0.1 / 0.4) apply.
+      // Off-price-print params from runtime detector-defaults (phase B3).
+      // Cache identity covers these via the runner's paramsHash, so changing
+      // thresholds via /v1/settings/detector-defaults auto-invalidates
+      // off-price cache rows on the next access.
+      const defaults = readDetectorDefaults();
       const result = runDetector({
         detectorId: "off-price-print",
-        params: {},
+        params: {
+          minVolumeShare: defaults.offPriceMinVolumeShare,
+          minOffPriceDistance: defaults.offPriceMinOffPriceDistance,
+        },
         scope: { kind: "game", gameId: parsed.data.gameId },
         goldDbPath,
         cacheDbPath,

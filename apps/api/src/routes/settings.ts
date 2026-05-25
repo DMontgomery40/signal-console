@@ -211,6 +211,8 @@ const responseSchema = {
         "recentWallWeight",
         "pbpPreBufferMs",
         "pbpPostBufferMs",
+        "offPriceMinVolumeShare",
+        "offPriceMinOffPriceDistance",
       ],
       properties: {
         kMadLive: {
@@ -293,6 +295,9 @@ const responseSchema = {
         },
         pbpPreBufferMs: { type: "integer" },
         pbpPostBufferMs: { type: "integer" },
+        // Phase B3: off-price-print thresholds, runtime-tunable.
+        offPriceMinVolumeShare: { type: "number", minimum: 0, maximum: 1 },
+        offPriceMinOffPriceDistance: { type: "number", minimum: 0, maximum: 1 },
       },
       additionalProperties: false,
     },
@@ -319,6 +324,8 @@ const detectorDefaultsResponseSchema = {
     "recentWallWeight",
     "pbpPreBufferMs",
     "pbpPostBufferMs",
+    "offPriceMinVolumeShare",
+    "offPriceMinOffPriceDistance",
   ],
   properties: {
     kMadLive: {
@@ -401,6 +408,9 @@ const detectorDefaultsResponseSchema = {
     },
     pbpPreBufferMs: { type: "integer" },
     pbpPostBufferMs: { type: "integer" },
+    // Phase B3: off-price-print thresholds, runtime-tunable.
+    offPriceMinVolumeShare: { type: "number", minimum: 0, maximum: 1 },
+    offPriceMinOffPriceDistance: { type: "number", minimum: 0, maximum: 1 },
   },
   additionalProperties: false,
 } as const;

@@ -137,7 +137,13 @@ const ensembleOrRoutes: FastifyPluginAsync<EnsembleOrRoutesOptions> = (app, opts
       });
       const result = runDetector({
         detectorId: "ensemble-or",
-        params: { board: liveBoardParams },
+        params: {
+          board: liveBoardParams,
+          offprice: {
+            minVolumeShare: defaults.offPriceMinVolumeShare,
+            minOffPriceDistance: defaults.offPriceMinOffPriceDistance,
+          },
+        },
         scope: { kind: "game", gameId: parsed.data.gameId },
         goldDbPath,
         cacheDbPath,

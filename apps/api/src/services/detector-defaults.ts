@@ -83,6 +83,13 @@ export const DETECTOR_DEFAULTS_PATH: string = join(
 export const PBP_PRE_BUFFER_MS_DEFAULT = 5 * 60 * 1000;
 export const PBP_POST_BUFFER_MS_DEFAULT = 60_000;
 
+// Off-price-print thresholds (phase B3, 2026-05-25). Mirror the Zod defaults
+// declared in packages/detectors/src/off-price-print/index.ts. Exposed here
+// so traders can tune them at runtime via /v1/settings/detector-defaults
+// without redeploying the worker.
+export const OFF_PRICE_MIN_VOLUME_SHARE_DEFAULT = 0.1;
+export const OFF_PRICE_MIN_OFF_PRICE_DISTANCE_DEFAULT = 0.4;
+
 export const DetectorDefaultsSchema = z
   .object({
     kMadLive: z.number().min(BOARD_MAD_K_MAD_MIN).max(BOARD_MAD_K_MAD_MAX).default(K_MAD_LIVE),
@@ -167,6 +174,16 @@ export const DetectorDefaultsSchema = z
       .default(BOARD_MAD_RECENT_WALL_WEIGHT_DEFAULT),
     pbpPreBufferMs: z.number().int().min(60_000).max(3_600_000).default(PBP_PRE_BUFFER_MS_DEFAULT),
     pbpPostBufferMs: z.number().int().min(10_000).max(600_000).default(PBP_POST_BUFFER_MS_DEFAULT),
+    // Off-price-print thresholds (B3): runtime-tunable so traders adjust live
+    // sensitivity without redeploying. Cache identity is covered by the
+    // runner's paramsHash (the off-price-print live route passes these as
+    // its params object) — no detector-version suffix needed for off-price.
+    offPriceMinVolumeShare: z.number().min(0).max(1).default(OFF_PRICE_MIN_VOLUME_SHARE_DEFAULT),
+    offPriceMinOffPriceDistance: z
+      .number()
+      .min(0)
+      .max(1)
+      .default(OFF_PRICE_MIN_OFF_PRICE_DISTANCE_DEFAULT),
   })
   .strict();
 
@@ -312,6 +329,11 @@ export function boardMadDetectorVersion(defaults: DetectorDefaults): string {
 }
 
 function orderedDefaults(d: DetectorDefaults): Record<string, number | string> {
+  // Only board-mad-relevant fields enter this hash (it suffixes the
+  // board-mad detector_version). Off-price defaults intentionally excluded:
+  // those flow through the runner's params hash on the off-price-print
+  // dispatch directly, so changing them invalidates off-price cache rows
+  // without touching board-mad cache.
   return {
     baselineMode: d.baselineMode,
     bucketSeconds: d.bucketSeconds,
@@ -334,6 +356,9 @@ function orderedDefaults(d: DetectorDefaults): Record<string, number | string> {
 }
 
 function isBaselineDefaults(d: DetectorDefaults): boolean {
+  // Only checks board-mad-relevant fields: this gates whether
+  // boardMadDetectorVersion gets a `+def.<hash>` suffix. Off-price thresholds
+  // don't affect board-mad cache identity (per orderedDefaults comment).
   return (
     d.kMadLive === BASELINE_DEFAULTS.kMadLive &&
     d.baselineMode === BASELINE_DEFAULTS.baselineMode &&

@@ -353,6 +353,11 @@ describe("detector-defaults route (US-053)", () => {
     expect(defaults["freshCapSeconds"]).toBe(BASELINE_DEFAULTS.freshCapSeconds);
     expect(defaults["pbpPreBufferMs"]).toBe(BASELINE_DEFAULTS.pbpPreBufferMs);
     expect(defaults["pbpPostBufferMs"]).toBe(BASELINE_DEFAULTS.pbpPostBufferMs);
+    // Phase B3: off-price thresholds in runtime defaults.
+    expect(defaults["offPriceMinVolumeShare"]).toBe(BASELINE_DEFAULTS.offPriceMinVolumeShare);
+    expect(defaults["offPriceMinOffPriceDistance"]).toBe(
+      BASELINE_DEFAULTS.offPriceMinOffPriceDistance,
+    );
     // board-mad version stays the package-declared string when defaults
     // match baseline — pre-existing cache rows remain valid.
     const about = asRecord(body["about"], "about");
