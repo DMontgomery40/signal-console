@@ -44,10 +44,30 @@ export type MicrostructureEvent = {
   readonly offPriceDistance: number;
 };
 
+// Per-game timing fact resolved by the shared detector runner. Single source
+// of tipoff truth so the baseline math anchors elapsed seconds to a real game
+// instant — never to "first nonzero market bucket" (the original category
+// error this audit closes). `clockSource` records which fallback produced the
+// anchor; the runner includes it in cache identity so a `scheduled`-anchored
+// run recomputes when PBP arrives. Added 2026-05-24 phase A0.
+export type ClockSource = "pbp" | "scheduled" | "none";
+
+export type GameTimingContext = {
+  readonly gameId: string;
+  readonly scheduledStartUtc: Date;
+  readonly tipoffAnchorUtc: Date;
+  readonly clockSource: ClockSource;
+  readonly pbpMinUtc: Date | null;
+  readonly pbpMaxUtc: Date | null;
+};
+
 // A detector's invocation scope. Concrete data is loaded by the caller (route or
 // backtest job) and handed to run(); detectors do not open the gold DB themselves.
 // `ticks` and `microstructureEvents` are optional/additive (per US-007 guidance)
 // so each detector reads only the fields it needs without breaking the contract.
+// `timingContexts` carries the per-game tipoff anchors resolved by the runner;
+// board-mad consumes them through prebucket/baseline for the PBP-missing
+// fallback so we never use first-nonzero market activity as tipoff.
 export type DetectorWindow = {
   readonly gameIds: readonly string[];
   readonly start: Date;
@@ -55,6 +75,7 @@ export type DetectorWindow = {
   readonly ticks?: readonly Tick[];
   readonly boardMadHistoricalPriors?: readonly BoardMadHistoricalPrior[];
   readonly microstructureEvents?: readonly MicrostructureEvent[];
+  readonly timingContexts?: readonly GameTimingContext[];
 };
 
 export type BoardMadHistoricalPrior = {
