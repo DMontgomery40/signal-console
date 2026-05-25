@@ -90,6 +90,17 @@ export const BOARD_MAD_PREBUCKET_PARAMS: readonly string[] = [
   "recentWallMinutes",
   "recentWallWeight",
 ];
+// Phase B5 (2026-05-25): exposed so BacktestPage can flag the snapshot as
+// stale when the user picks a baselineMode the client recompute can't
+// apply. Historical-blend needs same-side priors that the snapshot doesn't
+// carry; the client recompute returns null for those modes (see lines
+// further below where the resolved params are validated). Without this
+// stale flag, the trader would tweak baselineMode and see UNCHANGED
+// snapshot numbers — silent disagreement between form and preview.
+export function clientRecomputeSupportsBaselineMode(mode: BoardMadBaselineMode): boolean {
+  return mode === BOARD_MAD_BASELINE_MODE_TRAILING || mode === BOARD_MAD_BASELINE_MODE_OPENING_RAMP;
+}
+
 export const BOARD_MAD_RECOMPUTE_PARAMS: readonly string[] = [
   "baselineMode",
   "kMad",

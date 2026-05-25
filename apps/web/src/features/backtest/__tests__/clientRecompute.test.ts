@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  BOARD_MAD_BASELINE_MODE_HISTORICAL_BLEND,
   BOARD_MAD_BASELINE_MODE_OPENING_RAMP,
   BOARD_MAD_BASELINE_MODE_TRAILING,
   BOARD_MAD_OPENING_BASELINE_BUCKETS_DEFAULT,
@@ -10,7 +11,28 @@ import {
 } from "@signal-console/detectors/board-mad/config";
 
 import type { BacktestResponse } from "../../../data/queries";
-import { applyClientRecompute, BOARD_MAD_DETECTOR_ID } from "../clientRecompute";
+import {
+  applyClientRecompute,
+  clientRecomputeSupportsBaselineMode,
+  BOARD_MAD_DETECTOR_ID,
+} from "../clientRecompute";
+
+describe("clientRecomputeSupportsBaselineMode (phase B5)", () => {
+  it("supports trailing and opening-ramp (recomputable modes)", () => {
+    expect(clientRecomputeSupportsBaselineMode(BOARD_MAD_BASELINE_MODE_TRAILING)).toBe(true);
+    expect(clientRecomputeSupportsBaselineMode(BOARD_MAD_BASELINE_MODE_OPENING_RAMP)).toBe(true);
+  });
+
+  it("does NOT support historical-blend (snapshot lacks priors)", () => {
+    // The client-side snapshot doesn't carry historical priors, so the
+    // recompute can't honestly apply historical-blend math. Returning false
+    // here drives the snapshot-stale UX in BacktestPage so the operator
+    // gets prompted to click Run instead of silently seeing stale numbers.
+    expect(clientRecomputeSupportsBaselineMode(BOARD_MAD_BASELINE_MODE_HISTORICAL_BLEND)).toBe(
+      false,
+    );
+  });
+});
 
 function openingRampBacktest(): BacktestResponse {
   return {

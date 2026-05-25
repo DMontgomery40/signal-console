@@ -37,6 +37,7 @@ import {
 import { defaultValuesFor, parseSchema, type ParsedProperty } from "../../lib/paramsSchema";
 import {
   applyClientRecompute,
+  clientRecomputeSupportsBaselineMode,
   hasBoardMadPrebucketDrift,
   isBoardMadPrebucketField,
   BOARD_MAD_DETECTOR_ID,
@@ -682,10 +683,12 @@ function snapshotIsStale(
   currentParams: Readonly<Record<string, unknown>>,
 ): boolean {
   if (snapshot.detectorId === BOARD_MAD_DETECTOR_ID) {
-    return hasBoardMadPrebucketDrift(snapshot.detectorId, snapshot.params, currentParams);
+    if (hasBoardMadPrebucketDrift(snapshot.detectorId, snapshot.params, currentParams)) return true;
+    return clientRecomputeUnsupportedDrift(snapshot.detectorId, snapshot.params, currentParams);
   }
   if (snapshot.detectorId === ENSEMBLE_OR_DETECTOR_ID) {
-    if (hasBoardMadPrebucketDrift(snapshot.detectorId, snapshot.params, currentParams)) {
+    if (hasBoardMadPrebucketDrift(snapshot.detectorId, snapshot.params, currentParams)) return true;
+    if (clientRecomputeUnsupportedDrift(snapshot.detectorId, snapshot.params, currentParams)) {
       return true;
     }
     return snapshot.params["offprice"] !== currentParams["offprice"];
@@ -694,6 +697,44 @@ function snapshotIsStale(
     if (snapshot.params[key] !== currentParams[key]) return true;
   }
   return false;
+}
+
+// Phase B5 (2026-05-25): the client-side recompute can't apply
+// historical-blend (needs same-side historical priors the snapshot doesn't
+// carry). When the user flips the form's baselineMode to a mode the
+// recompute can't handle AND it differs from the snapshot's mode, mark
+// stale so the UI prompts "click Run" instead of silently showing the
+// snapshot numbers as if the form change took effect.
+function clientRecomputeUnsupportedDrift(
+  detectorId: string,
+  snapshotParams: Readonly<Record<string, unknown>>,
+  currentParams: Readonly<Record<string, unknown>>,
+): boolean {
+  const snapshotBoard =
+    detectorId === ENSEMBLE_OR_DETECTOR_ID && isPlainRecord(snapshotParams["board"])
+      ? snapshotParams["board"]
+      : snapshotParams;
+  const currentBoard =
+    detectorId === ENSEMBLE_OR_DETECTOR_ID && isPlainRecord(currentParams["board"])
+      ? currentParams["board"]
+      : currentParams;
+  const snapshotMode = snapshotBoard["baselineMode"];
+  const currentMode = currentBoard["baselineMode"];
+  if (typeof currentMode !== "string") return false;
+  if (
+    currentMode !== BOARD_MAD_BASELINE_MODE_TRAILING &&
+    currentMode !== BOARD_MAD_BASELINE_MODE_OPENING_RAMP &&
+    currentMode !== BOARD_MAD_BASELINE_MODE_HISTORICAL_BLEND
+  ) {
+    return false;
+  }
+  if (clientRecomputeSupportsBaselineMode(currentMode)) return false;
+  // Unsupported mode (historical-blend today). If the user just brought us
+  // here via the form, treat as stale so the preview honestly says "needs
+  // server Run." If the snapshot was ALREADY in this mode (already ran
+  // historical-blend on server) and the user hasn't changed mode, NOT stale
+  // — the snapshot is still the right numbers for this mode.
+  return snapshotMode !== currentMode;
 }
 
 function selectInitialDetector(rows: readonly DetectorEntry[]): string {
