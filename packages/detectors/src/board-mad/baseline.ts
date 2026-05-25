@@ -265,13 +265,30 @@ const weightedAverage = (a: number, weightA: number, b: number, weightB: number)
   return (a * weightA + b * weightB) / totalWeight;
 };
 
-const liveValuesForHistoricalBucket = (
+// AMENDED 2026-05-25 (audit-fix #5, phase A4): returns a typed { median, mad }
+// estimator instead of a synthetic [med-mad, med, med+mad] 3-tuple. The
+// previous tuple was statistical theater — downstream code would compute
+// median()/medianAbsDev() on it and recover m + mad arithmetically by the
+// median-of-three property, but the actual underlying sample distribution
+// was already gone. Returning the estimator directly is honest about what
+// the blended baseline IS (a weighted combination of two summary stats from
+// disjoint windows) and removes a fragile arithmetic trick.
+//
+// Returns null when both windows are empty so resolveBoardMadBaseline can
+// fall through to the trailing/opening-ramp baseline as the live-data
+// fallback (same shape as before; just typed instead of length-checked).
+interface BlendedEstimator {
+  readonly median: number;
+  readonly mad: number;
+}
+
+const liveEstimatorForHistoricalBucket = (
   entries: readonly BoardMadBaselineEntry[],
   bucketIndex: number,
   timing: ResolvedBoardMadBaselineTiming,
-): readonly number[] => {
+): BlendedEstimator | null => {
   const current = entries[bucketIndex];
-  if (current === undefined) return [];
+  if (current === undefined) return null;
   const priorEntries = entries.slice(0, bucketIndex);
   const currentElapsed = current.gameElapsedSeconds;
   const gameWindowSeconds = timing.trailingGameMinutes * 60;
@@ -297,16 +314,26 @@ const liveValuesForHistoricalBucket = (
           .map((e) => e.intensity)
       : [];
 
-  if (gameValues.length === 0) return recentValues;
-  if (recentValues.length === 0) return gameValues;
+  if (gameValues.length === 0 && recentValues.length === 0) return null;
+  if (gameValues.length === 0) {
+    return { median: median(recentValues), mad: medianAbsDev(recentValues) };
+  }
+  if (recentValues.length === 0) {
+    return { median: median(gameValues), mad: medianAbsDev(gameValues) };
+  }
 
+  // Both windows populated: weighted average of the two summary stats.
+  // recentWallWeight is the weight assigned to the recent-wall window
+  // relative to the game-clock window (1). See config.ts:53 for the
+  // tunable default (1.5 → recent gets 1.5x the game window's influence).
   const gameMed = median(gameValues);
   const gameMad = medianAbsDev(gameValues);
   const recentMed = median(recentValues);
   const recentMad = medianAbsDev(recentValues);
-  const med = weightedAverage(gameMed, 1, recentMed, timing.recentWallWeight);
-  const mad = weightedAverage(gameMad, 1, recentMad, timing.recentWallWeight);
-  return [med - mad, med, med + mad];
+  return {
+    median: weightedAverage(gameMed, 1, recentMed, timing.recentWallWeight),
+    mad: weightedAverage(gameMad, 1, recentMad, timing.recentWallWeight),
+  };
 };
 
 const historicalShareForBucket = (
@@ -381,15 +408,21 @@ export function resolveBoardMadBaseline(
   if (!isWarmedUpBucket(entries, bucketIndex, resolvedTiming)) {
     return { median: 0, mad: 0, warmedUp: false };
   }
-  const priorValues =
+  // AMENDED 2026-05-25 (audit-fix #5, phase A4): historical-blend mode now
+  // gets a typed {median, mad} estimator directly from
+  // liveEstimatorForHistoricalBucket instead of a synthetic [m-mad, m, m+mad]
+  // sample array. When the blended estimator is null (both windows empty),
+  // fall through to the trailing/opening-ramp baseline. For non-blend modes,
+  // compute median/MAD from the prior-values sample as before.
+  const blendedEstimator =
     resolvedTiming.baselineMode === BOARD_MAD_BASELINE_MODE_HISTORICAL_BLEND
-      ? liveValuesForHistoricalBucket(entries, bucketIndex, resolvedTiming)
-      : priorValuesForBucket(entries, bucketIndex, resolvedTiming);
+      ? liveEstimatorForHistoricalBucket(entries, bucketIndex, resolvedTiming)
+      : null;
   const fallbackValues =
-    priorValues.length === 0 ? priorValuesForBucket(entries, bucketIndex, resolvedTiming) : [];
-  const liveValues = priorValues.length === 0 ? fallbackValues : priorValues;
-  const liveMedian = median(liveValues);
-  const liveMadRaw = medianAbsDev(liveValues);
+    blendedEstimator === null ? priorValuesForBucket(entries, bucketIndex, resolvedTiming) : [];
+  const liveMedian = blendedEstimator === null ? median(fallbackValues) : blendedEstimator.median;
+  const liveMadRaw =
+    blendedEstimator === null ? medianAbsDev(fallbackValues) : blendedEstimator.mad;
   const historicalPrior = resolvedTiming.historicalPrior;
   const historicalShare =
     resolvedTiming.baselineMode === BOARD_MAD_BASELINE_MODE_HISTORICAL_BLEND &&

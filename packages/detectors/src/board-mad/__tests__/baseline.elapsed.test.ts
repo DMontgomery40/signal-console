@@ -317,4 +317,29 @@ describe("historical-blend live-only path (audit-fix #1)", () => {
     expect(buckets[1]?.warmedUp).toBe(false);
     expect(buckets[2]?.warmedUp).toBe(true);
   });
+
+  // Regression for audit-fix #5 (phase A4): liveEstimatorForHistoricalBucket
+  // returns a typed {median, mad} object instead of a synthetic [m-mad, m,
+  // m+mad] tuple. The behavior MUST be byte-identical to the old synthetic-
+  // tuple round-trip on the same inputs (the tuple was a no-op that
+  // recovered med/mad arithmetically). This test pins that the blended
+  // estimator produces the correct weighted-average of two windows.
+  it("historical-blend with both game and recent windows produces weighted-avg estimator", () => {
+    // Dense buckets from elapsed=0..elapsed=20min, all calm except a small
+    // step in the recent window. With baselineMode=HISTORICAL_BLEND we have
+    // both gameValues (last 12 game min) and recentValues (last 4 wall min)
+    // populated. With recentWallWeight=1.5, the blended med = weighted avg
+    // of gameMedian and recentMedian with weights 1 and 1.5.
+    const series = denseSeries(21, 20, 5.0);
+    const { buckets } = runForK(
+      series,
+      3.0,
+      baseParams({ baselineMode: BOARD_MAD_BASELINE_MODE_HISTORICAL_BLEND }),
+    );
+    const eligible = buckets[20];
+    expect(eligible?.warmedUp).toBe(true);
+    // Both windows see the same calm 0.05 intensities (the spike is the
+    // CURRENT bucket, not in either prior window). Blended median = 0.05.
+    expect(eligible?.baselineMedian).toBeCloseTo(0.05, 5);
+  });
 });
