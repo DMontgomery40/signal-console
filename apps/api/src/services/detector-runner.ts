@@ -269,7 +269,22 @@ export function runDetector(spec: RunSpec): RunResult {
         timingContexts,
       };
 
-      const result: DetectorResult = dispatch.run(window);
+      const rawResult: DetectorResult = dispatch.run(window);
+      // Normalize lane tags so cold-path and warm-path RunResult.fires have
+      // the SAME shape. off-price-print emits lane-less fires upstream
+      // (off-price-print/index.ts:34-42); ensemble-or wraps and tags them
+      // lane="offprice". For the standalone case we tag here so consumers
+      // (and the cache-hit reload path) see consistent fires regardless of
+      // whether the result came from the cold path or the persisted row.
+      const result: DetectorResult =
+        spec.detectorId === "off-price-print"
+          ? {
+              ...rawResult,
+              fires: rawResult.fires.map((f) =>
+                f.lane === undefined ? { ...f, lane: "offprice" as const } : f,
+              ),
+            }
+          : rawResult;
       const computeMs = Number((process.hrtime.bigint() - startNs) / 1_000_000n);
 
       const runId = persistRun(cacheDb, {
@@ -781,26 +796,36 @@ function persistRun(cacheDb: Database.Database, args: PersistArgs): number {
         JSON.stringify({ warmedUp: b.warmedUp, lane: "board" }),
       );
     }
-    // Persist non-bucket lane fires (off-price-print events). These are
-    // point-in-time tape prints, not aggregates, so they carry their own row
-    // with fired=1 and a lane=offprice marker. bucketStart === bucketEnd for
-    // these (they're an instant, not a window).
+    // Persist non-bucket fires as standalone observations. These are point-in-
+    // time tape prints, not aggregates: bucketStart === bucketEnd is the event
+    // instant. Two cases produce them, with different fire-tagging conventions
+    // upstream:
+    //   - ensemble-or: each off-price lane fire is tagged f.lane === "offprice"
+    //     by ensemble-or/index.ts:68-71 (board fires are correlated with the
+    //     persisted buckets above, so we skip lane === "board" here).
+    //   - off-price-print standalone: the detector emits LANE-LESS fires
+    //     (off-price-print/index.ts:34-42 doesn't set lane). Without the
+    //     detector-context check below, those fires would be silently dropped
+    //     from cache, breaking cache-hit parity (Codex review P1, audit-fix
+    //     A0-followup #2). Persist them all and tag lane="offprice" so the
+    //     splitObservations reload puts them in `fires`, not `buckets`.
+    const treatLanelessAsOffprice = args.detectorId === "off-price-print";
     for (const f of args.fires) {
-      if (f.lane === "offprice") {
-        const detail: Record<string, string> = { lane: "offprice" };
-        if (f.sourceMarketId !== undefined) detail.sourceMarketId = f.sourceMarketId;
-        insertObs.run(
-          runId,
-          f.gameId,
-          f.bucketStart.toISOString(),
-          f.bucketEnd.toISOString(),
-          1,
-          f.intensity,
-          f.baselineMedian,
-          f.baselineMad,
-          JSON.stringify(detail),
-        );
-      }
+      const isOffprice = f.lane === "offprice" || (treatLanelessAsOffprice && f.lane === undefined);
+      if (!isOffprice) continue;
+      const detail: Record<string, string> = { lane: "offprice" };
+      if (f.sourceMarketId !== undefined) detail.sourceMarketId = f.sourceMarketId;
+      insertObs.run(
+        runId,
+        f.gameId,
+        f.bucketStart.toISOString(),
+        f.bucketEnd.toISOString(),
+        1,
+        f.intensity,
+        f.baselineMedian,
+        f.baselineMad,
+        JSON.stringify(detail),
+      );
     }
     return runId;
   });

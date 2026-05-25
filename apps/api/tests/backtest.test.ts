@@ -968,6 +968,78 @@ describe("backtest route (US-034)", () => {
     expect(Math.abs(intensity - 0.4944)).toBeLessThan(0.005);
   });
 
+  // Regression for audit-fix A0-followup #2 (Codex review P1): standalone
+  // off-price-print used to drop all fires on cache hit because persistRun
+  // only persisted fires when f.lane === "offprice", but the detector emits
+  // lane-less fires (off-price-print/index.ts:34-42). The runner now
+  // normalizes lane="offprice" on cold path and persists them so cache hits
+  // return the same fires the cold compute did.
+  it("standalone off-price-print returns identical fires on first compute and on cache hit", async () => {
+    seedGoldDb(ctx.goldDbPath, [
+      { id: "nba-opp-cache-1", scheduledStart: "2026-05-12T01:30:00Z", tickCount: 0 },
+    ]);
+    seedMicrostructure(ctx.goldDbPath, [
+      {
+        gameId: "nba-opp-cache-1",
+        sourceMarketId: "pm-opp-cache-1",
+        eventTimestamp: "2026-05-12T04:52:18.000Z",
+        tradePrice: 0.9894,
+        volumeShare: 0.246,
+        sampledPriceAt: "2026-05-12T04:52:05.000Z",
+        sampledImpliedProbability: 0.495,
+      },
+    ]);
+    const app = await startApp();
+    const payload = {
+      detector_id: "off-price-print",
+      params: { minVolumeShare: 0.1, minOffPriceDistance: 0.4 },
+      window: { start: "2026-05-12T04:00:00Z", end: "2026-05-12T05:00:00Z" },
+      game_ids: ["nba-opp-cache-1"],
+    };
+
+    const first = await app.inject({
+      method: "POST",
+      url: "/v1/backtest",
+      headers: authHeaders(),
+      payload,
+    });
+    expect(first.statusCode).toBe(200);
+    const firstBody = asRecord(first.json(), "first off-price");
+    const firstStats = asRecord(firstBody["stats"], "first stats");
+    expect(firstStats["totalFires"]).toBe(1);
+    const firstObs = firstBody["observations"];
+    if (!isUnknownArray(firstObs)) throw new Error("first observations not array");
+    expect(firstObs.length).toBe(1);
+
+    // Second call: identical payload → cache hit → same runId AND same fires.
+    // The pre-fix behavior was: same runId but EMPTY observations because the
+    // persisted run had no rows for lane-less fires.
+    const second = await app.inject({
+      method: "POST",
+      url: "/v1/backtest",
+      headers: authHeaders(),
+      payload,
+    });
+    expect(second.statusCode).toBe(200);
+    const secondBody = asRecord(second.json(), "second off-price");
+    expect(secondBody["runId"]).toBe(firstBody["runId"]);
+    const secondStats = asRecord(secondBody["stats"], "second stats");
+    expect(secondStats["totalFires"]).toBe(1);
+    const secondObs = secondBody["observations"];
+    if (!isUnknownArray(secondObs)) throw new Error("second observations not array");
+    expect(secondObs.length).toBe(1);
+
+    // Per-fire equality: cold and warm must produce the same intensity,
+    // bucketStart/end, and gameId. (Lane is "offprice" on both after the
+    // runner's normalization fix.)
+    const firstFire = asRecord(firstObs[0], "first fire");
+    const secondFire = asRecord(secondObs[0], "second fire");
+    expect(secondFire["gameId"]).toBe(firstFire["gameId"]);
+    expect(secondFire["bucketStart"]).toBe(firstFire["bucketStart"]);
+    expect(secondFire["bucketEnd"]).toBe(firstFire["bucketEnd"]);
+    expect(secondFire["intensity"]).toBe(firstFire["intensity"]);
+  });
+
   it("keeps cached off-price-print backtests when non-Polymarket trade rows change", async () => {
     seedGoldDb(ctx.goldDbPath, [
       { id: "nba-opp-kalshi-1", scheduledStart: "2026-05-12T01:30:00Z", tickCount: 0 },
