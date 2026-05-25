@@ -14,7 +14,7 @@ describe("detector registry", () => {
     expect(entry).toBeDefined();
     if (entry === undefined) return;
     expect(entry.id).toBe("board-mad");
-    expect(entry.version).toBe("1.5.0");
+    expect(entry.version).toBe("1.6.0");
     expect(entry.displayName).toContain("Board MAD");
     expect(entry.paramsSchema).toBeDefined();
   });

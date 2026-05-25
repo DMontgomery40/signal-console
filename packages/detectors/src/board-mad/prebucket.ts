@@ -21,7 +21,7 @@
 // series are stored on BucketSeries so sweep.ts can stamp DetectorFire /
 // DetectorBucket timestamps without a second source of truth.
 
-import type { Tick } from "../types";
+import type { GameTimingContext, Tick } from "../types";
 import { BOARD_MAD_FRESH_CAP_SECONDS_DEFAULT, BOARD_MAD_WEIGHTING_DEFAULT } from "./config";
 import type { Weighting } from "./params";
 
@@ -39,6 +39,10 @@ export interface BucketSeriesGame {
     readonly mad: number;
     readonly sampleSize: number;
   };
+  // Per-game timing context resolved by the runner so the baseline can
+  // anchor elapsed-seconds fallback on tipoffAnchorUtc when per-tick
+  // gameElapsedSeconds is null. Audit-fix #2 (phase A2, 2026-05-25).
+  readonly timingContext?: GameTimingContext;
 }
 
 export interface BucketSeries {
@@ -56,6 +60,7 @@ export interface PrebucketOptions {
     string,
     { readonly median: number; readonly mad: number; readonly sampleSize: number }
   >;
+  readonly timingContexts?: ReadonlyMap<string, GameTimingContext>;
 }
 
 const DEFAULT_WEIGHTING: Weighting = BOARD_MAD_WEIGHTING_DEFAULT;
@@ -161,7 +166,12 @@ export function prebucket(
     const gameTicks = ticks.filter((t) => t.gameId === gameId);
     const series = buildGameSeries(gameId, gameTicks, bucketSeconds, freshCapSeconds, weighting);
     const historicalPrior = options?.historicalPriors?.get(gameId);
-    return historicalPrior === undefined ? series : { ...series, historicalPrior };
+    const timingContext = options?.timingContexts?.get(gameId);
+    return {
+      ...series,
+      ...(historicalPrior === undefined ? {} : { historicalPrior }),
+      ...(timingContext === undefined ? {} : { timingContext }),
+    };
   });
   return { bucketSeconds, weighting, freshCapSeconds, perGame };
 }

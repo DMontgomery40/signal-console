@@ -19,6 +19,7 @@ import type {
   DetectorResult,
   DetectorStats,
   DetectorWindow,
+  GameTimingContext,
   Tick,
 } from "../types";
 import { Params, type ParamsResolved } from "./params";
@@ -41,6 +42,21 @@ const historicalPriorMap = (
 ): ReadonlyMap<string, BoardMadHistoricalPrior> =>
   new Map((priors ?? []).map((prior) => [prior.gameId, prior]));
 
+const timingContextMap = (
+  contexts: readonly GameTimingContext[] | undefined,
+): ReadonlyMap<string, GameTimingContext> =>
+  new Map((contexts ?? []).map((ctx) => [ctx.gameId, ctx]));
+
+// 1.6.0 (2026-05-25): The PBP-missing elapsed fallback (for ticks without
+// per-tick gameElapsedSeconds) now anchors on the per-game GameTimingContext
+// resolved by the shared detector runner (services/detector-runner.ts).
+// Tipoff is PBP MIN(time_actual) when present, games.scheduled_start when
+// PBP is absent, never first-nonzero market bucket. When neither anchor is
+// available (clockSource="none"), the warmup gate refuses to warm any
+// bucket (fail-closed posture). Cache identity already includes clockSource
+// + tipoffAnchorUtc (phase A0a watermark), so scheduled-anchored cache rows
+// automatically recompute when PBP arrives. Audit-fix #2 (phase A2).
+//
 // 1.5.0 (2026-05-24): The trailing/opening-ramp baseline sample is selected by
 // elapsed time, not by slicing the sparse non-empty observation array. This
 // keeps "20 one-minute buckets" equal to 20 elapsed minutes from tip-off/game
@@ -70,7 +86,7 @@ const historicalPriorMap = (
 // next access — that's the intentional invalidation.
 export const detector: Detector<typeof Params> = {
   id: "board-mad",
-  version: "1.5.0",
+  version: "1.6.0",
   displayName: "Board MAD (whole-board volatility)",
   sources: ["bet365", "kalshi", "polymarket"],
   paramsSchema: Params,
@@ -83,6 +99,7 @@ export const detector: Detector<typeof Params> = {
       freshCapSeconds: params.freshCapSeconds,
       gameIds,
       historicalPriors: historicalPriorMap(window.boardMadHistoricalPriors),
+      timingContexts: timingContextMap(window.timingContexts),
     });
     const { fires, buckets } = runForK(series, params.kMad, {
       baselineMode: params.baselineMode,

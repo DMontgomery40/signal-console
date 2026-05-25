@@ -40,19 +40,19 @@ const baselinesForGame = (
   params: SweepParams,
 ): readonly Baseline[] => {
   const entries = game.buckets;
+  // Build the per-game timing slice once; baseline expects it on the
+  // BoardMadBaselineTiming object (audit-fix #2, phase A2). historicalPrior
+  // remains separate. Both are per-game facts merged into the params object
+  // the baseline consumes.
+  const perGameParams = {
+    ...params,
+    ...(game.historicalPrior === undefined ? {} : { historicalPrior: game.historicalPrior }),
+    ...(game.timingContext === undefined ? {} : { timingContext: game.timingContext }),
+  };
   return entries.map((e, i): Baseline => {
     const bucketStart = new Date(e.bucket * 1000);
     const bucketEnd = new Date((e.bucket + bucketSeconds) * 1000);
-    const baseline = resolveBoardMadBaseline(
-      entries,
-      i,
-      game.historicalPrior === undefined
-        ? params
-        : {
-            ...params,
-            historicalPrior: game.historicalPrior,
-          },
-    );
+    const baseline = resolveBoardMadBaseline(entries, i, perGameParams);
     return {
       gameId: game.gameId,
       bucketStart,

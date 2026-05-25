@@ -1,3 +1,4 @@
+import type { GameTimingContext } from "../types";
 import {
   BOARD_MAD_BASELINE_MODE_DEFAULT,
   BOARD_MAD_BASELINE_MODE_HISTORICAL_BLEND,
@@ -46,6 +47,14 @@ export interface BoardMadBaselineTiming {
   readonly trailingGameMinutes?: number;
   readonly recentWallMinutes?: number;
   readonly recentWallWeight?: number;
+  // Per-game timing context resolved by the shared detector runner. When set,
+  // the elapsed-seconds fallback (for entries without gameElapsedSeconds)
+  // anchors on timingContext.tipoffAnchorUtc instead of "first nonzero
+  // bucket." When clockSource === "none", every bucket is treated as
+  // unwarmed (fail-closed). When unset (legacy callers / synthetic tests
+  // that bypass the runner), the old first-nonzero-bucket fallback is used.
+  // Audit-fix #2 (phase A2, 2026-05-25).
+  readonly timingContext?: GameTimingContext;
 }
 
 export interface BoardMadBaseline {
@@ -53,6 +62,13 @@ export interface BoardMadBaseline {
   readonly mad: number;
   readonly warmedUp: boolean;
 }
+
+// timingContext stays optional even in the resolved shape: legacy callers
+// and synthetic unit tests bypass the runner and have no per-game timing
+// context. Runner-fed code paths always set it.
+type ResolvedBoardMadBaselineTiming = Required<Omit<BoardMadBaselineTiming, "timingContext">> & {
+  readonly timingContext?: GameTimingContext;
+};
 
 export const median = (xs: readonly number[]): number => {
   if (xs.length === 0) return 0;
@@ -104,13 +120,33 @@ const asEntries = (
 const isFiniteNumber = (value: number | null | undefined): value is number =>
   typeof value === "number" && Number.isFinite(value);
 
+// Per audit-fix #2 (phase A2, 2026-05-25): when a bucket has no per-tick
+// gameElapsedSeconds (PBP lag, missing PBP for the game), fall back to a
+// tipoff-anchored elapsed time using the per-game GameTimingContext from
+// the runner. NEVER fall back to "first nonzero market bucket" when a real
+// tipoff anchor is available — that was the original category error this
+// audit closes. When NO context is available (legacy callers, synthetic
+// unit tests bypassing the runner), the old first-bucket fallback applies.
+const elapsedSecondsFromTipoff = (
+  bucket: number,
+  timing: Pick<BoardMadBaselineTiming, "timingContext">,
+): number | null => {
+  const ctx = timing.timingContext;
+  if (ctx === undefined) return null;
+  if (ctx.clockSource === "none") return null;
+  return Math.max(0, bucket - ctx.tipoffAnchorUtc.getTime() / 1000);
+};
+
 const elapsedSecondsForBucket = (
   entries: readonly BoardMadBaselineEntry[],
   bucketIndex: number,
+  timing: Pick<BoardMadBaselineTiming, "timingContext"> = {},
 ): number => {
   const current = entries[bucketIndex];
   if (current === undefined) return 0;
   if (isFiniteNumber(current.gameElapsedSeconds)) return Math.max(0, current.gameElapsedSeconds);
+  const tipoffElapsed = elapsedSecondsFromTipoff(current.bucket, timing);
+  if (tipoffElapsed !== null) return tipoffElapsed;
   const first = entries[0];
   if (first === undefined) return 0;
   return Math.max(0, current.bucket - first.bucket);
@@ -119,8 +155,11 @@ const elapsedSecondsForBucket = (
 const elapsedSecondsForEntry = (
   entries: readonly BoardMadBaselineEntry[],
   entry: BoardMadBaselineEntry,
+  timing: Pick<BoardMadBaselineTiming, "timingContext"> = {},
 ): number => {
   if (isFiniteNumber(entry.gameElapsedSeconds)) return Math.max(0, entry.gameElapsedSeconds);
+  const tipoffElapsed = elapsedSecondsFromTipoff(entry.bucket, timing);
+  if (tipoffElapsed !== null) return tipoffElapsed;
   const first = entries[0];
   if (first === undefined) return 0;
   return Math.max(0, entry.bucket - first.bucket);
@@ -129,31 +168,42 @@ const elapsedSecondsForEntry = (
 const isWarmedUpBucket = (
   entries: readonly BoardMadBaselineEntry[],
   bucketIndex: number,
-  timing: Required<BoardMadBaselineTiming>,
+  timing: ResolvedBoardMadBaselineTiming,
 ): boolean => {
+  // Fail-closed when clockSource="none": no real anchor → no warmup → no
+  // fires. resolveGameTimingContext returns "none" only when both PBP and
+  // games.scheduled_start are absent for the game. Legacy callers that
+  // don't supply timingContext at all (synthetic tests, pre-A2 code) fall
+  // through to the elapsed-time gate as before.
+  if (timing.timingContext !== undefined && timing.timingContext.clockSource === "none") {
+    return false;
+  }
   const warmupSeconds = timing.warmupBuckets * timing.bucketSeconds;
-  return elapsedSecondsForBucket(entries, bucketIndex) >= warmupSeconds;
+  return elapsedSecondsForBucket(entries, bucketIndex, timing) >= warmupSeconds;
 };
 
-const trailingWindowSeconds = (timing: Required<BoardMadBaselineTiming>): number =>
+const trailingWindowSeconds = (timing: ResolvedBoardMadBaselineTiming): number =>
   timing.trailingBuckets * timing.bucketSeconds;
 
 const priorValuesWithinElapsedWindow = (
   entries: readonly BoardMadBaselineEntry[],
   bucketIndex: number,
-  timing: Required<BoardMadBaselineTiming>,
+  timing: ResolvedBoardMadBaselineTiming,
 ): readonly number[] => {
   const current = entries[bucketIndex];
   if (current === undefined) return [];
   const windowSeconds = trailingWindowSeconds(timing);
-  const currentElapsed = elapsedSecondsForBucket(entries, bucketIndex);
+  const currentElapsed = elapsedSecondsForBucket(entries, bucketIndex, timing);
   const collect = (i: number): readonly number[] => {
     const entry = entries[i];
     if (entry === undefined) return [];
+    // Prefer per-tick gameElapsedSeconds when both sides have it. Otherwise
+    // anchor the entry's elapsed via the same path as currentElapsed (tipoff
+    // anchor when available, first-bucket fallback otherwise).
     const entryElapsed =
       isFiniteNumber(current.gameElapsedSeconds) && isFiniteNumber(entry.gameElapsedSeconds)
         ? entry.gameElapsedSeconds
-        : entry.bucket - current.bucket + currentElapsed;
+        : elapsedSecondsForEntry(entries, entry, timing);
     if (entryElapsed >= currentElapsed) return collect(i - 1);
     if (entryElapsed < currentElapsed - windowSeconds) return [];
     return [entry.intensity, ...collect(i - 1)];
@@ -164,9 +214,9 @@ const priorValuesWithinElapsedWindow = (
 const openingRampWindowSeconds = (
   entries: readonly BoardMadBaselineEntry[],
   bucketIndex: number,
-  timing: Required<BoardMadBaselineTiming>,
+  timing: ResolvedBoardMadBaselineTiming,
 ): number => {
-  const currentElapsed = elapsedSecondsForBucket(entries, bucketIndex);
+  const currentElapsed = elapsedSecondsForBucket(entries, bucketIndex, timing);
   const warmupSeconds = timing.warmupBuckets * timing.bucketSeconds;
   const openingSeconds = timing.openingBaselineBuckets * timing.bucketSeconds;
   const rampCompleteSeconds = timing.openingRampCompleteBuckets * timing.bucketSeconds;
@@ -180,14 +230,14 @@ const openingRampWindowSeconds = (
 const openingValuesFromGameStart = (
   entries: readonly BoardMadBaselineEntry[],
   bucketIndex: number,
-  timing: Required<BoardMadBaselineTiming>,
+  timing: ResolvedBoardMadBaselineTiming,
 ): readonly number[] => {
-  const currentElapsed = elapsedSecondsForBucket(entries, bucketIndex);
+  const currentElapsed = elapsedSecondsForBucket(entries, bucketIndex, timing);
   const windowSeconds = openingRampWindowSeconds(entries, bucketIndex, timing);
   return entries
     .slice(0, bucketIndex)
     .filter((entry) => {
-      const elapsed = elapsedSecondsForEntry(entries, entry);
+      const elapsed = elapsedSecondsForEntry(entries, entry, timing);
       return elapsed < currentElapsed && elapsed <= windowSeconds;
     })
     .map((e) => e.intensity);
@@ -196,10 +246,10 @@ const openingValuesFromGameStart = (
 function priorValuesForBucket(
   entries: readonly BoardMadBaselineEntry[],
   bucketIndex: number,
-  timing: Required<BoardMadBaselineTiming>,
+  timing: ResolvedBoardMadBaselineTiming,
 ): readonly number[] {
   if (timing.baselineMode === BOARD_MAD_BASELINE_MODE_OPENING_RAMP) {
-    const currentElapsed = elapsedSecondsForBucket(entries, bucketIndex);
+    const currentElapsed = elapsedSecondsForBucket(entries, bucketIndex, timing);
     const rampCompleteSeconds = timing.openingRampCompleteBuckets * timing.bucketSeconds;
     if (currentElapsed < rampCompleteSeconds) {
       return openingValuesFromGameStart(entries, bucketIndex, timing);
@@ -218,7 +268,7 @@ const weightedAverage = (a: number, weightA: number, b: number, weightB: number)
 const liveValuesForHistoricalBucket = (
   entries: readonly BoardMadBaselineEntry[],
   bucketIndex: number,
-  timing: Required<BoardMadBaselineTiming>,
+  timing: ResolvedBoardMadBaselineTiming,
 ): readonly number[] => {
   const current = entries[bucketIndex];
   if (current === undefined) return [];
@@ -262,14 +312,17 @@ const liveValuesForHistoricalBucket = (
 const historicalShareForBucket = (
   entries: readonly BoardMadBaselineEntry[],
   bucketIndex: number,
-  timing: Required<BoardMadBaselineTiming>,
+  timing: ResolvedBoardMadBaselineTiming,
 ): number => {
   const current = entries[bucketIndex];
   if (current === undefined) return 0;
   const rampSeconds = Math.max(1, timing.historicalRampCompleteGameMinutes * 60);
-  const elapsedSeconds = isFiniteNumber(current.gameElapsedSeconds)
-    ? current.gameElapsedSeconds
-    : bucketIndex * timing.bucketSeconds;
+  // Per audit-fix #2 (phase A2): replace the sparse-index-times-bucketSeconds
+  // fallback (which conflated array position with elapsed time) with a
+  // tipoff-anchored elapsed. elapsedSecondsForBucket prefers per-tick
+  // gameElapsedSeconds, then GameTimingContext.tipoffAnchorUtc, then the
+  // legacy first-bucket fallback as a last resort.
+  const elapsedSeconds = elapsedSecondsForBucket(entries, bucketIndex, timing);
   const remaining = Math.max(0, 1 - elapsedSeconds / rampSeconds);
   return clamp01(timing.historicalPriorWeight) * remaining;
 };
@@ -279,7 +332,7 @@ export function resolveBoardMadBaseline(
   bucketIndex: number,
   timing: BoardMadBaselineTiming,
 ): BoardMadBaseline {
-  const resolvedTiming: Required<BoardMadBaselineTiming> = {
+  const resolvedTiming: ResolvedBoardMadBaselineTiming = {
     baselineMode: timing.baselineMode ?? BOARD_MAD_BASELINE_MODE_DEFAULT,
     bucketSeconds: resolvePositiveInteger(timing.bucketSeconds, BOARD_MAD_BUCKET_SECONDS_DEFAULT),
     openingBaselineBuckets: resolvePositiveInteger(
@@ -315,6 +368,14 @@ export function resolveBoardMadBaseline(
       timing.recentWallWeight,
       BOARD_MAD_RECENT_WALL_WEIGHT_DEFAULT,
     ),
+    // timingContext stays optional in the resolved shape. Three states:
+    // - undefined: legacy callers (synthetic tests, pre-A2 code) → fall back
+    //   to first-bucket wall-elapsed (backward compatible)
+    // - { clockSource: "pbp" | "scheduled", ... }: runner-fed → anchor elapsed
+    //   on tipoffAnchorUtc when per-tick gameElapsedSeconds is null
+    // - { clockSource: "none", ... }: runner-fed but no anchor exists →
+    //   isWarmedUpBucket returns false (fail-closed; no fake fires)
+    ...(timing.timingContext === undefined ? {} : { timingContext: timing.timingContext }),
   };
   const entries = asEntries(values, resolvedTiming.bucketSeconds);
   if (!isWarmedUpBucket(entries, bucketIndex, resolvedTiming)) {
