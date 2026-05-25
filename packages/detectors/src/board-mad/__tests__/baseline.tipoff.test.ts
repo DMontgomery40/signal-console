@@ -20,6 +20,7 @@ import { describe, expect, it } from "vitest";
 
 import type { GameTimingContext } from "../../types";
 import {
+  BOARD_MAD_BASELINE_MODE_HISTORICAL_BLEND,
   BOARD_MAD_BASELINE_MODE_OPENING_RAMP,
   BOARD_MAD_BUCKET_SECONDS_DEFAULT,
   BOARD_MAD_FRESH_CAP_SECONDS_DEFAULT,
@@ -162,6 +163,86 @@ describe("fail-closed posture (clockSource=none, audit-fix #2)", () => {
       expect(b.warmedUp).toBe(false);
     }
     expect(fires).toHaveLength(0);
+  });
+});
+
+describe("historical-blend tipoff fallback (audit-fix #5 amendment, Codex review P1)", () => {
+  it("Codex repro: scheduled/no-PBP historical-blend at 5/10/15/20min, trailingGameMinutes=12, recentWallMinutes=0", () => {
+    // Buckets at elapsed=5/10/15/20 min (from tipoff). All gameElapsedSeconds
+    // null — pure PBP-lag/no-PBP case with scheduled fallback. With
+    // trailingGameMinutes=12 and recentWallMinutes=0, the game window at
+    // bucket 20min covers (20-12, 20) = (8, 20). Includes the 10min and
+    // 15min entries, excludes 5min. Intensities are set to elapsed-minutes
+    // so the assertion is human-readable: median should be (10+15)/2 = 12.5.
+    //
+    // PRE-FIX behavior (the bug Codex caught): liveEstimatorForHistoricalBucket
+    // read current.gameElapsedSeconds directly, got null, fell through to
+    // gameValues=[] -> historical-blend collapsed to recentValues=[] ->
+    // estimator returned null -> resolveBoardMadBaseline fell through to
+    // priorValuesForBucket which returned [5, 10, 15] (trailing window),
+    // median=10. Wrong domain.
+    const series = noPbpSeries(scheduledContext(), [
+      [5 * 60, 5.0],
+      [10 * 60, 10.0],
+      [15 * 60, 15.0],
+      [20 * 60, 20.0],
+    ]);
+    const { buckets } = runForK(
+      series,
+      3.0,
+      baseParams({
+        baselineMode: BOARD_MAD_BASELINE_MODE_HISTORICAL_BLEND,
+        trailingGameMinutes: 12,
+        recentWallMinutes: 0,
+        recentWallWeight: 0,
+      }),
+    );
+    const final = buckets[3];
+    expect(final?.warmedUp).toBe(true);
+    // Sample is [10, 15] (5-min entry excluded because elapsed=5 < 20-12=8).
+    // Median = (10+15)/2 = 12.5; MAD = median(|10-12.5|, |15-12.5|) = 2.5.
+    expect(final?.baselineMedian).toBe(12.5);
+    expect(final?.baselineMad).toBe(2.5);
+  });
+
+  it("mixed PBP-lag: current bucket has finite gameElapsedSeconds, prior buckets null — tipoff fallback applies to priors", () => {
+    // Simulates: PBP feed catches up at the current bucket. Earlier buckets
+    // are still null (no PBP at their capture time). The game-window filter
+    // must compute elapsed for each PRIOR entry via tipoff fallback so they
+    // still qualify for the window.
+    const ctx = scheduledContext();
+    const series: BucketSeries = {
+      bucketSeconds: BUCKET_SECONDS,
+      weighting: "volume",
+      freshCapSeconds: BOARD_MAD_FRESH_CAP_SECONDS_DEFAULT,
+      perGame: [
+        {
+          gameId: ctx.gameId,
+          timingContext: ctx,
+          buckets: [
+            { bucket: TIPOFF_S + 5 * 60, intensity: 5.0, gameElapsedSeconds: null },
+            { bucket: TIPOFF_S + 10 * 60, intensity: 10.0, gameElapsedSeconds: null },
+            { bucket: TIPOFF_S + 15 * 60, intensity: 15.0, gameElapsedSeconds: null },
+            { bucket: TIPOFF_S + 20 * 60, intensity: 20.0, gameElapsedSeconds: 20 * 60 },
+          ],
+        },
+      ],
+    };
+    const { buckets } = runForK(
+      series,
+      3.0,
+      baseParams({
+        baselineMode: BOARD_MAD_BASELINE_MODE_HISTORICAL_BLEND,
+        trailingGameMinutes: 12,
+        recentWallMinutes: 0,
+        recentWallWeight: 0,
+      }),
+    );
+    const final = buckets[3];
+    expect(final?.warmedUp).toBe(true);
+    // Same sample as above: prior entries get tipoff-anchored elapsed
+    // (5/10/15 min). Window (8, 20) includes 10 and 15. Median = 12.5.
+    expect(final?.baselineMedian).toBe(12.5);
   });
 });
 

@@ -290,20 +290,37 @@ const liveEstimatorForHistoricalBucket = (
   const current = entries[bucketIndex];
   if (current === undefined) return null;
   const priorEntries = entries.slice(0, bucketIndex);
-  const currentElapsed = current.gameElapsedSeconds;
+
+  // AMENDED 2026-05-25 (audit-fix #5 amendment, Codex review P1): the
+  // game-window selection MUST honor the A2 tipoff fallback. Reading
+  // `entry.gameElapsedSeconds` directly silently produced empty gameValues
+  // during PBP lag (PBP-less scheduled runs and mixed-lag cases), defeating
+  // the whole point of A2's GameTimingContext threading. This helper returns
+  // game-clock elapsed using per-tick value first, then tipoff anchor from
+  // GameTimingContext when available, then null when no real anchor exists
+  // (NOT the first-bucket wall-time fallback that elapsedSecondsForBucket
+  // returns for legacy/synthetic callers — that fallback is the wrong
+  // domain for a "trailing game minutes" filter).
+  const gameClockElapsed = (entry: BoardMadBaselineEntry): number | null => {
+    if (isFiniteNumber(entry.gameElapsedSeconds)) return entry.gameElapsedSeconds;
+    return elapsedSecondsFromTipoff(entry.bucket, timing);
+  };
+
+  const currentElapsed = gameClockElapsed(current);
   const gameWindowSeconds = timing.trailingGameMinutes * 60;
   const gameValues =
-    isFiniteNumber(currentElapsed) && gameWindowSeconds > 0
-      ? priorEntries
-          .filter(
-            (e) =>
-              isFiniteNumber(e.gameElapsedSeconds) &&
-              e.gameElapsedSeconds < currentElapsed &&
-              e.gameElapsedSeconds >= currentElapsed - gameWindowSeconds,
-          )
-          .map((e) => e.intensity)
+    currentElapsed !== null && gameWindowSeconds > 0
+      ? priorEntries.flatMap((e): readonly number[] => {
+          const elapsed = gameClockElapsed(e);
+          if (elapsed === null) return [];
+          if (elapsed >= currentElapsed) return [];
+          if (elapsed < currentElapsed - gameWindowSeconds) return [];
+          return [e.intensity];
+        })
       : [];
 
+  // Recent-wall window stays wall-clock by design (intentional "last N wall
+  // minutes" semantics, not game-clock). No tipoff involvement here.
   const recentWallSeconds = timing.recentWallMinutes * 60;
   const recentValues =
     recentWallSeconds > 0 && timing.recentWallWeight > 0
