@@ -187,6 +187,20 @@ TDD + SDD principles fail if the math under test is wrong. The new repo honours 
 
 7. **No silent K change.** Any future change to either canonical K is a deliberate migration: a config-file edit, fresh contract-test snapshots, and a bumped `detector_version` (so existing cache rows for the old K naturally become misses and recompute). There is no runtime config toggle that quietly substitutes a different K.
 
+### 8.1 board-mad math change history
+
+| Version | When | What changed | Why |
+| --- | --- | --- | --- |
+| 1.0.0 | 2026-05-23 | Initial TypeScript port of `nba-predict/scripts/board_signal_v2.py`. | Bring the canonical board-mad detector into the new repo. |
+| 1.1.0 | 2026-05-23 | API path narrowed tick load per-game to the PBP-anchored in-play window. | Pre-narrowing, pre-game ticks polluted the trailing baseline and inflated fire counts ~14-17×. |
+| 1.2.0 | 2026-05-24 | Signal timing extracted to `baseline.ts` with explicit opening-ramp mode. | Make the ramp + holdoff knobs tunable without touching the detector loop. |
+| 1.3.0 | 2026-05-24 | Historical/live blended baseline added (5-game prior fading to live). | David-requested historical context for cold-start games. |
+| 1.4.0 | 2026-05-24 | Opening holdoff redefined as elapsed time (`warmupBuckets × bucketSeconds`), not sparse-bucket count. | Fixed the "8 minutes = 8 sparse market blips" failure mode the live game caught. |
+| 1.5.0 | 2026-05-24 | Trailing/opening-ramp baseline sample selected by elapsed time, not sparse-index slice. | Closed the silent silent-noise inflation where "last 20 minutes" actually meant "last 20 nonzero buckets" — quiet games drew baselines from non-quiet windows. |
+| 1.6.0 | 2026-05-25 | PBP-missing elapsed fallback anchors on per-game `GameTimingContext.tipoffAnchorUtc` (PBP `MIN(time_actual)` → `games.scheduled_start` → fail-closed). Historical-blend gameValues filter honors the same tipoff anchor. Historical priors combined with weighted-pooled samples (away/home symmetric regardless of sample-size imbalance). `liveValuesForHistoricalBucket` returns a typed `{median, mad}` estimator instead of a synthetic `[m-mad, m, m+mad]` tuple. | Closed the audit's last category of "fake math" — never anchor elapsed on "first nonzero market bucket"; never let one side dominate priors by sample-count accident; never launder summary stats through a fake sample. |
+
+> v1.6.0 ships through the shared `services/detector-runner.ts` introduced in phase A0 (2026-05-25). Live (`/v1/board/:gameId`), the new live ensemble route (`/v1/ensemble-or/:gameId`), the new live off-price route (`/v1/off-price-print/:gameId`), and Backtest all consume the same execution path — no live-vs-backtest math drift surface. The runner's watermark hash includes `clockSource` + `tipoffAnchorUtc`, so a `scheduled`-anchored cache row automatically invalidates when PBP arrives.
+
 ---
 
 ## 9. Detector output cache (the new app's only writable store)
@@ -290,7 +304,7 @@ const Params = z.object({
 
 export const detector: Detector<typeof Params> = {
   id: "board-mad",
-  version: "1.5.0",
+  version: "1.6.0",
   displayName: "Board MAD (whole-board volatility)",
   paramsSchema: Params,
   run(window, params) {

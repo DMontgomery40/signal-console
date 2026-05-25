@@ -4,31 +4,32 @@
 
 ## Coverage delta
 
-| Field | Old (2026-05-24T23:44Z) | New (2026-05-25T08:29Z) | Δ |
-| --- | --- | --- | --- |
-| Algorithms tested | 19 | 21 | +2 |
-| Locally scoreable incidents | 6 | 6 | 0 |
-| Denominator games with PBP windows | 61 | 62 | +1 |
-| Exact UTC anchors | 9 | 9 | 0 |
+| Field                              | Old (2026-05-24T23:44Z) | New (2026-05-25T08:29Z) | Δ   |
+| ---------------------------------- | ----------------------- | ----------------------- | --- |
+| Algorithms tested                  | 19                      | 21                      | +2  |
+| Locally scoreable incidents        | 6                       | 6                       | 0   |
+| Denominator games with PBP windows | 61                      | 62                      | +1  |
+| Exact UTC anchors                  | 9                       | 9                       | 0   |
 
 ## Top-algorithm changes
 
-| Algorithm | Old caught | New caught | Old mean fires/game | New mean fires/game | Notes |
-| --- | --- | --- | --- | --- | --- |
-| A09_volume_heavy_short | 6/6 | 5/6 | 23.28 | 20.35 | Dropped from #1. Volume-amplifier noise tightened by the sparse-window fix. |
-| A16_rv_bv_jump | 5/6 | 5/6 | 16.75 | 14.63 | Now #1 on caught + most disciplined of the top tier. Robust to sparse-window changes by construction. |
-| A01_legacy_60_vw_k3 | 5/6 | 4/6 | 16.98 | 12.85 | Mean fires down 24%. Legacy 60s wall buckets fired less spuriously after the elapsed fix; lost one incident that the noise had been catching. |
-| A04_game12_recent4 | 4/6 | (not in new top 10) | 15.51 | n/a | Drift; needs inspection if promoted. |
-| A07_final5_close_suppressed | 4/6 | not shown | 16.54 | n/a |  |
-| A08_final60_foul_mode | 4/6 | not shown | 16.54 | n/a |  |
-| A12_board_fanout_range | 4/6 | not shown | 17.25 | n/a |  |
-| A17_clutch_har_fanout | 4/6 | not shown | 17.36 | n/a |  |
+| Algorithm                   | Old caught | New caught          | Old mean fires/game | New mean fires/game | Notes                                                                                                                                         |
+| --------------------------- | ---------- | ------------------- | ------------------- | ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| A09_volume_heavy_short      | 6/6        | 5/6                 | 23.28               | 20.35               | Dropped from #1. Volume-amplifier noise tightened by the sparse-window fix.                                                                   |
+| A16_rv_bv_jump              | 5/6        | 5/6                 | 16.75               | 14.63               | Now #1 on caught + most disciplined of the top tier. Robust to sparse-window changes by construction.                                         |
+| A01_legacy_60_vw_k3         | 5/6        | 4/6                 | 16.98               | 12.85               | Mean fires down 24%. Legacy 60s wall buckets fired less spuriously after the elapsed fix; lost one incident that the noise had been catching. |
+| A04_game12_recent4          | 4/6        | (not in new top 10) | 15.51               | n/a                 | Drift; needs inspection if promoted.                                                                                                          |
+| A07_final5_close_suppressed | 4/6        | not shown           | 16.54               | n/a                 |                                                                                                                                               |
+| A08_final60_foul_mode       | 4/6        | not shown           | 16.54               | n/a                 |                                                                                                                                               |
+| A12_board_fanout_range      | 4/6        | not shown           | 17.25               | n/a                 |                                                                                                                                               |
+| A17_clutch_har_fanout       | 4/6        | not shown           | 17.36               | n/a                 |                                                                                                                                               |
 
 (Old report only listed 8 rows in its top table; new report lists 10. The "not shown" entries may still appear lower in the full table — see `report.html` for the complete ranking.)
 
 ## What this means
 
 **The shifts are consistent with the math fixes doing what they were supposed to do.** Per the audit:
+
 - Closed the sparse-window slice (A2): elapsed math now uses real time, not sparse bucket count → fewer false fires when activity is bursty.
 - Closed the PBP-missing first-nonzero anchor (A2): scheduled-fallback games no longer have their warmup gate start at "first market move" → fewer fires in the opening minutes of low-PBP games.
 - Replaced linear-averaged median/MAD with weighted-pooled samples (A3): historical-blend priors are now statistically meaningful → less random noise in the prior shape.
@@ -51,6 +52,7 @@
 ## Operational consequence
 
 If the bet365 trader expects to see "the algorithm that caught 6/6" from the prior demo:
+
 - That algorithm was A09_volume_heavy_short. It still catches 5/6 now; the 6th catch was sparse-window noise.
 - The current best by caught + signal quality is A16_rv_bv_jump.
 - The detector that's actually wired live (board-mad with ensemble-or cascade) is closest to A01 (legacy_60_vw_k3) with the patched math — 4/6 caught, 12.85 mean fires/game.
