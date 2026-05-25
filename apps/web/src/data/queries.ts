@@ -227,11 +227,12 @@ const ensembleOrFireSchema = z.object({
 const ensembleOrSchema = z.object({
   gameId: z.string(),
   runId: z.number().int(),
-  // Resolved K the runner computed with (Codex B-followup review P1) —
-  // single source of truth for the Live chart's threshold line, eliminates
-  // the /v1/settings race. Default applied if an older API serves a
-  // response without the field; LivePage degrades gracefully.
-  k: z.number().default(3.0),
+  // Resolved K the runner computed with — single source of truth for the
+  // Live chart's threshold line, eliminates the /v1/settings race. REQUIRED
+  // (no Zod default): if a stale or downgraded API serves a response
+  // without `k`, the validator fails loudly so we don't silently render
+  // the wrong threshold. Codex B-followup review P2 (2026-05-25).
+  k: z.number(),
   boardObservations: z.array(ensembleOrBoardObservationSchema),
   fires: z.array(ensembleOrFireSchema),
 });

@@ -322,11 +322,18 @@ export function LivePage({ gameId }: LivePageProps): JSX.Element {
   // Codex B-followup review P1 (2026-05-25): K comes from the ensemble
   // response itself, NOT a separate /v1/settings round-trip. The runner
   // computed these fires with this K; threshold line drawn against this K
-  // is guaranteed consistent. The 3.0 fallback only fires on first paint
-  // before the ensemble query resolves (and ensembleOrSchema's z.number()
-  // .default(3.0) also covers older API versions that don't return k).
-  const k = ensemble.data?.k ?? 3.0;
-  const chartData = buildChartData(observations, k);
+  // is guaranteed consistent. ensembleOrSchema enforces `k` is REQUIRED
+  // (no Zod default) per Codex review P2, so when ensemble.data is
+  // defined, k is always the real resolved K. While ensemble.data is
+  // undefined (loading / error), `liveK` is null and the label renders "—"
+  // — no silent fallback number. observations is also empty during load,
+  // so the chart skeleton shows; threshold lines need warmed observations
+  // anyway.
+  const liveK = ensemble.data?.k ?? null;
+  // Chart math: use 0 when liveK is null. observations is empty during
+  // loading so this never produces a visible threshold; the 0 just keeps
+  // buildChartData's signature happy.
+  const chartData = buildChartData(observations, liveK ?? 0);
   const tickCount = live.data?.ticks.length ?? 0;
   const lastWindowEnd = live.data?.windowEnd ?? null;
   const lastTickTime =
@@ -370,7 +377,7 @@ export function LivePage({ gameId }: LivePageProps): JSX.Element {
           <h3 className="text-sm font-semibold text-text-hi">
             board-mad fires (sensitivity{" "}
             <span data-testid="live-k" className="text-accent-yellow">
-              {k.toFixed(1)}
+              {liveK !== null ? liveK.toFixed(1) : "—"}
             </span>
             ) <span className="text-text-lo">+</span> off-price prints
           </h3>

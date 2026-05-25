@@ -133,12 +133,14 @@ function mockLiveAndBoard(
   board: Response,
   micro: Response = microstructureResponse({ gameId: GAME_ID }),
 ): void {
-  // AMENDED 2026-05-25 (Codex review P1): the LivePage now consumes
-  // /v1/ensemble-or instead of /v1/board + /v1/microstructure. We still
-  // accept the legacy `board` + `micro` params so existing call sites
-  // (e.g., the offPriceTimestamps in `renders the alert threshold line...`
-  // test) continue to seed the chart by adapting both into an ensemble-or
-  // response shape. /v1/settings is now also required for the live kMad.
+  // AMENDED 2026-05-25 (Codex review P1, then B-followup #2 P1): LivePage
+  // consumes /v1/ensemble-or instead of /v1/board + /v1/microstructure, and
+  // reads K from the ensemble response itself (NOT from /v1/settings).
+  // We still accept the legacy `board` + `micro` params so existing call
+  // sites (e.g., the offPriceTimestamps in `renders the alert threshold
+  // line...` test) continue to seed the chart by adapting both into an
+  // ensemble-or response shape on the fly. /v1/settings is no longer
+  // fetched at all by LivePage.
   fetchMock.mockImplementation(async (input) => {
     await Promise.resolve();
     const url = urlOf(input);

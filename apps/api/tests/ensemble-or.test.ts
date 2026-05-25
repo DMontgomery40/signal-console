@@ -14,8 +14,10 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { buildServer } from "../src/server";
 import {
+  BASELINE_DEFAULTS,
   invalidateDetectorDefaultsCache,
   setDetectorDefaultsPath,
+  writeDetectorDefaults,
 } from "../src/services/detector-defaults";
 
 type FastifyApp = Awaited<ReturnType<typeof buildServer>>;
@@ -218,5 +220,29 @@ describe("ensemble-or live route (phase B2)", () => {
     const app = await startApp();
     const res = await app.inject({ method: "GET", url: `/v1/ensemble-or/${GAME_ID}` });
     expect(res.statusCode).toBe(401);
+  });
+
+  // Codex B-followup #3 review P2 (2026-05-25): the route's `k` field must
+  // be the EXACT resolved kMadLive the runner computed with. The web client
+  // schema is now strict (no default) so any drift between the runtime
+  // default and the echoed value would surface as a Zod parse error in
+  // the browser; this server-side test pins the contract from the API side
+  // so a future refactor can't silently break the echo.
+  it("response k field echoes the exact runtime kMadLive (non-default value)", async () => {
+    // Tighten kMadLive to a non-default value via the runtime settings file.
+    writeDetectorDefaults({ ...BASELINE_DEFAULTS, kMadLive: 7.25 });
+    const app = await startApp();
+    const res = await app.inject({
+      method: "GET",
+      url: `/v1/ensemble-or/${GAME_ID}`,
+      headers: authHeaders(),
+    });
+    expect(res.statusCode).toBe(200);
+    const body: unknown = res.json();
+    if (!isRecord(body)) throw new Error("body not an object");
+    // The K we get back MUST be the K we set. If it were the K_MAD_LIVE
+    // default (3.0) we'd know the route is reading from somewhere other
+    // than the resolved live params.
+    expect(body["k"]).toBe(7.25);
   });
 });
