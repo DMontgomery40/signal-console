@@ -16,10 +16,12 @@ import backtestRoutes, { type BacktestRoutesOptions } from "./routes/backtest";
 import boardRoutes, { type BoardRoutesOptions } from "./routes/board";
 import cacheRoutes, { type CacheRoutesOptions } from "./routes/cache";
 import detectorsRoutes, { type DetectorsRoutesOptions } from "./routes/detectors";
+import ensembleOrRoutes, { type EnsembleOrRoutesOptions } from "./routes/ensemble-or";
 import gamesRoutes, { type GamesRoutesOptions } from "./routes/games";
 import healthRoutes, { type HealthRoutesOptions } from "./routes/health";
 import liveRoutes, { type LiveRoutesOptions } from "./routes/live";
 import microstructureRoutes, { type MicrostructureRoutesOptions } from "./routes/microstructure";
+import offPricePrintRoutes, { type OffPricePrintRoutesOptions } from "./routes/off-price-print";
 import settingsRoutes, { type SettingsRoutesOptions } from "./routes/settings";
 
 const DEFAULT_PORT = defaultApiPort;
@@ -36,6 +38,8 @@ export interface BuildServerOptions {
   readonly live?: LiveRoutesOptions;
   readonly microstructure?: MicrostructureRoutesOptions;
   readonly detectors?: DetectorsRoutesOptions;
+  readonly offPricePrint?: OffPricePrintRoutesOptions;
+  readonly ensembleOr?: EnsembleOrRoutesOptions;
 }
 
 export async function buildServer(options: BuildServerOptions = {}): Promise<FastifyInstance> {
@@ -74,6 +78,8 @@ export async function buildServer(options: BuildServerOptions = {}): Promise<Fas
   await app.register(liveRoutes, options.live ?? {});
   await app.register(microstructureRoutes, options.microstructure ?? {});
   await app.register(detectorsRoutes, options.detectors ?? {});
+  await app.register(offPricePrintRoutes, options.offPricePrint ?? {});
+  await app.register(ensembleOrRoutes, options.ensembleOr ?? {});
 
   // Fastify instances are thenable (await app === app.ready()); awaiting here
   // satisfies @typescript-eslint/return-await:always and gives callers a
