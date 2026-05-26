@@ -4,10 +4,9 @@
 //   - K=6.0 is validated directly against the research report
 //     (~/nba-predict/scripts/board_signal_v2.py) -- the K=6 tests use tolerance
 //     ranges / specific bucket timestamps drawn from that report.
-//   - K=3.0 is the live default; the research report doesn't pin K=3 outcomes
-//     except directionally (~18 fires/game). The K=3 tests snapshot the
-//     canonical implementation's actual outputs so any future drift is a
-//     deliberate review event.
+//   - K=3.0 is the live default. The K=3 tests snapshot the canonical
+//     implementation's actual outputs so any future drift is a deliberate
+//     review event.
 //
 // Any future change to the detector that drifts these assertions is a
 // deliberate review event: per CLAUDE.md, fix the detector, do NOT adjust the
@@ -91,7 +90,7 @@ describe("board-mad canonical contract tests at K=6.0", () => {
     expect(confirmingFires).toEqual([]);
   });
 
-  it("64-game PBP fixture set mean fires/game at K=6 (opening-ramp default)", () => {
+  it("PBP fixture set mean fires/game at K=6 (opening-ramp default)", () => {
     const games = listFixtureGames();
     expect(games.length).toBeGreaterThanOrEqual(64);
     const totalEqual = games.reduce((acc, g) => acc + runOne(g, "equal", 6.0).length, 0);
@@ -126,7 +125,7 @@ describe("board-mad canonical contract tests at K=3.0", () => {
     expect(snapshot).toMatchSnapshot();
   });
 
-  it("64-game PBP fixture set mean fires/game at K=3 volume-weighted (snapshot)", () => {
+  it("PBP fixture set mean fires/game at K=3 volume-weighted (snapshot)", () => {
     const games = listFixtureGames();
     expect(games.length).toBeGreaterThanOrEqual(64);
     const totalVolume = games.reduce((acc, g) => acc + runOne(g, "volume", 3.0).length, 0);

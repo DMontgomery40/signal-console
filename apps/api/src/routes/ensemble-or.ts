@@ -2,11 +2,9 @@
 //
 // GET /v1/ensemble-or/:gameId — Stage-1 cascade fires for one game: board-mad
 // (board lane, at live default params) UNION off-price-print (offprice lane,
-// at live default thresholds). This is the bet365-demo critical-path
-// detector — the prior Claude-authored nba-predict/outputs/.../report.html
-// and the markdown-video-experiment/projects/suspend-*/ explainer videos
-// both headlined "ensemble-OR(board-vw@3, offprice)" as the highest-recall
-// Stage-1 detector (5/6 incidents vs board-only 4/6 vs offprice-only 1/6).
+// at live default thresholds). This is a runtime shape contract only; bakeoff
+// recall and ranking numbers live in regenerated report artifacts because the
+// benchmark corpus changes as new desk cases are added.
 //
 // Thin wrapper around runDetector. Response shape carries BOTH the board
 // lane's per-bucket observations (mirrors /v1/board observation shape so
@@ -19,6 +17,7 @@ import { z } from "zod";
 
 import { readDetectorDefaults } from "../services/detector-defaults";
 import { runDetector } from "../services/detector-runner";
+import { parseStrictIsoTimestamp } from "../services/timestamps";
 
 export interface EnsembleOrRoutesOptions {
   readonly goldDbPath?: string;
@@ -26,11 +25,24 @@ export interface EnsembleOrRoutesOptions {
 }
 
 const paramSchema = z.object({ gameId: z.string().min(1) });
+const querySchema = z.object({ at: z.string().optional() });
 
 const paramsJsonSchema = {
   type: "object",
   required: ["gameId"],
   properties: { gameId: { type: "string", minLength: 1 } },
+} as const;
+
+const queryJsonSchema = {
+  type: "object",
+  properties: {
+    at: {
+      type: "string",
+      description:
+        "Optional ISO timestamp with timezone. When set, runs the cascade using only game data available through that historical instant.",
+    },
+  },
+  additionalProperties: false,
 } as const;
 
 const boardObservationJsonSchema = {
@@ -104,8 +116,9 @@ const ensembleOrRoutes: FastifyPluginAsync<EnsembleOrRoutesOptions> = (app, opts
         tags: ["desk-stable"],
         summary: "Ensemble-OR (board-mad UNION off-price-print) live fires for one game",
         description:
-          "Stage-1 cascade per the suspend-signal report: board-mad fires at the live default K_MAD_LIVE plus off-price-print Polymarket trade-print fires at live default thresholds. Returns boardObservations (per-bucket aggregates with warmedUp + fired) and fires (lane-tagged board + offprice). Cache-backed by per-game source watermark hash through the shared detector runner.",
+          "Stage-1 cascade: board-mad fires at the live default K_MAD_LIVE plus off-price-print Polymarket trade-print fires at live default thresholds. Returns boardObservations (per-bucket aggregates with warmedUp + fired) and fires (lane-tagged board + offprice). Cache-backed by per-game source watermark hash through the shared detector runner.",
         params: paramsJsonSchema,
+        querystring: queryJsonSchema,
         response: {
           200: responseSchema,
           400: errorResponseSchema,
@@ -116,6 +129,18 @@ const ensembleOrRoutes: FastifyPluginAsync<EnsembleOrRoutesOptions> = (app, opts
       const parsed = paramSchema.safeParse(request.params);
       if (!parsed.success) {
         reply.code(400).send({ error: "invalid params" });
+        return;
+      }
+      const parsedQuery = querySchema.safeParse(request.query);
+      if (!parsedQuery.success) {
+        reply.code(400).send({ error: "invalid query" });
+        return;
+      }
+      const at = parsedQuery.data.at;
+      const atMs =
+        at === undefined ? null : parseStrictIsoTimestamp(at, { requireExplicitTimezone: true });
+      if (at !== undefined && atMs === null) {
+        reply.code(400).send({ error: "invalid at timestamp" });
         return;
       }
       const defaults = readDetectorDefaults();
@@ -151,9 +176,18 @@ const ensembleOrRoutes: FastifyPluginAsync<EnsembleOrRoutesOptions> = (app, opts
             minOffPriceDistance: defaults.offPriceMinOffPriceDistance,
           },
         },
-        scope: { kind: "game", gameId: parsed.data.gameId },
+        scope:
+          atMs === null
+            ? { kind: "game", gameId: parsed.data.gameId }
+            : {
+                kind: "window",
+                windowStart: new Date(0).toISOString(),
+                windowEnd: new Date(atMs).toISOString(),
+                gameIds: [parsed.data.gameId],
+              },
         goldDbPath,
         cacheDbPath,
+        ...(atMs === null ? {} : { now: new Date(atMs) }),
       });
       reply.send({
         gameId: parsed.data.gameId,

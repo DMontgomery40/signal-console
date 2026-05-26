@@ -2599,8 +2599,8 @@ async function run(): Promise<number> {
     const exactAnchorIncidents = incidents.filter(
       (incident) => parseIsoSeconds(incident.utcTime) !== null,
     );
-    const scoreableIncidents = exactAnchorIncidents.filter((incident) =>
-      incidentGameIds(incident).some((gameId) => games.has(gameId)),
+    const scoreableIncidentIds = new Set(
+      incidentResults.filter((result) => result.scoreable).map((result) => result.incidentId),
     );
     const bestSummary = rankAlgorithmSummaries(summaries)[0] ?? null;
     const payload: BakeoffPayload = {
@@ -2609,7 +2609,7 @@ async function run(): Promise<number> {
       dbPath,
       incidentCount: incidents.length,
       exactAnchorIncidentCount: exactAnchorIncidents.length,
-      scoreableIncidentCount: scoreableIncidents.length,
+      scoreableIncidentCount: scoreableIncidentIds.size,
       denominatorGames: games.size,
       algorithmCount: ALGORITHMS.length,
       bestSummary,
@@ -2623,7 +2623,7 @@ async function run(): Promise<number> {
       coverage: {
         totalIncidents: incidents.length,
         exactAnchorIncidents: exactAnchorIncidents.length,
-        scoreableIncidents: scoreableIncidents.length,
+        scoreableIncidents: scoreableIncidentIds.size,
         denominatorGames: games.size,
       },
     };

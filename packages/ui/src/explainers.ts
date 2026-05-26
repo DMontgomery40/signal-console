@@ -53,19 +53,14 @@ with elapsed trailing window $W=\texttt{trailingBuckets}\cdot\texttt{bucketSecon
 
 The intuition: every minute we compare the current wiggle to the median wiggle of the recent elapsed lookback plus the sensitivity value times its typical variation. So at sensitivity 3 the current minute has to be three "typical variations" above the median to count; at sensitivity 6 it has to be six. Higher bar = fewer fires.
 
-Two presets are labeled on the dial: "Sensitive" at 3 and "Calm" at 6. Sensitive is what runs in production all day — about 18 fires per game, caught 5 of 6 known suspend events in backtest. Calm is for comparison — about 9 fires per game, quieter but with edge-case misses. The dial in Backtest lets you sweep between them and see what each setting would have caught on past games.`,
+Two presets are labeled on the dial: "Sensitive" at 3 and "Calm" at 6. Sensitive is what runs in production all day; Calm is the quieter comparison point. The exact fires/game and known-case recall numbers are intentionally not hard-coded here because the benchmark corpus changes as the desk adds cases. Backtest and the generated bakeoff report are the source of truth for current counts.`,
     formal: String.raw`Sensitivity is the multiplier on the trailing MAD in the board-MAD fire rule:
 
 $$\text{fire}_i \iff I_i > \mathrm{median}(\{I_j:e_i-W \le e_j < e_i\}) + S \cdot \mathrm{MAD}(\{I_j:e_i-W \le e_j < e_i\})$$
 
 Choice of sensitivity trades recall against precision. In the suspend-signal application the per-fire review cost (seconds of human attention) is much smaller than the miss cost (an exposed stale market exploited by an informed counterparty), so recall is prioritized and the live default is 3.0.
 
-Empirical anchors on the 64-game PBP-anchored backtest fixture set:
-
-| Sensitivity | Fires/game (volume-weighted) | Recall on labeled events |
-|---|---|---|
-| 3.0 | $\approx 19.5$ | 5 of 6 |
-| 6.0 | $\approx 8.6$  | high-confidence subset |
+Empirical anchors are regenerated in \`outputs/nba-detector-bakeoff/\` and rendered in the Known Cases page rather than copied into this tooltip. That keeps this explainer stable while the official incident corpus grows.
 
 Sensitivity is a compute parameter only — it never enters the gold DB. Both anchor values are declared once in \`packages/detectors/src/board-mad/config.ts\`; changing either bumps the detector version so cache rows invalidate naturally and downstream consumers recompute on first read.`,
   },
@@ -74,16 +69,12 @@ Sensitivity is a compute parameter only — it never enters the gold DB. Both an
     title: "Sensitivity 3.0 — Sensitive (live default)",
     eli5: String.raw`This is the production setting. Every Recent and Live screen you see in this app is running at sensitivity 3 behind the scenes. The Backtest dial lets you compare other values, but everything else lives here.
 
-What you get at sensitivity 3: about 18 candidate fires per game across the 64-game backtest set, with 5 of 6 known suspend events recovered. That's a high-recall configuration — you'll see more fires than you'd manually act on, and that's intentional. The expected use case is a desk operator scanning Recent's per-game fire counts, opening anything that looks elevated, and confirming or ignoring at a glance.
+What you get at sensitivity 3: the live board lane takes the higher-recall posture. You'll see more fires than you'd manually act on, and that's intentional. The expected use case is a desk operator scanning Recent's per-game fire counts, opening anything that looks elevated, and confirming or ignoring at a glance.
 
 If the volume feels like too many false alarms in practice, the right answer isn't to nudge sensitivity up — it's to add a second filter downstream (a confidence score, a phase-of-game gate, anything you can validate). sensitivity is locked at 3 for the live path because the empirical recall curve is steepest right around this value.`,
     formal: String.raw`Sensitivity 3.0 with volume weighting is the canonical live operating point, declared in \`packages/detectors/src/board-mad/config.ts\` and matching the legacy \`nba-predict\` TypeScript runtime at \`game-state-volatility.ts:24-340\`.
 
-Empirical characterization on the project's 64-game PBP-anchored fixture set:
-
-$$\overline{F/G}\bigg|_{S=3,\,\text{vol}} \approx 19.5, \qquad \text{recall on } \mathcal{E}_{\text{labeled}} = 5/6$$
-
-The recall floor of 5 of 6 known events is the load-bearing decision criterion — the one missed event (Reaves on \`nba-0042500223/224\`) is the report's honest null case for the board lane and is not recoverable by reducing sensitivity alone (the event has no board-wide volatility signature; it appears in the off-price-print lane instead). The contract test \`packages/detectors/src/board-mad/__tests__/canonical.test.ts\` pins the sensitivity=3 outcomes against committed JSON fixtures to prevent silent drift.`,
+The generated bakeoff report carries the current empirical characterization for the active incident corpus. The contract test \`packages/detectors/src/board-mad/__tests__/canonical.test.ts\` pins the sensitivity=3 outcomes against committed JSON fixtures to prevent silent drift.`,
   },
 
   "k-mad-calm": {
@@ -95,9 +86,7 @@ Calm exists on the dial as a reference point, not a recommended setting. It's th
 In production we never run the live system at sensitivity 6 — too many real events get missed at that sensitivity. If the dial in Backtest shows you something interesting at sensitivity 6 specifically, it's almost certainly a high-confidence event also visible at sensitivity 3. The interesting comparison is usually the other direction: things that fire at sensitivity 3 but not at sensitivity 6 are the edge-case sensitivity gains.`,
     formal: String.raw`Sensitivity 6.0 is the comparison-only preset, matching the original Python research backtest's default in \`scripts/board_signal_v2.py:33\`. It is exposed only in Backtest UI and never used by Live or Recent surfaces.
 
-Empirical anchors from the same 64-game PBP-anchored set as the live preset:
-
-$$\overline{F/G}\bigg|_{S=6,\,\text{eq}} = 9.3 \pm 1.0, \qquad \overline{F/G}\bigg|_{S=6,\,\text{vol}} = 8.6 \pm 1.0$$
+Empirical anchors for the current incident corpus live in \`outputs/nba-detector-bakeoff/\` and the Known Cases page. The committed detector tests keep this preset bounded against the local PBP fixture set without copying a stale benchmark count into product copy.
 
 Contract tests pin two specific event-level outcomes at sensitivity 6: (1) Hartenstein (event \`2026-05-08T03:12:36.8Z\`, game \`nba-0042500222\`) fires with bucket-start \`03:12:00Z\` and watcher-confirmation bucket-end \`03:13:00Z\` ($\approx$ T+23 s after the event); and (2) Reaves (event \`2026-05-12T04:51:40.2Z\`, games \`nba-0042500223/224\`) does **not** fire on either game — the report's honest null case for the board lane. These outcomes are locked in \`packages/detectors/src/board-mad/__tests__/canonical.test.ts\` against committed JSON fixtures; any drift is a review event.`,
   },
@@ -177,14 +166,14 @@ where $W=\texttt{trailingBuckets}\cdot\texttt{bucketSeconds}$, $R=\texttt{openin
 
 It's the cheapest possible quality metric for a detector. Too low, you're missing things. Too high, you're burning attention on false alarms. The whole reason this dial exists is to let you see the trade-off between these two failure modes by sliding sensitivity around.
 
-Some reference numbers from the backtest set: at live sensitivity 3, about 18 fires per game on average. At comparison sensitivity 6, about 9. Real games vary — a tight, slow game might fire 5 times; a chaotic playoff game with three lead changes might fire 30. The number is most useful as a comparison ("game X is firing twice as much as the median tonight") rather than an absolute ("more than 15 = real").`,
+Real games vary — a tight, slow game might fire a handful of times; a chaotic playoff game with three lead changes might fire far more. The number is most useful as a comparison ("game X is firing twice as much as the median tonight") rather than an absolute ("more than 15 = real"). Current reference numbers live in Backtest and the generated bakeoff report.`,
     formal: String.raw`For a window $\mathcal{W}$ containing games $\mathcal{G}_{\mathcal{W}}$:
 
 $$F/G_{\mathcal{W}} = \frac{\sum_{g \in \mathcal{G}_{\mathcal{W}}}\, \#\{t \in g : \text{fire}_t = 1\}}{|\mathcal{G}_{\mathcal{W}}|}$$
 
-This is the single primary characterizer of a $(S, W, W_0, \tau_{\max}, w)$ parameter set on a given fixture window. It is reported in Backtest UI as the live preview metric as the dial moves, and committed in contract tests at the live and calm anchor values: $\overline{F/G}|_{S=3,\,\text{vol}} \approx 19.5$ and $\overline{F/G}|_{S=6,\,\text{vol}} = 8.6 \pm 1.0$ on the 64-game backtest fixture set.
+This is the single primary characterizer of a $(S, W, W_0, \tau_{\max}, w)$ parameter set on a given fixture window. It is reported in Backtest UI as the live preview metric as the dial moves, and regenerated in the bakeoff artifact for the current official incident corpus.
 
-Two caveats worth knowing. First, $F/G$ is averaged across games of very different lengths and information densities — a Game-7 closeout fires more than a December regular-season blowout. Per-game variance is large and the mean is the relevant aggregate. Second, the metric implicitly assumes the labeled-event base rate is approximately constant across the fixture set; when comparing fire rates across windows with different event densities, recall on labeled events (cited as e.g. $5/6$) is the comparable quantity, not $F/G$ alone.`,
+Two caveats worth knowing. First, $F/G$ is averaged across games of very different lengths and information densities — a Game-7 closeout fires more than a December regular-season blowout. Per-game variance is large and the mean is the relevant aggregate. Second, the metric implicitly assumes the labeled-event base rate is approximately constant across the fixture set; when comparing fire rates across windows with different event densities, recall on labeled events from the generated bakeoff is the comparable quantity, not $F/G$ alone.`,
   },
 
   // ──────────────────────────────────────────────────────────────────────────
@@ -391,7 +380,7 @@ Cache invalidation: the runtime \`board-mad\` detector version is derived as \`d
     title: "Live sensitivity",
     eli5: String.raw`This is the sensitivity value the Recent list and the Live page use by default — the multiplier on the trailing baseline that decides whether a bucket is big enough to fire. Lower sensitivity = more fires, higher sensitivity = fewer.
 
-If you're calibrating against labeled events, this is the knob you'll move most. The contract-test snapshot lives at sensitivity 3.0 (≈ 18-19 fires per game across the 66-game canonical set). Move it up and the Live page reports fewer fires; move it down and it reports more — both within seconds, no restart.`,
+If you're calibrating against labeled events, this is the knob you'll move most. The canonical contract test pins the sensitivity 3.0 behavior against committed fixtures; current recall and fires/game counts live in the generated bakeoff report and Known Cases page. Move it up and the Live page reports fewer fires; move it down and it reports more — both within seconds, no restart.`,
     formal: String.raw`Runtime override for the sensitivity multiplier in $\text{fire}_t \iff I_t > \mathrm{median}(\cdot) + S \cdot \mathrm{MAD}(\cdot)$, applied to the live board path. The package-declared default in \`packages/detectors/src/board-mad/config.ts\` remains the seed value; this override layers on top through the detector-defaults service and feeds every Live/Recent request.`,
   },
 

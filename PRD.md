@@ -19,7 +19,7 @@ This PRD describes a clean rebuild in a new sibling repo at `~/signal-console/`.
 - Sport-agnostic from day 1 (NFL + NCAA football named as first-class), but no speculative scaffolding for sports we are not yet ingesting.
 - The 54 GB SQLite is **moved at phase 0** to `~/signal-console/data/signal-console.sqlite` (with `-wal` and `-shm` siblings); the API/UI/cache paths open it read-only thereafter. The old `~/nba-predict/data/...` location becomes reference-only with a loud sentinel.
 
-The "Sensitivity adapter" is not a new algorithm — it is the existing `K_MAD` multiplier on the trailing `median + K·MAD` board-volatility threshold, which the live runtime currently hard-codes to `3` while the research backtest uses `6.0`. The research report says `K=3` produces ~18 fires/game ("sensitive, catches 5 of 6"), `K=6` produces ~9 fires/game (the "calmer" comparison preset). The video plan narrates this verbatim as "It's a dial." Exposing it honestly is the headline feature.
+The "Sensitivity adapter" is not a new algorithm — it is the existing `K_MAD` multiplier on the trailing `median + K·MAD` board-volatility threshold. The live runtime default is `3.0`; `6.0` remains the calmer Backtest comparison preset. Current fires/game and known-case recall numbers come from the regenerated bakeoff artifacts and Known Cases page, not from this PRD prose, because the official incident corpus changes as the desk adds cases.
 
 ---
 
@@ -27,7 +27,7 @@ The "Sensitivity adapter" is not a new algorithm — it is the existing `K_MAD` 
 
 - **Reliability:** Dead-reliable, lightweight, read-only API path. Zero writes to the gold DB from the API/UI/cache layer.
 - **Performance budgets:** Recent (24-h list) < 500 ms warm / < 2 s cold for ~20 games; one game's live view < 300 ms; one market's timeline < 300 ms; backtest 28-day / ~20-game first sweep < 60 s, cached subsequent K change < 1 s; Settings < 100 ms.
-- **Focus:** **Three** primary views — Recent (default), Live (opt-in), Backtest (dials). One additional view (Detectors) for registry browsing, and Settings for diagnostics. Nothing else.
+- **Focus:** **Three** primary workflow views — Recent (default), Live (opt-in), Backtest (dials) — plus Known Cases for trading-desk incident replay, Detectors for registry browsing, and Settings for diagnostics.
 - **Headline feature:** The Sensitivity adapter — a continuous Backtest dial with two labelled snap points (`3.0` sensitive/live default, `6.0` calm comparison preset). The Signal timing panel exposes `baselineMode`, `openingBaselineBuckets`, `openingRampCompleteBuckets`, `trailingBuckets`, and `warmupBuckets` with exact elapsed durations from `bucketSeconds` where applicable.
 - **Extensibility:** Detector registry; new detector = one file under `packages/detectors/src/<name>/index.ts` + one line in `registry.ts`.
 - **Math honesty:** K = 3.0 is the live/Recent/default operating value. K = 6.0 is a Backtest-only calmer preset. Both declared once in `packages/detectors/src/board-mad/config.ts`. K is a compute parameter, never persisted in the gold DB.
@@ -52,7 +52,7 @@ The "Sensitivity adapter" is not a new algorithm — it is the existing `K_MAD` 
 | Derived state            | A separate **cache DB** at `~/signal-console/data/detector-cache.sqlite`, owned and freely writable by the new app. Keyed by detector id, version, params hash, and a **scoped source watermark hash** (per-game and per-window) computed at compute time. Throwaway; losing it just triggers recompute. |
 | Worker / ingest          | Old `nba-predict/apps/worker` is **dead after Phase 0**. No shadow period, no crossover. If live ingest is needed in the next few days, port the minimal slice of the old worker into `~/signal-console/apps/worker/` as **Phase 0.5**, writing to the moved DB path. Otherwise live ingest pauses until Phase 0.5 ships. |
 | Sport-agnosticism        | SQL **CTEs in query modules**, referencing the read-only gold DB. No startup-time `CREATE TEMP VIEW` (incompatible with `PRAGMA query_only`). New table additions wait for the second sport's data. |
-| Canonical math (K_MAD)   | **K = 3.0** (volume-weighted) is the **live / Recent / default** operating value (matches the video/bakeoff "sensitive: ~18 nudges/game, catches 5 of 6"). **K = 6.0** is a Backtest-only calmer comparison preset (~9 nudges/game; the precise "catches N of 6" number is not asserted unless the current bakeoff artifact supports it). The Backtest dial sweeps continuously between them. Both values declared in `packages/detectors/src/board-mad/config.ts`; the runtime/UI default is the K=3 entry. K is a **compute parameter, not a persisted dimension** — the gold DB has no K column anywhere. |
+| Canonical math (K_MAD)   | **K = 3.0** (volume-weighted) is the **live / Recent / default** board-lane operating value. **K = 6.0** is a Backtest-only calmer comparison preset. Current fires/game and recall numbers are read from Backtest and the regenerated bakeoff artifacts, not hard-coded in product copy. The Backtest dial sweeps continuously between them. Both values declared in `packages/detectors/src/board-mad/config.ts`; the runtime/UI default is the K=3 entry. K is a **compute parameter, not a persisted dimension** — the gold DB has no K column anywhere. |
 
 ---
 
@@ -144,10 +144,10 @@ This is the only novel UI element in the rebuild; getting it right is the headli
 
 **What it is.** A slider on the Backtest tab that adjusts `K_MAD` (the multiplier on the trailing MAD in the board-volatility fire rule `intensity > median(prior elapsed lookback) + K · MAD(prior elapsed lookback)`).
 
-**Range and presets.** Continuous slider `2.0 ≤ K ≤ 8.0`, step `0.25`. Default position is the **live K = 3.0**; the dial exists to explore sensitivity around that anchor. Two labelled snap points matching the video narration:
+**Range and presets.** Continuous slider `2.0 ≤ K ≤ 8.0`, step `0.25`. Default position is the **live K = 3.0**; the dial exists to explore sensitivity around that anchor. Two labelled snap points:
 
-- **Sensitive — live default** — `K = 3.0` (volume-weighted), ~18 fires/game, video/bakeoff narration "caught 5 of 6".
-- **Calm — comparison preset** — `K = 6.0`, ~9 fires/game (the "catches N of 6" number is not labelled in the UI unless the current bakeoff artifact supports it).
+- **Sensitive — live default** — `K = 3.0` (volume-weighted board lane).
+- **Calm — comparison preset** — `K = 6.0` (quieter board-lane comparison). Fires/game and "catches N of M" counts are not labelled in static copy unless the current bakeoff artifact supports them.
 
 **Live preview.** As the slider moves, the page shows:
 
@@ -169,8 +169,8 @@ This is the only novel UI element in the rebuild; getting it right is the headli
 
 TDD + SDD principles fail if the math under test is wrong. The new repo honours both K values the project measured but assigns them distinct operational meanings, and locks each via contract tests so they cannot drift.
 
-1. **Canonical live default:** `K_MAD_LIVE = 3.0`, weighting `"volume"` — the sensitive setting from the video/bakeoff: ~18 fires/game, "catches 5 of 6" per that artifact. This is what Recent, Live, and any non-Backtest surface uses. Justification: for a suspend-signal whose miss cost (an exposed bad market) exceeds the per-fire review cost, the higher-recall setting wins.
-2. **Backtest calm preset:** `K_MAD_CALM = 6.0` — the calmer comparison from the research report (`scripts/board_signal_v2.py:33`): ~9 fires/game. The "catches N of 6" number is **not** committed to in the plan/UI unless and until a current bakeoff artifact supports it; the dial UI labels the preset by fire-rate only.
+1. **Canonical live default:** `K_MAD_LIVE = 3.0`, weighting `"volume"` — the sensitive board-lane setting. This is what Recent, Live, and any non-Backtest board lane uses. Justification: for a suspend-signal whose miss cost (an exposed bad market) exceeds the per-fire review cost, the higher-recall posture wins. Current empirical counts live in the generated bakeoff artifact.
+2. **Backtest calm preset:** `K_MAD_CALM = 6.0` — the calmer comparison from the research report (`scripts/board_signal_v2.py:33`). The "catches N of M" number is **not** committed to in the plan/UI unless and until a current bakeoff artifact supports it.
 3. Both constants live in `packages/detectors/src/board-mad/config.ts`, re-exported as the only K values the API, UI, and cache layer consume. **No other file declares a default for K.**
 4. **K is a compute parameter, not a persisted dimension.** The `board-mad` detector iterates `quote_ticks` in time order, buckets by the configured `bucketSeconds`, computes a causal baseline `median(selected prior sample) + K · MAD(selected prior sample)` on the fly, and fires when current bucket intensity exceeds the threshold (after elapsed holdoff `warmupBuckets × bucketSeconds`, with a 300 s fresh-cap on per-market deltas and the `is_heartbeat` / `0.500` opening-anchor sanitations). The live default prior sample is `baselineMode="opening-ramp"`: first active alert checks compare against the opening elapsed duration `openingBaselineBuckets × bucketSeconds` and graduate to rolling memory at `openingRampCompleteBuckets × bucketSeconds`. Backtest and Settings also expose `baselineMode="historical-blend"`, which starts from last-five same-side NBA priors, fades them out by game-clock elapsed time, uses game-clock memory for the current-game baseline, and can add a short wall-clock recent tack-on for timeout/dead-ball betting bursts. **Nothing about K lives in the gold DB**; it is purely a knob inside the detector's compute loop.
 5. **The gold DB's `board_volatility_baselines` table is NOT a fire decision store.** Its rows are expected-range bands (p50/p75/p90/p99) keyed by phase / source / core-family for UI band overlays, written by the old worker. The new app may read them for a band overlay; it does **not** depend on them for any fire decision. The `cohortKey` label in `nba-predict`'s TypeScript runtime embeds K only for display purposes (`game-state-volatility.ts:697`, `:880`), not as a persisted key.
@@ -179,11 +179,11 @@ TDD + SDD principles fail if the math under test is wrong. The new repo honours 
    - **At K = 6.0** (the report's validated values):
      - **Hartenstein** (event `2026-05-08T03:12:36.8Z`, game `nba-0042500222`): the bucket starting `03:12:00Z` fires; the watcher confirms at bucket-end `03:13:00Z`, which is ≈ T+23 s after the event. Both timestamps are named in the assertion so future readers cannot conflate raw detector output (bucket-start) with watcher confirmation time (bucket-end).
      - **Reaves** (event `2026-05-12T04:51:40.2Z`, games `nba-0042500223` and `nba-0042500224`): **does not fire** on either game id. The report's honest null case for the board lane.
-     - **Mean fires per game across the 64-game PBP set:** 9.3 ± 1.0 equal-weight (8.6 volume-weight). Both within tolerance.
+     - **Mean fires per game across the committed PBP fixture set:** exact tolerance lives in the canonical test and may move only with deliberate detector review.
    - **At K = 3.0** (the live default; values seeded at Phase 0 by running the canonical implementation on the same fixtures and snapshotting):
      - Hartenstein bucket-start: same `03:12:00Z` (K=3 is more sensitive, so it cannot fail to fire when K=6 fires); test asserts ≥ 1 fire in the in-play window.
      - Reaves: the test snapshots **whatever the canonical implementation produces** at K=3 (the report doesn't measure this; we measure it once at Phase 0 and lock the answer). Any future change is a review event.
-     - Mean fires per game: the test snapshots the K=3 number from the 64-game fixture set (directional expectation: ~18, per the video/bakeoff narration).
+     - Mean fires per game: the test snapshots the K=3 number from the committed PBP fixture set.
 
 7. **No silent K change.** Any future change to either canonical K is a deliberate migration: a config-file edit, fresh contract-test snapshots, and a bumped `detector_version` (so existing cache rows for the old K naturally become misses and recompute). There is no runtime config toggle that quietly substitutes a different K.
 
@@ -455,16 +455,20 @@ Detector code, API routes, and UI consume the abstracted shape. When the second 
 
 ---
 
-## 15. API surface (8 routes total)
+## 15. API surface
 
 | Method | Path                          | Reads                                                                  | Bounded by                              |
 | ------ | ----------------------------- | ---------------------------------------------------------------------- | --------------------------------------- |
 | GET    | `/v1/games`                   | `v_games` CTE (joins `games`, latest `game_states`)                    | `since=` (default 24 h)                 |
 | GET    | `/v1/games/:gameId`           | `v_games` CTE + `game_outcomes`                                        | game id                                 |
-| GET    | `/v1/live/:gameId`            | `quote_ticks`, `source_markets` (gold, read-only)                      | game id + last 5 min                    |
+| GET    | `/v1/live/:gameId`            | `quote_ticks`, `source_markets` (gold, read-only; ticks include source id) | game id + last 5 min ending now, or `at=` |
 | GET    | `/v1/board/:gameId`           | `detector_cache` (hit) or `quote_ticks` + compute (miss; then cached)  | game id + in-play window                |
+| GET    | `/v1/off-price-print/:gameId` | `detector_cache` (hit) or microstructure + detector compute (miss; then cached) | game id + in-play window                |
+| GET    | `/v1/ensemble-or/:gameId`     | shared runner board lane + off-price lane                             | game id + in-play window, or data through `at=` |
 | GET    | `/v1/microstructure/:gameId`  | `market_microstructure_events` (gold, read-only)                       | game id + `volume_share >= θ`           |
 | POST   | `/v1/backtest`                | `quote_ticks`, `market_microstructure_events`, `v_events` + detector compute; cached by `params_hash` | request window (≤ 28 d, ≤ 20 games)     |
+| GET    | `/v1/incidents`               | generated bakeoff registry + desk-entered assertion store              | local JSON files                        |
+| POST   | `/v1/incidents`               | writes desk-entered assertion store; may read `games` for hint matching | one time anchor + one team/game hint    |
 | GET    | `/v1/detectors`               | (none — registry only)                                                 | —                                       |
 | GET    | `/v1/settings`                | `pragma_*` (gold + cache), log tail                                    | —                                       |
 | DELETE | `/v1/cache`                   | `detector_cache` only                                                  | optional `detector_id`, `before` params |
@@ -483,6 +487,7 @@ Every route validates its query/body with Zod; never an `as` cast. Every service
 | `/`          | "Last 24 h" — list games + status + fire count, no auto-refresh on first load |
 | `/live/:id`  | Opt-in; user must click into a game. 30 s poll. No silent baseline rebuild.   |
 | `/backtest`  | Date range + game scope + detector selector + Sensitivity / Signal timing controls + results panel |
+| `/known-cases` | Trading-desk incident list and live/recent-style replay. Benchmark rows come from the generated bakeoff; desk-entered rows are accepted as desk assertions even when no local feed evidence matches yet. Selecting a case shows the incident ±5 min window with the same source drilldown as the game detail view: live tick source counts, board/off-price fire counts, PBP, top market movers, and Polymarket trade prints. |
 | `/detectors` | Registry listing with paramsSchema; "Drop a new file in `packages/detectors/src/`" link |
 | `/settings`  | DB path, size, WAL bytes, last sync per source, last 200 error lines, version |
 
@@ -676,7 +681,7 @@ Three sections, no buttons that mutate (except "clear cache"):
 - [ ] `packages/detectors/src/board-mad/__tests__/canonical.test.ts` at K=6.0 asserts:
   - [ ] Hartenstein bucket starting `2026-05-08T03:12:00Z` fires; watcher confirms at bucket-end `03:13:00Z` (≈ T+23 s after event `03:12:36.8Z`).
   - [ ] Reaves event `2026-05-12T04:51:40.2Z` produces **no fires** on either `nba-0042500223` or `nba-0042500224`.
-  - [ ] Mean fires per game across the 64-game PBP fixture set: 9.3 ± 1.0 equal-weight, 8.6 volume-weight (both within tolerance).
+  - [ ] Mean fires per game across the committed PBP fixture set stays inside the tolerance declared in the canonical test.
 - [ ] Test names cite event timestamps and bucket timestamps explicitly so future readers cannot conflate detector output (bucket-start) with watcher confirmation (bucket-end).
 - [ ] Typecheck/lint passes.
 
@@ -687,7 +692,7 @@ Three sections, no buttons that mutate (except "clear cache"):
 - [ ] `packages/detectors/src/board-mad/__tests__/canonical.test.ts` at K=3.0 asserts:
   - [ ] Hartenstein in-play window has ≥ 1 fire (K=3 is more sensitive than K=6, cannot fail to fire when K=6 fires).
   - [ ] Reaves: whatever the canonical implementation produces at K=3 on both game ids is snapshotted; any future change is a review event.
-  - [ ] Mean fires per game across the 64-game fixture set: K=3 number snapshotted (directional expectation: ~18 per the video/bakeoff narration).
+  - [ ] Mean fires per game across the committed PBP fixture set: K=3 number snapshotted.
 - [ ] Snapshot files committed under `packages/detectors/src/board-mad/__tests__/__snapshots__/`.
 - [ ] Typecheck/lint passes.
 
@@ -1105,7 +1110,7 @@ Three sections, no buttons that mutate (except "clear cache"):
 - FR-7: `packages/detectors/src/board-mad/config.ts` is the **only** file in the repo declaring `K_MAD_LIVE = 3.0` or `K_MAD_CALM = 6.0`. No other file hardcodes either value.
 - FR-8: The `board-mad` detector implements `intensity > median(selected prior sample) + K · MAD(selected prior sample)`, after elapsed `warmupBuckets × bucketSeconds` warmup, with `freshCapSeconds` per-market delta cap and the `is_heartbeat`/`0.500` opening-anchor sanitations, in `O(bucket)` time. The default selected prior sample is `baselineMode="opening-ramp"`: it starts from `openingBaselineBuckets × bucketSeconds` elapsed game context and reaches rolling memory at `openingRampCompleteBuckets × bucketSeconds`. `baselineMode="historical-blend"` starts from last-five same-side historical priors, fades by NBA game-clock elapsed time, uses `trailingGameMinutes` for current-game memory, and blends a short `recentWallMinutes` wall-clock tack-on with `recentWallWeight`.
 - FR-9: K is a compute parameter; nothing about K is ever persisted in the gold DB.
-- FR-10: Detector contract tests must assert: Hartenstein fires at K=6 with bucket-start `2026-05-08T03:12:00Z` and watcher-end `03:13:00Z`; Reaves no-fire at K=6 on both game ids; K=3 snapshots locked for both incidents and 64-game mean.
+- FR-10: Detector contract tests must assert: Hartenstein fires at K=6 with bucket-start `2026-05-08T03:12:00Z` and watcher-end `03:13:00Z`; Reaves no-fire at K=6 on both game ids; K=3 snapshots locked for both incidents and the committed PBP fixture-set mean.
 - FR-11: Any future change to `K_MAD_LIVE` or `K_MAD_CALM` must be accompanied by fresh contract-test snapshots AND a bumped `detector_version` in the detector module.
 
 **API surface**
@@ -1174,7 +1179,7 @@ Three sections, no buttons that mutate (except "clear cache"):
 - Game triage logic: ported from `nba-predict/apps/web/src/lib/game-triage.ts`.
 - Divergence history helpers: ported from `nba-predict/apps/web/src/lib/divergence-history.ts`.
 - Each port keeps its existing tests.
-- The Backtest dial UX matches the video plan narration at `~/markdown-video-experiment/projects/signal-console-explainer/plan.json` — "It's a dial" remains the control metaphor for both primary knobs.
+- The Backtest dial UX keeps "it's a dial" as the control metaphor for both primary knobs, but generated videos and narration must be regenerated from the current bakeoff before being treated as live evidence.
 
 ---
 
@@ -1247,7 +1252,7 @@ Three sections, no buttons that mutate (except "clear cache"):
 
 - Should `/v1/board/:gameId` accept an optional K override behind a `desk-only` tag, or strictly remain at K_MAD_LIVE? **Current decision: strictly K_MAD_LIVE.** Revisit only if the desk explicitly asks for it and we can serve it from the cache by `params_hash`.
 - Should the `off-price-print` detector eventually ingest Bet365 / Kalshi prints alongside Polymarket? Out of scope for v1 (Polymarket-only); the UI surface (US-208) documents the limitation.
-- Should the K=3 64-game-mean snapshot in US-009 commit to a directional inequality (e.g. `>= 14`) or just an exact snapshot? **Current decision: exact snapshot.** Drift triggers a review.
+- Should the K=3 PBP-fixture mean snapshot in US-009 commit to a directional inequality (e.g. `>= 14`) or just an exact snapshot? **Current decision: exact snapshot.** Drift triggers a review.
 - Should we ship per-team `X-Signal-Token` values in Phase 2? Depends on whether the desk asks for distinct call-audit. Default = single shared token.
 - Phase 5 subdomain rename (`nba-predict.dtmont.com` → `signal.dtmont.com`) — defer until churn is justified.
 
@@ -1261,8 +1266,9 @@ Three sections, no buttons that mutate (except "clear cache"):
 - `~/nba-predict/packages/shared/src/migrations.ts` — schema documentation.
 - `~/nba-predict/packages/shared/src/live-repository.ts` — query examples worth porting (extract small ones; do not import the file).
 - `~/nba-predict/apps/web/src/lib/{game-state,time-format,market-format,source-coverage,game-triage,divergence-history,chart-theme}.ts` — pure utilities to port wholesale with their tests.
-- `~/nba-predict/outputs/innovation-team-suspend-signal-report/REPORT.md` — the design rationale; the new repo's `docs/why-board-and-tape.md` is a 10× compression of this.
-- `~/markdown-video-experiment/projects/signal-console-explainer/plan.json` — narration source for the Backtest dial labels and explainer copy.
+- `outputs/nba-detector-bakeoff/REPORT.md` — current generated evidence for incident recall and fire burden after v1.6 math fixes.
+- `~/nba-predict/outputs/innovation-team-suspend-signal-report/REPORT.md` — historical design rationale only; do not copy its benchmark counts into runtime code or product copy.
+- `~/markdown-video-experiment/projects/signal-console-explainer/plan.json` — historical narration source for the Backtest dial metaphor only; regenerate before treating numbers or incident claims as current.
 - `~/nba-predict/.codex/hooks.json` — the regression-coverage guard to port.
 
 ---

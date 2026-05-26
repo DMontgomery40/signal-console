@@ -1,9 +1,9 @@
-// ensemble-or detector — Stage-1 cascade from the suspend-signal report §8.1.
+// ensemble-or detector — Stage-1 cascade.
 //
 // Runs board-mad AND off-price-print over the same window and unions their
-// fires. This is the BAKEOFF row `ensemble-OR(board-vw@3,offprice)` in the
-// report — strictly equal-or-better recall than either lane alone (5/6 on
-// the canonical incident set vs 4/6 board-vw-only and 1/6 offprice-only).
+// fires. Bakeoff scores and rankings live in the generated report artifacts,
+// not in this runtime module, because the benchmark corpus changes as new
+// desk incidents become scoreable.
 //
 // Each surviving fire carries a `lane` ("board" or "offprice") so the UI
 // can render the two lanes distinctly (Live shows red dashed lines for

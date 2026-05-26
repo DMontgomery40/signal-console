@@ -49,9 +49,9 @@ import {
 import type { BacktestObservation, BacktestResponse, BacktestStats } from "../../data/queries";
 
 export const BOARD_MAD_DETECTOR_ID = "board-mad";
-// Stage 1 of the suspend-signal report §8.1 — runs board-mad AND
-// off-price-print over the same window and unions their fires. Default
-// detector on the Backtest UI per the report's recommendation.
+// Stage 1 cascade — runs board-mad AND off-price-print over the same window
+// and unions their fires. It is the default detector on the Backtest UI;
+// current benchmark scores live in the generated bakeoff report.
 export const ENSEMBLE_OR_DETECTOR_ID = "ensemble-or";
 
 // Subset of the form values needed for the client recompute. We accept extra

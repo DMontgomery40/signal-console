@@ -19,6 +19,7 @@ import detectorsRoutes, { type DetectorsRoutesOptions } from "./routes/detectors
 import ensembleOrRoutes, { type EnsembleOrRoutesOptions } from "./routes/ensemble-or";
 import gamesRoutes, { type GamesRoutesOptions } from "./routes/games";
 import healthRoutes, { type HealthRoutesOptions } from "./routes/health";
+import incidentsRoutes, { type IncidentsRoutesOptions } from "./routes/incidents";
 import liveRoutes, { type LiveRoutesOptions } from "./routes/live";
 import microstructureRoutes, { type MicrostructureRoutesOptions } from "./routes/microstructure";
 import offPricePrintRoutes, { type OffPricePrintRoutesOptions } from "./routes/off-price-print";
@@ -31,6 +32,7 @@ export interface BuildServerOptions {
   readonly auth?: AuthPluginOptions;
   readonly health?: HealthRoutesOptions;
   readonly games?: GamesRoutesOptions;
+  readonly incidents?: IncidentsRoutesOptions;
   readonly settings?: SettingsRoutesOptions;
   readonly cache?: CacheRoutesOptions;
   readonly board?: BoardRoutesOptions;
@@ -71,6 +73,7 @@ export async function buildServer(options: BuildServerOptions = {}): Promise<Fas
 
   await app.register(healthRoutes, options.health ?? {});
   await app.register(gamesRoutes, options.games ?? {});
+  await app.register(incidentsRoutes, options.incidents ?? {});
   await app.register(settingsRoutes, options.settings ?? {});
   await app.register(cacheRoutes, options.cache ?? {});
   await app.register(boardRoutes, options.board ?? {});

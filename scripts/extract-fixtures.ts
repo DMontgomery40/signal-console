@@ -3,8 +3,8 @@
 // Extracts board-mad detector canonical contract-test fixtures from the gold DB
 // for (a) the three PBP-anchored games (US-010, the Hartenstein/Reaves incident
 // fixtures, with fixed 2-hour windows around the anchored event timestamps),
-// and (b) the full PBP-anchored game universe used by the 64-game mean-fires
-// contract assertion (US-011, all distinct game_ids in
+// and (b) the full PBP-anchored game universe used by the fixture-set
+// mean-fires contract assertion (US-011, all distinct game_ids in
 // nba_play_by_play_actions, each in its own per-game PBP MIN/MAX(time_actual)
 // in-play window with a 5-minute pre-buffer to seed the trailing baseline).
 // One JSON-gz file per game, written to

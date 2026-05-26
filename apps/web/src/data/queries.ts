@@ -154,10 +154,11 @@ const fanoutSchema = z
 // /v1/live/:gameId — PRD §15: last 5 min of quote_ticks joined to
 // source_markets for instrument metadata. Schema matches the shipped route
 // (US-028 services/live.ts): { gameId, windowStart, windowEnd, ticks } with
-// each tick carrying impliedProbability/volume/heartbeat plus the joined
-// instrumentId/rawFamily/rawLabel (no separate sourceMarkets array).
+// each tick carrying source/impliedProbability/volume/heartbeat plus the
+// joined instrumentId/rawFamily/rawLabel (no separate sourceMarkets array).
 const quoteTickSchema = z.object({
   sourceMarketId: z.string(),
+  source: z.string().optional(),
   capturedAt: z.string(),
   impliedProbability: z.number().nullable(),
   volume: z.number(),
@@ -353,6 +354,74 @@ export type DetectorsResponse = z.infer<typeof detectorsSchema>;
 export type Settings = z.infer<typeof settingsSchema>;
 export type DetectorDefaults = z.infer<typeof detectorDefaultsSchema>;
 
+// /v1/incidents — benchmarked bakeoff cases plus desk-entered assertions.
+const knownCaseResultSchema = z
+  .object({
+    algoId: z.string(),
+    scoreable: z.boolean(),
+    caught: z.boolean(),
+    leadSeconds: z.number().nullable(),
+    fireIso: z.string().nullable(),
+    skipReason: z.string().nullable(),
+  })
+  .nullable();
+const knownCaseSchema = z.object({
+  id: z.string(),
+  origin: z.enum(["benchmark", "desk-entered"]),
+  incidentName: z.string(),
+  claim: z.string(),
+  confidence: z.string(),
+  anchorType: z.string(),
+  gameDate: z.string(),
+  teams: z.string(),
+  gameId: z.string(),
+  period: z.string(),
+  clock: z.string(),
+  utcTime: z.string(),
+  stat: z.string(),
+  creditedPlayer: z.string(),
+  rightfulPlayer: z.string(),
+  sourceOrigin: z.string(),
+  sourceReference: z.string(),
+  sourceTextSummary: z.string(),
+  notes: z.string(),
+  officialCorrection: z.boolean(),
+  localBoardGameIds: z.array(z.string()),
+  scoreable: z.boolean(),
+  liveControl: knownCaseResultSchema,
+  bestResult: knownCaseResultSchema,
+  createdAt: z.string().nullable(),
+  createdBy: z.string().nullable(),
+});
+const knownCasesSchema = z.object({
+  generatedAt: z.string().nullable(),
+  coverage: z.object({
+    totalIncidents: z.number().int(),
+    exactAnchorIncidents: z.number().int(),
+    scoreableIncidents: z.number().int(),
+    denominatorGames: z.number().int(),
+  }),
+  incidents: z.array(knownCaseSchema),
+});
+export type KnownCase = z.infer<typeof knownCaseSchema>;
+export type KnownCases = z.infer<typeof knownCasesSchema>;
+
+export interface CreateKnownCaseRequest {
+  readonly incidentName: string;
+  readonly claim: string;
+  readonly utcTime?: string;
+  readonly gameClock?: string;
+  readonly period?: string;
+  readonly teamOne?: string;
+  readonly teamTwo?: string;
+  readonly gameId?: string;
+  readonly stat?: string;
+  readonly creditedPlayer?: string;
+  readonly rightfulPlayer?: string;
+  readonly notes?: string;
+  readonly createdBy?: string;
+}
+
 // ── Hooks ──────────────────────────────────────────────────────────────────
 
 export function useGames(since?: string): UseQueryResult<GamesList, Error> {
@@ -380,13 +449,21 @@ export function useGame(gameId: string): UseQueryResult<Game, Error> {
 // it unset so the fires cell stays one-shot per visit).
 export interface PollOptions {
   readonly refetchInterval?: number;
+  readonly at?: string;
+}
+
+function atQuery(opts: PollOptions | undefined): string {
+  return opts?.at !== undefined && opts.at.length > 0
+    ? `?at=${encodeURIComponent(opts.at)}`
+    : "";
 }
 
 export function useLive(gameId: string, opts?: PollOptions): UseQueryResult<Live, Error> {
+  const query = atQuery(opts);
   return useQuery({
-    queryKey: ["live", gameId],
+    queryKey: ["live", gameId, opts?.at ?? null],
     queryFn: ({ signal }) =>
-      fetchJson(`/v1/live/${encodeURIComponent(gameId)}`, liveSchema, signal),
+      fetchJson(`/v1/live/${encodeURIComponent(gameId)}${query}`, liveSchema, signal),
     enabled: gameId.length > 0,
     ...(opts?.refetchInterval !== undefined ? { refetchInterval: opts.refetchInterval } : {}),
   });
@@ -443,11 +520,12 @@ export function useEnsembleOr(
   gameId: string,
   opts?: PollOptions,
 ): UseQueryResult<EnsembleOrLive, Error> {
+  const query = atQuery(opts);
   return useQuery({
-    queryKey: ["ensemble-or", gameId],
+    queryKey: ["ensemble-or", gameId, opts?.at ?? null],
     queryFn: ({ signal }) =>
       fetchJson(
-        `/v1/ensemble-or/${encodeURIComponent(gameId)}`,
+        `/v1/ensemble-or/${encodeURIComponent(gameId)}${query}`,
         ensembleOrSchema,
         signal,
       ),
@@ -467,6 +545,41 @@ export function useSettings(): UseQueryResult<Settings, Error> {
   return useQuery({
     queryKey: ["settings"],
     queryFn: ({ signal }) => fetchJson(`/v1/settings`, settingsSchema, signal),
+  });
+}
+
+export function useKnownCases(): UseQueryResult<KnownCases, Error> {
+  return useQuery({
+    queryKey: ["known-cases"],
+    queryFn: ({ signal }) => fetchJson(`/v1/incidents`, knownCasesSchema, signal),
+  });
+}
+
+async function createKnownCaseRequest(body: CreateKnownCaseRequest): Promise<KnownCase> {
+  const res = await fetch(`${API_BASE_URL}/v1/incidents`, {
+    method: "POST",
+    headers: { "X-Signal-Token": SIGNAL_TOKEN, "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const text = await res.text();
+  if (!res.ok) {
+    throw new Error(`HTTP ${String(res.status)}: ${text || res.statusText}`);
+  }
+  const json: unknown = JSON.parse(text);
+  return knownCaseSchema.parse(json);
+}
+
+export function useCreateKnownCase(): UseMutationResult<
+  KnownCase,
+  Error,
+  CreateKnownCaseRequest
+> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: createKnownCaseRequest,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["known-cases"] });
+    },
   });
 }
 

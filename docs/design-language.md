@@ -56,7 +56,7 @@ All values declared once in `packages/ui/src/tokens.ts`, re-exported via a Tailw
 
 ## Layout & density
 
-- **Single horizontal top nav** of five text links: `Recent / Live / Backtest / Detectors / Settings`. Active route gets a 2px `accent-green` underline (bet365's "All Sports" pattern). No sidebar.
+- **Single horizontal top nav** of six text links: `Recent / Live / Backtest / Known Cases / Detectors / Settings`. Active route gets a 2px `accent-green` underline (bet365's "All Sports" pattern). No sidebar.
 - **Full bleed, max content width 1440px** centered. No bordered cards by default — separate sections with whitespace (≥ 32px vertical) and the type hierarchy.
 - **Time is the only axis.** Every primary surface reads left-to-right as a timeline. Recent is a stack of horizontal sparkline-style timelines, one per game. Live is one game at higher resolution. Backtest is the same shape, scaled to the chosen window.
 - **Spacing scale:** 4px base (Tailwind default). Comfortable density target: list rows 40–48 px tall, generous line height (1.5 body, 1.2 heading).

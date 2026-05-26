@@ -19,6 +19,7 @@ export const LIVE_WINDOW_MS = 5 * 60 * 1000;
 
 export interface LiveTick {
   readonly sourceMarketId: string;
+  readonly source: string;
   readonly capturedAt: string;
   readonly impliedProbability: number | null;
   readonly volume: number;
@@ -74,6 +75,7 @@ function loadTicks(
   const rows = db
     .prepare(
       `SELECT qt.source_market_id AS source_market_id,
+              sm.source AS source,
               qt.captured_at AS captured_at,
               qt.implied_probability AS implied_probability,
               COALESCE(qt.volume, 0) AS volume,
@@ -94,6 +96,7 @@ function loadTicks(
     const ip = row["implied_probability"];
     return {
       sourceMarketId: pickString(row, "source_market_id"),
+      source: pickString(row, "source"),
       capturedAt: pickString(row, "captured_at"),
       impliedProbability: ip === null ? null : typeof ip === "number" ? ip : null,
       volume: pickNumber(row, "volume"),

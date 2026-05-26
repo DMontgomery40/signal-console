@@ -216,6 +216,27 @@ describe("ensemble-or live route (phase B2)", () => {
     expect(secondBody["runId"]).toBe(firstBody["runId"]);
   });
 
+  it("at= historical replay uses only data available through that instant", async () => {
+    const app = await startApp();
+    const res = await app.inject({
+      method: "GET",
+      url: `/v1/ensemble-or/${GAME_ID}?at=${encodeURIComponent("2026-05-23T03:05:00.000Z")}`,
+      headers: authHeaders(),
+    });
+    expect(res.statusCode).toBe(200);
+    const body: unknown = res.json();
+    if (!isRecord(body)) throw new Error("body not an object");
+    const fires = body["fires"];
+    if (!Array.isArray(fires)) throw new Error("fires not an array");
+    const hasFutureOffprice = fires.some(
+      (fire) =>
+        isRecord(fire) &&
+        fire["lane"] === "offprice" &&
+        fire["bucketStart"] === "2026-05-23T03:06:00.000Z",
+    );
+    expect(hasFutureOffprice).toBe(false);
+  });
+
   it("requires auth token", async () => {
     const app = await startApp();
     const res = await app.inject({ method: "GET", url: `/v1/ensemble-or/${GAME_ID}` });

@@ -1,6 +1,6 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
-exports[`board-mad canonical contract tests at K=3.0 > 64-game PBP fixture set mean fires/game at K=3 volume-weighted (snapshot) 1`] = `
+exports[`board-mad canonical contract tests at K=3.0 > PBP fixture set mean fires/game at K=3 volume-weighted (snapshot) 1`] = `
 {
   "gameCount": 66,
   "meanVolume": "20.2576",

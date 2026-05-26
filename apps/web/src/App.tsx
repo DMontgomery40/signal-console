@@ -6,6 +6,7 @@ import { RecentPage } from "./features/recent/RecentPage";
 import { GameDetailPage } from "./features/games/GameDetailPage";
 import { LivePage } from "./features/live/LivePage";
 import { BacktestPage } from "./features/backtest/BacktestPage";
+import { KnownCasesPage } from "./features/incidents/KnownCasesPage";
 import { DetectorsPage } from "./features/detectors/DetectorsPage";
 import { SettingsPage } from "./features/settings/SettingsPage";
 import { navigateTo, parseGameId, parseLiveId } from "./router";
@@ -19,6 +20,7 @@ const NAV_LINKS: readonly NavLink[] = [
   { label: "Recent", href: "/" },
   { label: "Live", href: "/live" },
   { label: "Backtest", href: "/backtest" },
+  { label: "Known Cases", href: "/known-cases" },
   { label: "Detectors", href: "/detectors" },
   { label: "Settings", href: "/settings" },
 ];
@@ -36,6 +38,7 @@ function activeLabelFor(path: string): string {
   if (path === "/" || path.startsWith("/recent") || path.startsWith("/games")) return "Recent";
   if (path.startsWith("/live")) return "Live";
   if (path.startsWith("/backtest")) return "Backtest";
+  if (path.startsWith("/known-cases")) return "Known Cases";
   if (path.startsWith("/detectors")) return "Detectors";
   if (path.startsWith("/settings")) return "Settings";
   return "";
@@ -47,6 +50,7 @@ function routeKey(path: string): string {
   if (path.startsWith("/live/")) return `live:${path}`;
   if (path === "/live") return "live";
   if (path.startsWith("/backtest")) return "backtest";
+  if (path.startsWith("/known-cases")) return "known-cases";
   if (path.startsWith("/detectors")) return "detectors";
   if (path.startsWith("/settings")) return "settings";
   return "recent";
@@ -68,6 +72,8 @@ function routeContent(path: string): JSX.Element {
       return <LivePage gameId={null} />;
     case "backtest":
       return <BacktestPage />;
+    case "known-cases":
+      return <KnownCasesPage />;
     case "detectors":
       return <DetectorsPage />;
     case "settings":

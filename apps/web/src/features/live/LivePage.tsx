@@ -60,7 +60,7 @@ function formatClock(iso: string | null): string {
   return TIME_FMT.format(d);
 }
 
-interface ChartPoint {
+export interface ChartPoint {
   readonly timeMs: number;
   readonly bucketStart: string;
   readonly bucketEnd: string;
@@ -148,12 +148,12 @@ export function offPriceMarkersForDomain(
   return markers.sort((a, b) => a.timeMs - b.timeMs);
 }
 
-interface IntensityTimelineProps {
+export interface IntensityTimelineProps {
   readonly data: ChartPoint[];
   readonly offPriceEvents: readonly OffPriceMarkerSource[];
 }
 
-function IntensityTimeline({ data, offPriceEvents }: IntensityTimelineProps): JSX.Element {
+export function IntensityTimeline({ data, offPriceEvents }: IntensityTimelineProps): JSX.Element {
   const fires = data.filter((d) => d.fired === 1);
   const domain = chartDomain(data);
   const offPriceMarkers = offPriceMarkersForDomain(offPriceEvents, domain);

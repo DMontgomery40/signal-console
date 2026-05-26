@@ -190,6 +190,7 @@ describe("live route (US-028)", () => {
     expect(ticks).toHaveLength(1);
     const first = ticks[0]!;
     expect(first["sourceMarketId"]).toBe("mkt-A");
+    expect(first["source"]).toBe("test");
     expect(first["impliedProbability"]).toBe(0.55);
     expect(first["volume"]).toBe(12);
     expect(first["instrumentId"]).toBe("inst-1");

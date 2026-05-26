@@ -80,10 +80,10 @@ const timingContextMap = (
 // the tick set per-game to the PBP-anchored in-play window before feeding
 // the detector, mirroring board.ts's resolveInPlayWindow. Without this,
 // pre-game ticks polluted the trailing baseline and inflated fire counts
-// ~14-17x against the canonical contract test's per-game means (9.3 ± 1.0
-// at K=6, ~18 at K=3). Detector math is unchanged; cache rows from 1.0.0
-// remain valid as data but are version-stale and will be re-computed on
-// next access — that's the intentional invalidation.
+// by an order of magnitude against the canonical fixture-set per-game
+// means. Detector math is unchanged; cache rows from 1.0.0 remain valid as
+// data but are version-stale and will be re-computed on next access —
+// that's the intentional invalidation.
 export const detector: Detector<typeof Params> = {
   id: "board-mad",
   version: "1.6.0",

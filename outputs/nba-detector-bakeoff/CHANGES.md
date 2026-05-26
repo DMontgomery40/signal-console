@@ -1,76 +1,72 @@
-# Bakeoff regen: rank changes vs prior report
+# Bakeoff regen: expanded incident denominator
 
-> Generated 2026-05-25 after Phase A math fixes (commits `21ba6ee..814778c` since the pre-plan checkpoint). The prior bakeoff at `2026-05-24T23:44:47Z` was computed against the pre-fix detector (sparse-window slice still in effect, PBP-missing fallback anchored on first nonzero bucket, etc.). This run uses board-mad v1.6.0 with the corrected elapsed-anchor math, tipoff-anchored fallback, weighted-pooled priors, and typed historical-blend estimator.
+> Generated 2026-05-25 after adding seven last-week Reddit-plus-local-PBP incident candidates to the official historical registry. The bakeoff now scores 13 locally scoreable incidents instead of 6. This more than doubles the scoreable denominator and makes the old 6-case leaderboard obsolete.
 
 ## Coverage delta
 
-| Field                              | Old (2026-05-24T23:44Z) | New (2026-05-25T08:29Z) | Δ   |
-| ---------------------------------- | ----------------------- | ----------------------- | --- |
-| Algorithms tested                  | 19                      | 21                      | +2  |
-| Locally scoreable incidents        | 6                       | 6                       | 0   |
-| Denominator games with PBP windows | 61                      | 62                      | +1  |
-| Exact UTC anchors                  | 9                       | 9                       | 0   |
+| Field                              | Prior post-fix run (2026-05-25T08:29Z) | Expanded run (2026-05-25T10:02Z) | Delta |
+| ---------------------------------- | -------------------------------------- | -------------------------------- | ----- |
+| Official registry rows             | 16                                     | 23                               | +7    |
+| Surfaced incidents incl. archive   | 19                                     | 26                               | +7    |
+| Exact UTC anchors                  | 9                                      | 16                               | +7    |
+| Locally scoreable incidents        | 6                                      | 13                               | +7    |
+| Denominator games with PBP windows | 62                                     | 62                               | 0     |
+| Algorithms tested                  | 21                                     | 21                               | 0     |
 
-## Top-algorithm changes
+## New scoreable incidents
 
-| Algorithm                   | Old caught | New caught          | Old mean fires/game | New mean fires/game | Notes                                                                                                                                         |
-| --------------------------- | ---------- | ------------------- | ------------------- | ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| A09_volume_heavy_short      | 6/6        | 5/6                 | 23.28               | 20.35               | Dropped from #1. Volume-amplifier noise tightened by the sparse-window fix.                                                                   |
-| A16_rv_bv_jump              | 5/6        | 5/6                 | 16.75               | 14.63               | Now #1 on caught + most disciplined of the top tier. Robust to sparse-window changes by construction.                                         |
-| A01_legacy_60_vw_k3         | 5/6        | 4/6                 | 16.98               | 12.85               | Mean fires down 24%. Legacy 60s wall buckets fired less spuriously after the elapsed fix; lost one incident that the noise had been catching. |
-| A04_game12_recent4          | 4/6        | (not in new top 10) | 15.51               | n/a                 | Drift; needs inspection if promoted.                                                                                                          |
-| A07_final5_close_suppressed | 4/6        | not shown           | 16.54               | n/a                 |                                                                                                                                               |
-| A08_final60_foul_mode       | 4/6        | not shown           | 16.54               | n/a                 |                                                                                                                                               |
-| A12_board_fanout_range      | 4/6        | not shown           | 17.25               | n/a                 |                                                                                                                                               |
-| A17_clutch_har_fanout       | 4/6        | not shown           | 17.36               | n/a                 |                                                                                                                                               |
+| Incident ID                                | Game           | UTC anchor             | Stat family   | Credited/live side                 | Rightful/final side    |
+| ------------------------------------------ | -------------- | ---------------------- | ------------- | ---------------------------------- | ---------------------- |
+| `holmgren_team_rebound_20260518`           | nba-0042500311 | 2026-05-19T01:35:35.4Z | rebound       | TEAM offensive rebound             | C. Holmgren            |
+| `hart_rebound_to_steal_20260519`           | nba-0042500301 | 2026-05-20T01:47:10.6Z | rebound+steal | J. Hart steal                      | J. Hart rebound/RA leg |
+| `champagnie_wembanyama_rebound_1_20260520` | nba-0042500312 | 2026-05-21T02:00:43.6Z | rebound       | J. Champagnie live rebound display | V. Wembanyama          |
+| `champagnie_wembanyama_rebound_2_20260520` | nba-0042500312 | 2026-05-21T02:01:13.6Z | rebound       | J. Champagnie live rebound display | V. Wembanyama          |
+| `harper_team_rebound_foul_20260520`        | nba-0042500312 | 2026-05-21T02:12:03.9Z | rebound       | TEAM defensive rebound             | D. Harper              |
+| `wembanyama_team_rebound_foul_20260524`    | nba-0042500314 | 2026-05-25T00:16:22.4Z | rebound       | TEAM defensive rebound             | V. Wembanyama          |
+| `towns_team_rebound_foul_20260523`         | nba-0042500303 | 2026-05-24T02:26:41.4Z | rebound       | TEAM defensive rebound             | K. Towns (suspected)   |
 
-(Old report only listed 8 rows in its top table; new report lists 10. The "not shown" entries may still appear lower in the full table — see `report.html` for the complete ranking.)
+The weaker Cason Wallace block-removal and Shai steal-removal comments were not promoted into this scoreable set because I could not recover a clean event anchor from current local PBP. They remain research leads, not benchmark rows.
 
-## What this means
+## Leaderboard impact
 
-**The shifts are consistent with the math fixes doing what they were supposed to do.** Per the audit:
+| Algorithm                       | Prior caught | Expanded caught | Prior mean fires/game | Expanded mean fires/game | Read                                                                                                             |
+| ------------------------------- | ------------ | --------------- | --------------------- | ------------------------ | ---------------------------------------------------------------------------------------------------------------- |
+| A16_rv_bv_jump                  | 5/6          | 9/13            | 14.63                 | 14.11                    | Still high recall, but no longer the top row after the KAT candidate moved the denominator.                      |
+| A19_historical5_fanout          | 4/6          | 9/13            | 19.02                 | 18.55                    | Big beneficiary of the new last-week OKC/SAS rows; still needs independent-market de-duplication.                |
+| A15_cusum_shift                 | 4/6          | 9/13            | 18.00                 | 18.18                    | Stronger on the expanded set, but four outlier games keep it operationally noisy.                                |
+| A06_wall4_timeout_sensitive     | 5/6          | 10/13           | 25.50                 | 25.18                    | High recall, still too much alert burden for live desk use.                                                      |
+| A01_legacy_60_vw_k3             | 4/6          | 9/13            | 12.85                 | 13.02                    | Live-wired control improved on a more-than-doubled denominator; still lower recall than the best research row.   |
+| A09_volume_heavy_short          | 5/6          | 11/13           | 20.35                 | 20.55                    | Highest recall after the KAT candidate, but still noisy until flow/depth normalization and episode ranking land. |
+| A21_historical5_fanout_cooldown | 4/6          | 5/13            | 12.27                 | 12.06                    | Good alert hygiene, but missed too many recent anchors for Tuesday headline status.                              |
 
-- Closed the sparse-window slice (A2): elapsed math now uses real time, not sparse bucket count → fewer false fires when activity is bursty.
-- Closed the PBP-missing first-nonzero anchor (A2): scheduled-fallback games no longer have their warmup gate start at "first market move" → fewer fires in the opening minutes of low-PBP games.
-- Replaced linear-averaged median/MAD with weighted-pooled samples (A3): historical-blend priors are now statistically meaningful → less random noise in the prior shape.
-- Replaced synthetic 3-tuple with typed estimator (A4): no change in math, just shape — but the change clarifies intent for future audits.
+## New-incident catch notes
 
-**Recall loss is on the noisiest algos, not the disciplined ones.** A09 (volume-heavy) lost one incident — it had been catching it via noise the math fixes tightened. A16 (RV/BV jump) held at 5/6 because its math doesn't depend on the sparse-window paths. A01 (legacy baseline) lost one but its mean fires/game dropped 24%, meaning the noise-to-signal ratio is much cleaner.
-
-**Top-1 caught-count moved by 1/6 (~16.7%).** Under the plan's 50% stop-and-ask threshold, but worth surfacing to traders so they know the old report's "6/6 caught" headline is no longer the current top. The new top is 5/6 with significantly fewer false positives — arguably a better operational outcome.
-
-## The "best" algorithm per the new report
-
-`A16_rv_bv_jump` — Robust Variance / Bipower Variation Jump Split.
-
-- Caught 5/6 incidents (3 pre-event, 2 post-event)
-- Median lag: -6.8s (slightly before the disputed play on average)
-- Mean fires/game: 14.63, p95 34.55, max 75
-- Caught per 100 fires: 0.551 (highest signal density of any 5/6+ algorithm)
-- Caveat from the report: "A rough jump proxy, not true RV/BV over signed high-frequency returns." Worth pursuing the proper RV/BV formulation if A16 is promoted.
+| Incident ID                                | A16 RV/BV       | A09 volume-heavy | A01 live-control | A21 hist-fanout-cooldown |
+| ------------------------------------------ | --------------- | ---------------- | ---------------- | ------------------------ |
+| `holmgren_team_rebound_20260518`           | miss            | miss             | caught T+24.6s   | caught T-5.4s            |
+| `hart_rebound_to_steal_20260519`           | miss            | miss             | miss             | miss                     |
+| `champagnie_wembanyama_rebound_1_20260520` | caught T+46.4s  | caught T-13.6s   | caught T+76.4s   | miss                     |
+| `champagnie_wembanyama_rebound_2_20260520` | caught T+16.4s  | caught T-43.6s   | caught T+46.4s   | miss                     |
+| `harper_team_rebound_foul_20260520`        | caught T+146.1s | caught T+146.1s  | caught T+176.1s  | miss                     |
+| `wembanyama_team_rebound_foul_20260524`    | caught T+247.6s | caught T+7.6s    | miss             | caught T+7.6s            |
+| `towns_team_rebound_foul_20260523`         | caught T-11.4s  | caught T-11.4s   | caught T+18.6s   | caught T+168.6s          |
 
 ## Operational consequence
 
-If the bet365 trader expects to see "the algorithm that caught 6/6" from the prior demo:
+The important headline changed:
 
-- That algorithm was A09_volume_heavy_short. It still catches 5/6 now; the 6th catch was sparse-window noise.
-- The current best by caught + signal quality is A16_rv_bv_jump.
-- The detector that's actually wired live (board-mad with ensemble-or cascade) is closest to A01 (legacy_60_vw_k3) with the patched math — 4/6 caught, 12.85 mean fires/game.
+- Old truthful post-fix headline: best row caught 5/6.
+- New truthful expanded headline: best row catches 11/13.
+- The live-wired control row is 9/13, not 4/6, on a more-than-doubled dataset.
+- The added cases are not cosmetic. They materially change the leaderboard and expose which rows catch recent OKC/SAS stat-allocation weirdness.
 
-Reviewer note: if 4/6 vs 6/6 is a blocker for the Tuesday demo, the right move is either (a) demo with A16 explicitly, or (b) accept that the old 6/6 number was inflated by the math bug. There is no third option that produces 6/6 honestly.
+For Tuesday, the honest trader read is: "We more than doubled the scoreable benchmark set overnight from 6 to 13 anchored incidents. The live-wired baseline catches 9/13, while research rows reach 11/13 with different alert-burden tradeoffs."
 
 ## Inputs
 
 - Detector version: `1.6.0`
-- Gold DB: `/Users/davidmontgomery/signal-console/data/signal-console.sqlite` (17 GB)
-- Incident registry: `../nba-predict/outputs/innovation-team-suspend-signal-report/research/incident-registry-expanded.json`
-- Script: `scripts/run-nba-detector-bakeoff.ts`
+- Gold DB: `/Users/davidmontgomery/signal-console/data/signal-console.sqlite`
+- Source registry: `/Users/davidmontgomery/nba-predict/outputs/innovation-team-suspend-signal-report/research/incident-registry-expanded.json`
+- Generated report: `/Users/davidmontgomery/signal-console/outputs/nba-detector-bakeoff/REPORT.md`
+- Machine-readable result: `/Users/davidmontgomery/signal-console/outputs/nba-detector-bakeoff/research/bakeoff-results.json`
 - Command: `pnpm bakeoff:nba-detectors`
-
-## Artifact files (this run)
-
-- `report.html` — interactive standalone report
-- `REPORT.md` — markdown summary (top rows + outliers + actionable adjustments)
-- `research/` — per-algorithm JSON details
-
-After review, sync to `/Volumes/Spillover/signal-console/reports/nba-detector-bakeoff/` (David's external-drive home for reports).

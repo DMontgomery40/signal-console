@@ -761,11 +761,9 @@ function clientRecomputeUnsupportedDrift(
 }
 
 function selectInitialDetector(rows: readonly DetectorEntry[]): string {
-  // Default to ensemble-or per the suspend-signal report §8.1 — the
-  // recommended Stage 1 cascade that runs board-mad AND off-price-print
+  // Default to the Stage 1 cascade that runs board-mad AND off-price-print
   // and unions their fires. Falls back to board-mad if ensemble-or isn't
-  // registered (older API), then to whatever the first registered
-  // detector is.
+  // registered (older API), then to whatever the first registered detector is.
   const ensemble = rows.find((d) => d.id === ENSEMBLE_OR_DETECTOR_ID);
   if (ensemble !== undefined) return ensemble.id;
   const boardMad = rows.find((d) => d.id === BOARD_MAD_DETECTOR_ID);
