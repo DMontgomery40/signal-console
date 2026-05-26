@@ -461,7 +461,7 @@ Detector code, API routes, and UI consume the abstracted shape. When the second 
 | ------ | ----------------------------- | ---------------------------------------------------------------------- | --------------------------------------- |
 | GET    | `/v1/games`                   | `v_games` CTE (joins `games`, latest `game_states`)                    | `since=` (default 24 h)                 |
 | GET    | `/v1/games/:gameId`           | `v_games` CTE + `game_outcomes`                                        | game id                                 |
-| GET    | `/v1/live/:gameId`            | `quote_ticks`, `source_markets` (gold, read-only; ticks include source id) | game id + last 5 min ending now, or `at=` |
+| GET    | `/v1/live/:gameId`            | `quote_ticks`, `source_markets` (gold, read-only; ticks include source id) | game id + default last 5 min ending now, or `at=` with optional bounded `window_ms` |
 | GET    | `/v1/board/:gameId`           | `detector_cache` (hit) or `quote_ticks` + compute (miss; then cached)  | game id + in-play window                |
 | GET    | `/v1/off-price-print/:gameId` | `detector_cache` (hit) or microstructure + detector compute (miss; then cached) | game id + in-play window                |
 | GET    | `/v1/ensemble-or/:gameId`     | shared runner board lane + off-price lane                             | game id + in-play window, or data through `at=` |
@@ -901,10 +901,10 @@ Three sections, no buttons that mutate (except "clear cache"):
 - [ ] Typecheck/lint passes.
 
 #### US-202: Implement `/v1/live/:gameId` route
-**Description:** As an API integrator, I need a `GET /v1/live/:gameId` route returning the last 5 minutes of `quote_ticks` + `source_markets` for one game.
+**Description:** As an API integrator, I need a `GET /v1/live/:gameId` route returning recent `quote_ticks` + `source_markets` for one game. The default live window is the last 5 minutes; historical replay may pass `at=` plus bounded `window_ms` for a longer incident window such as Known Cases ±5 minutes.
 
 **Acceptance Criteria:**
-- [ ] Reads bounded by `(source_market_id, captured_at)` index; window = last 5 min.
+- [ ] Reads bounded by `(source_market_id, captured_at)` index; default window = last 5 min, optional `window_ms` remains capped.
 - [ ] Returns Zod-typed JSON.
 - [ ] Response time < 300 ms (cold or warm).
 - [ ] Does NOT trigger any baseline rebuild path (no read of `board_volatility_baselines` on this route).

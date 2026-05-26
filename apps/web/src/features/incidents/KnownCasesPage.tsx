@@ -21,6 +21,7 @@ import { participantLabel } from "../recent/RecentPage";
 
 const INCIDENT_WINDOW_BEFORE_MS = 5 * 60 * 1000;
 const INCIDENT_WINDOW_AFTER_MS = 5 * 60 * 1000;
+const INCIDENT_WINDOW_MS = INCIDENT_WINDOW_BEFORE_MS + INCIDENT_WINDOW_AFTER_MS;
 const INCIDENT_NAME_MAX_LENGTH = 240;
 const CLAIM_MAX_LENGTH = 4000;
 const OPTIONAL_TEXT_MAX_LENGTH = 2000;
@@ -452,7 +453,10 @@ function IncidentReplay({ incident }: { readonly incident: KnownCase }): JSX.Ele
   const replayable = gameId.length > 0 && replayAt !== null;
   const replayGameId = replayable ? gameId : "";
   const game = useGame(gameId);
-  const live = useLive(replayGameId, replayAt === null ? undefined : { at: replayAt });
+  const live = useLive(
+    replayGameId,
+    replayAt === null ? undefined : { at: replayAt, windowMs: INCIDENT_WINDOW_MS },
+  );
   const ensemble = useEnsembleOr(replayGameId, replayAt === null ? undefined : { at: replayAt });
   const networkErrored =
     (live.isError && isNetworkError(live.error)) ||
@@ -495,7 +499,26 @@ function IncidentReplay({ incident }: { readonly incident: KnownCase }): JSX.Ele
   const boardFires = visibleObservations.filter((obs) => obs.fired === 1);
   const tickCount = live.data?.ticks.length ?? 0;
   const sourceCounts = tickSourceCounts(live.data?.ticks ?? []);
-  const currentCaught = boardFires.length + offPriceEvents.length > 0;
+  const replayLoaded =
+    replayable &&
+    live.data !== undefined &&
+    ensemble.data !== undefined &&
+    !live.isError &&
+    !ensemble.isError;
+  const replayLoading = replayable && (live.isLoading || ensemble.isLoading);
+  const replayErrored = replayable && (live.isError || ensemble.isError);
+  const currentCaught = replayLoaded && boardFires.length + offPriceEvents.length > 0;
+  const statusText = !replayable
+    ? "Current live replay: waiting for local game + UTC anchor"
+    : replayLoading
+      ? "Current live replay: loading incident window"
+      : replayErrored
+        ? "Current live replay: unavailable; see error above"
+        : currentCaught
+          ? `Current live replay: caught by ${String(boardFires.length)} board / ${String(
+              offPriceEvents.length,
+            )} off-price fire${boardFires.length + offPriceEvents.length === 1 ? "" : "s"} in ±5 min`
+          : "Current live replay: no board/off-price fire in ±5 min";
   const liveWindowLabel =
     live.data !== undefined
       ? `${formatTime(live.data.windowStart)} → ${formatTime(live.data.windowEnd)}`
@@ -577,7 +600,9 @@ function IncidentReplay({ incident }: { readonly incident: KnownCase }): JSX.Ele
             className="tabular font-mono text-text-md"
             data-testid="known-case-fire-counts"
           >
-            {String(boardFires.length)} board / {String(offPriceEvents.length)} off-price
+            {replayLoaded
+              ? `${String(boardFires.length)} board / ${String(offPriceEvents.length)} off-price`
+              : "—"}
           </span>
         </div>
       </div>
@@ -588,11 +613,7 @@ function IncidentReplay({ incident }: { readonly incident: KnownCase }): JSX.Ele
             className={`font-mono text-sm ${currentCaught ? "text-accent-yellow" : "text-text-hi"}`}
             data-testid="known-case-current-status"
           >
-            {currentCaught
-              ? `Current live replay: caught by ${String(boardFires.length)} board / ${String(
-                  offPriceEvents.length,
-                )} off-price fire${boardFires.length + offPriceEvents.length === 1 ? "" : "s"} in ±5 min`
-              : "Current live replay: no board/off-price fire in ±5 min"}
+            {statusText}
           </p>
           <p className="font-mono text-xs text-text-lo" data-testid="known-case-source-counts">
             {sourceCounts.length === 0
@@ -600,7 +621,9 @@ function IncidentReplay({ incident }: { readonly incident: KnownCase }): JSX.Ele
               : sourceCounts.map(([source, count]) => `${source} ${String(count)}`).join(" · ")}
           </p>
         </div>
-        <p className="mt-2 font-mono text-xs text-text-lo">Live tick window: {liveWindowLabel}</p>
+        <p className="mt-2 font-mono text-xs text-text-lo" data-testid="known-case-live-window">
+          Live tick window: {liveWindowLabel}
+        </p>
         <p className="mt-4 max-w-[80ch] text-sm text-text-md" data-testid="known-case-claim">
           {incident.claim}
         </p>

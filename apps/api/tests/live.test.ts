@@ -247,6 +247,69 @@ describe("live route (US-028)", () => {
     }
   });
 
+  it("can widen a historical replay window without changing the default live window", async () => {
+    seedGoldDb(
+      ctx.goldDbPath,
+      [{ id: "mkt-W", gameId: "nba-window-10" }],
+      [
+        {
+          sourceMarketId: "mkt-W",
+          capturedAt: "2026-05-25T00:11:22.399Z",
+          impliedProbability: 0.49,
+        },
+        {
+          sourceMarketId: "mkt-W",
+          capturedAt: "2026-05-25T00:11:22.400Z",
+          impliedProbability: 0.5,
+        },
+        {
+          sourceMarketId: "mkt-W",
+          capturedAt: "2026-05-25T00:16:22.400Z",
+          impliedProbability: 0.51,
+        },
+        {
+          sourceMarketId: "mkt-W",
+          capturedAt: "2026-05-25T00:21:22.400Z",
+          impliedProbability: 0.52,
+        },
+        {
+          sourceMarketId: "mkt-W",
+          capturedAt: "2026-05-25T00:21:22.401Z",
+          impliedProbability: 0.53,
+        },
+      ],
+    );
+    const app = await startApp();
+    const res = await app.inject({
+      method: "GET",
+      url: `/v1/live/nba-window-10?at=${encodeURIComponent("2026-05-25T00:21:22.400Z")}&window_ms=600000`,
+      headers: authHeaders(),
+    });
+    expect(res.statusCode).toBe(200);
+    const body = asRecord(res.json(), "body");
+    expect(body["windowStart"]).toBe("2026-05-25T00:11:22.400Z");
+    expect(body["windowEnd"]).toBe("2026-05-25T00:21:22.400Z");
+    expect(readTicks(body).map((tick) => tick["capturedAt"])).toEqual([
+      "2026-05-25T00:11:22.400Z",
+      "2026-05-25T00:16:22.400Z",
+      "2026-05-25T00:21:22.400Z",
+    ]);
+  });
+
+  it("rejects invalid replay window lengths", async () => {
+    seedGoldDb(ctx.goldDbPath, [], []);
+    const app = await startApp();
+    for (const windowMs of ["0", "900001"] as const) {
+      const res = await app.inject({
+        method: "GET",
+        url: `/v1/live/nba-window-invalid?window_ms=${windowMs}`,
+        headers: authHeaders(),
+      });
+      expect(res.statusCode).toBe(400);
+      expect(asRecord(res.json(), "body")["error"]).toBe("invalid window_ms");
+    }
+  });
+
   it("returns empty ticks array when the game has no recent activity", async () => {
     seedGoldDb(
       ctx.goldDbPath,

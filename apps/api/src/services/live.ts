@@ -1,11 +1,12 @@
 // Live service (US-028 / PRD §FR-20, §15).
 //
-// Backs GET /v1/live/:gameId. Reads the last 5 minutes of quote_ticks for
-// one game joined to source_markets for instrument metadata. The query is
-// shaped to hit idx_source_markets_game_instrument (by game_id) and then
-// idx_quote_ticks_unique_observation (by source_market_id + captured_at);
-// the verify:queries snapshot at ticks-for-one-game-window.plan.txt pins
-// that plan.
+// Backs GET /v1/live/:gameId. Reads a bounded quote_ticks window for one
+// game joined to source_markets for instrument metadata. Default live calls
+// use the last five minutes; historical replay can widen the window within a
+// hard cap. The query is shaped to hit idx_source_markets_game_instrument
+// (by game_id) and then idx_quote_ticks_unique_observation (by
+// source_market_id + captured_at); the verify:queries snapshot at
+// ticks-for-one-game-window.plan.txt pins that plan.
 //
 // Live is "raw ticks only" — detector fires layer in via the separate
 // /v1/board/:gameId call. No baseline-rebuild table is read by this
@@ -16,6 +17,7 @@ import { openGoldDb } from "@signal-console/db";
 type GoldDbHandle = ReturnType<typeof openGoldDb>;
 
 export const LIVE_WINDOW_MS = 5 * 60 * 1000;
+export const MAX_LIVE_WINDOW_MS = 15 * 60 * 1000;
 
 export interface LiveTick {
   readonly sourceMarketId: string;
@@ -40,11 +42,16 @@ export interface GetLiveArgs {
   readonly goldDbPath: string;
   readonly gameId: string;
   readonly now?: Date;
+  readonly windowMs?: number;
 }
 
 export function getLive(args: GetLiveArgs): LiveResult {
   const now = args.now ?? new Date();
-  const windowStart = new Date(now.getTime() - LIVE_WINDOW_MS);
+  const windowMs = args.windowMs ?? LIVE_WINDOW_MS;
+  if (!Number.isSafeInteger(windowMs) || windowMs <= 0 || windowMs > MAX_LIVE_WINDOW_MS) {
+    throw new Error(`invalid live window: ${String(windowMs)}`);
+  }
+  const windowStart = new Date(now.getTime() - windowMs);
   const startIso = windowStart.toISOString();
   const endIso = now.toISOString();
   const db = openGoldDb(args.goldDbPath);

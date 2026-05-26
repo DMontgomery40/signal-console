@@ -690,15 +690,15 @@
     {
       "id": "US-028",
       "title": "Live route (/v1/live/:gameId)",
-      "description": "As an API integrator, I need GET /v1/live/:gameId returning the last 5 minutes of quote_ticks + source_markets for one game.",
+      "description": "As an API integrator, I need GET /v1/live/:gameId returning a bounded quote_ticks + source_markets window for one game. Default live calls use the last 5 minutes; historical replay may pass at= plus capped window_ms.",
       "acceptanceCriteria": [
         "File ~/signal-console/apps/api/src/routes/live.ts exists",
-        "Route reads quote_ticks bounded by the index (source_market_id, captured_at) for the last 5 minutes",
+        "Route reads quote_ticks bounded by the index (source_market_id, captured_at) for the default last 5 minutes or an optional capped replay window",
         "Joins source_markets for instrument metadata",
         "Response time is under 300 ms for a typical game on the moved gold DB (manual measure; acceptance: route returns within budget on a smoke run)",
         "Route does not read board_volatility_baselines (verified by grep of routes/live.ts for that table name returning zero matches)",
         "Route tagged 'desk-stable' in /openapi.json",
-        "Unit test against fixture data asserts the response shape and that returned ticks fall within the last-5-min window",
+        "Unit test against fixture data asserts the response shape and that returned ticks fall within the requested bounded window",
         "Tests pass",
         "Typecheck passes"
       ],
