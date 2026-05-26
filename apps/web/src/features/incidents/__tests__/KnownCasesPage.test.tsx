@@ -104,12 +104,12 @@ function liveBody() {
   return {
     gameId: "nba-0042500314",
     windowStart: "2026-05-25T00:11:22.400Z",
-    windowEnd: "2026-05-25T00:16:22.400Z",
+    windowEnd: "2026-05-25T00:21:22.400Z",
     ticks: [
       {
         sourceMarketId: "sm-1",
         source: "polymarket",
-        capturedAt: "2026-05-25T00:16:00.000Z",
+        capturedAt: "2026-05-25T00:12:00.000Z",
         impliedProbability: 0.55,
         volume: 100,
         isHeartbeat: 0,
@@ -120,7 +120,7 @@ function liveBody() {
       {
         sourceMarketId: "ks-1",
         source: "kalshi",
-        capturedAt: "2026-05-25T00:16:02.000Z",
+        capturedAt: "2026-05-25T00:20:02.000Z",
         impliedProbability: 0.58,
         volume: 40,
         isHeartbeat: 0,
@@ -265,7 +265,9 @@ describe("KnownCasesPage", () => {
 
     await waitFor(() => {
       const urls = fetchMock.mock.calls.map((call) => urlOf(call[0]));
-      expect(urls).toContain("/v1/live/nba-0042500314?at=2026-05-25T00%3A21%3A22.400Z");
+      expect(urls).toContain(
+        "/v1/live/nba-0042500314?at=2026-05-25T00%3A21%3A22.400Z&window_ms=600000",
+      );
       expect(urls).toContain("/v1/ensemble-or/nba-0042500314?at=2026-05-25T00%3A21%3A22.400Z");
       expect(
         urls.some((u) =>
@@ -281,6 +283,10 @@ describe("KnownCasesPage", () => {
     );
     expect(screen.getByTestId("known-case-source-counts").textContent).toContain("kalshi 1");
     expect(screen.getByTestId("known-case-source-counts").textContent).toContain("polymarket 1");
+    expect(screen.getByTestId("known-case-live-window").textContent).toContain("→");
+    expect(screen.getByTestId("known-case-live-window").textContent).not.toContain(
+      "incident ±5 min",
+    );
     expect(screen.getByTestId("known-case-anchor-bucket").textContent).toContain(
       "2026-05-25T00:16:00.000Z",
     );
@@ -374,9 +380,42 @@ describe("KnownCasesPage", () => {
     await waitFor(() => {
       expect(screen.getByTestId("known-case-no-anchor").textContent).toContain("UTC anchor");
     });
+    expect(screen.getByTestId("known-case-current-status").textContent).toContain("waiting");
+    expect(screen.getByTestId("known-case-current-status").textContent).not.toContain(
+      "no board/off-price fire",
+    );
+    expect(screen.getByTestId("known-case-fire-counts").textContent).toBe("—");
     const urls = fetchMock.mock.calls.map((call) => urlOf(call[0]));
     expect(urls).toContain("/v1/games/nba-0042500314");
     expect(urls.some((url) => url.startsWith("/v1/live/nba-0042500314"))).toBe(false);
     expect(urls.some((url) => url.startsWith("/v1/ensemble-or/nba-0042500314"))).toBe(false);
+  });
+
+  it("does not report no-fire when the replay endpoint fails", async () => {
+    fetchMock.mockImplementation(async (input, init) => {
+      await Promise.resolve();
+      const url = urlOf(input);
+      if (url === "/v1/incidents") return jsonResponse(casesBody(incidents));
+      if (url === "/v1/games/nba-0042500314") return jsonResponse(gameBody());
+      if (url.startsWith("/v1/live/nba-0042500314")) {
+        return jsonResponse({ error: "failed" }, { status: 500, statusText: "Server Error" });
+      }
+      if (url.startsWith("/v1/ensemble-or/nba-0042500314")) return jsonResponse(ensembleBody());
+      if (url.startsWith("/v1/board/nba-0042500314/fanout")) return jsonResponse(fanoutBody());
+      if (url === "/v1/incidents" && init?.method === "POST") {
+        return jsonResponse(benchmarkIncident(), { status: 201 });
+      }
+      return new Response("not found", { status: 404 });
+    });
+
+    render(<KnownCasesPage />, { wrapper: makeWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("known-case-current-status").textContent).toContain("unavailable");
+    });
+    expect(screen.getByTestId("known-case-current-status").textContent).not.toContain(
+      "no board/off-price fire",
+    );
+    expect(screen.getByTestId("known-case-fire-counts").textContent).toBe("—");
   });
 });

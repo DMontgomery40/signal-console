@@ -1,7 +1,8 @@
 // Live route (US-028 / PRD §FR-20, §15).
 //
-// GET /v1/live/:gameId — last 5 minutes of quote_ticks for one game,
-// joined to source_markets for instrument metadata.
+// GET /v1/live/:gameId — bounded quote_ticks window for one game, joined to
+// source_markets for instrument metadata. Default live calls use five minutes;
+// historical replay can pass at= plus a capped window_ms.
 //
 // Live is raw ticks only — detector fires layer in via the separate
 // /v1/board/:gameId call. No baseline-rebuild table is read by this
@@ -11,7 +12,7 @@ import { GOLD_DB_PATH } from "@signal-console/db";
 import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 
-import { getLive } from "../services/live";
+import { getLive, LIVE_WINDOW_MS, MAX_LIVE_WINDOW_MS } from "../services/live";
 import { parseStrictIsoTimestamp } from "../services/timestamps";
 
 export interface LiveRoutesOptions {
@@ -19,7 +20,10 @@ export interface LiveRoutesOptions {
 }
 
 const paramSchema = z.object({ gameId: z.string().min(1) });
-const querySchema = z.object({ at: z.string().optional() });
+const querySchema = z.object({
+  at: z.string().optional(),
+  window_ms: z.union([z.string(), z.number()]).optional(),
+});
 
 const paramsJsonSchema = {
   type: "object",
@@ -33,7 +37,13 @@ const queryJsonSchema = {
     at: {
       type: "string",
       description:
-        "Optional ISO timestamp with timezone. When set, returns the five-minute live tick window ending at this historical instant.",
+        "Optional ISO timestamp with timezone. When set, returns the selected live tick window ending at this historical instant.",
+    },
+    window_ms: {
+      type: "string",
+      pattern: "^[0-9]+$",
+      description:
+        "Optional positive live tick window length in milliseconds, capped at 900000. Defaults to five minutes; Known Cases uses ten minutes for incident ±5 minute replay.",
     },
   },
   additionalProperties: false,
@@ -82,6 +92,18 @@ const errorResponseSchema = {
   properties: { error: { type: "string" } },
 } as const;
 
+function parseWindowMs(raw: string | number | undefined): number | null {
+  if (raw === undefined) return LIVE_WINDOW_MS;
+  if (typeof raw === "number") {
+    if (!Number.isSafeInteger(raw) || raw <= 0 || raw > MAX_LIVE_WINDOW_MS) return null;
+    return raw;
+  }
+  if (!/^\d+$/.test(raw)) return null;
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isSafeInteger(parsed) || parsed <= 0 || parsed > MAX_LIVE_WINDOW_MS) return null;
+  return parsed;
+}
+
 const liveRoutes: FastifyPluginAsync<LiveRoutesOptions> = (app, opts) => {
   const goldDbPath = opts.goldDbPath ?? GOLD_DB_PATH;
 
@@ -90,9 +112,9 @@ const liveRoutes: FastifyPluginAsync<LiveRoutesOptions> = (app, opts) => {
     {
       schema: {
         tags: ["desk-stable"],
-        summary: "Last 5 minutes of quote_ticks for one game",
+        summary: "Bounded quote_ticks window for one game",
         description:
-          "Returns ticks captured within the last 5 minutes for the given game, joined to source_markets for instrument metadata. Bounded by the quote_ticks (source_market_id, captured_at) index.",
+          "Returns ticks captured within a bounded time window for the given game, joined to source_markets for instrument metadata. Defaults to the last 5 minutes; historical replay may pass at= plus capped window_ms. Bounded by the quote_ticks (source_market_id, captured_at) index.",
         params: paramsJsonSchema,
         querystring: queryJsonSchema,
         response: {
@@ -119,10 +141,16 @@ const liveRoutes: FastifyPluginAsync<LiveRoutesOptions> = (app, opts) => {
         reply.code(400).send({ error: "invalid at timestamp" });
         return;
       }
+      const windowMs = parseWindowMs(parsedQuery.data.window_ms);
+      if (windowMs === null) {
+        reply.code(400).send({ error: "invalid window_ms" });
+        return;
+      }
       const result = getLive({
         goldDbPath,
         gameId: parsed.data.gameId,
         ...(atMs === null ? {} : { now: new Date(atMs) }),
+        windowMs,
       });
       reply.send(result);
     },

@@ -380,7 +380,7 @@ Cache invalidation: the runtime \`board-mad\` detector version is derived as \`d
     title: "Live sensitivity",
     eli5: String.raw`This is the sensitivity value the Recent list and the Live page use by default — the multiplier on the trailing baseline that decides whether a bucket is big enough to fire. Lower sensitivity = more fires, higher sensitivity = fewer.
 
-If you're calibrating against labeled events, this is the knob you'll move most. The canonical contract test pins the sensitivity 3.0 behavior against committed fixtures; current recall and fires/game counts live in the generated bakeoff report and Known Cases page. Move it up and the Live page reports fewer fires; move it down and it reports more — both within seconds, no restart.`,
+If you're calibrating against labeled events, this is the knob you'll move most. The canonical contract test pins sensitivity behavior against committed fixtures; current recall and fires/game counts live in the generated bakeoff report and Known Cases page. Move it up and the Live page reports fewer fires; move it down and it reports more — both within seconds, no restart.`,
     formal: String.raw`Runtime override for the sensitivity multiplier in $\text{fire}_t \iff I_t > \mathrm{median}(\cdot) + S \cdot \mathrm{MAD}(\cdot)$, applied to the live board path. The package-declared default in \`packages/detectors/src/board-mad/config.ts\` remains the seed value; this override layers on top through the detector-defaults service and feeds every Live/Recent request.`,
   },
 

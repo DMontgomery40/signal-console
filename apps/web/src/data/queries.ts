@@ -151,11 +151,13 @@ const fanoutSchema = z
     microstructureEvents: microstructureEvents ?? [],
   }));
 
-// /v1/live/:gameId — PRD §15: last 5 min of quote_ticks joined to
-// source_markets for instrument metadata. Schema matches the shipped route
-// (US-028 services/live.ts): { gameId, windowStart, windowEnd, ticks } with
-// each tick carrying source/impliedProbability/volume/heartbeat plus the
-// joined instrumentId/rawFamily/rawLabel (no separate sourceMarkets array).
+// /v1/live/:gameId — PRD §15: bounded quote_ticks window joined to
+// source_markets for instrument metadata. Default live calls use five minutes;
+// historical replay can pass at= plus capped window_ms. Schema matches the
+// shipped route (US-028 services/live.ts): { gameId, windowStart, windowEnd,
+// ticks } with each tick carrying source/impliedProbability/volume/heartbeat
+// plus the joined instrumentId/rawFamily/rawLabel (no separate sourceMarkets
+// array).
 const quoteTickSchema = z.object({
   sourceMarketId: z.string(),
   source: z.string().optional(),
@@ -450,18 +452,25 @@ export function useGame(gameId: string): UseQueryResult<Game, Error> {
 export interface PollOptions {
   readonly refetchInterval?: number;
   readonly at?: string;
+  readonly windowMs?: number;
 }
 
-function atQuery(opts: PollOptions | undefined): string {
-  return opts?.at !== undefined && opts.at.length > 0
-    ? `?at=${encodeURIComponent(opts.at)}`
-    : "";
+function liveQuery(opts: PollOptions | undefined): string {
+  const params = new URLSearchParams();
+  if (opts?.at !== undefined && opts.at.length > 0) {
+    params.set("at", opts.at);
+  }
+  if (opts?.windowMs !== undefined) {
+    params.set("window_ms", String(opts.windowMs));
+  }
+  const query = params.toString();
+  return query.length === 0 ? "" : `?${query}`;
 }
 
 export function useLive(gameId: string, opts?: PollOptions): UseQueryResult<Live, Error> {
-  const query = atQuery(opts);
+  const query = liveQuery(opts);
   return useQuery({
-    queryKey: ["live", gameId, opts?.at ?? null],
+    queryKey: ["live", gameId, opts?.at ?? null, opts?.windowMs ?? null],
     queryFn: ({ signal }) =>
       fetchJson(`/v1/live/${encodeURIComponent(gameId)}${query}`, liveSchema, signal),
     enabled: gameId.length > 0,
@@ -520,7 +529,10 @@ export function useEnsembleOr(
   gameId: string,
   opts?: PollOptions,
 ): UseQueryResult<EnsembleOrLive, Error> {
-  const query = atQuery(opts);
+  const query =
+    opts?.at !== undefined && opts.at.length > 0
+      ? `?at=${encodeURIComponent(opts.at)}`
+      : "";
   return useQuery({
     queryKey: ["ensemble-or", gameId, opts?.at ?? null],
     queryFn: ({ signal }) =>

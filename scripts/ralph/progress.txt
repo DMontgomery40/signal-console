@@ -623,7 +623,7 @@ Started: Sat May 23 00:45:49 MDT 2026
 ---
 
 ## 2026-05-23T08:55Z - US-028
-- What was implemented: GET /v1/live/:gameId returning the last 5 minutes of quote_ticks for one game, joined to source_markets for instrument metadata. Pure read-only against the gold DB via openGoldDb.
+- What was implemented: GET /v1/live/:gameId returning a bounded quote_ticks window for one game, joined to source_markets for instrument metadata. Default live calls use five minutes; historical replay can pass at= plus capped window_ms. Pure read-only against the gold DB via openGoldDb.
 - Files changed:
   - apps/api/src/services/live.ts (new, ~120 LOC)
   - apps/api/src/routes/live.ts (new, ~95 LOC)
