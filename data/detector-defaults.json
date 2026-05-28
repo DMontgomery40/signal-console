@@ -27,6 +27,9 @@
       "marketCountFloor": 1,
       "marketCountExponent": 0.5
     },
+    "observationModel": {
+      "disagreementWeight": 0.35
+    },
     "anchors": {
       "priorScaleFallback": 0.2,
       "priorScaleFloor": 0.05,

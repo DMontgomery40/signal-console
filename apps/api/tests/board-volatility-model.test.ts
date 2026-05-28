@@ -89,9 +89,60 @@ describe("buildBoardVolatilityModelRequest", () => {
       bucketStart: "2026-05-25T00:00:00.000Z",
       gameElapsedSeconds: 45,
       sourceCount: 2,
+      sourceDisagreement: 0,
     });
     expect(request.observations[0]?.sourceDominance).toBeGreaterThan(0.5);
     expect(request.observations[0]?.sourceDominance).toBeLessThan(1);
+  });
+
+  it("computes directional cross-source disagreement from opposing signed moves", () => {
+    const request = buildBoardVolatilityModelRequest({
+      bucketSeconds: 60,
+      freshCapSeconds: 300,
+      gameId: "nba-synth-disagreement",
+      params: {
+        baselineMode: "trailing",
+        bucketSeconds: 60,
+        kMad: 3,
+        stateSpace: BOARD_STATE_SPACE_CONFIG_DEFAULTS,
+        trailingBuckets: 20,
+        warmupBuckets: 8,
+      },
+      ticks: [
+        tick({
+          capturedAt: "2026-05-25T00:00:10.000Z",
+          gameElapsedSeconds: 10,
+          impliedProbability: 0.4,
+          source: "bet365",
+          sourceMarketId: "bet365-m1",
+        }),
+        tick({
+          capturedAt: "2026-05-25T00:00:40.000Z",
+          gameElapsedSeconds: 40,
+          impliedProbability: 0.6,
+          source: "bet365",
+          sourceMarketId: "bet365-m1",
+        }),
+        tick({
+          capturedAt: "2026-05-25T00:00:12.000Z",
+          gameElapsedSeconds: 12,
+          impliedProbability: 0.6,
+          source: "kalshi",
+          sourceMarketId: "kalshi-m2",
+        }),
+        tick({
+          capturedAt: "2026-05-25T00:00:42.000Z",
+          gameElapsedSeconds: 42,
+          impliedProbability: 0.4,
+          source: "kalshi",
+          sourceMarketId: "kalshi-m2",
+        }),
+      ],
+      weighting: "equal",
+    });
+
+    expect(request.observations).toHaveLength(1);
+    expect(request.observations[0]?.sourceDisagreement).toBe(1);
   });
 
   it("drops heartbeat, stale-gap, and 0.500 placeholder ticks from the model request", () => {

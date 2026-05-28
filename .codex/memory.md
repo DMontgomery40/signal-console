@@ -60,7 +60,7 @@ The board-volatility runtime no longer treats the Python sidecar's inner filter 
 - Backtest's advanced JSON editor
 - the Python sidecar request contract
 
-This is the current sanctioned home for trigger-shape coefficients, breadth normalization, anchor floors, process-noise terms, observation-noise weights, and variance-adaptation limits.
+This is the current sanctioned home for trigger-shape coefficients, breadth normalization, observation-embedding terms (including cross-source directional disagreement), anchor floors, process-noise terms, observation-noise weights, and variance-adaptation limits.
 
 ## Bakeoff runtime row (implemented 2026-05-28)
 

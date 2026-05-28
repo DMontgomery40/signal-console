@@ -13,6 +13,7 @@ export interface VolatilityStateSpaceObservation {
   readonly gameElapsedSeconds?: number | null;
   readonly intensity: number;
   readonly sourceCount?: number;
+  readonly sourceDisagreement?: number;
   readonly sourceDominance?: number;
 }
 

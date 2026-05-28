@@ -53,6 +53,7 @@ describe("volatility model sidecar client", () => {
             bucketEnd: "2026-05-25T00:17:00.000Z",
             bucketStart: "2026-05-25T00:16:00.000Z",
             intensity: 101.2,
+            sourceDisagreement: 0.4,
           },
         ],
         params: {
@@ -71,6 +72,7 @@ describe("volatility model sidecar client", () => {
 
     expect(calledUrl).toBe("http://127.0.0.1:9393/api/v1/models/board-volatility/state-space");
     expect(typeof calledInit?.body).toBe("string");
+    expect(calledInit?.body).toContain('"sourceDisagreement":0.4');
     expect(calledInit?.headers).toEqual({ "content-type": "application/json" });
     expect(calledInit?.method).toBe("POST");
     expect(response).toEqual({

@@ -93,6 +93,7 @@ class VolatilityStateSpaceObservation(BaseModel):
     activeMarketCount: int | None = None
     sourceCount: int | None = None
     sourceDominance: float | None = None
+    sourceDisagreement: float | None = None
 
 
 class VolatilityStateSpaceTriggerConfig(BaseModel):
@@ -105,6 +106,10 @@ class VolatilityStateSpaceTriggerConfig(BaseModel):
 class VolatilityStateSpaceBreadthConfig(BaseModel):
     marketCountFloor: int
     marketCountExponent: float
+
+
+class VolatilityStateSpaceObservationModelConfig(BaseModel):
+    disagreementWeight: float
 
 
 class VolatilityStateSpaceAnchorConfig(BaseModel):
@@ -155,6 +160,7 @@ class VolatilityStateSpaceVarianceConfig(BaseModel):
 class VolatilityStateSpaceConfig(BaseModel):
     trigger: VolatilityStateSpaceTriggerConfig
     breadth: VolatilityStateSpaceBreadthConfig
+    observationModel: VolatilityStateSpaceObservationModelConfig
     anchors: VolatilityStateSpaceAnchorConfig
     dynamics: VolatilityStateSpaceDynamicsConfig
     observationNoise: VolatilityStateSpaceObservationNoiseConfig

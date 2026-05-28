@@ -25,6 +25,7 @@ All hidden-state coefficients that used to live as Python literals now live in o
 
 - `trigger`: enter/exit gate shape
 - `breadth`: market-count normalization
+- `observationModel`: extra observation embedding terms such as cross-source directional disagreement
 - `anchors`: prior and anchor precision floors
 - `dynamics`: memory, process noise, and variance adaptation
 - `observationNoise`: source dominance / agreement weighting
@@ -44,6 +45,8 @@ Settings and Backtest now expose every current `stateSpace` field directly in gr
 - `breadth`
   - `marketCountFloor`
   - `marketCountExponent`
+- `observationModel`
+  - `disagreementWeight`
 - `anchors`
   - `priorScaleFallback`
   - `priorScaleFloor`

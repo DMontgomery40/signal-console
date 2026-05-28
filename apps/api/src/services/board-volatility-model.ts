@@ -21,6 +21,7 @@ interface MutableBucket {
   gameElapsedSeconds: number | null;
   intensity: number;
   readonly sourceContribution: Map<string, number>;
+  readonly sourceSignedContribution: Map<string, number>;
   readonly sourceMarkets: Set<string>;
 }
 
@@ -91,9 +92,12 @@ export function buildBoardVolatilityModelRequest(
       gameElapsedSeconds: null,
       intensity: 0,
       sourceContribution: new Map<string, number>(),
+      sourceSignedContribution: new Map<string, number>(),
       sourceMarkets: new Set<string>(),
     };
     const weightedDelta = delta * contributionWeight(current, args.weighting);
+    const weightedSignedDelta =
+      (currentIp - previousIp) * contributionWeight(current, args.weighting);
     const sourceKey = tickSourceKey(current);
     bucket.intensity += weightedDelta;
     bucket.activeMarkets.add(current.sourceMarketId);
@@ -101,6 +105,10 @@ export function buildBoardVolatilityModelRequest(
     bucket.sourceContribution.set(
       sourceKey,
       (bucket.sourceContribution.get(sourceKey) ?? 0) + weightedDelta,
+    );
+    bucket.sourceSignedContribution.set(
+      sourceKey,
+      (bucket.sourceSignedContribution.get(sourceKey) ?? 0) + weightedSignedDelta,
     );
     const elapsedSeconds = fallbackElapsedSeconds(current, args.timingContext);
     if (elapsedSeconds !== null) {
@@ -116,10 +124,17 @@ export function buildBoardVolatilityModelRequest(
     .toSorted(([left], [right]) => left - right)
     .map(([startSec, bucket]) => {
       const sourceValues = Array.from(bucket.sourceContribution.values()).sort((a, b) => b - a);
+      const signedSourceValues = Array.from(bucket.sourceSignedContribution.values());
       const dominantShare =
         bucket.intensity <= 0 || sourceValues.length === 0
           ? 1
           : (sourceValues[0] ?? bucket.intensity) / bucket.intensity;
+      const totalSignedAbs = signedSourceValues.reduce((sum, value) => sum + Math.abs(value), 0);
+      const netSigned = signedSourceValues.reduce((sum, value) => sum + value, 0);
+      const sourceDisagreement =
+        signedSourceValues.length <= 1 || totalSignedAbs <= 0
+          ? 0
+          : 1 - Math.abs(netSigned) / totalSignedAbs;
       return {
         activeMarketCount: bucket.activeMarkets.size,
         bucketEnd: new Date((startSec + args.bucketSeconds) * 1000).toISOString(),
@@ -129,6 +144,7 @@ export function buildBoardVolatilityModelRequest(
           : { gameElapsedSeconds: bucket.gameElapsedSeconds }),
         intensity: bucket.intensity,
         sourceCount: bucket.sourceMarkets.size,
+        sourceDisagreement,
         sourceDominance: dominantShare,
       };
     });

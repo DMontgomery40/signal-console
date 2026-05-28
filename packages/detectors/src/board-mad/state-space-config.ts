@@ -11,6 +11,9 @@ export const BOARD_STATE_SPACE_CONFIG_DEFAULTS = {
     marketCountFloor: 1,
     marketCountExponent: 0.5,
   },
+  observationModel: {
+    disagreementWeight: 0.35,
+  },
   anchors: {
     priorScaleFallback: 0.2,
     priorScaleFloor: 0.05,
@@ -95,6 +98,15 @@ export const BoardStateSpaceConfigSchema = z
           .default(BOARD_STATE_SPACE_CONFIG_DEFAULTS.breadth.marketCountExponent),
       })
       .default(BOARD_STATE_SPACE_CONFIG_DEFAULTS.breadth),
+    observationModel: z
+      .object({
+        disagreementWeight: z
+          .number()
+          .min(0)
+          .max(2)
+          .default(BOARD_STATE_SPACE_CONFIG_DEFAULTS.observationModel.disagreementWeight),
+      })
+      .default(BOARD_STATE_SPACE_CONFIG_DEFAULTS.observationModel),
     anchors: z
       .object({
         priorScaleFallback: z

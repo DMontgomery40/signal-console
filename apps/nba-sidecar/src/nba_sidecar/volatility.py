@@ -56,10 +56,23 @@ def _breadth_normalizer(
     ) ** config.breadth.marketCountExponent
 
 
+def _source_disagreement(
+    observation: VolatilityStateSpaceObservation, config: VolatilityStateSpaceConfig
+) -> float:
+    del config
+    if observation.sourceDisagreement is None:
+        return 0.0
+    return _clamp01(observation.sourceDisagreement)
+
+
 def _transformed_score(
     observation: VolatilityStateSpaceObservation, config: VolatilityStateSpaceConfig
 ) -> float:
-    return log1p(observation.intensity / _breadth_normalizer(observation, config))
+    intensity_score = log1p(observation.intensity / _breadth_normalizer(observation, config))
+    disagreement_score = (
+        _source_disagreement(observation, config) * config.observationModel.disagreementWeight
+    )
+    return intensity_score + disagreement_score
 
 
 def _prior_level(prior: VolatilityHistoricalPrior | None) -> float:

@@ -7,6 +7,7 @@ import type { ExplainerId } from "@signal-console/ui";
 
 type TriggerKey = keyof BoardStateSpaceConfig["trigger"];
 type BreadthKey = keyof BoardStateSpaceConfig["breadth"];
+type ObservationModelKey = keyof BoardStateSpaceConfig["observationModel"];
 type AnchorKey = keyof BoardStateSpaceConfig["anchors"];
 type DynamicsKey = keyof BoardStateSpaceConfig["dynamics"];
 type ObservationNoiseKey = keyof BoardStateSpaceConfig["observationNoise"];
@@ -20,6 +21,10 @@ type StateSpaceField =
   | {
       readonly section: "breadth";
       readonly key: BreadthKey;
+    }
+  | {
+      readonly section: "observationModel";
+      readonly key: ObservationModelKey;
     }
   | {
       readonly section: "anchors";
@@ -41,6 +46,7 @@ type StateSpaceField =
 export type StateSpaceGuidedGroupId =
   | "trigger"
   | "breadth"
+  | "observationModel"
   | "anchors"
   | "dynamics"
   | "observationNoise"
@@ -71,6 +77,11 @@ export const STATE_SPACE_GUIDED_GROUPS: ReadonlyArray<{
     id: "breadth",
     label: "Breadth",
     help: "How raw intensity is normalized when many markets are active.",
+  },
+  {
+    id: "observationModel",
+    label: "Observation embedding",
+    help: "How extra market-state features such as cross-source disagreement enter the observed volatility score.",
   },
   {
     id: "anchors",
@@ -164,6 +175,18 @@ export const STATE_SPACE_GUIDED_FIELDS: ReadonlyArray<StateSpaceGuidedFieldDef> 
     max: 1,
     step: 0.01,
     explainerId: "settings-state-space-breadth-damping",
+  },
+  {
+    id: "observationModel-disagreementWeight",
+    groupId: "observationModel",
+    section: "observationModel",
+    key: "disagreementWeight",
+    label: "Disagreement weight",
+    help: "How strongly cross-source directional disagreement adds to the observed volatility score before filtering.",
+    min: 0,
+    max: 2,
+    step: 0.01,
+    explainerId: "settings-state-space-disagreement-weight",
   },
   {
     id: "anchors-priorScaleFallback",
@@ -544,6 +567,8 @@ export function readStateSpaceFieldValue(
       return config.trigger[field.key];
     case "breadth":
       return config.breadth[field.key];
+    case "observationModel":
+      return config.observationModel[field.key];
     case "anchors":
       return config.anchors[field.key];
     case "dynamics":
@@ -575,6 +600,11 @@ export function writeStateSpaceFieldValue(
       return BoardStateSpaceConfigSchema.parse({
         ...config,
         breadth: { ...config.breadth, [field.key]: nextValue },
+      });
+    case "observationModel":
+      return BoardStateSpaceConfigSchema.parse({
+        ...config,
+        observationModel: { ...config.observationModel, [field.key]: nextValue },
       });
     case "anchors":
       return BoardStateSpaceConfigSchema.parse({

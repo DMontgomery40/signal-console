@@ -20,6 +20,7 @@ DEFAULT_STATE_SPACE = {
         "exitRatio": 0.7,
     },
     "breadth": {"marketCountFloor": 1, "marketCountExponent": 0.5},
+    "observationModel": {"disagreementWeight": 0.35},
     "anchors": {
         "priorScaleFallback": 0.2,
         "priorScaleFloor": 0.05,
@@ -76,6 +77,7 @@ def observation(intensity: float, minute: int) -> VolatilityStateSpaceObservatio
         gameElapsedSeconds=minute * 60,
         activeMarketCount=25,
         sourceCount=3,
+        sourceDisagreement=0.0,
         sourceDominance=0.2,
     )
 
@@ -323,6 +325,60 @@ def test_state_space_innovation_power_is_operator_tunable() -> None:
     )
 
     assert sharper_result.observations[-1].standardizedInnovation < softer_result.observations[-1].standardizedInnovation
+
+
+def test_state_space_disagreement_weight_is_operator_tunable() -> None:
+    observations = [
+        *[observation(8 + (i % 2), i) for i in range(10)],
+        VolatilityStateSpaceObservation(
+            bucketStart="2026-05-25T00:10:00.000Z",
+            bucketEnd="2026-05-25T00:11:00.000Z",
+            intensity=12,
+            gameElapsedSeconds=10 * 60,
+            activeMarketCount=25,
+            sourceCount=2,
+            sourceDominance=0.5,
+            sourceDisagreement=1.0,
+        ),
+    ]
+    quiet_state_space = default_state_space()
+    quiet_state_space["observationModel"]["disagreementWeight"] = 0.0
+    loud_state_space = default_state_space()
+    loud_state_space["observationModel"]["disagreementWeight"] = 0.8
+
+    quiet_result = score_volatility_state_space(
+        VolatilityStateSpaceRequest(
+            gameId="nba-synth-disagreement-quiet",
+            params=VolatilityStateSpaceParams(
+                baselineMode="trailing",
+                bucketSeconds=60,
+                kMad=3,
+                stateSpace=quiet_state_space,
+                trailingBuckets=20,
+                warmupBuckets=8,
+            ),
+            observations=observations,
+        )
+    )
+    loud_result = score_volatility_state_space(
+        VolatilityStateSpaceRequest(
+            gameId="nba-synth-disagreement-loud",
+            params=VolatilityStateSpaceParams(
+                baselineMode="trailing",
+                bucketSeconds=60,
+                kMad=3,
+                stateSpace=loud_state_space,
+                trailingBuckets=20,
+                warmupBuckets=8,
+            ),
+            observations=observations,
+        )
+    )
+
+    assert (
+        loud_result.observations[-1].standardizedInnovation
+        > quiet_result.observations[-1].standardizedInnovation
+    )
 
 
 def test_state_space_endpoint_returns_observable_contract() -> None:

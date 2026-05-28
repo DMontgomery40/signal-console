@@ -38,7 +38,7 @@ The live model is no longer a plain rolling median-plus-MAD rule. It still build
 
 $$I_t = \sum_{m \in \mathcal{M}_g} \sum_{i \in t} w(v_{m,i}) \cdot \left| \Delta p_{m,i} \right|,$$
 
-with $w(v)=\log(1+v)$ by default, then normalizes by market breadth and works in transformed score space $y_t=\log(1+I_t/\sqrt{B_t})$. The live filter is a robust two-state level/trend model with adaptive observation variance. Historical priors, opening anchors, and current-game memory all enter as causal anchor distributions on the latent baseline before the innovation update.
+with $w(v)=\log(1+v)$ by default, then normalizes by market breadth and works in transformed score space $y_t=\log(1+I_t/\sqrt{B_t}) + \omega_D D_t$, where $D_t$ is the cross-source directional disagreement score for the bucket. The live filter is a robust two-state level/trend model with adaptive observation variance. Historical priors, opening anchors, and current-game memory all enter as causal anchor distributions on the latent baseline before the innovation update.
 
 The alert rule is innovation-based: a bucket fires when the positive standardized innovation clears the configured enter threshold after warmup, with hysteresis on the exit side. The UI still shows baseline level and baseline scale because traders need an interpretable threshold line, but the live runtime truth is the state-space filter in \`apps/nba-sidecar/src/nba_sidecar/volatility.py\`.`,
   },
@@ -454,7 +454,7 @@ This is the switch that makes Backtest and live behavior match. If you promote h
     eli5: String.raw`This is the full advanced model object, not just a loose bag of extra numbers. It contains the internal choices that shape how the board model behaves: trigger math, breadth normalization, process noise, measurement noise, anchor handling, and variance adaptation.
 
 The point of exposing it as one structured JSON object is honesty and portability. Data-engineering or stats people can tune the actual model without spelunking Python literals, and the exact same object can travel through Settings, Backtest, saved defaults, and bakeoff runs.`,
-    formal: String.raw`Nested runtime config for the Python board state-space model. The object is validated end-to-end by \`BoardStateSpaceConfigSchema\` in \`packages/detectors/src/board-mad/state-space-config.ts\`, serialized through detector defaults and backtest params, and consumed by \`apps/nba-sidecar/src/nba_sidecar/volatility.py\`. Settings and Backtest expose the same object in grouped numeric controls plus a mirrored JSON editor, so there is one runtime contract rather than a second math path. This is the canonical home for trigger coefficients, breadth terms, anchor floors, state-dynamics constants, observation-noise weights, and variance-regime shape controls.`,
+    formal: String.raw`Nested runtime config for the Python board state-space model. The object is validated end-to-end by \`BoardStateSpaceConfigSchema\` in \`packages/detectors/src/board-mad/state-space-config.ts\`, serialized through detector defaults and backtest params, and consumed by \`apps/nba-sidecar/src/nba_sidecar/volatility.py\`. Settings and Backtest expose the same object in grouped numeric controls plus a mirrored JSON editor, so there is one runtime contract rather than a second math path. This is the canonical home for trigger coefficients, breadth terms, cross-source disagreement embedding, anchor floors, state-dynamics constants, observation-noise weights, and variance-regime shape controls.`,
   },
 
   "settings-state-space-trigger-floor": {
@@ -479,6 +479,12 @@ The point of exposing it as one structured JSON object is honesty and portabilit
     title: "Breadth damping",
     eli5: String.raw`How much the model discounts raw intensity just because lots of markets are moving at once. Higher values make broad-board activity feel more normal; lower values let raw multi-market bursts stay loud.`,
     formal: String.raw`This is \`stateSpace.breadth.marketCountExponent\`. The sidecar transforms intensity as \`log(1 + intensity / marketCount^exponent)\`, so the exponent controls how strongly market breadth normalizes the observation.`,
+  },
+
+  "settings-state-space-disagreement-weight": {
+    title: "Disagreement weight",
+    eli5: String.raw`How much cross-source directional conflict counts as volatility all by itself. Raise it and buckets where books and prediction markets pull in opposite directions look more unstable; lower it and the model cares more about raw repricing size than about that disagreement.`,
+    formal: String.raw`This is \`stateSpace.observationModel.disagreementWeight\`. The sidecar's transformed observation is \`log(1 + intensity / marketCount^exponent) + disagreementWeight * sourceDisagreement\`, where \`sourceDisagreement\` is a 0-1 score built from cross-source signed bucket moves. Larger values make directional disagreement itself contribute more to the innovation signal.`,
   },
 
   "settings-state-space-baseline-agility": {
