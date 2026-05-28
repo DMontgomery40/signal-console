@@ -61,3 +61,12 @@ The board-volatility runtime no longer treats the Python sidecar's inner filter 
 - the Python sidecar request contract
 
 This is the current sanctioned home for trigger-shape coefficients, breadth normalization, anchor floors, process-noise terms, observation-noise weights, and variance-adaptation limits.
+
+## Bakeoff runtime row (implemented 2026-05-28)
+
+The NBA detector bakeoff now evaluates the actual live Python board runtime as first-class rows derived from detector defaults, not only the older TypeScript research comparators. `scripts/run-nba-detector-bakeoff.ts` builds:
+
+- a current-live row from `readDetectorDefaults()` / `data/detector-defaults.json`
+- a packaged-baseline row from `BASELINE_DEFAULTS` when it differs
+
+Those rows carry the full nested `stateSpace` object in the machine-readable payload and call the Python sidecar contract instead of re-implementing the filter math in TypeScript. The operator-facing reference doc for this contract is `docs/board-volatility-state-space.md`.

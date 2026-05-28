@@ -9,6 +9,11 @@ import process from "node:process";
 
 import { format, resolveConfig } from "prettier";
 
+import {
+  BASELINE_DEFAULTS,
+  readDetectorDefaults,
+  type DetectorDefaults,
+} from "../apps/api/src/services/detector-defaults";
 import { GOLD_DB_PATH, openGoldDb } from "../packages/db/src/open";
 
 const SOURCE_REGISTRY_PATH = resolve(
@@ -78,6 +83,10 @@ type BaselineKind =
   | "ewma"
   | "cusum"
   | "rv-bv";
+
+type DetectorEngine = "research-ts" | "python-state-space";
+
+type RuntimeBaselineMode = "trailing" | "opening-ramp" | "historical-blend";
 
 interface IncidentRegistryPayload {
   readonly incidents?: readonly unknown[];
@@ -159,6 +168,7 @@ interface Bucket {
   readonly volumeHeavyIntensity: number;
   readonly activeMarketCount: number;
   readonly sourceCount: number;
+  readonly sourceDominance: number | null;
   readonly familyCount: number;
   readonly offpriceSeverity: number;
   readonly offpriceFanout: number;
@@ -177,6 +187,7 @@ interface AlgoSpec {
   readonly id: string;
   readonly name: string;
   readonly family: string;
+  readonly engine?: DetectorEngine;
   readonly bucketSeconds: number;
   readonly scoreKind: ScoreKind;
   readonly baselineKind: BaselineKind;
@@ -196,13 +207,66 @@ interface AlgoSpec {
   readonly requiredOffpriceFanout?: number;
   readonly cooldownBuckets?: number;
   readonly openingBaselineBuckets?: number;
+  readonly openingRampCompleteBuckets?: number;
   readonly historicalLastGames?: number;
   readonly historicalAwayWeight?: number;
   readonly historicalPriorWeight?: number;
   readonly historicalRampCompleteGameSeconds?: number;
+  readonly runtimeBaselineMode?: RuntimeBaselineMode;
+  readonly stateSpace?: Record<string, unknown>;
+  readonly configSource?: "baseline-defaults" | "live-defaults";
   readonly formula: string;
   readonly rationale: string;
   readonly citations: readonly string[];
+}
+
+interface StateSpaceAlgoSpec extends AlgoSpec {
+  readonly engine: "python-state-space";
+  readonly stateSpace: Record<string, unknown>;
+}
+
+interface BakeoffStateSpaceHistoricalPrior {
+  readonly mad: number;
+  readonly median: number;
+  readonly sampleSize: number;
+}
+
+interface BakeoffStateSpaceObservation {
+  readonly activeMarketCount?: number;
+  readonly bucketEnd: string;
+  readonly bucketStart: string;
+  readonly gameElapsedSeconds?: number | null;
+  readonly intensity: number;
+  readonly sourceCount?: number;
+  readonly sourceDominance?: number;
+}
+
+interface BakeoffStateSpaceRequest {
+  readonly gameId: string;
+  readonly observations: readonly BakeoffStateSpaceObservation[];
+  readonly params: {
+    readonly baselineMode: RuntimeBaselineMode;
+    readonly bucketSeconds: number;
+    readonly historicalPrior?: BakeoffStateSpaceHistoricalPrior;
+    readonly historicalPriorWeight?: number;
+    readonly historicalRampCompleteGameMinutes?: number;
+    readonly kMad: number;
+    readonly openingBaselineBuckets: number;
+    readonly openingRampCompleteBuckets: number;
+    readonly recentWallMinutes?: number;
+    readonly recentWallWeight?: number;
+    readonly stateSpace: Record<string, unknown>;
+    readonly trailingBuckets: number;
+    readonly trailingGameMinutes: number;
+    readonly warmupBuckets: number;
+  };
+}
+
+interface BakeoffStateSpaceResponseObservation {
+  readonly bucketEnd: string;
+  readonly bucketStart: string;
+  readonly fired: boolean;
+  readonly threshold: number;
 }
 
 interface HistoricalPrior {
@@ -622,6 +686,16 @@ const METHOD_ADJUSTMENTS: readonly MethodAdjustment[] = [
 
 const REPORT_NOTES: readonly ReportNote[] = [
   {
+    algoId: "A00_runtime_state_space_live_defaults",
+    severity: "caution",
+    note: "This is the current live board runtime from detector-defaults.json; treat it as product truth, not as a generic research comparator.",
+  },
+  {
+    algoId: "A00_runtime_state_space_baseline_defaults",
+    severity: "caution",
+    note: "Packaged baseline of the live Python runtime, useful only as a control against the currently saved live defaults.",
+  },
+  {
     algoId: "A01_legacy_60_vw_k3",
     severity: "caution",
     note: "Useful sensitive control, but fixed 60s wall buckets mix live play, whistles, timeouts, and free throws.",
@@ -693,7 +767,7 @@ const REPORT_NOTES: readonly ReportNote[] = [
   },
 ];
 
-const ALGORITHMS: readonly AlgoSpec[] = [
+const RESEARCH_ALGORITHMS: readonly AlgoSpec[] = [
   {
     id: "A01_legacy_60_vw_k3",
     name: "Legacy 60s VW K=3",
@@ -1077,6 +1151,107 @@ const ALGORITHMS: readonly AlgoSpec[] = [
     citations: ["Industrial alarm rationalization", "Signal Console fire-count anomaly audit"],
   },
 ];
+
+function detectorDefaultsEqual(left: DetectorDefaults, right: DetectorDefaults): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function runtimeFormulaFromDefaults(defaults: DetectorDefaults): string {
+  const memoryBasis =
+    defaults.baselineMode === "historical-blend"
+      ? `game ${defaults.trailingGameMinutes}m + wall ${defaults.recentWallMinutes}m @ ${defaults.recentWallWeight}x`
+      : `${defaults.trailingBuckets} buckets`;
+  return [
+    `Python state-space`,
+    `mode=${defaults.baselineMode}`,
+    `bucket=${defaults.bucketSeconds}s`,
+    `trigger=${defaults.kMadLive}`,
+    `warmup=${defaults.warmupBuckets} buckets`,
+    `memory=${memoryBasis}`,
+  ].join(", ");
+}
+
+function runtimeRationaleFromDefaults(
+  configSource: "baseline-defaults" | "live-defaults",
+  defaults: DetectorDefaults,
+): string {
+  if (configSource === "baseline-defaults") {
+    return "Packaged baseline runtime config for side-by-side comparison against the currently saved live defaults.";
+  }
+  return `Current detector defaults from data/detector-defaults.json: the same Python state-space board model the app uses live, including the saved advanced stateSpace object and ${defaults.baselineMode} anchor profile.`;
+}
+
+function isStateSpaceAlgo(algo: AlgoSpec): algo is StateSpaceAlgoSpec {
+  return algo.engine === "python-state-space" && algo.stateSpace !== undefined;
+}
+
+function runtimeStateSpaceAlgorithm(
+  defaults: DetectorDefaults,
+  configSource: "baseline-defaults" | "live-defaults",
+): StateSpaceAlgoSpec {
+  return {
+    id:
+      configSource === "baseline-defaults"
+        ? "A00_runtime_state_space_baseline_defaults"
+        : "A00_runtime_state_space_live_defaults",
+    name:
+      configSource === "baseline-defaults"
+        ? "Runtime Python State-Space (Packaged Defaults)"
+        : "Runtime Python State-Space (Current Live Defaults)",
+    family: "runtime-state-space",
+    engine: "python-state-space",
+    bucketSeconds: defaults.bucketSeconds,
+    scoreKind: "board-vw",
+    baselineKind:
+      defaults.baselineMode === "historical-blend"
+        ? "mad-historical"
+        : defaults.baselineMode === "opening-ramp"
+          ? "mad-wall"
+          : "mad-wall",
+    runtimeBaselineMode: defaults.baselineMode,
+    k: defaults.kMadLive,
+    warmupBuckets: defaults.warmupBuckets,
+    minPrior: Math.max(
+      1,
+      defaults.baselineMode === "historical-blend"
+        ? defaults.openingBaselineBuckets
+        : defaults.trailingBuckets,
+    ),
+    trailingBuckets: defaults.trailingBuckets,
+    gameMemorySeconds: defaults.trailingGameMinutes * SECONDS_PER_MINUTE,
+    recentWallSeconds: defaults.recentWallMinutes * SECONDS_PER_MINUTE,
+    recentWallWeight: defaults.recentWallWeight,
+    openingBaselineBuckets: defaults.openingBaselineBuckets,
+    historicalLastGames: defaults.historicalLastGames,
+    historicalAwayWeight: defaults.historicalAwayWeight,
+    historicalPriorWeight: defaults.historicalPriorWeight,
+    historicalRampCompleteGameSeconds:
+      defaults.historicalRampCompleteGameMinutes * SECONDS_PER_MINUTE,
+    openingRampCompleteBuckets: defaults.openingRampCompleteBuckets,
+    stateSpace: defaults.stateSpace,
+    configSource,
+    formula: runtimeFormulaFromDefaults(defaults),
+    rationale: runtimeRationaleFromDefaults(configSource, defaults),
+    citations: [
+      "apps/nba-sidecar/src/nba_sidecar/volatility.py",
+      "apps/api/src/services/detector-defaults.ts",
+      "data/detector-defaults.json",
+    ],
+  };
+}
+
+export function buildRuntimeStateSpaceAlgorithms(
+  defaults: DetectorDefaults,
+  baselineDefaults: DetectorDefaults = BASELINE_DEFAULTS,
+): readonly StateSpaceAlgoSpec[] {
+  const current = runtimeStateSpaceAlgorithm(defaults, "live-defaults");
+  if (detectorDefaultsEqual(defaults, baselineDefaults)) return [current];
+  return [current, runtimeStateSpaceAlgorithm(baselineDefaults, "baseline-defaults")];
+}
+
+function buildAlgorithms(defaults: DetectorDefaults): readonly AlgoSpec[] {
+  return [...buildRuntimeStateSpaceAlgorithms(defaults), ...RESEARCH_ALGORITHMS];
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -1509,6 +1684,7 @@ function bucketize(game: GameData, bucketSeconds: number): readonly Bucket[] {
       logitVwIntensity: 0,
       volumeHeavyIntensity: 0,
       activeMarkets: new Set<string>(),
+      sourceContribution: new Map<string, number>(),
       sources: new Set<string>(),
       families: new Set<string>(),
       offpriceSeverity: 0,
@@ -1521,13 +1697,19 @@ function bucketize(game: GameData, bucketSeconds: number): readonly Bucket[] {
 
   for (const pair of game.pairs) {
     const bucket = getBucket(pair.timeSec);
+    const volumeWeight = Math.log1p(pair.volume);
+    const weightedDelta = pair.deltaP * volumeWeight;
     bucket.eqIntensity += pair.deltaP;
-    bucket.vwIntensity += pair.deltaP * Math.log1p(pair.volume);
-    bucket.logitVwIntensity += pair.deltaLogit * Math.log1p(pair.volume);
-    bucket.volumeHeavyIntensity += pair.deltaLogit * Math.log1p(pair.volume) ** 1.5;
+    bucket.vwIntensity += weightedDelta;
+    bucket.logitVwIntensity += pair.deltaLogit * volumeWeight;
+    bucket.volumeHeavyIntensity += pair.deltaLogit * volumeWeight ** 1.5;
     bucket.activeMarkets.add(pair.sourceMarketId);
     bucket.sources.add(pair.source);
     bucket.families.add(pair.family);
+    bucket.sourceContribution.set(
+      pair.source,
+      (bucket.sourceContribution.get(pair.source) ?? 0) + weightedDelta,
+    );
   }
 
   for (const event of game.micro) {
@@ -1539,8 +1721,13 @@ function bucketize(game: GameData, bucketSeconds: number): readonly Bucket[] {
 
   const result = [...buckets.values()]
     .sort((a, b) => a.startSec - b.startSec)
-    .map(
-      (bucket): Bucket => ({
+    .map((bucket): Bucket => {
+      const topSourceContribution = Math.max(0, ...bucket.sourceContribution.values());
+      const sourceDominance =
+        bucket.vwIntensity <= 0 || bucket.sourceContribution.size === 0
+          ? null
+          : topSourceContribution / bucket.vwIntensity;
+      return {
         startSec: bucket.startSec,
         endSec: bucket.endSec,
         gameElapsedSec: bucket.gameElapsedSec,
@@ -1553,12 +1740,13 @@ function bucketize(game: GameData, bucketSeconds: number): readonly Bucket[] {
         volumeHeavyIntensity: bucket.volumeHeavyIntensity,
         activeMarketCount: bucket.activeMarkets.size,
         sourceCount: bucket.sources.size,
+        sourceDominance,
         familyCount: bucket.families.size,
         offpriceSeverity: bucket.offpriceSeverity,
         offpriceFanout: bucket.offpriceMarkets.size,
         offpriceSourceCount: bucket.offpriceSources.size,
-      }),
-    );
+      };
+    });
   game.bucketCache.set(bucketSeconds, result);
   return result;
 }
@@ -1575,6 +1763,7 @@ interface MutableBucket {
   logitVwIntensity: number;
   volumeHeavyIntensity: number;
   activeMarkets: Set<string>;
+  sourceContribution: Map<string, number>;
   sources: Set<string>;
   families: Set<string>;
   offpriceSeverity: number;
@@ -1850,6 +2039,199 @@ function historicalThreshold(
   );
 }
 
+function runtimeBaselineModeForAlgo(algo: AlgoSpec): RuntimeBaselineMode {
+  if (algo.runtimeBaselineMode !== undefined) return algo.runtimeBaselineMode;
+  if (algo.baselineKind === "mad-historical") return "historical-blend";
+  return algo.openingBaselineBuckets !== undefined ? "opening-ramp" : "trailing";
+}
+
+function trailingGameMinutesForAlgo(algo: AlgoSpec): number {
+  if (algo.gameMemorySeconds !== undefined) {
+    return Math.max(
+      algo.bucketSeconds / SECONDS_PER_MINUTE,
+      algo.gameMemorySeconds / SECONDS_PER_MINUTE,
+    );
+  }
+  return Math.max(
+    algo.bucketSeconds / SECONDS_PER_MINUTE,
+    (algo.trailingBuckets ?? algo.minPrior) * (algo.bucketSeconds / SECONDS_PER_MINUTE),
+  );
+}
+
+export function buildStateSpaceRequestForGame(
+  game: GameData,
+  algo: StateSpaceAlgoSpec,
+  allGames: ReadonlyMap<string, GameData>,
+): BakeoffStateSpaceRequest {
+  const stateSpace = algo.stateSpace;
+  const buckets = bucketize(game, algo.bucketSeconds);
+  const observations = buckets
+    .map((bucket) => ({
+      bucket,
+      intensity: bucketScore(bucket, algo),
+    }))
+    .filter((entry) => entry.intensity > LOW_SIGNAL_FLOOR)
+    .map(
+      ({ bucket, intensity }): BakeoffStateSpaceObservation => ({
+        bucketStart: isoFromSeconds(bucket.startSec),
+        bucketEnd: isoFromSeconds(bucket.endSec),
+        intensity,
+        gameElapsedSeconds: bucket.gameElapsedSec,
+        activeMarketCount: bucket.activeMarketCount,
+        sourceCount: bucket.sourceCount,
+        ...(bucket.sourceDominance === null ? {} : { sourceDominance: bucket.sourceDominance }),
+      }),
+    );
+  const baselineMode = runtimeBaselineModeForAlgo(algo);
+  const historicalPrior =
+    baselineMode === "historical-blend" ? historicalPriorForGame(game, allGames, algo) : null;
+  const openingBaselineBuckets = algo.openingBaselineBuckets ?? algo.minPrior;
+  const openingRampCompleteBuckets = Number(
+    algo.openingRampCompleteBuckets ?? algo.trailingBuckets ?? algo.minPrior,
+  );
+  const recentWallMinutes =
+    algo.recentWallSeconds === undefined ? undefined : algo.recentWallSeconds / SECONDS_PER_MINUTE;
+  return {
+    gameId: game.gameId,
+    observations,
+    params: {
+      baselineMode,
+      bucketSeconds: algo.bucketSeconds,
+      kMad: algo.k,
+      trailingBuckets: algo.trailingBuckets ?? Math.max(algo.minPrior, 1),
+      trailingGameMinutes: trailingGameMinutesForAlgo(algo),
+      warmupBuckets: algo.warmupBuckets,
+      openingBaselineBuckets,
+      openingRampCompleteBuckets,
+      ...(historicalPrior === null
+        ? {}
+        : {
+            historicalPrior: {
+              mad: historicalPrior.mad,
+              median: historicalPrior.median,
+              sampleSize: historicalPrior.sampleSize,
+            } satisfies BakeoffStateSpaceHistoricalPrior,
+          }),
+      ...(algo.historicalPriorWeight === undefined
+        ? {}
+        : { historicalPriorWeight: algo.historicalPriorWeight }),
+      ...(algo.historicalRampCompleteGameSeconds === undefined
+        ? {}
+        : {
+            historicalRampCompleteGameMinutes:
+              algo.historicalRampCompleteGameSeconds / SECONDS_PER_MINUTE,
+          }),
+      ...(recentWallMinutes === undefined ? {} : { recentWallMinutes }),
+      ...(algo.recentWallWeight === undefined ? {} : { recentWallWeight: algo.recentWallWeight }),
+      stateSpace,
+    },
+  };
+}
+
+interface StateSpaceClientOptions {
+  readonly baseUrl?: string;
+  readonly fetchImpl?: typeof fetch;
+}
+
+function trimTrailingSlash(value: string): string {
+  return value.endsWith("/") ? value.slice(0, -1) : value;
+}
+
+function resolveStateSpaceBaseUrl(explicitBaseUrl?: string): string {
+  const baseUrl = explicitBaseUrl ?? process.env["NBA_SIDECAR_BASE_URL"];
+  if (typeof baseUrl !== "string" || baseUrl.trim() === "") {
+    throw new Error("NBA_SIDECAR_BASE_URL is not configured for the bakeoff runtime rows.");
+  }
+  return trimTrailingSlash(baseUrl);
+}
+
+function parseBakeoffStateSpaceResponse(
+  json: unknown,
+): readonly BakeoffStateSpaceResponseObservation[] {
+  if (!isRecord(json)) throw new Error("state-space sidecar response is not an object");
+  const data = json["data"];
+  if (!isRecord(data)) throw new Error("state-space sidecar response missing data object");
+  const observations = data["observations"];
+  if (!Array.isArray(observations)) {
+    throw new Error("state-space sidecar response missing observations array");
+  }
+  return observations.map((entry) => {
+    if (!isRecord(entry)) {
+      throw new Error("state-space sidecar observation is not an object");
+    }
+    const bucketStart = entry["bucketStart"];
+    const bucketEnd = entry["bucketEnd"];
+    const threshold = entry["threshold"];
+    const fired = entry["fired"];
+    if (
+      typeof bucketStart !== "string" ||
+      typeof bucketEnd !== "string" ||
+      typeof threshold !== "number" ||
+      typeof fired !== "boolean"
+    ) {
+      throw new Error("state-space sidecar observation is missing required fields");
+    }
+    return {
+      bucketStart,
+      bucketEnd,
+      threshold,
+      fired,
+    };
+  });
+}
+
+async function postStateSpaceRequest(
+  request: BakeoffStateSpaceRequest,
+  clientOptions?: StateSpaceClientOptions,
+): Promise<readonly BakeoffStateSpaceResponseObservation[]> {
+  const fetchImpl = clientOptions?.fetchImpl ?? fetch;
+  const response = await fetchImpl(
+    `${resolveStateSpaceBaseUrl(clientOptions?.baseUrl)}/api/v1/models/board-volatility/state-space`,
+    {
+      body: JSON.stringify(request),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    },
+  );
+  if (!response.ok) {
+    throw new Error(
+      `Board volatility sidecar request failed with status ${String(response.status)}.`,
+    );
+  }
+  return parseBakeoffStateSpaceResponse(await response.json());
+}
+
+export async function detectWithPythonStateSpace(
+  game: GameData,
+  algo: StateSpaceAlgoSpec,
+  allGames: ReadonlyMap<string, GameData>,
+  clientOptions?: StateSpaceClientOptions,
+): Promise<readonly Fire[]> {
+  const request = buildStateSpaceRequestForGame(game, algo, allGames);
+  const response = await postStateSpaceRequest(request, clientOptions);
+  const buckets = bucketize(game, algo.bucketSeconds);
+  const bucketByStart = new Map(
+    buckets.map((bucket) => [isoFromSeconds(bucket.startSec), bucket] as const),
+  );
+  const scoreByBucketStart = new Map(
+    request.observations.map(
+      (observation) => [observation.bucketStart, observation.intensity] as const,
+    ),
+  );
+  const fires: Fire[] = [];
+  for (const observation of response) {
+    if (!observation.fired) continue;
+    const bucket = bucketByStart.get(observation.bucketStart);
+    if (bucket === undefined) continue;
+    const score = scoreByBucketStart.get(observation.bucketStart) ?? 0;
+    if (score <= LOW_SIGNAL_FLOOR || !passesFanout(bucket, algo)) continue;
+    fires.push(
+      fireFromBucket(game.gameId, bucket, score, observation.threshold, algo.bucketSeconds),
+    );
+  }
+  return fires;
+}
+
 function isFinalFiveClose(fire: Fire): boolean {
   return (
     fire.period !== null &&
@@ -2024,11 +2406,14 @@ function fireFromBucket(
   };
 }
 
-function detectGame(
+async function detectGame(
   game: GameData,
   algo: AlgoSpec,
   allGames: ReadonlyMap<string, GameData>,
-): readonly Fire[] {
+): Promise<readonly Fire[]> {
+  if (isStateSpaceAlgo(algo)) {
+    return await detectWithPythonStateSpace(game, algo, allGames);
+  }
   if (algo.baselineKind === "ewma") return detectWithEwma(game, algo);
   if (algo.baselineKind === "cusum") return detectWithCusum(game, algo);
   if (algo.baselineKind === "rv-bv") return detectWithRvBv(game, algo);
@@ -2050,11 +2435,12 @@ function hasCoverageForAlgo(game: GameData, algo: AlgoSpec): boolean {
 
 function findIncidentFire(
   incident: RawIncident,
+  algorithms: readonly AlgoSpec[],
   firesByAlgoGame: ReadonlyMap<string, readonly Fire[]>,
   games: ReadonlyMap<string, GameData>,
 ): IncidentAlgoResult[] {
   const eventSec = parseIsoSeconds(incident.utcTime);
-  return ALGORITHMS.map((algo): IncidentAlgoResult => {
+  return algorithms.map((algo): IncidentAlgoResult => {
     if (eventSec === null) {
       return skippedResult(incident.id, algo.id, "No exact UTC/PBP anchor.");
     }
@@ -2603,6 +2989,13 @@ function buildReportMarkdown(payload: BakeoffPayload): string {
         `| ${summary.algoId} | ${summary.caughtScoreable}/${summary.scoreableIncidents} | ${summary.marketOutlierEpisodesCaught}/${summary.marketOutlierEpisodeCount} (${summary.marketOutlierRecall}%) | ${summary.firesInsideMarketOutlierShare}% | ${summary.meanFiresPerGame} | ${summary.meanEpisodesPerGame} | ${summary.p95FiresPerGame} | ${summary.maxFiresPerGame} | ${summary.outlierGameCount} | ${summary.medianLeadSeconds ?? "n/a"} | ${warningText(summary)} |`,
     )
     .join("\n");
+  const runtimeRows = payload.summaries
+    .filter((summary) => summary.algoId.startsWith("A00_runtime_state_space"))
+    .map(
+      (summary) =>
+        `| ${summary.algoId} | ${summary.caughtScoreable}/${summary.scoreableIncidents} | ${summary.marketOutlierEpisodesCaught}/${summary.marketOutlierEpisodeCount} (${summary.marketOutlierRecall}%) | ${summary.firesInsideMarketOutlierShare}% | ${summary.meanFiresPerGame} | ${summary.meanEpisodesPerGame} | ${warningText(summary)} |`,
+    )
+    .join("\n");
   const marketOutlierRows = payload.marketOutlierEpisodes
     .slice(0, 12)
     .map(
@@ -2634,6 +3027,14 @@ This is an offline research artifact, not an official NBA source of truth. It sc
 - Market-native outlier episodes: ${payload.marketOutlierEpisodes.length}
 - Denominator games with PBP windows: ${payload.coverage.denominatorGames}
 - Algorithms tested: ${payload.algorithms.length}
+
+## Runtime Rows
+
+These rows are backed by the actual Python live runtime and the saved detector defaults, not only the TypeScript research comparators.
+
+| Runtime row | Incident caught | Tape outliers caught | Fires inside tape windows | Mean fires/game | Episodes/game | Report read |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+${runtimeRows.length === 0 ? "| none | 0/0 | 0/0 (0%) | 0% | 0 | 0 | no runtime-backed rows generated |" : runtimeRows}
 
 ## Top Rows
 
@@ -2690,6 +3091,13 @@ async function formatArtifact(
 
 function buildReportHtml(payload: BakeoffPayload): string {
   const best = payload.bestSummary;
+  const runtimeRows = payload.summaries
+    .filter((summary) => summary.algoId.startsWith("A00_runtime_state_space"))
+    .map(
+      (summary) =>
+        `<tr><td class="mono">${htmlEscape(summary.algoId)}<br><span class="muted">${htmlEscape(summary.name)}</span></td><td class="num">${summary.caughtScoreable}/${summary.scoreableIncidents}</td><td class="num">${summary.marketOutlierEpisodesCaught}/${summary.marketOutlierEpisodeCount}<br>${summary.marketOutlierRecall}%</td><td class="num">${summary.firesInsideMarketOutlierShare}%</td><td class="num">${summary.meanFiresPerGame}</td><td class="num">${summary.meanEpisodesPerGame}</td><td>${htmlEscape(warningText(summary))}</td></tr>`,
+    )
+    .join("");
   const bestText =
     best === null
       ? "No scoreable algorithms"
@@ -2732,6 +3140,7 @@ function buildReportHtml(payload: BakeoffPayload): string {
     <div class="panel"><h3>Working recommendation</h3><p class="muted">Keep the historical-to-live profile in the bakeoff, but judge it by incident catch rate plus tape-outlier recall plus episodes/game and outlier burden. Coverage-normalized and cooldown rows are research candidates, not silent live defaults.</p></div>
   </div>
   <div class="callout warn"><b>Important:</b> incident lag seconds are still relative to the disputed play. Tape-outlier recall is a separate denominator built from 30-second within-game robust z outliers on coverage-normalized board intensity, breadth, and offprice confirmation.</div>
+  <div class="t-scroll"><table><thead><tr><th>Runtime row</th><th class="num">Incidents</th><th class="num">Tape outliers</th><th class="num">Inside share</th><th class="num">Fires/gm</th><th class="num">Episodes/gm</th><th>Read</th></tr></thead><tbody>${runtimeRows || '<tr><td>none</td><td class="num">0/0</td><td class="num">0/0</td><td class="num">0%</td><td class="num">0</td><td class="num">0</td><td>no runtime-backed rows generated</td></tr>'}</tbody></table></div>
 </section>
 <section id="leaderboard">
   <div class="snum">SECTION 02</div><h2>Leaderboard and Trade-Off</h2>
@@ -2883,6 +3292,8 @@ async function run(): Promise<number> {
   const db = openGoldDb(dbPath);
   try {
     const incidents = readIncidents();
+    const detectorDefaults = readDetectorDefaults();
+    const algorithms = buildAlgorithms(detectorDefaults);
     const windows = loadGameWindows(db);
     const games = new Map<string, GameData>();
     for (const window of windows) {
@@ -2890,25 +3301,25 @@ async function run(): Promise<number> {
     }
 
     const firesByAlgoGame = new Map<string, readonly Fire[]>();
-    for (const algo of ALGORITHMS) {
+    for (const algo of algorithms) {
       for (const game of games.values()) {
-        firesByAlgoGame.set(`${algo.id}:${game.gameId}`, detectGame(game, algo, games));
+        firesByAlgoGame.set(`${algo.id}:${game.gameId}`, await detectGame(game, algo, games));
       }
     }
 
     const incidentResults = incidents.flatMap((incident) =>
-      findIncidentFire(incident, firesByAlgoGame, games),
+      findIncidentFire(incident, algorithms, firesByAlgoGame, games),
     );
-    const gameSummaries = buildGameSummaries(ALGORITHMS, games, firesByAlgoGame);
+    const gameSummaries = buildGameSummaries(algorithms, games, firesByAlgoGame);
     const marketOutlierEpisodes = [...games.values()].flatMap((game) =>
       buildMarketOutlierEpisodes(game),
     );
     const marketOutlierResults = buildMarketOutlierResults(
-      ALGORITHMS,
+      algorithms,
       marketOutlierEpisodes,
       firesByAlgoGame,
     );
-    const summaries = ALGORITHMS.map((algo) =>
+    const summaries = algorithms.map((algo) =>
       summarizeAlgorithm(
         algo,
         incidentResults,
@@ -2934,10 +3345,10 @@ async function run(): Promise<number> {
       exactAnchorIncidentCount: exactAnchorIncidents.length,
       scoreableIncidentCount: scoreableIncidentIds.size,
       denominatorGames: games.size,
-      algorithmCount: ALGORITHMS.length,
+      algorithmCount: algorithms.length,
       bestSummary,
       incidents,
-      algorithms: ALGORITHMS,
+      algorithms,
       summaries,
       gameSummaries,
       marketOutlierEpisodes,
