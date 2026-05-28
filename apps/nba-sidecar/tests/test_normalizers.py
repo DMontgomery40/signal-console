@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from io import BytesIO
 from urllib.error import HTTPError
 
@@ -7,6 +8,7 @@ from fastapi import HTTPException
 from nba_sidecar.main import get_play_by_play
 from nba_sidecar.normalizers import (
     normalize_live_boxscore_payload,
+    is_today,
     normalize_live_playbyplay_payload,
     normalize_live_scoreboard_payload,
     normalize_schedule_league_payload,
@@ -31,6 +33,7 @@ def test_normalize_live_scoreboard_payload_maps_game_and_state() -> None:
                     "gameClock": "00:42",
                     "gameId": "0022600001",
                     "gameStatus": 2,
+                    "gameTimeUTC": "2026-04-22T02:00:00Z",
                     "homeTeam": {
                         "score": 112,
                         "teamCity": "Boston",
@@ -53,12 +56,7 @@ def test_normalize_live_scoreboard_payload_maps_game_and_state() -> None:
 
 
 def test_normalize_live_scoreboard_payload_replaces_naive_meta_timestamp(
-    monkeypatch,
 ) -> None:
-    monkeypatch.setattr(
-        "nba_sidecar.normalizers._now_iso",
-        lambda: "2026-05-18T00:55:00+00:00",
-    )
     payload = {
         "meta": {"time": "2026-05-17 08:55:00.5555", "code": 200},
         "scoreboard": {
@@ -89,9 +87,55 @@ def test_normalize_live_scoreboard_payload_replaces_naive_meta_timestamp(
 
     normalized = normalize_live_scoreboard_payload(payload)
 
-    assert normalized.generatedAt == "2026-05-18T00:55:00+00:00"
-    assert normalized.games[0].gameState.capturedAt == "2026-05-18T00:55:00+00:00"
+    assert normalized.generatedAt == "2026-05-17T08:55:00.555500+00:00"
+    assert normalized.games[0].gameState.capturedAt == "2026-05-17T08:55:00.555500+00:00"
     assert normalized.games[0].gameState.status == "in-play"
+
+
+def test_normalize_live_scoreboard_payload_fails_loud_on_invalid_meta_timestamp() -> None:
+    payload = {
+        "meta": {"time": "not-a-real-time"},
+        "scoreboard": {"gameDate": "2026-05-17", "games": []},
+    }
+
+    with pytest.raises(ValueError, match="meta.time"):
+        normalize_live_scoreboard_payload(payload)
+
+
+def test_normalize_live_scoreboard_payload_does_not_emit_literal_none_strings() -> None:
+    payload = {
+        "meta": {"time": "2026-04-22T05:55:00.000Z"},
+        "scoreboard": {
+            "gameDate": "2026-04-22",
+            "games": [
+                {
+                    "awayTeam": {
+                        "score": 108,
+                        "teamCity": "New York",
+                        "teamName": "Knicks",
+                        "teamTricode": "NYK",
+                    },
+                    "gameClock": None,
+                    "gameId": "0022600001",
+                    "gameStatus": 2,
+                    "gameTimeUTC": "2026-04-22T02:00:00Z",
+                    "homeTeam": {
+                        "score": 112,
+                        "teamCity": "Boston",
+                        "teamName": "Celtics",
+                        "teamTricode": "BOS",
+                    },
+                    "period": 4,
+                }
+            ],
+        },
+    }
+
+    normalized = normalize_live_scoreboard_payload(payload)
+
+    assert normalized.games[0].gameState.clock is None
+    assert normalized.games[0].sourcePayloadMeta["gameCode"] is None
+    assert normalized.games[0].sourcePayloadMeta["gameStatusText"] is None
 
 
 def test_normalize_live_boxscore_payload_derives_final_outcome() -> None:
@@ -121,6 +165,34 @@ def test_normalize_live_boxscore_payload_derives_final_outcome() -> None:
     assert normalized.game.gameState.isFinal is True
     assert normalized.game.outcome is not None
     assert normalized.game.outcome.winnerKey == "bos"
+
+
+def test_normalize_live_boxscore_payload_uses_status_text_when_numeric_code_is_missing() -> None:
+    payload = {
+        "meta": {"time": "2026-04-22T06:12:00.000Z"},
+        "game": {
+            "awayTeam": {
+                "score": 110,
+                "teamCity": "New York",
+                "teamName": "Knicks",
+                "teamTricode": "NYK",
+            },
+            "gameEt": "2026-04-22T02:00:00Z",
+            "gameStatusText": "Final",
+            "homeTeam": {
+                "score": 118,
+                "teamCity": "Boston",
+                "teamName": "Celtics",
+                "teamTricode": "BOS",
+            },
+            "period": 4,
+        },
+    }
+
+    normalized = normalize_live_boxscore_payload("0022600001", payload)
+
+    assert normalized.game.gameState.status == "final"
+    assert normalized.game.gameState.isFinal is True
 
 
 def test_normalize_live_playbyplay_payload_keeps_core_action_fields() -> None:
@@ -283,6 +355,57 @@ def test_normalize_stats_scoreboard_payload_dedupes_repeated_game_headers() -> N
     assert normalized.games[0].game.id == "nba-0042500112"
 
 
+def test_normalize_stats_scoreboard_payload_skips_bad_games_instead_of_crashing() -> None:
+    payload = {
+        "resultSets": [
+            {
+                "headers": [
+                    "GAME_ID",
+                    "GAME_STATUS_ID",
+                    "GAME_STATUS_TEXT",
+                    "GAME_DATE_EST",
+                    "HOME_TEAM_ID",
+                    "VISITOR_TEAM_ID",
+                    "LIVE_PERIOD",
+                    "LIVE_PC_TIME",
+                ],
+                "name": "GameHeader",
+                "rowSet": [
+                    [
+                        "0042500112",
+                        1,
+                        "7:00 pm ET",
+                        "",
+                        "1610612755",
+                        "1610612738",
+                        0,
+                        "",
+                    ]
+                ],
+            },
+            {
+                "headers": [
+                    "GAME_ID",
+                    "TEAM_ID",
+                    "TEAM_CITY_NAME",
+                    "TEAM_NAME",
+                    "TEAM_ABBREVIATION",
+                    "PTS",
+                ],
+                "name": "LineScore",
+                "rowSet": [
+                    ["0042500112", "1610612755", "Philadelphia", "76ers", "PHI", ""],
+                    ["0042500112", "1610612738", "Boston", "Celtics", "BOS", ""],
+                ],
+            },
+        ]
+    }
+
+    normalized = normalize_stats_scoreboard_payload(payload, requested_date="2026-04-24")
+
+    assert normalized.games == []
+
+
 def test_normalize_schedule_league_payload_maps_future_playoff_games() -> None:
     payload = {
         "meta": {"time": "2026-05-10T14:19:57.1957Z"},
@@ -323,7 +446,7 @@ def test_normalize_schedule_league_payload_maps_future_playoff_games() -> None:
 
     assert len(normalized.games) == 1
     assert normalized.games[0].game.id == "nba-0042500204"
-    assert normalized.games[0].game.scheduledStart == "2026-05-12T00:00:00Z"
+    assert normalized.games[0].game.scheduledStart == "2026-05-12T00:00:00+00:00"
     assert normalized.games[0].game.awayParticipant.abbreviation == "DET"
     assert normalized.games[0].game.homeParticipant.abbreviation == "CLE"
 
@@ -554,3 +677,14 @@ def test_service_falls_back_to_cdn_when_live_scoreboard_rejects_default_request(
     assert normalized.games[0].game.id == "nba-0042500224"
     assert normalized.games[0].gameState.status == "in-play"
     assert normalized.games[0].gameState.homeScore == 96
+
+
+def test_is_today_uses_eastern_calendar_day() -> None:
+    assert is_today(
+        "2026-05-27",
+        now=datetime(2026, 5, 28, 1, 30, tzinfo=timezone.utc),
+    )
+    assert not is_today(
+        "2026-05-28",
+        now=datetime(2026, 5, 28, 1, 30, tzinfo=timezone.utc),
+    )

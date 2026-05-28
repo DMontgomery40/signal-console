@@ -60,6 +60,43 @@ export function executeDatabaseOperation<T>(
   }
 }
 
+export async function executeDatabaseOperationAsync<T>(
+  operation: string,
+  work: () => Promise<T>,
+  context: Record<string, unknown> = {},
+) {
+  try {
+    const result = await work();
+    databaseLogger.debug({ operation, ...context }, "Database operation completed.");
+    return result;
+  } catch (error) {
+    const appError =
+      error instanceof DatabaseFailureError
+        ? error
+        : new DatabaseFailureError("Database operation failed.", {
+            cause: error,
+            details: {
+              ...context,
+              operation,
+              path: getDatabasePath(),
+            },
+            operatorHint:
+              "Inspect the SQLite file, migrations, and write path before retrying the failed storage operation.",
+          });
+
+    databaseLogger.error(
+      {
+        operation,
+        ...context,
+        error: serializeErrorForLog(appError),
+      },
+      "Database operation failed.",
+    );
+
+    throw appError;
+  }
+}
+
 export function getDatabase(): Database.Database {
   const dbPath = getDatabasePath();
   if (database && activeDatabasePath === dbPath) {

@@ -4,6 +4,7 @@ import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { resetBoardVolatilitySidecarMock } from "./board-volatility-sidecar.mock";
 import { listGameStateVolatilityAcrossGames } from "../board-anomaly-live-listings";
 import { getPlayByPlayContext } from "../board-anomaly-play-by-play";
 import {
@@ -181,6 +182,7 @@ function seedBoardReplayGame() {
 
 describe("board anomaly repository", () => {
   beforeEach(() => {
+    resetBoardVolatilitySidecarMock();
     tempDir = mkdtempSync(join(tmpdir(), "signal-console-board-db-"));
     process.env.SIGNAL_CONSOLE_DB_PATH = join(tempDir, "signal-console.sqlite");
     resetDatabase();
@@ -194,7 +196,7 @@ describe("board anomaly repository", () => {
     }
   });
 
-  it("materializes replay quotes from real price_raw moves while excluding heartbeats", () => {
+  it("materializes replay quotes from real price_raw moves while excluding heartbeats", async () => {
     seedBoardReplayGame();
 
     recordQuoteObservation({
@@ -264,7 +266,7 @@ describe("board anomaly repository", () => {
     );
   });
 
-  it("keeps calm live prediction-market quotes available for volatility measurement", () => {
+  it("keeps calm live prediction-market quotes available for volatility measurement", async () => {
     upsertGame({
       awayParticipant: {
         abbreviation: "CLE",
@@ -369,7 +371,7 @@ describe("board anomaly repository", () => {
       true,
     );
 
-    const measurements = listGameStateVolatilityAcrossGames({
+    const measurements = await listGameStateVolatilityAcrossGames({
       contextWindowMinutes: 60,
       gameIds: ["nba-board-live-sample-test"],
       limit: 5,
@@ -388,7 +390,7 @@ describe("board anomaly repository", () => {
     ]);
   });
 
-  it("prewarms board-volatility from scheduled pregame quote buckets without firing", () => {
+  it("prewarms board-volatility from scheduled pregame quote buckets without firing", async () => {
     upsertGame({
       awayParticipant: {
         abbreviation: "SAS",
@@ -454,7 +456,7 @@ describe("board anomaly repository", () => {
       volume: 4,
     });
 
-    const measurements = listGameStateVolatilityAcrossGames({
+    const measurements = await listGameStateVolatilityAcrossGames({
       contextWindowMinutes: 60,
       gameIds: ["nba-board-pregame-prewarm-test"],
       limit: 1,
@@ -474,7 +476,7 @@ describe("board anomaly repository", () => {
     });
   });
 
-  it("fires immediately near tip when pregame buckets already built the baseline", () => {
+  it("fires immediately near tip when pregame buckets already built the baseline", async () => {
     upsertGame({
       awayParticipant: {
         abbreviation: "SAS",
@@ -540,7 +542,7 @@ describe("board anomaly repository", () => {
       volume: 900,
     });
 
-    const measurements = listGameStateVolatilityAcrossGames({
+    const measurements = await listGameStateVolatilityAcrossGames({
       contextWindowMinutes: 60,
       gameIds: ["nba-board-near-tip-fire-test"],
       limit: 1,
@@ -558,7 +560,7 @@ describe("board anomaly repository", () => {
     expect(measurements[0]?.alertId).toMatch(/^board-alert:/);
   });
 
-  it("diagnoses raw quotes that materialize into zero board observations", () => {
+  it("diagnoses raw quotes that materialize into zero board observations", async () => {
     upsertGame({
       awayParticipant: {
         abbreviation: "SAS",
@@ -629,7 +631,7 @@ describe("board anomaly repository", () => {
       rawQuoteRows: 1,
     });
 
-    const measurements = listGameStateVolatilityAcrossGames({
+    const measurements = await listGameStateVolatilityAcrossGames({
       contextWindowMinutes: 60,
       gameIds: ["nba-board-materialized-zero-test"],
       limit: 1,
@@ -645,7 +647,7 @@ describe("board anomaly repository", () => {
     });
   });
 
-  it("uses stored Kalshi volume metadata when the quote tick volume is missing", () => {
+  it("uses stored Kalshi volume metadata when the quote tick volume is missing", async () => {
     upsertGame({
       awayParticipant: {
         abbreviation: "CLE",
@@ -739,7 +741,7 @@ describe("board anomaly repository", () => {
       });
     }
 
-    const measurements = listGameStateVolatilityAcrossGames({
+    const measurements = await listGameStateVolatilityAcrossGames({
       contextWindowMinutes: 60,
       gameIds: ["nba-board-stored-volume-test"],
       limit: 5,
@@ -763,7 +765,7 @@ describe("board anomaly repository", () => {
     ]);
   });
 
-  it("ranks ready board-volatility rows ahead of insufficient-data pregame rows", () => {
+  it("ranks ready board-volatility rows ahead of insufficient-data pregame rows", async () => {
     upsertGame({
       awayParticipant: {
         abbreviation: "CLE",
@@ -924,7 +926,7 @@ describe("board anomaly repository", () => {
       volume: 25,
     });
 
-    const measurements = listGameStateVolatilityAcrossGames({
+    const measurements = await listGameStateVolatilityAcrossGames({
       contextWindowMinutes: 60,
       gameIds: ["nba-board-pregame-insufficient-test", "nba-board-live-priority-test"],
       limit: 5,
@@ -942,7 +944,7 @@ describe("board anomaly repository", () => {
     });
   });
 
-  it("returns play-by-play context nearest to the anchor first", () => {
+  it("returns play-by-play context nearest to the anchor first", async () => {
     seedBoardReplayGame();
     recordNbaPlayByPlayActions({
       capturedAt: "2026-05-15T23:40:00.000Z",
@@ -993,7 +995,7 @@ describe("board anomaly repository", () => {
     ]);
   });
 
-  it("reports canonical prediction-market context by source, not only the trade slice", () => {
+  it("reports canonical prediction-market context by source, not only the trade slice", async () => {
     seedBoardReplayGame();
 
     upsertSourceMarket({
@@ -1075,7 +1077,7 @@ describe("board anomaly repository", () => {
     );
   });
 
-  it("resolves an exact historical participant incident from real event-context observations", () => {
+  it("resolves an exact historical participant incident from real event-context observations", async () => {
     seedBoardReplayGame();
 
     recordNbaPlayByPlayActions({
@@ -1212,7 +1214,7 @@ describe("board anomaly repository", () => {
     );
   });
 
-  it("suppresses nearest play-by-play anchors when the closest NBA row is hours away", () => {
+  it("suppresses nearest play-by-play anchors when the closest NBA row is hours away", async () => {
     seedBoardReplayGame();
     recordNbaPlayByPlayActions({
       capturedAt: "2026-05-15T23:40:00.000Z",
@@ -1238,7 +1240,7 @@ describe("board anomaly repository", () => {
     expect(context.nearestAfter).toBeNull();
   });
 
-  it("builds a historic attribution-shaped incident from lower-share multi-family player-prop anomalies", () => {
+  it("builds a historic attribution-shaped incident from lower-share multi-family player-prop anomalies", async () => {
     upsertGame({
       awayParticipant: {
         abbreviation: "DET",
@@ -1393,7 +1395,7 @@ describe("board anomaly repository", () => {
     );
   });
 
-  it("builds a historical player-focused incident from multi-family quote shocks, not only trades", () => {
+  it("builds a historical player-focused incident from multi-family quote shocks, not only trades", async () => {
     upsertGame({
       awayParticipant: {
         abbreviation: "CLE",
@@ -1570,7 +1572,7 @@ describe("board anomaly repository", () => {
     );
   });
 
-  it("does not build a historical player-focused incident when the trade burst is far from any NBA row", () => {
+  it("does not build a historical player-focused incident when the trade burst is far from any NBA row", async () => {
     upsertGame({
       awayParticipant: {
         abbreviation: "DET",

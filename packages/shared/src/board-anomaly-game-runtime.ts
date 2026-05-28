@@ -27,9 +27,9 @@ export type DetectBoardAnomaliesForGameInput = {
 
 export function detectBoardAnomaliesForGame(
   input: DetectBoardAnomaliesForGameInput,
-): BoardAnomalyAlert[] {
+): Promise<BoardAnomalyAlert[]> {
   const nowMs = parseTimestampMs(input.now);
-  if (nowMs == null) return [];
+  if (nowMs == null) return Promise.resolve([]);
   const contextMinutes = input.contextWindowMinutes ?? 30;
   const windowStart = new Date(nowMs - contextMinutes * 60_000).toISOString();
   const materialized = materializeBoardObservations({
@@ -37,7 +37,7 @@ export function detectBoardAnomaliesForGame(
     windowStart,
     windowEnd: input.now,
   });
-  if (!materialized) return [];
+  if (!materialized) return Promise.resolve([]);
   return detectBoardAnomaliesPure({
     gameId: input.gameId,
     gameLabel: materialized.gameLabel,
@@ -52,9 +52,9 @@ export function detectBoardAnomaliesForGame(
 
 export function measureGameStateVolatilityForGame(
   input: DetectBoardAnomaliesForGameInput,
-): BoardGameStateVolatility | null {
+): Promise<BoardGameStateVolatility | null> {
   const nowMs = parseTimestampMs(input.now);
-  if (nowMs == null) return null;
+  if (nowMs == null) return Promise.resolve(null);
   const contextMinutes = input.contextWindowMinutes ?? 30;
   const windowStart = new Date(nowMs - contextMinutes * 60_000).toISOString();
   const materialized = materializeBoardObservations({
@@ -62,7 +62,7 @@ export function measureGameStateVolatilityForGame(
     windowStart,
     windowEnd: input.now,
   });
-  if (!materialized) return null;
+  if (!materialized) return Promise.resolve(null);
   return measureBoardGameStateVolatilityPure({
     gameId: input.gameId,
     gameLabel: materialized.gameLabel,
@@ -86,13 +86,13 @@ export type ReplayBoardAnomaliesForGameInput = {
 
 export function replayBoardAnomaliesForGame(
   input: ReplayBoardAnomaliesForGameInput,
-): BoardAnomalyReplayOutput | null {
+): Promise<BoardAnomalyReplayOutput | null> {
   const materialized = materializeBoardObservations({
     gameId: input.gameId,
     windowStart: input.windowStart,
     windowEnd: input.windowEnd,
   });
-  if (!materialized) return null;
+  if (!materialized) return Promise.resolve(null);
   return replayBoardAnomaliesPure({
     gameId: input.gameId,
     gameLabel: materialized.gameLabel,

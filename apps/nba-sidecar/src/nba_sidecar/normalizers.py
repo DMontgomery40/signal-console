@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from datetime import UTC, date, datetime
-from typing import Any
+from datetime import datetime, timezone
+from typing import Any, Literal
+from zoneinfo import ZoneInfo
 
 from .models import (
     BoxScoreResponse,
@@ -17,24 +18,39 @@ from .models import (
 
 
 def _now_iso() -> str:
-    return datetime.now(UTC).isoformat()
+    return datetime.now(timezone.utc).isoformat()
 
 
-def _captured_at_from_meta(value: Any) -> str:
-    if not value:
-        return _now_iso()
+def _coerce_optional_str(value: Any) -> str | None:
+    if value in (None, ""):
+        return None
+    text = str(value).strip()
+    return text or None
 
-    text = str(value)
+
+def _parse_utc_iso(value: Any, *, field_name: str) -> str:
+    text = _coerce_optional_str(value)
+    if text is None:
+        raise ValueError(f"{field_name} is required.")
+
     normalized = text.replace("Z", "+00:00")
     try:
         parsed = datetime.fromisoformat(normalized)
-    except ValueError:
-        return _now_iso()
+    except ValueError as exc:
+        raise ValueError(f"{field_name} must be an ISO-8601 timestamp.") from exc
 
     if parsed.tzinfo is None:
-        return _now_iso()
+        # NBA payloads sometimes drop timezone information while still giving a
+        # parseable ISO-like timestamp. Treat those as UTC explicitly rather
+        # than fabricating "now", which is much more damaging for downstream
+        # timing math.
+        parsed = parsed.replace(tzinfo=timezone.utc)
 
-    return parsed.astimezone(UTC).isoformat()
+    return parsed.astimezone(timezone.utc).isoformat()
+
+
+def _captured_at_from_meta(value: Any) -> str:
+    return _parse_utc_iso(value, field_name="meta.time")
 
 
 def _coerce_int(value: Any) -> int | None:
@@ -54,7 +70,7 @@ def _pick(mapping: dict[str, Any], *keys: str, default: Any = None) -> Any:
     return default
 
 
-def _participant_from_live(team: dict[str, Any], side: str) -> Participant:
+def _participant_from_live(team: dict[str, Any], side: Literal["home", "away"]) -> Participant:
     tricode = _pick(team, "teamTricode", "teamCode", "tricode")
     team_city = _pick(team, "teamCity", "city")
     team_name = _pick(team, "teamName", "nickname", "name")
@@ -64,11 +80,32 @@ def _participant_from_live(team: dict[str, Any], side: str) -> Participant:
         name=" ".join(part for part in [team_city, team_name] if part).strip()
         or str(_pick(team, "teamName", "nickname", default=side.title())),
         shortName=str(team_name or team_city or side.title()),
-        side=side,  # type: ignore[arg-type]
+        side=side,
     )
 
 
-def _normalize_status(status_code: int | None) -> str:
+def _status_code_from_text(value: Any) -> int | None:
+    text = _coerce_optional_str(value)
+    if text is None:
+        return None
+    lowered = text.lower()
+    if "final" in lowered:
+        return 3
+    if lowered.startswith("q") or "halftime" in lowered or lowered.startswith("ot"):
+        return 2
+    return None
+
+
+def _resolve_game_status_code(game: dict[str, Any]) -> int | None:
+    status_code = _coerce_int(_pick(game, "gameStatus", "gameStatusId"))
+    if status_code is not None:
+        return status_code
+    return _status_code_from_text(_pick(game, "gameStatusText"))
+
+
+def _normalize_status(
+    status_code: int | None,
+) -> Literal["scheduled", "in-play", "final", "postponed", "cancelled"]:
     if status_code == 1:
         return "scheduled"
     if status_code == 2:
@@ -80,10 +117,7 @@ def _normalize_status(status_code: int | None) -> str:
 
 def _scheduled_start_from_live(game: dict[str, Any]) -> str:
     scheduled = _pick(game, "gameDateTimeUTC", "gameTimeUTC", "gameEt")
-    if scheduled:
-        return str(scheduled)
-
-    return _now_iso()
+    return _parse_utc_iso(scheduled, field_name="scheduled start")
 
 
 def normalize_live_scoreboard_payload(
@@ -95,7 +129,7 @@ def normalize_live_scoreboard_payload(
     normalized_games: list[SidecarGame] = []
 
     for game in games:
-        game_status = _coerce_int(_pick(game, "gameStatus", "gameStatusId"))
+        game_status = _resolve_game_status_code(game)
         home_team = game.get("homeTeam", {})
         away_team = game.get("awayTeam", {})
         home_score = _coerce_int(_pick(home_team, "score"))
@@ -111,13 +145,16 @@ def normalize_live_scoreboard_payload(
         game_state = CanonicalGameState(
             awayScore=away_score,
             capturedAt=generated_at,
-            clock=str(_pick(game, "gameClock", "clock")) or None,
+            clock=_coerce_optional_str(_pick(game, "gameClock", "clock")),
             finalAt=generated_at if game_status == 3 else None,
             homeScore=home_score,
             isFinal=game_status == 3,
             period=_coerce_int(_pick(game, "period")),
+            # Live scoreboard payloads do not expose a trustworthy actual tipoff
+            # timestamp here. Keep the scheduled-start anchor until upstream
+            # ships a real startedAt field rather than inventing one locally.
             startedAt=canonical_game.scheduledStart if game_status in (2, 3) else None,
-            status=_normalize_status(game_status),  # type: ignore[arg-type]
+            status=_normalize_status(game_status),
         )
 
         outcome = None
@@ -142,8 +179,8 @@ def normalize_live_scoreboard_payload(
                 gameState=game_state,
                 outcome=outcome,
                 sourcePayloadMeta={
-                    "gameCode": str(_pick(game, "gameCode")),
-                    "gameStatusText": str(_pick(game, "gameStatusText")),
+                    "gameCode": _coerce_optional_str(_pick(game, "gameCode")),
+                    "gameStatusText": _coerce_optional_str(_pick(game, "gameStatusText")),
                 },
             )
         )
@@ -217,8 +254,8 @@ def normalize_stats_scoreboard_payload(
             "teamId": _pick(away_row, "TEAM_ID", default=header.get("VISITOR_TEAM_ID")),
             "score": _pick(away_row, "PTS"),
         }
-        normalized_games.append(
-            normalize_live_scoreboard_payload(
+        try:
+            normalized = normalize_live_scoreboard_payload(
                 {
                     "meta": {"time": generated_at},
                     "scoreboard": {
@@ -238,8 +275,11 @@ def normalize_stats_scoreboard_payload(
                     },
                 },
                 requested_date=requested_date,
-            ).games[0]
-        )
+            )
+        except ValueError:
+            continue
+        if normalized.games:
+            normalized_games.append(normalized.games[0])
 
     return ScoreboardResponse(
         games=normalized_games,
@@ -291,25 +331,27 @@ def normalize_live_boxscore_payload(
     game_payload = payload.get("game", payload)
     home_team = game_payload.get("homeTeam", {})
     away_team = game_payload.get("awayTeam", {})
-    game_status = _coerce_int(_pick(game_payload, "gameStatus", "gameStatusText"))
+    game_status = _resolve_game_status_code(game_payload)
     captured_at = _captured_at_from_meta(_pick(payload.get("meta", {}), "time"))
     canonical_game = CanonicalGame(
         id=f"nba-{game_id}",
         awayParticipant=_participant_from_live(away_team, "away"),
         homeParticipant=_participant_from_live(home_team, "home"),
-        scheduledStart=_pick(game_payload, "gameEt", "gameTimeUTC", default=_now_iso()),
+        scheduledStart=_scheduled_start_from_live(game_payload),
         sourceGameKeyNba=game_id,
     )
     game_state = CanonicalGameState(
         awayScore=_coerce_int(_pick(away_team, "score")),
         capturedAt=captured_at,
-        clock=str(_pick(game_payload, "gameClock", "clock")) or None,
+        clock=_coerce_optional_str(_pick(game_payload, "gameClock", "clock")),
         finalAt=captured_at if game_status == 3 else None,
         homeScore=_coerce_int(_pick(home_team, "score")),
         isFinal=game_status == 3,
         period=_coerce_int(_pick(game_payload, "period")),
+        # Boxscore payloads have the same limitation as live scoreboard: we know
+        # the scheduled tip, not the true jump-ball timestamp.
         startedAt=canonical_game.scheduledStart if game_status in (2, 3) else None,
-        status=_normalize_status(game_status),  # type: ignore[arg-type]
+        status=_normalize_status(game_status),
     )
     outcome = None
     if game_state.isFinal and game_state.homeScore is not None and game_state.awayScore is not None:
@@ -362,5 +404,11 @@ def normalize_live_playbyplay_payload(
     )
 
 
-def is_today(requested_date: str) -> bool:
-    return requested_date == date.today().isoformat()
+def is_today(requested_date: str, *, now: datetime | None = None) -> bool:
+    return (
+        requested_date
+        == (now or datetime.now(timezone.utc))
+        .astimezone(ZoneInfo("America/New_York"))
+        .date()
+        .isoformat()
+    )

@@ -18,7 +18,9 @@ function dedupeKey(alert: BoardAnomalyAlert): string {
   return `${alert.shockKind}::${alert.primaryEntityKey ?? "no-entity"}`;
 }
 
-export function replayBoardAnomalies(input: BoardAnomalyReplayInput): BoardAnomalyReplayOutput {
+export async function replayBoardAnomalies(
+  input: BoardAnomalyReplayInput,
+): Promise<BoardAnomalyReplayOutput> {
   const config = resolveBoardAnomalyConfig(input.config);
 
   const startMs = Date.parse(input.windowStart);
@@ -83,7 +85,7 @@ export function replayBoardAnomalies(input: BoardAnomalyReplayInput): BoardAnoma
     if (observationsUpToClock.length < 2) continue;
 
     const nowIso = new Date(clockMs).toISOString();
-    const alerts = detectBoardAnomalies({
+    const alerts = await detectBoardAnomalies({
       gameId: input.gameId,
       gameLabel: input.gameLabel,
       gameStates: input.gameStates,

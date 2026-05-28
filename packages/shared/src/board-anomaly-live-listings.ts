@@ -10,7 +10,7 @@ import {
   measureGameStateVolatilityForGame,
 } from "./board-anomaly-game-runtime";
 import { parseTimestampMs } from "./board-anomaly-support";
-import { executeDatabaseOperation, getDatabase } from "./db-core";
+import { executeDatabaseOperationAsync, getDatabase } from "./db-core";
 
 export type ListBoardAnomaliesAcrossGamesInput = {
   now: string;
@@ -23,10 +23,10 @@ export type ListBoardAnomaliesAcrossGamesInput = {
 
 export function listBoardAnomaliesAcrossGames(
   input: ListBoardAnomaliesAcrossGamesInput,
-): BoardAnomalyAlert[] {
-  return executeDatabaseOperation(
+): Promise<BoardAnomalyAlert[]> {
+  return executeDatabaseOperationAsync(
     "board-anomaly.listAcrossGames",
-    () => {
+    async () => {
       const db = getDatabase();
       const nowMs = parseTimestampMs(input.now);
       if (nowMs == null) return [];
@@ -69,7 +69,7 @@ export function listBoardAnomaliesAcrossGames(
       }
       const alerts: BoardAnomalyAlert[] = [];
       for (const gameId of gameIds) {
-        const gameAlerts = detectBoardAnomaliesForGame({
+        const gameAlerts = await detectBoardAnomaliesForGame({
           gameId,
           now: input.now,
           contextWindowMinutes: input.contextWindowMinutes,
@@ -87,10 +87,10 @@ export function listBoardAnomaliesAcrossGames(
 
 export function listGameStateVolatilityAcrossGames(
   input: ListBoardAnomaliesAcrossGamesInput,
-): BoardGameStateVolatility[] {
-  return executeDatabaseOperation(
+): Promise<BoardGameStateVolatility[]> {
+  return executeDatabaseOperationAsync(
     "board-anomaly.listGameStateVolatility",
-    () => {
+    async () => {
       const db = getDatabase();
       const nowMs = parseTimestampMs(input.now);
       if (nowMs == null) return [];
@@ -134,15 +134,18 @@ export function listGameStateVolatilityAcrossGames(
           .map((row) => (row as { id: string }).id);
       }
 
-      const rows = gameIds
-        .map((gameId) =>
-          measureGameStateVolatilityForGame({
-            gameId,
-            now: input.now,
-            contextWindowMinutes: input.contextWindowMinutes,
-            config: input.config,
-          }),
+      const rows = (
+        await Promise.all(
+          gameIds.map((gameId) =>
+            measureGameStateVolatilityForGame({
+              gameId,
+              now: input.now,
+              contextWindowMinutes: input.contextWindowMinutes,
+              config: input.config,
+            }),
+          ),
         )
+      )
         .filter((row): row is BoardGameStateVolatility => row != null)
         .sort((left, right) => {
           const readyDelta = Number(right.sample.ready) - Number(left.sample.ready);

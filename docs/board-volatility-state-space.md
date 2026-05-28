@@ -5,7 +5,7 @@ This is the canonical map of the current board-volatility runtime.
 ## Runtime truth
 
 - The live board lane runs in Python at [apps/nba-sidecar/src/nba_sidecar/volatility.py](/Users/davidmontgomery/signal-console/apps/nba-sidecar/src/nba_sidecar/volatility.py).
-- The API builds board observations in [apps/api/src/services/board-volatility-model.ts](/Users/davidmontgomery/signal-console/apps/api/src/services/board-volatility-model.ts) and posts them to the sidecar through [apps/api/src/services/volatility-model-sidecar.ts](/Users/davidmontgomery/signal-console/apps/api/src/services/volatility-model-sidecar.ts).
+- The API builds board observations in [apps/api/src/services/board-volatility-model.ts](/Users/davidmontgomery/signal-console/apps/api/src/services/board-volatility-model.ts) and posts them to the sidecar through the shared detector runtime client in [packages/detectors/src/board-mad/state-space-runtime.ts](/Users/davidmontgomery/signal-console/packages/detectors/src/board-mad/state-space-runtime.ts).
 - The live defaults are persisted at [data/detector-defaults.json](/Users/davidmontgomery/signal-console/data/detector-defaults.json).
 
 ## Tunable surfaces

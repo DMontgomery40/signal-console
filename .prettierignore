@@ -9,6 +9,7 @@ data/
 *.sqlite-wal
 *.sqlite-shm
 .gitnexus/
+.mypy_cache/
 .claude/skills/
 .codex/
 outputs/odds-api-io-live-comparator/

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { BOARD_STATE_SPACE_CONFIG_DEFAULTS } from "@signal-console/detectors/board-mad/state-space-config";
 
-import { fetchBoardVolatilityStateSpace } from "../src/services/volatility-model-sidecar";
+import { fetchBoardVolatilityStateSpace } from "@signal-console/detectors/board-mad/state-space-runtime";
 
 describe("volatility model sidecar client", () => {
   it("POSTs the state-space request and returns the parsed response", async () => {

@@ -1,4 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+
+import { resetBoardVolatilitySidecarMock } from "./board-volatility-sidecar.mock";
 
 import type {
   BoardObservation,
@@ -11,6 +13,10 @@ import {
   measureBoardGameStateVolatility,
   replayBoardAnomalies,
 } from "../board-anomaly";
+
+beforeEach(() => {
+  resetBoardVolatilitySidecarMock();
+});
 
 function logit(probability: number): number {
   const clamped = Math.min(0.999, Math.max(0.001, probability));
@@ -452,8 +458,8 @@ function trustedLiveContextRows(
 }
 
 describe("detectBoardAnomalies", () => {
-  it("scores attribution-shaped residual fanout high", () => {
-    const alerts = detectBoardAnomalies({
+  it("scores attribution-shaped residual fanout high", async () => {
+    const alerts = await detectBoardAnomalies({
       gameId: "game-1",
       gameLabel: "Cavaliers @ Pistons",
       observations: [...trustedLiveContextRows("2026-05-15T20:00:05.000Z"), ...attributionFanout()],
@@ -468,8 +474,8 @@ describe("detectBoardAnomalies", () => {
     expect(attributionAlert?.evidence.length).toBeGreaterThanOrEqual(2);
   });
 
-  it("promotes broad prediction-market movement to whole-game implied volatility", () => {
-    const alerts = detectBoardAnomalies({
+  it("promotes broad prediction-market movement to whole-game implied volatility", async () => {
+    const alerts = await detectBoardAnomalies({
       gameId: "game-1",
       gameLabel: "Cavaliers @ Pistons",
       observations: gameStateVolatilityFanout(),
@@ -481,14 +487,14 @@ describe("detectBoardAnomalies", () => {
     expect(top.shockKind).toBe("game-state-volatility");
     expect(top.primaryEntityKey).toBeNull();
     expect(top.primaryFamily).toBeNull();
-    expect(top.reason).toContain("board-vw 60s bucket fired");
+    expect(top.reason).toContain("board state-space 60s bucket fired");
     expect(top.inspect.relationFamilies).toContain("game-state-volatility");
-    expect(top.evidence[0]?.reason).toContain("board-vw");
+    expect(top.evidence[0]?.reason).toContain("board-state-space");
     expect(top.evidence.some((row) => row.family === "player-prop")).toBe(true);
   });
 
-  it("applies the Iter02 state gate to untrusted live windows", () => {
-    const entityAlerts = detectBoardAnomalies({
+  it("applies the Iter02 state gate to untrusted live windows", async () => {
+    const entityAlerts = await detectBoardAnomalies({
       gameId: "game-1",
       gameLabel: "Cavaliers @ Pistons",
       observations: attributionFanout(),
@@ -497,7 +503,7 @@ describe("detectBoardAnomalies", () => {
 
     expect(entityAlerts).toHaveLength(0);
 
-    const boardAlerts = detectBoardAnomalies({
+    const boardAlerts = await detectBoardAnomalies({
       gameId: "game-1",
       gameLabel: "Cavaliers @ Pistons",
       observations: gameStateVolatilityFanout(),
@@ -507,7 +513,7 @@ describe("detectBoardAnomalies", () => {
     expect(boardAlerts[0]?.shockKind).toBe("game-state-volatility");
   });
 
-  it("ignores 0.500 anchor rows when building board-vw warmup history", () => {
+  it("ignores 0.500 anchor rows when building board state-space warmup history", async () => {
     const observations = gameStateVolatilityFanout().map((observation) => {
       if (observation.observationId.endsWith("-seed")) {
         return {
@@ -528,7 +534,7 @@ describe("detectBoardAnomalies", () => {
       return observation;
     });
 
-    const measurement = measureBoardGameStateVolatility({
+    const measurement = await measureBoardGameStateVolatility({
       gameId: "game-1",
       gameLabel: "Cavaliers @ Pistons",
       observations,
@@ -542,8 +548,8 @@ describe("detectBoardAnomalies", () => {
     });
   });
 
-  it("measures whole-game volatility as a live score before UI thresholding", () => {
-    const measurement = measureBoardGameStateVolatility({
+  it("measures whole-game volatility as a live score before UI thresholding", async () => {
+    const measurement = await measureBoardGameStateVolatility({
       gameId: "game-1",
       gameLabel: "Cavaliers @ Pistons",
       observations: gameStateVolatilityFanout(),
@@ -572,7 +578,7 @@ describe("detectBoardAnomalies", () => {
     );
   });
 
-  it("uses stored-volume weighting when quote volume is sourced from persisted market metadata", () => {
+  it("uses stored-volume weighting when quote volume is sourced from persisted market metadata", async () => {
     const observations = gameStateVolatilityFanout().map((observation) => ({
       ...observation,
       volume: 2400,
@@ -583,7 +589,7 @@ describe("detectBoardAnomalies", () => {
       },
     }));
 
-    const measurement = measureBoardGameStateVolatility({
+    const measurement = await measureBoardGameStateVolatility({
       gameId: "game-1",
       gameLabel: "Cavaliers @ Pistons",
       observations,
@@ -599,7 +605,7 @@ describe("detectBoardAnomalies", () => {
     expect(measurement?.evidence[0]?.reason).toContain("log1p(stored vol 2400)");
   });
 
-  it("falls back to equal-weight buckets when both quote and stored volume are missing", () => {
+  it("falls back to equal-weight buckets when both quote and stored volume are missing", async () => {
     const observations = gameStateVolatilityFanout().map((observation) => ({
       ...observation,
       volume: null,
@@ -610,7 +616,7 @@ describe("detectBoardAnomalies", () => {
       },
     }));
 
-    const measurement = measureBoardGameStateVolatility({
+    const measurement = await measureBoardGameStateVolatility({
       gameId: "game-1",
       gameLabel: "Cavaliers @ Pistons",
       observations,
@@ -626,7 +632,7 @@ describe("detectBoardAnomalies", () => {
     expect(measurement?.evidence[0]?.reason).toContain("weight 1 (missing volume)");
   });
 
-  it("marks final-game board volatility as final phase instead of live", () => {
+  it("marks final-game board volatility as final phase instead of live", async () => {
     const finalRows = gameStateVolatilityFanout().map((observation) => ({
       ...observation,
       gameState: {
@@ -636,7 +642,7 @@ describe("detectBoardAnomalies", () => {
       },
     }));
 
-    const measurement = measureBoardGameStateVolatility({
+    const measurement = await measureBoardGameStateVolatility({
       gameId: "game-1",
       gameLabel: "Cavaliers @ Pistons",
       observations: finalRows,
@@ -646,7 +652,7 @@ describe("detectBoardAnomalies", () => {
     expect(measurement?.phase.kind).toBe("final");
   });
 
-  it("treats calm live prediction-market coverage as a normal sample instead of no sample", () => {
+  it("treats calm live prediction-market coverage as a normal sample instead of no sample", async () => {
     const stableRows = gameStateVolatilityFanout({
       finalJump: 0.002,
       finalVolume: 4,
@@ -654,7 +660,7 @@ describe("detectBoardAnomalies", () => {
       quietVolume: 8,
     });
 
-    const measurement = measureBoardGameStateVolatility({
+    const measurement = await measureBoardGameStateVolatility({
       gameId: "game-1",
       gameLabel: "Cavaliers @ Pistons",
       observations: stableRows,
@@ -673,7 +679,7 @@ describe("detectBoardAnomalies", () => {
     );
     expect(measurement?.score).toBeLessThanOrEqual(measurement?.thresholds.normalMaxScore ?? 39);
 
-    const alerts = detectBoardAnomalies({
+    const alerts = await detectBoardAnomalies({
       gameId: "game-1",
       gameLabel: "Cavaliers @ Pistons",
       observations: stableRows,
@@ -682,13 +688,13 @@ describe("detectBoardAnomalies", () => {
     expect(alerts).toHaveLength(0);
   });
 
-  it("zeros the headline score when the board sample is insufficient", () => {
+  it("zeros the headline score when the board sample is insufficient", async () => {
     const sparseRows = gameStateVolatilityFanout().filter((observation) => {
       const eventMs = Date.parse(observation.eventTimestamp);
       return eventMs < Date.parse("2026-05-15T19:58:00.000Z");
     });
 
-    const measurement = measureBoardGameStateVolatility({
+    const measurement = await measureBoardGameStateVolatility({
       gameId: "game-1",
       gameLabel: "Cavaliers @ Pistons",
       observations: sparseRows,
@@ -702,7 +708,7 @@ describe("detectBoardAnomalies", () => {
     });
   });
 
-  it("suppresses same-window prop clusters when whole-game volatility already fired", () => {
+  it("suppresses same-window prop clusters when whole-game volatility already fired", async () => {
     const propFanout = attributionFanout().map((observation, index) => ({
       ...observation,
       observationId: `late-prop-${index}`,
@@ -715,7 +721,7 @@ describe("detectBoardAnomalies", () => {
       capturedAt: "2026-05-15T20:01:10.000Z",
     }));
 
-    const alerts = detectBoardAnomalies({
+    const alerts = await detectBoardAnomalies({
       gameId: "game-1",
       gameLabel: "Cavaliers @ Pistons",
       observations: [...gameStateVolatilityFanout(), ...propFanout],
@@ -726,7 +732,7 @@ describe("detectBoardAnomalies", () => {
     expect(alerts[0].shockKind).toBe("game-state-volatility");
   });
 
-  it("keeps later player follow-up once the board tripwire ages out", () => {
+  it("keeps later player follow-up once the board tripwire ages out", async () => {
     const propFanout = attributionFanout().map((observation, index) => ({
       ...observation,
       observationId: `separated-prop-${index}`,
@@ -739,7 +745,7 @@ describe("detectBoardAnomalies", () => {
       capturedAt: "2026-05-15T20:02:20.000Z",
     }));
 
-    const alerts = detectBoardAnomalies({
+    const alerts = await detectBoardAnomalies({
       gameId: "game-1",
       gameLabel: "Cavaliers @ Pistons",
       observations: [
@@ -754,8 +760,8 @@ describe("detectBoardAnomalies", () => {
     expect(alerts.some((alert) => alert.shockKind === "game-state-volatility")).toBe(false);
   });
 
-  it("drops the board tripwire once the fired bucket ages beyond the shock window", () => {
-    const alerts = detectBoardAnomalies({
+  it("drops the board tripwire once the fired bucket ages beyond the shock window", async () => {
+    const alerts = await detectBoardAnomalies({
       gameId: "game-1",
       gameLabel: "Cavaliers @ Pistons",
       observations: gameStateVolatilityFanout(),
@@ -765,7 +771,7 @@ describe("detectBoardAnomalies", () => {
     expect(alerts.some((alert) => alert.shockKind === "game-state-volatility")).toBe(false);
   });
 
-  it("ignores large final jumps when the previous quote is older than the fresh-cap", () => {
+  it("ignores large final jumps when the previous quote is older than the fresh-cap", async () => {
     const observations = gameStateVolatilityFanout({
       finalJump: 0.002,
       finalVolume: 4,
@@ -794,7 +800,7 @@ describe("detectBoardAnomalies", () => {
           : observation,
       );
 
-    const alerts = detectBoardAnomalies({
+    const alerts = await detectBoardAnomalies({
       gameId: "game-1",
       gameLabel: "Cavaliers @ Pistons",
       observations,
@@ -804,8 +810,8 @@ describe("detectBoardAnomalies", () => {
     expect(alerts.some((alert) => alert.shockKind === "game-state-volatility")).toBe(false);
   });
 
-  it("does not require X/Twitter source posts as inputs", () => {
-    const alerts = detectBoardAnomalies({
+  it("does not require X/Twitter source posts as inputs", async () => {
+    const alerts = await detectBoardAnomalies({
       gameId: "game-1",
       gameLabel: "Cavaliers @ Pistons",
       observations: [...trustedLiveContextRows("2026-05-15T20:00:05.000Z"), ...attributionFanout()],
@@ -819,7 +825,7 @@ describe("detectBoardAnomalies", () => {
     }
   });
 
-  it("does not require F360 mapping evidence to detect", () => {
+  it("does not require F360 mapping evidence to detect", async () => {
     const observations = attributionFanout().map((observation) => ({
       ...observation,
       missing: {
@@ -830,7 +836,7 @@ describe("detectBoardAnomalies", () => {
     for (const observation of observations) {
       (observation as { f360?: unknown }).f360 = undefined;
     }
-    const alerts = detectBoardAnomalies({
+    const alerts = await detectBoardAnomalies({
       gameId: "game-1",
       gameLabel: "Cavaliers @ Pistons",
       observations: [...trustedLiveContextRows("2026-05-15T20:00:05.000Z"), ...observations],
@@ -839,7 +845,7 @@ describe("detectBoardAnomalies", () => {
     expect(alerts.length).toBeGreaterThan(0);
   });
 
-  it("suppresses ordinary close-game global repricing after H0 adjustment", () => {
+  it("suppresses ordinary close-game global repricing after H0 adjustment", async () => {
     const baseTs = Date.parse("2026-05-15T22:00:00.000Z");
     const ts = (offsetSec: number) => new Date(baseTs + offsetSec * 1000).toISOString();
 
@@ -863,7 +869,7 @@ describe("detectBoardAnomalies", () => {
       }),
     );
 
-    const alerts = detectBoardAnomalies({
+    const alerts = await detectBoardAnomalies({
       gameId: "game-close",
       gameLabel: "Close Game",
       observations,
@@ -872,7 +878,7 @@ describe("detectBoardAnomalies", () => {
     expect(alerts).toHaveLength(0);
   });
 
-  it("does not fire on thin bid/ask noise alone", () => {
+  it("does not fire on thin bid/ask noise alone", async () => {
     const baseTs = Date.parse("2026-05-15T19:00:00.000Z");
     const ts = (offset: number) => new Date(baseTs + offset * 1000).toISOString();
 
@@ -890,7 +896,7 @@ describe("detectBoardAnomalies", () => {
       }),
     );
 
-    const alerts = detectBoardAnomalies({
+    const alerts = await detectBoardAnomalies({
       gameId: "game-thin",
       gameLabel: "Thin Market",
       observations,
@@ -899,7 +905,7 @@ describe("detectBoardAnomalies", () => {
     expect(alerts).toHaveLength(0);
   });
 
-  it("does not fire from stale quotes alone", () => {
+  it("does not fire from stale quotes alone", async () => {
     const staleTs = "2026-05-15T18:00:00.000Z";
     const observations = ["a", "b", "c"].map((suffix) =>
       makeObservation(`stale-${suffix}`, {
@@ -913,7 +919,7 @@ describe("detectBoardAnomalies", () => {
       }),
     );
 
-    const alerts = detectBoardAnomalies({
+    const alerts = await detectBoardAnomalies({
       gameId: "game-stale",
       gameLabel: "Stale",
       observations,
@@ -922,7 +928,7 @@ describe("detectBoardAnomalies", () => {
     expect(alerts).toHaveLength(0);
   });
 
-  it("classifies pregame availability shock when coherent board repricing exists pre-tip", () => {
+  it("classifies pregame availability shock when coherent board repricing exists pre-tip", async () => {
     const baseTs = Date.parse("2026-05-15T22:00:00.000Z");
     const ts = (offset: number) => new Date(baseTs + offset * 1000).toISOString();
 
@@ -1001,7 +1007,7 @@ describe("detectBoardAnomalies", () => {
       }),
     ];
 
-    const alerts = detectBoardAnomalies({
+    const alerts = await detectBoardAnomalies({
       gameId: "game-pregame",
       gameLabel: "Nuggets @ Lakers",
       observations,
@@ -1016,7 +1022,7 @@ describe("detectBoardAnomalies", () => {
     expect(pregameAlert!.score).toBeGreaterThanOrEqual(60);
   });
 
-  it("does not call a mixed live-game cluster near-tip availability", () => {
+  it("does not call a mixed live-game cluster near-tip availability", async () => {
     const observations = attributionFanout();
     observations[0] = {
       ...observations[0],
@@ -1031,7 +1037,7 @@ describe("detectBoardAnomalies", () => {
       },
     };
 
-    const alerts = detectBoardAnomalies({
+    const alerts = await detectBoardAnomalies({
       gameId: "game-1",
       gameLabel: "Cavaliers @ Pistons",
       observations,
@@ -1046,7 +1052,7 @@ describe("detectBoardAnomalies", () => {
     ).toBe(false);
   });
 
-  it("classifies coverage gap when peers move but one expected source is stale", () => {
+  it("classifies coverage gap when peers move but one expected source is stale", async () => {
     const baseTs = Date.parse("2026-05-15T21:00:00.000Z");
     const ts = (offset: number) => new Date(baseTs + offset * 1000).toISOString();
     const observations: BoardObservation[] = [
@@ -1115,7 +1121,7 @@ describe("detectBoardAnomalies", () => {
       }),
     ];
 
-    const alerts = detectBoardAnomalies({
+    const alerts = await detectBoardAnomalies({
       gameId: "game-cov",
       gameLabel: "Coverage Game",
       observations: [
@@ -1136,7 +1142,7 @@ describe("detectBoardAnomalies", () => {
     expect(hasCoverageNote).toBe(true);
   });
 
-  it("a single isolated row movement does not automatically become a top trader incident", () => {
+  it("a single isolated row movement does not automatically become a top trader incident", async () => {
     const observations = [
       makeObservation("isolated-1", {
         impliedProbability: 0.9,
@@ -1144,7 +1150,7 @@ describe("detectBoardAnomalies", () => {
         logitMove: logit(0.9) - logit(0.5),
       }),
     ];
-    const alerts = detectBoardAnomalies({
+    const alerts = await detectBoardAnomalies({
       gameId: "game-isolated",
       gameLabel: "Isolated",
       observations,
@@ -1213,7 +1219,7 @@ describe("H0 cap scales with base probability", () => {
 });
 
 describe("coverage is a confidence penalty, not a positive score boost", () => {
-  it("cluster with high stale/missing share has lower confidence than clean cluster", () => {
+  it("cluster with high stale/missing share has lower confidence than clean cluster", async () => {
     const trustedRows = trustedLiveContextRows("2026-05-15T20:00:05.000Z");
     const clean = [...trustedRows, ...attributionFanout()];
     const dirty = [...trustedRows, ...attributionFanout()].map((observation) => ({
@@ -1240,13 +1246,13 @@ describe("coverage is a confidence penalty, not a positive score boost", () => {
             }
           : observation),
     }));
-    const cleanAlerts = detectBoardAnomalies({
+    const cleanAlerts = await detectBoardAnomalies({
       gameId: "game-1",
       gameLabel: "Cavaliers @ Pistons",
       observations: clean,
       now: "2026-05-15T20:01:00.000Z",
     });
-    const dirtyAlerts = detectBoardAnomalies({
+    const dirtyAlerts = await detectBoardAnomalies({
       gameId: "game-1",
       gameLabel: "Cavaliers @ Pistons",
       observations: dirty,
@@ -1263,9 +1269,9 @@ describe("coverage is a confidence penalty, not a positive score boost", () => {
 });
 
 describe("replayBoardAnomalies", () => {
-  it("returns timestamp-ordered alerts with no future leakage", () => {
+  it("returns timestamp-ordered alerts with no future leakage", async () => {
     const observations = gameStateVolatilityFanout();
-    const replay = replayBoardAnomalies({
+    const replay = await replayBoardAnomalies({
       gameId: "game-1",
       gameLabel: "Cavaliers @ Pistons",
       observations,
@@ -1285,7 +1291,7 @@ describe("replayBoardAnomalies", () => {
     }
   });
 
-  it("suppresses repeated noisy updates and only emits a new card on material change", () => {
+  it("suppresses repeated noisy updates and only emits a new card on material change", async () => {
     const baseTs = Date.parse("2026-05-15T20:00:00.000Z");
     const ts = (offset: number) => new Date(baseTs + offset * 1000).toISOString();
     const fanout = attributionFanout();
@@ -1302,7 +1308,7 @@ describe("replayBoardAnomalies", () => {
       }
     }
 
-    const replay = replayBoardAnomalies({
+    const replay = await replayBoardAnomalies({
       gameId: "game-1",
       gameLabel: "Cavaliers @ Pistons",
       observations: noisyObservations,
@@ -1314,7 +1320,7 @@ describe("replayBoardAnomalies", () => {
     expect(replay.alertDeck.length).toBeLessThanOrEqual(3);
   });
 
-  it("emits a new alert when the shock changes shape", () => {
+  it("emits a new alert when the shock changes shape", async () => {
     const baseTs = Date.parse("2026-05-15T20:00:00.000Z");
     const ts = (offset: number) => new Date(baseTs + offset * 1000).toISOString();
 
@@ -1336,7 +1342,7 @@ describe("replayBoardAnomalies", () => {
       capturedAt: ts(300 + index * 5),
     }));
 
-    const replay = replayBoardAnomalies({
+    const replay = await replayBoardAnomalies({
       gameId: "game-1",
       gameLabel: "Cavaliers @ Pistons",
       observations: [
@@ -1354,7 +1360,7 @@ describe("replayBoardAnomalies", () => {
     expect(entities.size).toBeGreaterThanOrEqual(2);
   });
 
-  it("does not lead with post-game current divergence (only operational window evidence)", () => {
+  it("does not lead with post-game current divergence (only operational window evidence)", async () => {
     const baseTs = Date.parse("2026-05-15T22:00:00.000Z");
     const operationalObservations = attributionFanout().map((observation, index) => ({
       ...observation,
@@ -1371,7 +1377,7 @@ describe("replayBoardAnomalies", () => {
       capturedAt: new Date(baseTs + 200 * 60 * 1000 + index * 5000).toISOString(),
     }));
 
-    const replay = replayBoardAnomalies({
+    const replay = await replayBoardAnomalies({
       gameId: "game-1",
       gameLabel: "Cavaliers @ Pistons",
       observations: [...operationalObservations, ...postGameObservations],

@@ -50,6 +50,10 @@ def _exit_z_threshold(enter_z: float, config: VolatilityStateSpaceConfig) -> flo
 def _breadth_normalizer(
     observation: VolatilityStateSpaceObservation, config: VolatilityStateSpaceConfig
 ) -> float:
+    # We do not want a bucket with 40 active markets to look "10x more
+    # surprising" than a bucket with 4 active markets just because there were
+    # more things available to move. The breadth normalizer dampens raw board
+    # intensity by the size of the board before the filter sees it.
     return max(
         config.breadth.marketCountFloor,
         observation.activeMarketCount or config.breadth.marketCountFloor,
@@ -57,9 +61,8 @@ def _breadth_normalizer(
 
 
 def _source_disagreement(
-    observation: VolatilityStateSpaceObservation, config: VolatilityStateSpaceConfig
+    observation: VolatilityStateSpaceObservation, _config: VolatilityStateSpaceConfig
 ) -> float:
-    del config
     if observation.sourceDisagreement is None:
         return 0.0
     return _clamp01(observation.sourceDisagreement)
@@ -68,6 +71,16 @@ def _source_disagreement(
 def _transformed_score(
     observation: VolatilityStateSpaceObservation, config: VolatilityStateSpaceConfig
 ) -> float:
+    # The raw observation is "board intensity" in quote-probability space.
+    # Before we run a Gaussian state-space model, we compress that heavy-tailed
+    # signal with log1p(.) and add a bounded disagreement bonus. In plain terms:
+    #
+    #   transformed score
+    #     = "how much the board moved, after size-of-board adjustment"
+    #       + "how much different sources disagreed on direction"
+    #
+    # That gives the filter one scalar observation that still carries the two
+    # desk-relevant ideas: level of motion and cross-source conflict.
     intensity_score = log1p(observation.intensity / _breadth_normalizer(observation, config))
     disagreement_score = (
         _source_disagreement(observation, config) * config.observationModel.disagreementWeight
@@ -259,9 +272,9 @@ def _warmed_up(
     return index >= request.params.warmupBuckets
 
 
-def _measurement_noise(
+def _source_agreement_terms(
     observation: VolatilityStateSpaceObservation, config: VolatilityStateSpaceConfig
-) -> float:
+) -> tuple[int, float, float]:
     source_count = max(1, observation.sourceCount or 1)
     source_dominance = _clamp01(
         observation.sourceDominance
@@ -273,6 +286,19 @@ def _measurement_noise(
         )
     )
     source_agreement = 0.0 if source_count <= 1 else 1.0 - source_dominance
+    return source_count, source_dominance, source_agreement
+
+
+def _measurement_noise(
+    observation: VolatilityStateSpaceObservation, config: VolatilityStateSpaceConfig
+) -> float:
+    source_count, source_dominance, source_agreement = _source_agreement_terms(
+        observation, config
+    )
+    # Measurement noise answers: "how much should we trust this observed board
+    # move?" If one source dominates, we trust it less. If several sources move
+    # together, we trust it more. This is the observation-level analogue of
+    # inverse-variance weighting from basic estimation.
     noise = (
         config.observationNoise.floor
         * (1.0 + source_dominance * config.observationNoise.sourceDominancePenalty)
@@ -368,6 +394,13 @@ def _run_state_filter(request: VolatilityStateSpaceRequest) -> list[_FilterStep]
         score = _transformed_score(observation, config)
         historical_blend = _historical_share(observation, request)
         prior_score = _prior_level(prior)
+        # Predict/update loop:
+        # 1. predict the latent baseline level and short-term trend forward one
+        #    bucket;
+        # 2. gently pull that prediction toward optional anchors (historical
+        #    priors, opening buckets, recent game-clock neighborhoods);
+        # 3. compare the observed board score to that predicted baseline;
+        # 4. update the hidden state using a Kalman-style gain.
         predicted_level = level + trend
         predicted_trend = trend * trend_decay
         predicted_p00 = p00 + p10 + p01 + p11 + level_process_noise
@@ -427,18 +460,14 @@ def _run_state_filter(request: VolatilityStateSpaceRequest) -> list[_FilterStep]
         p10 = predicted_p10 - gain_trend * predicted_p00
         p11 = predicted_p11 - gain_trend * predicted_p01
 
-        source_count = max(1, observation.sourceCount or 1)
-        source_dominance = _clamp01(
-            observation.sourceDominance
-            if observation.sourceDominance is not None
-            else (
-                config.observationNoise.singleSourceDominance
-                if source_count <= 1
-                else config.observationNoise.multiSourceDominanceFallback
-            )
+        _source_count, _source_dominance, source_agreement = _source_agreement_terms(
+            observation, config
         )
-        source_agreement = 0.0 if source_count <= 1 else 1.0 - source_dominance
         positive_innovation = max(0.0, standardized_innovation)
+        # We adapt latent variance more after a positive surprise than after an
+        # ordinary bucket. Intuitively: when the board suddenly gets wild, the
+        # model should become more willing to believe that "wild" is the new
+        # regime, rather than firing forever against an outdated calm baseline.
         variance_bump = (
             variance_adaptation
             * (
@@ -486,6 +515,11 @@ def score_volatility_state_space(
 
     for observation, step in zip(request.observations, steps, strict=True):
         positive_innovation = max(0.0, step.standardized_innovation)
+        # Alerting uses hysteresis:
+        # - enter once the positive surprise clears the higher enter threshold
+        # - stay in alert until it decays below the lower exit threshold
+        #
+        # This avoids noisy "on/off/on/off" flapping around one cutoff.
         fired = bool(step.warmed_up and not in_alert and positive_innovation >= enter_z)
         if fired:
             in_alert = True

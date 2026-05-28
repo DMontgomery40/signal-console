@@ -24,6 +24,12 @@ import {
 } from "@signal-console/detectors/board-mad";
 import { BOARD_MAD_BASELINE_MODE_HISTORICAL_BLEND } from "@signal-console/detectors/board-mad/config";
 import {
+  fetchBoardVolatilityStateSpace,
+  type VolatilityStateSpaceParams,
+  type VolatilityStateSpaceRequest,
+  type VolatilityStateSpaceResponse,
+} from "@signal-console/detectors/board-mad/state-space-runtime";
+import {
   detector as ensembleOr,
   Params as EnsembleOrParams,
 } from "@signal-console/detectors/ensemble-or";
@@ -52,12 +58,6 @@ import {
   type DetectorDefaults,
 } from "./detector-defaults";
 import { loadMicrostructureForGames } from "./loaders/microstructure-loader";
-import {
-  fetchBoardVolatilityStateSpace,
-  type VolatilityStateSpaceParams,
-  type VolatilityStateSpaceRequest,
-  type VolatilityStateSpaceResponse,
-} from "./volatility-model-sidecar";
 
 export type { ClockSource, GameTimingContext } from "@signal-console/detectors";
 

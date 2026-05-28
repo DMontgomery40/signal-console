@@ -14,6 +14,7 @@
     "verify": "vitest run"
   },
   "dependencies": {
+    "@signal-console/detectors": "workspace:*",
     "@signal-console/domain": "workspace:*",
     "better-sqlite3": "^11.9.1",
     "pino": "^9.7.0",

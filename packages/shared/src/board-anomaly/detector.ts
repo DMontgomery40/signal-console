@@ -180,7 +180,9 @@ function clusterToAlert(
   };
 }
 
-export function detectBoardAnomalies(input: BoardAnomalyDetectorInput): BoardAnomalyAlert[] {
+export async function detectBoardAnomalies(
+  input: BoardAnomalyDetectorInput,
+): Promise<BoardAnomalyAlert[]> {
   const config = resolveBoardAnomalyConfig(input.config);
   const nowMs = Date.parse(input.now);
   if (!Number.isFinite(nowMs)) {
@@ -218,7 +220,7 @@ export function detectBoardAnomalies(input: BoardAnomalyDetectorInput): BoardAno
   const clusters = buildCoherenceClusters(shockSet, config);
   const alerts: BoardAnomalyAlert[] = [];
   const trustedStateGate = trustedLiveStateWindow(shockSet);
-  const gameStateVolatilityAlert = buildGameStateVolatilityAlert({
+  const gameStateVolatilityAlert = await buildGameStateVolatilityAlert({
     scored,
     config,
     gameId: input.gameId,
@@ -270,7 +272,7 @@ export function detectBoardAnomalies(input: BoardAnomalyDetectorInput): BoardAno
 
 export function measureBoardGameStateVolatility(
   input: BoardAnomalyDetectorInput,
-): BoardGameStateVolatility | null {
+): Promise<BoardGameStateVolatility | null> {
   const config = resolveBoardAnomalyConfig(input.config);
   const nowMs = Date.parse(input.now);
   if (!Number.isFinite(nowMs)) {

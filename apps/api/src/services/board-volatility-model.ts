@@ -1,9 +1,8 @@
 import type { GameTimingContext, Tick } from "@signal-console/detectors";
-
 import type {
   VolatilityStateSpaceObservation,
   VolatilityStateSpaceRequest,
-} from "./volatility-model-sidecar";
+} from "@signal-console/detectors/board-mad/state-space-runtime";
 
 export interface BuildBoardVolatilityModelRequestArgs {
   readonly bucketSeconds: number;

@@ -30,7 +30,7 @@ import {
 } from "./board-anomaly-live-fanouts";
 import { getPlayByPlayContext } from "./board-anomaly-play-by-play";
 import { parseTimestampMs } from "./board-anomaly-support";
-import { executeDatabaseOperation, getDatabase } from "./db-core";
+import { executeDatabaseOperation, executeDatabaseOperationAsync, getDatabase } from "./db-core";
 import { listMarketAnomalyAlerts, listSignalMismatches } from "./live-repository";
 
 export type {
@@ -42,10 +42,10 @@ export type {
 
 export function listFinishedGameIncidents(
   input: ListFinishedGameIncidentsInput,
-): FinishedGameIncident[] {
-  return executeDatabaseOperation(
+): Promise<FinishedGameIncident[]> {
+  return executeDatabaseOperationAsync(
     "board-anomaly.listFinishedGameIncidents",
-    () => {
+    async () => {
       const db = getDatabase();
       const windows = listFinishedGameReplayWindows(db, input);
       const incidents: FinishedGameIncident[] = [];
@@ -68,7 +68,7 @@ export function listFinishedGameIncidents(
         const finalAt = hasPlausibleFinalAt ? window.finalAt! : fallbackFinalAt;
         const finalMs = parseTimestampMs(finalAt);
         const windowEnd = finalMs == null ? finalAt : new Date(finalMs + 2 * 60_000).toISOString();
-        const replay = replayBoardAnomaliesForGame({
+        const replay = await replayBoardAnomaliesForGame({
           gameId: window.gameId,
           ingestionLatencyBufferSeconds: 0,
           stepSeconds: 600,

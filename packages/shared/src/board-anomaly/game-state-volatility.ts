@@ -5,9 +5,15 @@ import type {
   BoardGameStateVolatilityBand,
   BoardObservationScored,
   BoardShockEvidence,
+  BoardGameStateVolatilityRuntimeConfig,
   MarketFamily,
   ResearchSourceId,
 } from "@signal-console/domain";
+import {
+  fetchBoardVolatilityStateSpace,
+  type VolatilityStateSpaceRequest,
+  type VolatilityStateSpaceResultObservation,
+} from "@signal-console/detectors/board-mad/state-space-runtime";
 
 import {
   instrumentIdsFromScored,
@@ -21,11 +27,7 @@ import { parseTimestampMs } from "../board-anomaly-support";
 import type { GameStateRow } from "../board-anomaly-observation-context";
 import type { BoardObservationMaterializationDiagnostics } from "../board-anomaly-observations";
 
-const BOARD_VW_BUCKET_SECONDS = 60;
-const BOARD_VW_FRESH_CAP_SECONDS = 300;
-const BOARD_VW_TRAILING_BUCKETS = 20;
-const BOARD_VW_WARMUP_BUCKETS = 8;
-const BOARD_VW_K_MAD = 3;
+type FetchLike = typeof fetch;
 
 const DISPLAY_FAMILY_ORDER: MarketFamily[] = [
   "moneyline",
@@ -47,6 +49,7 @@ const DISPLAY_SOURCE_ORDER: ResearchSourceId[] = [
 type BuildGameStateVolatilityAlertInput = {
   config: BoardAnomalyDetectorConfig;
   detectedAtIso: string;
+  fetchImpl?: FetchLike;
   gameId: string;
   gameLabel: string;
   gameStates?: GameStateRow[];
@@ -55,17 +58,21 @@ type BuildGameStateVolatilityAlertInput = {
   scheduledStart?: string;
   scored: BoardObservationScored[];
   shockWindowMs: number;
+  sidecarBaseUrl?: string;
 };
 
 type BoardVwContribution = {
   bucketStartMs: number;
   deltaAbs: number;
+  deltaSigned: number;
   row: BoardObservationScored;
+  sourceKey: string;
   timestampMs: number;
   weightLabel: string;
   weightSource: "quote-volume" | "source-market-volume" | "equal-weight-fallback";
   volumeWeight: number;
   weightedDelta: number;
+  weightedSignedDelta: number;
 };
 
 type BoardVwBucket = {
@@ -74,22 +81,18 @@ type BoardVwBucket = {
   intensity: number;
 };
 
-type BoardVwThreshold = {
+type BoardVwEvaluation = {
   bucket: BoardVwBucket;
-  fire: boolean;
   index: number;
-  mad: number;
-  median: number;
-  priorIntensities: number[];
-  threshold: number;
+  observation: VolatilityStateSpaceResultObservation;
 };
 
 type BoardVwMeasurementContext = {
-  activeFire: BoardVwThreshold | null;
+  activeFire: BoardVwEvaluation | null;
   activeStreakBucketCount: number;
   availableBucketCount: number;
   latestBucket: BoardVwBucket | null;
-  latestEvaluatedBucket: BoardVwThreshold | null;
+  latestEvaluatedBucket: BoardVwEvaluation | null;
   phase: ReturnType<typeof deriveBoardVolatilityPhase>;
   ready: boolean;
 };
@@ -140,30 +143,6 @@ function sortSources(sources: Iterable<ResearchSourceId>) {
   return DISPLAY_SOURCE_ORDER.filter((source) => sourceSet.has(source));
 }
 
-function percentile(values: number[], p: number) {
-  if (values.length === 0) return 0;
-  const sorted = [...values].sort((left, right) => left - right);
-  const index = (sorted.length - 1) * p;
-  const floorIndex = Math.floor(index);
-  const ceilIndex = Math.ceil(index);
-  if (floorIndex === ceilIndex) {
-    return sorted[floorIndex] ?? 0;
-  }
-  const floorValue = sorted[floorIndex] ?? 0;
-  const ceilValue = sorted[ceilIndex] ?? floorValue;
-  return floorValue + (ceilValue - floorValue) * (index - floorIndex);
-}
-
-function median(values: number[]) {
-  return percentile(values, 0.5);
-}
-
-function mad(values: number[]) {
-  if (values.length === 0) return 0;
-  const center = median(values);
-  return median(values.map((value) => Math.abs(value - center)));
-}
-
 function currentObservationGameState(scored: BoardObservationScored[], nowMs: number) {
   const current = scored
     .slice()
@@ -187,8 +166,43 @@ function currentObservationGameState(scored: BoardObservationScored[], nowMs: nu
   return current?.observation.gameState ?? null;
 }
 
-function buildBoardVwBuckets(scored: BoardObservationScored[], nowMs: number): BoardVwBucket[] {
-  const bucketMs = BOARD_VW_BUCKET_SECONDS * 1000;
+function resolveBoardVwWeight(
+  row: BoardObservationScored,
+  runtime: BoardGameStateVolatilityRuntimeConfig,
+) {
+  if (runtime.weighting === "equal") {
+    return {
+      label: "weight 1",
+      source: "equal-weight-fallback" as const,
+      weight: 1,
+    };
+  }
+
+  const quoteVolume = row.observation.volume;
+  if (quoteVolume != null && quoteVolume > 0) {
+    const isMetadataVolume = row.observation.volumeSource === "source-market-metadata";
+    return {
+      label: isMetadataVolume
+        ? `log1p(stored vol ${quoteVolume.toFixed(0)})`
+        : `log1p(vol ${quoteVolume.toFixed(0)})`,
+      source: isMetadataVolume ? ("source-market-volume" as const) : ("quote-volume" as const),
+      weight: Math.log1p(quoteVolume),
+    };
+  }
+
+  return {
+    label: "weight 1 (missing volume)",
+    source: "equal-weight-fallback" as const,
+    weight: 1,
+  };
+}
+
+function buildBoardVwBuckets(
+  scored: BoardObservationScored[],
+  nowMs: number,
+  runtime: BoardGameStateVolatilityRuntimeConfig,
+): BoardVwBucket[] {
+  const bucketMs = runtime.bucketSeconds * 1000;
   const rowsByMarket = new Map<string, BoardObservationScored[]>();
 
   for (const row of scored) {
@@ -246,19 +260,21 @@ function buildBoardVwBuckets(scored: BoardObservationScored[], nowMs: number): B
       }
 
       const gapSeconds = (currentTs - previousTs) / 1000;
-      if (gapSeconds <= 0 || gapSeconds > BOARD_VW_FRESH_CAP_SECONDS) {
+      if (gapSeconds <= 0 || gapSeconds > runtime.freshCapSeconds) {
         continue;
       }
 
-      const deltaAbs = Math.abs(currentProbability - previousProbability);
+      const deltaSigned = currentProbability - previousProbability;
+      const deltaAbs = Math.abs(deltaSigned);
       if (deltaAbs <= 0) continue;
 
       const bucketStartMs = Math.floor(currentTs / bucketMs) * bucketMs;
       if (bucketStartMs + bucketMs > nowMs) continue;
 
-      const weight = resolveBoardVwWeight(current);
+      const weight = resolveBoardVwWeight(current, runtime);
       const volumeWeight = weight.weight;
       const weightedDelta = deltaAbs * volumeWeight;
+      const weightedSignedDelta = deltaSigned * volumeWeight;
       if (weightedDelta <= 0) continue;
 
       const bucket = bucketMap.get(bucketStartMs) ?? {
@@ -270,12 +286,15 @@ function buildBoardVwBuckets(scored: BoardObservationScored[], nowMs: number): B
       bucket.contributions.push({
         bucketStartMs,
         deltaAbs,
+        deltaSigned,
         row: current,
+        sourceKey: current.observation.source ?? current.observation.sourceMarketId,
         timestampMs: currentTs,
         weightLabel: weight.label,
         weightSource: weight.source,
         volumeWeight,
         weightedDelta,
+        weightedSignedDelta,
       });
       bucketMap.set(bucketStartMs, bucket);
     }
@@ -286,62 +305,109 @@ function buildBoardVwBuckets(scored: BoardObservationScored[], nowMs: number): B
   );
 }
 
-function resolveBoardVwWeight(row: BoardObservationScored) {
-  const quoteVolume = row.observation.volume;
-  if (quoteVolume != null && quoteVolume > 0) {
-    const isMetadataVolume = row.observation.volumeSource === "source-market-metadata";
-    return {
-      label: isMetadataVolume
-        ? `log1p(stored vol ${quoteVolume.toFixed(0)})`
-        : `log1p(vol ${quoteVolume.toFixed(0)})`,
-      source: isMetadataVolume ? ("source-market-volume" as const) : ("quote-volume" as const),
-      weight: Math.log1p(quoteVolume),
-    };
-  }
-
+function buildStateSpaceRequest(
+  input: BuildGameStateVolatilityAlertInput,
+  buckets: BoardVwBucket[],
+): VolatilityStateSpaceRequest {
+  const runtime = input.config.gameStateVolatility.runtime;
   return {
-    label: "weight 1 (missing volume)",
-    source: "equal-weight-fallback" as const,
-    weight: 1,
+    gameId: input.gameId,
+    observations: buckets.map((bucket) => {
+      const sourceContribution = new Map<string, number>();
+      const sourceSignedContribution = new Map<string, number>();
+      const activeMarkets = new Set<string>();
+      for (const contribution of bucket.contributions) {
+        activeMarkets.add(contribution.row.observation.sourceMarketId);
+        sourceContribution.set(
+          contribution.sourceKey,
+          (sourceContribution.get(contribution.sourceKey) ?? 0) + contribution.weightedDelta,
+        );
+        sourceSignedContribution.set(
+          contribution.sourceKey,
+          (sourceSignedContribution.get(contribution.sourceKey) ?? 0) +
+            contribution.weightedSignedDelta,
+        );
+      }
+      const sourceValues = Array.from(sourceContribution.values()).sort((a, b) => b - a);
+      const signedSourceValues = Array.from(sourceSignedContribution.values());
+      const dominantShare =
+        bucket.intensity <= 0 || sourceValues.length === 0
+          ? 1
+          : (sourceValues[0] ?? bucket.intensity) / bucket.intensity;
+      const totalSignedAbs = signedSourceValues.reduce((sum, value) => sum + Math.abs(value), 0);
+      const netSigned = signedSourceValues.reduce((sum, value) => sum + value, 0);
+      const sourceDisagreement =
+        signedSourceValues.length <= 1 || totalSignedAbs <= 0
+          ? 0
+          : 1 - Math.abs(netSigned) / totalSignedAbs;
+      return {
+        activeMarketCount: activeMarkets.size,
+        bucketEnd: new Date(bucket.bucketStartMs + runtime.bucketSeconds * 1000).toISOString(),
+        bucketStart: new Date(bucket.bucketStartMs).toISOString(),
+        intensity: bucket.intensity,
+        sourceCount: sourceContribution.size,
+        sourceDisagreement,
+        sourceDominance: dominantShare,
+      };
+    }),
+    params: {
+      baselineMode: runtime.baselineMode,
+      bucketSeconds: runtime.bucketSeconds,
+      kMad: runtime.kMad,
+      openingBaselineBuckets: runtime.openingBaselineBuckets,
+      openingRampCompleteBuckets: runtime.openingRampCompleteBuckets,
+      stateSpace: runtime.stateSpace,
+      trailingBuckets: runtime.trailingBuckets,
+      warmupBuckets: runtime.warmupBuckets,
+    },
   };
 }
 
-function evaluateBoardVwBuckets(buckets: BoardVwBucket[]) {
-  const evaluated: BoardVwThreshold[] = [];
-  const intensities = buckets.map((bucket) => bucket.intensity);
-  for (let index = 0; index < buckets.length; index += 1) {
-    const priorIntensities = intensities.slice(
-      Math.max(0, index - BOARD_VW_TRAILING_BUCKETS),
-      index,
+async function evaluateBoardVwBuckets(
+  input: BuildGameStateVolatilityAlertInput,
+  buckets: BoardVwBucket[],
+): Promise<BoardVwEvaluation[]> {
+  const response = await fetchBoardVolatilityStateSpace({
+    baseUrl: input.sidecarBaseUrl,
+    fetchImpl: input.fetchImpl,
+    request: buildStateSpaceRequest(input, buckets),
+  });
+  const bucketByStart = new Map(
+    buckets.map((bucket) => [new Date(bucket.bucketStartMs).toISOString(), bucket] as const),
+  );
+  if (response.observations.length !== buckets.length) {
+    throw new Error(
+      `Board volatility sidecar returned ${String(response.observations.length)} rows for ${String(
+        buckets.length,
+      )} buckets.`,
     );
-    const priorMedian = median(priorIntensities);
-    const priorMad = mad(priorIntensities);
-    const safeMad = priorMad || 1e-9;
-    const threshold = priorMedian + BOARD_VW_K_MAD * safeMad;
-    const ready = priorIntensities.length >= BOARD_VW_WARMUP_BUCKETS;
-    evaluated.push({
-      bucket: buckets[index],
-      fire: ready && buckets[index].intensity >= threshold && buckets[index].intensity > 0,
-      index,
-      mad: priorMad,
-      median: priorMedian,
-      priorIntensities,
-      threshold,
-    });
   }
-  return evaluated;
+  return response.observations.map((observation, index) => {
+    const bucket = bucketByStart.get(observation.bucketStart);
+    if (bucket == null) {
+      throw new Error(
+        `Board volatility sidecar returned unknown bucketStart ${observation.bucketStart}.`,
+      );
+    }
+    return {
+      bucket,
+      index,
+      observation,
+    };
+  });
 }
 
-function countActiveFireStreak(evaluated: BoardVwThreshold[], activeIndex: number) {
+function countActiveFireStreak(
+  evaluated: BoardVwEvaluation[],
+  activeIndex: number,
+  bucketSeconds: number,
+) {
   let count = 1;
   for (let index = activeIndex - 1; index >= 0; index -= 1) {
     const current = evaluated[index];
     const next = evaluated[index + 1];
-    if (!current.fire || !next.fire) break;
-    if (
-      next.bucket.bucketStartMs - current.bucket.bucketStartMs !==
-      BOARD_VW_BUCKET_SECONDS * 1000
-    ) {
+    if (!current.observation.fired || !next.observation.fired) break;
+    if (next.bucket.bucketStartMs - current.bucket.bucketStartMs !== bucketSeconds * 1000) {
       break;
     }
     count += 1;
@@ -372,7 +438,7 @@ function buildBucketView(bucket: BoardVwBucket): CurrentBucketView {
     participantKey: item.row.observation.participantKey,
     displayLabel: item.row.observation.displayLabel,
     contribution: Number(item.weightedDelta.toFixed(3)),
-    reason: `board-vw ${item.deltaAbs.toFixed(3)} * ${item.weightLabel}`,
+    reason: `board-state-space ${item.deltaAbs.toFixed(3)} * ${item.weightLabel}`,
     evidenceUnmapped:
       item.row.observation.mappingStatus === "unmapped" || item.row.observation.flags.isUnmapped,
   }));
@@ -384,7 +450,7 @@ function buildBucketView(bucket: BoardVwBucket): CurrentBucketView {
     participantKey: item.row.observation.participantKey,
     displayLabel: item.row.observation.displayLabel,
     contribution: Number(item.weightedDelta.toFixed(3)),
-    reason: `board-vw ${item.deltaAbs.toFixed(3)} * ${item.weightLabel}`,
+    reason: `board-state-space ${item.deltaAbs.toFixed(3)} * ${item.weightLabel}`,
     evidenceUnmapped:
       item.row.observation.mappingStatus === "unmapped" || item.row.observation.flags.isUnmapped,
   }));
@@ -444,46 +510,83 @@ function buildBucketView(bucket: BoardVwBucket): CurrentBucketView {
   };
 }
 
-function computePercentileRank(priorIntensities: number[], currentIntensity: number) {
-  if (priorIntensities.length === 0) return 0;
-  const lessOrEqual = priorIntensities.filter((value) => value <= currentIntensity).length;
-  return clamp01(lessOrEqual / priorIntensities.length);
+function emptyBucketView(): CurrentBucketView {
+  return {
+    contributions: [],
+    coveragePenalty: 0,
+    evidence: [],
+    families: [],
+    h0Adjustments: {
+      appliedSuppression: 0,
+      drivers: [],
+    },
+    inspect: {
+      instrumentIds: [],
+      payloadVersion: 1,
+      relationFamilies: ["game-state-volatility"],
+      sourceMarketIds: [],
+    },
+    missingDataNotes: [],
+    predictionMarketRows: 0,
+    sourceCount: 0,
+    sourceMarketCount: 0,
+    sources: [],
+    supportingEvidence: [],
+    weightSources: {
+      equalWeightFallback: 0,
+      sourceMarketVolume: 0,
+      quoteVolume: 0,
+    },
+  };
 }
 
-function scoreFromBucket(options: {
-  activeFire: boolean;
-  intensity: number;
-  ready: boolean;
-  threshold: number;
-}) {
-  if (!options.ready) return 0;
-  const safeThreshold = Math.max(options.threshold, 1e-9);
-  const ratio = options.intensity / safeThreshold;
-  if (options.activeFire) {
-    return Math.min(84, Math.max(55, Math.round(55 + Math.min(29, (ratio - 1) * 20))));
-  }
-  if (ratio >= 0.8) {
-    return Math.min(54, Math.max(40, Math.round(40 + (ratio - 0.8) * 70)));
-  }
-  return Math.max(0, Math.min(39, Math.round(ratio * 39)));
+function standardNormalCdf(value: number) {
+  const sign = value < 0 ? -1 : 1;
+  const scaled = Math.abs(value) / Math.sqrt(2);
+  const t = 1 / (1 + 0.3275911 * scaled);
+  const polynomial =
+    ((((1.061405429 * t - 1.453152027) * t + 1.421413741) * t - 0.284496736) * t + 0.254829592) *
+    t *
+    Math.exp(-(scaled * scaled));
+  const erf = 1 - polynomial;
+  return clamp01(0.5 * (1 + sign * erf));
+}
+
+function expectedRangeFromObservation(observation: VolatilityStateSpaceResultObservation) {
+  const p50 = Math.max(0, observation.baselineMedian);
+  const unit = Math.max(0, observation.baselineMad);
+  return {
+    p50: Number(p50.toFixed(3)),
+    p75: Number((p50 + unit).toFixed(3)),
+    p90: Number((p50 + unit * 1.9).toFixed(3)),
+    p99: Number((p50 + unit * 3.45).toFixed(3)),
+  };
+}
+
+function scoreFromStateSpace(percentileValue: number, ready: boolean, activeFire: boolean) {
+  if (!ready) return 0;
+  const percentileScore = Math.max(0, Math.min(100, Math.round(percentileValue * 100)));
+  return activeFire ? Math.max(55, percentileScore) : Math.min(54, percentileScore);
 }
 
 function bandForScore(options: {
   activeFire: boolean;
+  criticalEligible: boolean;
   ready: boolean;
   score: number;
 }): BoardGameStateVolatilityBand {
   if (!options.ready) return "insufficient-data";
+  if (options.criticalEligible && options.score >= 85) return "critical";
   if (options.activeFire) return "alert";
   if (options.score >= 40) return "elevated";
   return "normal";
 }
 
-function calculateBoardVwMeasurement(input: BuildGameStateVolatilityAlertInput): {
+async function calculateBoardVwMeasurement(input: BuildGameStateVolatilityAlertInput): Promise<{
   context: BoardVwMeasurementContext;
   firstPopAt: string;
   measurement: BoardGameStateVolatility;
-} {
+}> {
   const currentGameState = currentObservationGameState(input.scored, input.nowMs);
   const phase = deriveBoardVolatilityPhase({
     clock: currentGameState?.clock,
@@ -495,17 +598,17 @@ function calculateBoardVwMeasurement(input: BuildGameStateVolatilityAlertInput):
     status: currentGameState?.status ?? "scheduled",
     timeline: input.gameStates,
   });
-
-  const buckets = buildBoardVwBuckets(input.scored, input.nowMs);
-  const evaluated = evaluateBoardVwBuckets(buckets);
+  const runtime = input.config.gameStateVolatility.runtime;
+  const buckets = buildBoardVwBuckets(input.scored, input.nowMs, runtime);
+  const evaluated = buckets.length === 0 ? [] : await evaluateBoardVwBuckets(input, buckets);
   const latestBucket = buckets[buckets.length - 1] ?? null;
   const latestEvaluatedBucket = evaluated[evaluated.length - 1] ?? null;
   let activeFireIndex = -1;
   for (let index = evaluated.length - 1; index >= 0; index -= 1) {
-    const bucket = evaluated[index];
+    const candidate = evaluated[index];
     if (
-      bucket?.fire &&
-      input.nowMs - (bucket.bucket.bucketStartMs + BOARD_VW_BUCKET_SECONDS * 1000) <=
+      candidate?.observation.fired &&
+      input.nowMs - candidate.bucket.bucketStartMs - runtime.bucketSeconds * 1000 <=
         input.shockWindowMs
     ) {
       activeFireIndex = index;
@@ -516,62 +619,25 @@ function calculateBoardVwMeasurement(input: BuildGameStateVolatilityAlertInput):
   const activeFire =
     activeFireIndex >= 0 && phaseAllowsActionableFire ? (evaluated[activeFireIndex] ?? null) : null;
   const activeStreakBucketCount =
-    activeFireIndex >= 0 ? countActiveFireStreak(evaluated, activeFireIndex) : 0;
-  const selectedBucket = activeFire ?? latestEvaluatedBucket;
-  const ready = selectedBucket?.priorIntensities.length >= BOARD_VW_WARMUP_BUCKETS;
-  const view = selectedBucket
-    ? buildBucketView(selectedBucket.bucket)
-    : {
-        contributions: [],
-        coveragePenalty: 0,
-        evidence: [],
-        families: [] as MarketFamily[],
-        h0Adjustments: {
-          appliedSuppression: 0,
-          drivers: [],
-        },
-        inspect: {
-          instrumentIds: [],
-          payloadVersion: 1 as const,
-          relationFamilies: ["game-state-volatility"],
-          sourceMarketIds: [],
-        },
-        missingDataNotes: [],
-        predictionMarketRows: 0,
-        sourceCount: 0,
-        sourceMarketCount: 0,
-        sources: [] as ResearchSourceId[],
-        supportingEvidence: [],
-        weightSources: {
-          equalWeightFallback: 0,
-          sourceMarketVolume: 0,
-          quoteVolume: 0,
-        },
-      };
-
-  const currentIntensity = selectedBucket?.bucket.intensity ?? 0;
-  const baselineWindow = selectedBucket?.priorIntensities ?? [];
-  const threshold = selectedBucket?.threshold ?? 0;
-  const currentPercentile = computePercentileRank(baselineWindow, currentIntensity);
+    activeFireIndex >= 0
+      ? countActiveFireStreak(evaluated, activeFireIndex, runtime.bucketSeconds)
+      : 0;
+  const selectedEvaluation = activeFire ?? latestEvaluatedBucket;
+  const ready = selectedEvaluation?.observation.warmedUp ?? false;
+  const view = selectedEvaluation ? buildBucketView(selectedEvaluation.bucket) : emptyBucketView();
+  const currentIntensity = selectedEvaluation?.bucket.intensity ?? 0;
+  const threshold = selectedEvaluation?.observation.threshold ?? 0;
+  const standardizedInnovation = selectedEvaluation?.observation.standardizedInnovation ?? 0;
+  const regimeScore = selectedEvaluation?.observation.regimeScore ?? 0;
+  const percentileValue = ready ? standardNormalCdf(standardizedInnovation) : 0;
   let streakStartMs: number | null = null;
   if (activeFireIndex >= 0) {
     const streakStartIndex = activeFireIndex - activeStreakBucketCount + 1;
     const streakStartBucket = evaluated[streakStartIndex]?.bucket;
     if (streakStartBucket) {
-      streakStartMs = streakStartBucket.bucketStartMs + BOARD_VW_BUCKET_SECONDS * 1000;
+      streakStartMs = streakStartBucket.bucketStartMs + runtime.bucketSeconds * 1000;
     }
   }
-  const score = scoreFromBucket({
-    activeFire: activeFire != null,
-    intensity: currentIntensity,
-    ready,
-    threshold,
-  });
-  const band = bandForScore({
-    activeFire: activeFire != null,
-    ready,
-    score,
-  });
   const selectedFamilies = view.families;
   const familyBreadth = clamp01(selectedFamilies.length / DISPLAY_FAMILY_ORDER.length);
   const sourceBreadth = clamp01(Math.max(0, view.sourceCount - 1) / 2);
@@ -581,9 +647,8 @@ function calculateBoardVwMeasurement(input: BuildGameStateVolatilityAlertInput):
       : view.contributions.reduce((sum, item) => sum + item.volumeWeight, 0) /
         view.contributions.length;
   const coreLiquidityStress = clamp01(meanLogVolume / 8);
-  const calibratedAbnormality = ready
-    ? clamp01(currentIntensity / Math.max(threshold || currentIntensity, 1e-9))
-    : 0;
+  const calibratedAbnormality =
+    ready && threshold > 0 ? clamp01(currentIntensity / Math.max(threshold, currentIntensity)) : 0;
   const confidence = ready
     ? Math.max(
         0.25,
@@ -593,18 +658,20 @@ function calculateBoardVwMeasurement(input: BuildGameStateVolatilityAlertInput):
             (activeFire ? 0.2 : 0) +
             familyBreadth * 0.2 +
             sourceBreadth * 0.15 +
-            currentPercentile * 0.1 -
+            percentileValue * 0.1 -
             view.coveragePenalty * 0.15,
         ),
       )
     : 0.2;
-
-  const baselineExpectedRange = {
-    p50: Number(percentile(baselineWindow, 0.5).toFixed(3)),
-    p75: Number(percentile(baselineWindow, 0.75).toFixed(3)),
-    p90: Number(percentile(baselineWindow, 0.9).toFixed(3)),
-    p99: Number(percentile(baselineWindow, 0.99).toFixed(3)),
-  };
+  const criticalEligible =
+    selectedFamilies.length >= 3 && activeStreakBucketCount >= 2 && view.sourceCount >= 2;
+  const score = scoreFromStateSpace(percentileValue, ready, activeFire != null);
+  const band = bandForScore({
+    activeFire: activeFire != null,
+    criticalEligible,
+    ready,
+    score,
+  });
 
   const firstPopAt =
     streakStartMs != null ? new Date(streakStartMs).toISOString() : input.detectedAtIso;
@@ -626,6 +693,10 @@ function calculateBoardVwMeasurement(input: BuildGameStateVolatilityAlertInput):
           : ready
             ? ("prewarmed" as const)
             : ("warming" as const);
+  const previousRegimeScore =
+    selectedEvaluation != null && selectedEvaluation.index > 0
+      ? (evaluated[selectedEvaluation.index - 1]?.observation.regimeScore ?? 0)
+      : 0;
 
   const measurement: BoardGameStateVolatility = {
     alertId:
@@ -634,10 +705,20 @@ function calculateBoardVwMeasurement(input: BuildGameStateVolatilityAlertInput):
         : null,
     band,
     baseline: {
-      cohortKey: `board-vw|bucket-${BOARD_VW_BUCKET_SECONDS}|k-${BOARD_VW_K_MAD}|w-${BOARD_VW_TRAILING_BUCKETS}|warmup-${BOARD_VW_WARMUP_BUCKETS}`,
-      expectedRange: baselineExpectedRange,
-      percentile: Number(currentPercentile.toFixed(3)),
-      sampleSize: baselineWindow.length,
+      cohortKey: [
+        "board-state-space",
+        `mode-${runtime.baselineMode}`,
+        `bucket-${runtime.bucketSeconds}`,
+        `k-${runtime.kMad}`,
+        `trail-${runtime.trailingBuckets}`,
+        `warmup-${runtime.warmupBuckets}`,
+      ].join("|"),
+      expectedRange:
+        selectedEvaluation == null
+          ? { p50: 0, p75: 0, p90: 0, p99: 0 }
+          : expectedRangeFromObservation(selectedEvaluation.observation),
+      percentile: Number(percentileValue.toFixed(3)),
+      sampleSize: selectedEvaluation?.index ?? 0,
       source: "fallback",
     },
     components: {
@@ -667,26 +748,17 @@ function calculateBoardVwMeasurement(input: BuildGameStateVolatilityAlertInput):
     },
     evidence: [...view.evidence, ...view.supportingEvidence],
     filter: {
-      bucketSeconds: BOARD_VW_BUCKET_SECONDS,
+      bucketSeconds: runtime.bucketSeconds,
       decayRegime: phase.kind,
-      innovation: Number(
-        (ready ? (currentIntensity - threshold) / Math.max(threshold, 1e-9) : 0).toFixed(3),
-      ),
-      observationCount: buckets.length,
-      stressLevel: Number(calibratedAbnormality.toFixed(3)),
-      stressVelocity: Number(
-        (selectedBucket != null && selectedBucket.index > 0
-          ? (selectedBucket.bucket.intensity -
-              (evaluated[selectedBucket.index - 1]?.bucket.intensity ?? 0)) /
-            Math.max(threshold || 1, 1)
-          : 0
-        ).toFixed(3),
-      ),
+      innovation: Number(standardizedInnovation.toFixed(3)),
+      observationCount: evaluated.length,
+      stressLevel: Number(regimeScore.toFixed(3)),
+      stressVelocity: Number((regimeScore - previousRegimeScore).toFixed(3)),
     },
     gameId: input.gameId,
     gameLabel: input.gameLabel,
     gates: {
-      criticalEligible: false,
+      criticalEligible,
       hasCoreBreadth: selectedFamilies.length >= 2,
       hasPersistence: activeStreakBucketCount >= 2,
       hasSourceConfirmation: view.sourceCount >= 2,
@@ -714,7 +786,7 @@ function calculateBoardVwMeasurement(input: BuildGameStateVolatilityAlertInput):
       corePriceShock: Number(currentIntensity.toFixed(3)),
       coveragePenalty: Number(view.coveragePenalty.toFixed(3)),
       crossSourceConfirmation: Number(sourceBreadth.toFixed(3)),
-      persistenceSeconds: activeStreakBucketCount * BOARD_VW_BUCKET_SECONDS,
+      persistenceSeconds: activeStreakBucketCount * runtime.bucketSeconds,
       phaseTransitionBonus: 0,
       supportPropShock: Number(
         clamp01(
@@ -751,25 +823,23 @@ function calculateBoardVwMeasurement(input: BuildGameStateVolatilityAlertInput):
   };
 }
 
-export function measureGameStateVolatility(
+export async function measureGameStateVolatility(
   input: BuildGameStateVolatilityAlertInput,
-): BoardGameStateVolatility | null {
-  return calculateBoardVwMeasurement(input).measurement;
+): Promise<BoardGameStateVolatility | null> {
+  return (await calculateBoardVwMeasurement(input)).measurement;
 }
 
-export function buildGameStateVolatilityAlert(
+export async function buildGameStateVolatilityAlert(
   input: BuildGameStateVolatilityAlertInput,
-): BoardAnomalyAlert | null {
-  const calculation = calculateBoardVwMeasurement(input);
+): Promise<BoardAnomalyAlert | null> {
+  const calculation = await calculateBoardVwMeasurement(input);
   const { context, firstPopAt, measurement } = calculation;
   if (context.activeFire == null) {
     return null;
   }
 
   const activeBucket = context.activeFire.bucket;
-  const threshold = context.activeFire.threshold;
-  const medianValue = context.activeFire.median;
-  const madValue = context.activeFire.mad;
+  const activeObservation = context.activeFire.observation;
   const families = measurement.sample.families.join(", ") || "no families";
   const sources = measurement.sample.sources.join(", ") || "no sources";
   const weightSources = activeBucket.contributions.reduce(
@@ -803,13 +873,13 @@ export function buildGameStateVolatilityAlert(
     score: measurement.headlineScore,
     confidence: measurement.confidence,
     severity: scoreToSeverity(measurement.headlineScore),
-    reason: `board-vw 60s bucket fired at ${new Date(
-      activeBucket.bucketStartMs + BOARD_VW_BUCKET_SECONDS * 1000,
-    ).toISOString()}: ${activeBucket.intensity.toFixed(3)} vs ${threshold.toFixed(
+    reason: `board state-space ${input.config.gameStateVolatility.runtime.bucketSeconds}s bucket fired at ${new Date(
+      activeBucket.bucketStartMs + input.config.gameStateVolatility.runtime.bucketSeconds * 1000,
+    ).toISOString()}: ${activeBucket.intensity.toFixed(3)} vs threshold ${activeObservation.threshold.toFixed(
       3,
-    )} (${medianValue.toFixed(3)} + ${BOARD_VW_K_MAD}*MAD ${madValue.toFixed(
+    )} (baseline med ${activeObservation.baselineMedian.toFixed(3)}, regime ${activeObservation.regimeScore.toFixed(
       3,
-    )}); ${families}; ${sources}; weights ${weightSummary}`,
+    )}, z ${activeObservation.standardizedInnovation.toFixed(3)}); ${families}; ${sources}; weights ${weightSummary}`,
     primaryEntityKey: null,
     primaryFamily: null,
     components: measurement.components,

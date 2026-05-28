@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from copy import deepcopy
 
+import pytest
+from pydantic import ValidationError
+
 from nba_sidecar.main import post_board_volatility_state_space
 from nba_sidecar.models import (
     VolatilityHistoricalPrior,
@@ -422,3 +425,35 @@ def test_state_space_endpoint_returns_observable_contract() -> None:
         "threshold",
         "warmedUp",
     }
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("intensity", -1),
+        ("sourceDominance", 1.5),
+        ("sourceDisagreement", -0.1),
+    ],
+)
+def test_state_space_observation_validation_fails_loud(field: str, value: float) -> None:
+    kwargs = {
+        "bucketStart": "2026-05-25T00:00:00.000Z",
+        "bucketEnd": "2026-05-25T00:01:00.000Z",
+        "intensity": 10,
+        "gameElapsedSeconds": 0,
+        "sourceDominance": 0.5,
+        "sourceDisagreement": 0.5,
+    }
+    kwargs[field] = value
+
+    with pytest.raises(ValidationError):
+        VolatilityStateSpaceObservation(**kwargs)
+
+
+def test_state_space_observation_requires_ordered_timezone_aware_buckets() -> None:
+    with pytest.raises(ValidationError):
+        VolatilityStateSpaceObservation(
+            bucketStart="2026-05-25T00:01:00",
+            bucketEnd="2026-05-25T00:00:00Z",
+            intensity=10,
+        )

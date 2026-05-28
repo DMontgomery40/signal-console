@@ -14,6 +14,7 @@
     "verify": "vitest run"
   },
   "dependencies": {
+    "@signal-console/detectors": "workspace:*",
     "zod": "^3.24.3"
   },
   "devDependencies": {

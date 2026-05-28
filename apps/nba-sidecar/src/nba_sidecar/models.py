@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class Participant(BaseModel):
@@ -86,14 +87,27 @@ class VolatilityHistoricalPrior(BaseModel):
 
 
 class VolatilityStateSpaceObservation(BaseModel):
-    bucketStart: str
-    bucketEnd: str
-    intensity: float
-    gameElapsedSeconds: float | None = None
-    activeMarketCount: int | None = None
-    sourceCount: int | None = None
-    sourceDominance: float | None = None
-    sourceDisagreement: float | None = None
+    bucketStart: datetime
+    bucketEnd: datetime
+    intensity: float = Field(ge=0)
+    gameElapsedSeconds: float | None = Field(default=None, ge=0)
+    activeMarketCount: int | None = Field(default=None, ge=1)
+    sourceCount: int | None = Field(default=None, ge=1)
+    sourceDominance: float | None = Field(default=None, ge=0, le=1)
+    sourceDisagreement: float | None = Field(default=None, ge=0, le=1)
+
+    @field_validator("bucketStart", "bucketEnd")
+    @classmethod
+    def _bucket_times_must_be_timezone_aware(cls, value: datetime) -> datetime:
+        if value.tzinfo is None:
+            raise ValueError("bucket timestamps must include timezone information")
+        return value.astimezone(timezone.utc)
+
+    @model_validator(mode="after")
+    def _bucket_end_must_follow_bucket_start(self) -> VolatilityStateSpaceObservation:
+        if self.bucketEnd <= self.bucketStart:
+            raise ValueError("bucketEnd must be later than bucketStart")
+        return self
 
 
 class VolatilityStateSpaceTriggerConfig(BaseModel):
@@ -191,8 +205,8 @@ class VolatilityStateSpaceRequest(BaseModel):
 
 
 class VolatilityStateSpaceResultObservation(BaseModel):
-    bucketStart: str
-    bucketEnd: str
+    bucketStart: datetime
+    bucketEnd: datetime
     baselineMedian: float
     baselineMad: float
     threshold: float
@@ -200,6 +214,21 @@ class VolatilityStateSpaceResultObservation(BaseModel):
     regimeScore: float
     warmedUp: bool
     fired: bool
+
+    @field_validator("bucketStart", "bucketEnd")
+    @classmethod
+    def _result_bucket_times_must_be_timezone_aware(cls, value: datetime) -> datetime:
+        if value.tzinfo is None:
+            raise ValueError("bucket timestamps must include timezone information")
+        return value.astimezone(timezone.utc)
+
+    @model_validator(mode="after")
+    def _result_bucket_end_must_follow_bucket_start(
+        self,
+    ) -> VolatilityStateSpaceResultObservation:
+        if self.bucketEnd <= self.bucketStart:
+            raise ValueError("bucketEnd must be later than bucketStart")
+        return self
 
 
 class VolatilityStateSpaceResponse(BaseModel):

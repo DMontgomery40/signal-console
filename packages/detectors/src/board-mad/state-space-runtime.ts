@@ -1,4 +1,4 @@
-import type { BoardStateSpaceConfig } from "@signal-console/detectors/board-mad/state-space-config";
+import type { BoardStateSpaceConfig } from "./state-space-config";
 
 export interface VolatilityHistoricalPrior {
   readonly mad: number;

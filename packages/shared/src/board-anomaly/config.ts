@@ -31,6 +31,14 @@ export function resolveBoardAnomalyConfig(
     gameStateVolatility: {
       ...defaultBoardAnomalyDetectorConfig.gameStateVolatility,
       ...(partial.gameStateVolatility ?? {}),
+      runtime: {
+        ...defaultBoardAnomalyDetectorConfig.gameStateVolatility.runtime,
+        ...(partial.gameStateVolatility?.runtime ?? {}),
+        stateSpace: {
+          ...defaultBoardAnomalyDetectorConfig.gameStateVolatility.runtime.stateSpace,
+          ...(partial.gameStateVolatility?.runtime?.stateSpace ?? {}),
+        },
+      },
     },
     suppression: {
       ...defaultBoardAnomalyDetectorConfig.suppression,

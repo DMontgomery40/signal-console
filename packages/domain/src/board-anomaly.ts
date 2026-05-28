@@ -1,3 +1,19 @@
+import {
+  BOARD_MAD_BASELINE_MODE_DEFAULT,
+  BOARD_MAD_BUCKET_SECONDS_DEFAULT,
+  BOARD_MAD_FRESH_CAP_SECONDS_DEFAULT,
+  BOARD_MAD_OPENING_BASELINE_BUCKETS_DEFAULT,
+  BOARD_MAD_OPENING_RAMP_COMPLETE_BUCKETS_DEFAULT,
+  BOARD_MAD_TRAILING_BUCKETS_DEFAULT,
+  BOARD_MAD_WARMUP_BUCKETS_DEFAULT,
+  BOARD_MAD_WEIGHTING_DEFAULT,
+  K_MAD_LIVE,
+} from "@signal-console/detectors/board-mad/config";
+import {
+  BOARD_STATE_SPACE_CONFIG_DEFAULTS,
+  type BoardStateSpaceConfig,
+} from "@signal-console/detectors/board-mad/state-space-config";
+
 import type {
   MappingStatus,
   MarketFamily,
@@ -193,6 +209,19 @@ export type BoardVolatilityPhaseKind =
 
 export type BoardVolatilityBaselineSource = "calibrated" | "fallback";
 
+export type BoardGameStateVolatilityRuntimeConfig = {
+  baselineMode: "trailing" | "opening-ramp" | "historical-blend";
+  bucketSeconds: number;
+  freshCapSeconds: number;
+  kMad: number;
+  openingBaselineBuckets: number;
+  openingRampCompleteBuckets: number;
+  stateSpace: BoardStateSpaceConfig;
+  trailingBuckets: number;
+  warmupBuckets: number;
+  weighting: "equal" | "volume";
+};
+
 export type BoardGameStateVolatility = {
   gameId: string;
   gameLabel: string;
@@ -343,6 +372,7 @@ export type BoardAnomalyDetectorConfig = {
     minFamilies: number;
     minCoreFamilies: number;
     topEvidenceRows: number;
+    runtime: BoardGameStateVolatilityRuntimeConfig;
   };
   suppression: {
     dedupeWindowSeconds: number;
@@ -393,6 +423,18 @@ export const defaultBoardAnomalyDetectorConfig: BoardAnomalyDetectorConfig = {
     minFamilies: 3,
     minCoreFamilies: 2,
     topEvidenceRows: 8,
+    runtime: {
+      baselineMode: BOARD_MAD_BASELINE_MODE_DEFAULT,
+      bucketSeconds: BOARD_MAD_BUCKET_SECONDS_DEFAULT,
+      freshCapSeconds: BOARD_MAD_FRESH_CAP_SECONDS_DEFAULT,
+      kMad: K_MAD_LIVE,
+      openingBaselineBuckets: BOARD_MAD_OPENING_BASELINE_BUCKETS_DEFAULT,
+      openingRampCompleteBuckets: BOARD_MAD_OPENING_RAMP_COMPLETE_BUCKETS_DEFAULT,
+      stateSpace: BOARD_STATE_SPACE_CONFIG_DEFAULTS,
+      trailingBuckets: BOARD_MAD_TRAILING_BUCKETS_DEFAULT,
+      warmupBuckets: BOARD_MAD_WARMUP_BUCKETS_DEFAULT,
+      weighting: BOARD_MAD_WEIGHTING_DEFAULT,
+    },
   },
   suppression: {
     dedupeWindowSeconds: 120,
