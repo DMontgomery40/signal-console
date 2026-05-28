@@ -660,8 +660,8 @@ function DetectorDefaultsSection({
             <p className="mt-3 text-sm text-text-md">
               Rollback is the same operation in reverse: choose a different board-model profile
               here, apply it, and the next request recomputes against that profile. Scheduled
-              changes are stored beside detector-defaults.json and are promoted on the first API
-              read at or after {pendingProfile.effectiveAt}.
+              changes stay in the live defaults store and are promoted on the first API read at or
+              after {pendingProfile.effectiveAt}.
             </p>
             {mutation.isError || scheduleMutation.isError ? (
               <p className="mt-3 font-mono text-xs text-accent-yellow">
@@ -705,13 +705,8 @@ function DetectorDefaultsSection({
         </ExplainerCard>
       </h3>
       <p className="mt-2 text-xs text-text-lo max-w-[64ch]">
-        Live operating values for Recent + Live. Edits write
-        <span className="font-mono text-text-md">
-          {" "}
-          ~/signal-console/data/detector-defaults.json
-        </span>
-        ; the API picks them up within 5 s and bumps the board-model version so cached results
-        recompute on next access.
+        Live operating values for Recent + Live. Changes apply within a few seconds and force a
+        fresh board-model recompute on the next access.
       </p>
       <dl className="mt-4 grid grid-cols-1 gap-x-4 gap-y-3 text-sm sm:grid-cols-[180px_minmax(0,1fr)]">
         <div
@@ -1316,11 +1311,7 @@ export function SettingsPage(): JSX.Element {
       <div className="flex items-baseline justify-between">
         <h2 className="text-text-hi text-lg font-semibold">Settings</h2>
         <p className="tabular font-mono text-xs text-text-lo" data-testid="settings-meta">
-          {settings.isLoading
-            ? "loading…"
-            : settings.isError
-              ? "—"
-              : "diagnostic dashboard · read-only"}
+          {settings.isLoading ? "loading…" : settings.isError ? "—" : "live runtime controls"}
         </p>
       </div>
 

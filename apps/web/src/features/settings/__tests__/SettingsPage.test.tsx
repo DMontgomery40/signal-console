@@ -238,6 +238,21 @@ describe("SettingsPage", () => {
     expect(screen.getByTestId("settings-about")).toBeDefined();
   });
 
+  it("labels the page as live runtime controls instead of a read-only diagnostic surface", async () => {
+    fetchMock.mockImplementation(async () => {
+      await Promise.resolve();
+      return jsonResponse(makeSettings());
+    });
+
+    render(<SettingsPage />, { wrapper: makeWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("settings-meta").textContent).toBe("live runtime controls");
+    });
+    expect(screen.getByText(/Changes apply within a few seconds/)).toBeDefined();
+    expect(screen.queryByText(/detector-defaults\.json/)).toBeNull();
+  });
+
   it("Database section shows path, bytes + human, WAL, pages, page size, lastModified, mode", async () => {
     fetchMock.mockImplementation(async () => {
       await Promise.resolve();
@@ -670,6 +685,8 @@ describe("SettingsPage > Detector defaults (US-053)", () => {
     const dialog = await waitFor(() => screen.getByTestId("detector-profile-confirmation"));
     expect(dialog.textContent).toContain("Recent and Live");
     expect(dialog.textContent).toContain("Rollback");
+    expect(dialog.textContent).toContain("live defaults store");
+    expect(dialog.textContent).not.toContain("detector-defaults.json");
     fireEvent.click(screen.getByTestId("detector-profile-schedule"));
 
     await waitFor(() => {

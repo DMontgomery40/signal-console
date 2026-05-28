@@ -348,7 +348,7 @@ Filter memory is paired with Alert holdoff in the UI because the opening minutes
 Editing a value here writes a JSON file the API picks up within five seconds. There's no restart, no deploy, no commit. The next request reads the new defaults and the board-model version string gets a hash suffix so any cached results for the old defaults get re-computed.
 
 Use this when the labeled-event set shifts and the canonical sensitivity or signal timing should move with it. Don't use this for one-off comparisons — that's what Backtest is for.`,
-    formal: String.raw`The detector-defaults service backs \`POST /v1/settings/detector-defaults\` with a Zod-validated, atomically-written JSON file at \`~/signal-console/data/detector-defaults.json\`. Live board requests and Backtest parameter promotion both read from this file at request time with a 5-second in-process TTL cache.
+    formal: String.raw`The detector-defaults service backs \`POST /v1/settings/detector-defaults\` with a Zod-validated, atomically-written live defaults store. Live board requests and Backtest parameter promotion both read from that store at request time with a 5-second in-process TTL cache.
 
 Cache invalidation: the runtime \`board-mad\` detector version is derived as \`detector.version + '+def.<8-hex>'\` from the SHA-256 of the resolved defaults whenever they diverge from the package-declared baseline. The cache discriminator \`(detector_id, detector_version, params_hash, source_watermark_hash, scope, ...)\` therefore changes whenever any default changes, and the next cache lookup misses — no manual \`/v1/cache\` flush needed.`,
   },

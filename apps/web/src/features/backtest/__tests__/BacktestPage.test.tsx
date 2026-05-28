@@ -456,6 +456,8 @@ describe("BacktestPage", () => {
     await waitFor(() => {
       expect(screen.getByTestId("backtest-window")).not.toBeNull();
     });
+    expect(screen.getByTestId("backtest-meta").textContent).toBe("server replay");
+    expect(screen.queryByText("POST /v1/backtest")).toBeNull();
     expect(screen.getByTestId("backtest-scope")).not.toBeNull();
     expect(screen.getByTestId("backtest-detector")).not.toBeNull();
     expect(screen.getByTestId("backtest-results-empty")).not.toBeNull();
@@ -1586,6 +1588,11 @@ describe("BacktestPage", () => {
     await waitFor(() => {
       expect(screen.queryByTestId("backtest-promote-apply-now")).not.toBeNull();
     });
+    const promoteDialog = screen.getByTestId("backtest-promote");
+    expect(promoteDialog.textContent).toContain(
+      "Writes the live detector defaults read by Recent and Live.",
+    );
+    expect(promoteDialog.textContent).not.toContain("detector-defaults.json");
     fireEvent.click(screen.getByTestId("backtest-promote-apply-now"));
     await waitFor(() => {
       expect(promoted).not.toBeNull();

@@ -106,9 +106,8 @@ export function App(): JSX.Element {
     <div className="mx-auto max-w-[1440px] overflow-x-hidden px-4 py-6 text-text-md sm:px-6 sm:py-8 lg:px-12 lg:py-10">
       <header className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-2">
         <h1 className="font-sans text-2xl font-semibold text-text-hi">Signal Console</h1>
-        <span className="tabular font-mono text-xs">
-          <span className="text-accent-yellow">v2</span>
-          <span className="hidden text-text-lo sm:inline"> · scaffold</span>
+        <span className="hidden font-mono text-xs uppercase tracking-[0.12em] text-text-lo sm:inline">
+          live state-space
         </span>
       </header>
 

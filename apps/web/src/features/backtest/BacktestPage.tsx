@@ -1161,12 +1161,9 @@ export function BacktestPage(): JSX.Element {
           body={
             <>
               <p>
-                Writes the live detector defaults read by Recent and Live (
-                <span className="font-mono text-text-md">
-                  ~/signal-console/data/detector-defaults.json
-                </span>
-                ). The runtime detector version gets a defaults hash and old cached runs miss
-                naturally — next /v1/board call recomputes against the new profile.
+                Writes the live detector defaults read by Recent and Live. The runtime detector
+                version gets a defaults hash and old cached runs miss naturally, so the next board
+                request recomputes against the new profile.
               </p>
               <p className="mt-3">
                 Schedule lands at <span className="font-mono">{pendingPromote.effectiveAt}</span>{" "}
@@ -1190,12 +1187,12 @@ export function BacktestPage(): JSX.Element {
       <div className="flex items-baseline justify-between">
         <h2 className="text-text-hi text-lg font-semibold">Backtest</h2>
         <p data-testid="backtest-meta" className="tabular font-mono text-xs text-text-lo">
-          POST /v1/backtest
+          server replay
         </p>
       </div>
       <p className="mt-2 text-sm text-text-md">
-        Replay a detector over a window. Results stay pinned to the last server run until you rerun
-        with the current params.
+        Replay a detector over a window. Results stay pinned to the last replay until you rerun with
+        the current params.
       </p>
 
       <form

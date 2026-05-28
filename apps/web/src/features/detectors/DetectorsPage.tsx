@@ -39,12 +39,24 @@ const PARAM_DISPLAY_NAMES: Readonly<Record<string, string>> = {
   bucketSeconds: "Bucket size",
   baselineMode: "Prior anchor",
   freshCapSeconds: "Freshness cap",
+  weighting: "Weighting",
   kMad: "Innovation trigger",
   openingBaselineBuckets: "Opening anchor sample",
   openingRampCompleteBuckets: "Opening anchor fade-out",
+  historicalLastGames: "Historical games",
+  historicalPriorWeight: "Opening prior share",
+  historicalAwayWeight: "Away/home split",
+  historicalRampCompleteGameMinutes: "History ramp-out",
+  trailingGameMinutes: "Historical game memory",
+  recentWallMinutes: "Recent wall-memory",
+  recentWallWeight: "Recent wall-memory weight",
   stateSpace: "State-space config",
   trailingBuckets: "Filter memory",
   warmupBuckets: "Alert holdoff",
+  minVolumeShare: "Off-price min volume share",
+  minOffPriceDistance: "Off-price min distance",
+  board: "Board lane",
+  offprice: "Off-price lane",
 };
 
 const PARAM_EXPLAINER_IDS: Readonly<Record<string, ExplainerId>> = {
@@ -184,6 +196,43 @@ function readBooleanDefault(prop: ParsedProperty): boolean {
 
 function UnknownField({ prop }: { prop: ParsedProperty }): JSX.Element {
   if (isRecord(prop.defaultValue)) {
+    const keys = Object.keys(prop.defaultValue);
+    if (keys.length === 0) {
+      return (
+        <div
+          data-testid={`param-input-${prop.name}`}
+          data-param-kind="unknown"
+          className="flex flex-col gap-1"
+        >
+          <span className="tabular font-mono text-sm text-text-md">
+            Inherits nested runtime params.
+          </span>
+        </div>
+      );
+    }
+    if (prop.name === "stateSpace") {
+      return (
+        <div
+          data-testid={`param-input-${prop.name}`}
+          data-param-kind="unknown"
+          className="flex flex-col gap-2"
+        >
+          <div className="flex flex-wrap gap-2">
+            {keys.map((key) => (
+              <span
+                key={key}
+                className="border border-surface-2 px-2 py-1 text-[11px] font-mono uppercase tracking-[0.08em] text-text-md"
+              >
+                {key}
+              </span>
+            ))}
+          </div>
+          <span className="text-xs text-text-lo">
+            Inspect and tune these coefficients on Settings and Backtest.
+          </span>
+        </div>
+      );
+    }
     return (
       <textarea
         disabled
@@ -303,142 +352,6 @@ function DetectorCard({ detector }: { detector: DetectorEntry }): JSX.Element {
   );
 }
 
-// US-049: split into two honest sections.
-//   1) ALGORITHM (3-step recipe) — applies ONLY when the new detector
-//      consumes data we already ingest (quote_ticks, market_microstructure_events,
-//      PBP actions). This is the easy case.
-//   2) SOURCE (N-step, multi-iteration) — what's actually involved in
-//      onboarding a new upstream feed (FanDuel, DraftKings, an additional
-//      sport's PBP). Enumerated visibly on the page so the desk doesn't
-//      misread the algorithm recipe as the whole story.
-function HowToAddPanel(): JSX.Element {
-  const stepClass = "grid grid-cols-[1.25rem_1fr] gap-x-2";
-  const numClass = "tabular font-mono text-accent-green";
-  const codeClass = "font-mono text-text-hi";
-  return (
-    <aside
-      data-testid="how-to-add-detector"
-      className="mt-12 border-l-2 border-accent-green bg-surface-1 px-5 py-4"
-    >
-      <h3
-        data-testid="how-to-add-algorithm-heading"
-        className="text-text-hi text-base font-semibold"
-      >
-        How to add a detector ALGORITHM
-      </h3>
-      <p className="mt-1 text-xs text-text-lo">
-        For a new algorithm that consumes existing ingested data (quote_ticks,
-        market_microstructure_events, PBP actions):
-      </p>
-      <ol data-testid="how-to-add-algorithm-steps" className="mt-3 space-y-2 text-sm text-text-md">
-        <li className={stepClass}>
-          <span className={numClass}>1.</span>
-          <span>
-            Create <code className={codeClass}>packages/detectors/src/&lt;name&gt;/index.ts</code>{" "}
-            exporting <code className={codeClass}>detector: Detector&lt;typeof Params&gt;</code>.
-          </span>
-        </li>
-        <li className={stepClass}>
-          <span className={numClass}>2.</span>
-          <span>
-            Add one line to <code className={codeClass}>packages/detectors/src/registry.ts</code>{" "}
-            registering the new detector.
-          </span>
-        </li>
-        <li className={stepClass}>
-          <span className={numClass}>3.</span>
-          <span>
-            Run <code className={codeClass}>pnpm verify</code> — typecheck, lint, and contract tests
-            all gate the new detector.
-          </span>
-        </li>
-      </ol>
-
-      <h3
-        data-testid="how-to-add-source-heading"
-        className="mt-8 text-text-hi text-base font-semibold"
-      >
-        How to add a data SOURCE (FanDuel, DraftKings, etc.)
-      </h3>
-      <p className="mt-1 text-xs text-text-lo">
-        A new upstream feed is multi-layer work. Touch points (every one of these is required):
-      </p>
-      <ol data-testid="how-to-add-source-steps" className="mt-3 space-y-2 text-sm text-text-md">
-        <li className={stepClass}>
-          <span className={numClass}>1.</span>
-          <span>
-            New ingest worker module under <code className={codeClass}>apps/worker/</code> (auth,
-            rate limits, retry, IP normalization, heartbeat + sanitation).
-          </span>
-        </li>
-        <li className={stepClass}>
-          <span className={numClass}>2.</span>
-          <span>
-            Gold-DB schema additions or extensions — prefer reusing{" "}
-            <code className={codeClass}>quote_ticks</code> and{" "}
-            <code className={codeClass}>source_markets</code>; a new table requires a migration
-            plan.
-          </span>
-        </li>
-        <li className={stepClass}>
-          <span className={numClass}>3.</span>
-          <span>
-            Watermark updates — extend the per-game source-watermark hash so cache rows invalidate
-            when the new feed advances.
-          </span>
-        </li>
-        <li className={stepClass}>
-          <span className={numClass}>4.</span>
-          <span>
-            Extend the <code className={codeClass}>Source</code> union in{" "}
-            <code className={codeClass}>packages/detectors/src/types.ts</code>.
-          </span>
-        </li>
-        <li className={stepClass}>
-          <span className={numClass}>5.</span>
-          <span>
-            Update the <code className={codeClass}>sources</code> array on every detector that now
-            reads from this feed (the SOURCES chip above is generated from it).
-          </span>
-        </li>
-        <li className={stepClass}>
-          <span className={numClass}>6.</span>
-          <span>
-            Settings page Sources section — add a row for the new feed (sync status, last error,
-            tick count).
-          </span>
-        </li>
-        <li className={stepClass}>
-          <span className={numClass}>7.</span>
-          <span>
-            Tests at every layer — ingest unit, fixture-backed integration, and a per-detector
-            contract test using a small fixture from the new source.
-          </span>
-        </li>
-      </ol>
-      <p className="mt-4 text-sm text-text-md">
-        Full end-to-end checklist:{" "}
-        <a
-          data-testid="adding-a-source-link"
-          href="https://github.com/DMontgomery40/signal-console/blob/main/docs/adding-a-source.md"
-          className="font-mono text-accent-yellow underline-offset-2 hover:underline"
-          target="_blank"
-          rel="noreferrer"
-        >
-          docs/adding-a-source.md
-        </a>
-        .
-      </p>
-      <p
-        data-testid="how-to-add-source-multi-iteration"
-        className="mt-2 text-xs font-semibold text-accent-yellow"
-      >
-        Multi-iteration work — not a one-line change.
-      </p>
-    </aside>
-  );
-}
-
 export function DetectorsPage(): JSX.Element {
   const detectors = useDetectors();
   const banner =
@@ -462,8 +375,8 @@ export function DetectorsPage(): JSX.Element {
         </p>
       </div>
       <p className="mt-2 text-sm text-text-md">
-        Detector registry · params are read-only here. Live route uses defaults; Backtest exposes
-        per-run controls.
+        Registry view of each detector's inputs. Tune live behavior in Settings and compare per-run
+        behavior in Backtest.
       </p>
 
       {detectors.isLoading ? (
@@ -479,8 +392,6 @@ export function DetectorsPage(): JSX.Element {
           ))}
         </div>
       )}
-
-      <HowToAddPanel />
     </section>
   );
 }
