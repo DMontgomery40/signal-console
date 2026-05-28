@@ -16,12 +16,15 @@ import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 
 import { readDetectorDefaults } from "../services/detector-defaults";
-import { runDetector } from "../services/detector-runner";
+import { runDetector, type BoardVolatilityRunner } from "../services/detector-runner";
 import { parseStrictIsoTimestamp } from "../services/timestamps";
 
 export interface EnsembleOrRoutesOptions {
   readonly goldDbPath?: string;
   readonly cacheDbPath?: string;
+  readonly boardVolatilityFetchImpl?: typeof fetch;
+  readonly boardVolatilityRunner?: BoardVolatilityRunner;
+  readonly boardVolatilitySidecarBaseUrl?: string;
 }
 
 const paramSchema = z.object({ gameId: z.string().min(1) });
@@ -63,6 +66,9 @@ const boardObservationJsonSchema = {
     intensity: { type: "number" },
     baselineMedian: { type: "number" },
     baselineMad: { type: "number" },
+    threshold: { type: "number" },
+    standardizedInnovation: { type: "number" },
+    regimeScore: { type: "number" },
     warmedUp: { type: "boolean" },
   },
 } as const;
@@ -114,9 +120,9 @@ const ensembleOrRoutes: FastifyPluginAsync<EnsembleOrRoutesOptions> = (app, opts
     {
       schema: {
         tags: ["desk-stable"],
-        summary: "Ensemble-OR (board-mad UNION off-price-print) live fires for one game",
+        summary: "Ensemble-OR live volatility signals for one game",
         description:
-          "Stage-1 cascade: board-mad fires at the live default K_MAD_LIVE plus off-price-print Polymarket trade-print fires at live default thresholds. Returns boardObservations (per-bucket aggregates with warmedUp + fired) and fires (lane-tagged board + offprice). Cache-backed by per-game source watermark hash through the shared detector runner.",
+          "Stage-1 cascade: whole-board state-space observations plus off-price-print Polymarket trade-print fires at live default thresholds. Returns boardObservations (per-bucket aggregates with warmedUp + fired) and fires (lane-tagged board + offprice). Cache-backed by per-game source watermark hash through the shared detector runner.",
         params: paramsJsonSchema,
         querystring: queryJsonSchema,
         response: {
@@ -125,7 +131,7 @@ const ensembleOrRoutes: FastifyPluginAsync<EnsembleOrRoutesOptions> = (app, opts
         },
       },
     },
-    (request: FastifyRequest, reply: FastifyReply) => {
+    async (request: FastifyRequest, reply: FastifyReply) => {
       const parsed = paramSchema.safeParse(request.params);
       if (!parsed.success) {
         reply.code(400).send({ error: "invalid params" });
@@ -167,7 +173,7 @@ const ensembleOrRoutes: FastifyPluginAsync<EnsembleOrRoutesOptions> = (app, opts
         warmupBuckets: defaults.warmupBuckets,
         freshCapSeconds: defaults.freshCapSeconds,
       });
-      const result = runDetector({
+      const result = await runDetector({
         detectorId: "ensemble-or",
         params: {
           board: liveBoardParams,
@@ -187,6 +193,15 @@ const ensembleOrRoutes: FastifyPluginAsync<EnsembleOrRoutesOptions> = (app, opts
               },
         goldDbPath,
         cacheDbPath,
+        ...(opts.boardVolatilityFetchImpl === undefined
+          ? {}
+          : { boardVolatilityFetchImpl: opts.boardVolatilityFetchImpl }),
+        ...(opts.boardVolatilityRunner === undefined
+          ? {}
+          : { boardVolatilityRunner: opts.boardVolatilityRunner }),
+        ...(opts.boardVolatilitySidecarBaseUrl === undefined
+          ? {}
+          : { boardVolatilitySidecarBaseUrl: opts.boardVolatilitySidecarBaseUrl }),
         ...(atMs === null ? {} : { now: new Date(atMs) }),
       });
       reply.send({
@@ -204,6 +219,11 @@ const ensembleOrRoutes: FastifyPluginAsync<EnsembleOrRoutesOptions> = (app, opts
           intensity: b.intensity,
           baselineMedian: b.baselineMedian,
           baselineMad: b.baselineMad,
+          ...(b.threshold === undefined ? {} : { threshold: b.threshold }),
+          ...(b.standardizedInnovation === undefined
+            ? {}
+            : { standardizedInnovation: b.standardizedInnovation }),
+          ...(b.regimeScore === undefined ? {} : { regimeScore: b.regimeScore }),
           warmedUp: b.warmedUp,
         })),
         fires: result.fires.map((f) => ({

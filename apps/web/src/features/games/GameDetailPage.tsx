@@ -83,7 +83,7 @@ function ContextTimeline({
   const data = series.map((o) => ({
     bucketStart: o.bucketStart,
     intensity: o.intensity,
-    threshold: o.baselineMedian + k * o.baselineMad,
+    threshold: o.threshold ?? o.baselineMedian + k * o.baselineMad,
   }));
   const focusPoint = data.find((d) => d.bucketStart === focusBucketStart);
   return (
@@ -207,6 +207,11 @@ function FiredBucketRow({
           <p className="mb-3 font-mono text-xs uppercase tracking-[0.08em] text-text-lo">
             Context: prior elapsed lookback + this fire
           </p>
+          <p className="mb-3 font-mono text-xs text-text-lo" data-testid="context-metrics">
+            threshold {formatNumber(obs.threshold ?? obs.baselineMedian + k * obs.baselineMad, 3)} ·
+            innovation z {formatNumber(obs.standardizedInnovation ?? NaN, 3)} · regime{" "}
+            {formatNumber(obs.regimeScore ?? NaN, 3)}
+          </p>
           <ContextTimeline series={contextSeries} focusBucketStart={obs.bucketStart} k={k} />
           <FanoutPanel gameId={gameId} bucketStart={obs.bucketStart} />
         </div>
@@ -314,7 +319,7 @@ export function GameDetailPage({ gameId }: GameDetailPageProps): JSX.Element {
           <p className="mt-3 font-mono text-sm text-text-md">Loading fires…</p>
         ) : board.isError ? null : fires.length === 0 ? (
           <p className="mt-3 font-mono text-sm text-text-lo" data-testid="no-fires-empty-state">
-            No fires recorded for this game at live sensitivity 3.0
+            No fires recorded for this game at the live trigger
           </p>
         ) : (
           <div className="mt-3 max-h-[70vh] overflow-y-auto bg-surface-1">
@@ -324,8 +329,8 @@ export function GameDetailPage({ gameId }: GameDetailPageProps): JSX.Element {
             >
               <span>Bucket start</span>
               <span>Intensity</span>
-              <span>Baseline med</span>
-              <span>Baseline MAD</span>
+              <span>Baseline level</span>
+              <span>Baseline scale</span>
               <span />
             </div>
             <ul data-testid="fired-bucket-list">

@@ -1,6 +1,6 @@
 // Board route (US-021 / PRD §15).
 //
-// GET /v1/board/:gameId — board-mad fires for one game at K_MAD_LIVE.
+// GET /v1/board/:gameId — board state-space fires for one game at K_MAD_LIVE.
 // No K override is accepted (Backtest is the override surface).
 //
 // Cache semantics live in services/board.ts: per-game source watermark hash
@@ -12,12 +12,16 @@ import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 
 import { getOrComputeBoard } from "../services/board";
+import type { BoardVolatilityRunner } from "../services/detector-runner";
 import { getFanout } from "../services/fanout";
 import { parseStrictIsoTimestamp } from "../services/timestamps";
 
 export interface BoardRoutesOptions {
   readonly goldDbPath?: string;
   readonly cacheDbPath?: string;
+  readonly boardVolatilityFetchImpl?: typeof fetch;
+  readonly boardVolatilityRunner?: BoardVolatilityRunner;
+  readonly boardVolatilitySidecarBaseUrl?: string;
 }
 
 const paramSchema = z.object({ gameId: z.string().min(1) });
@@ -46,6 +50,9 @@ const observationJsonSchema = {
     intensity: { type: "number" },
     baselineMedian: { type: "number" },
     baselineMad: { type: "number" },
+    threshold: { type: "number" },
+    standardizedInnovation: { type: "number" },
+    regimeScore: { type: "number" },
     warmedUp: { type: "boolean" },
   },
 } as const;
@@ -76,9 +83,9 @@ const boardRoutes: FastifyPluginAsync<BoardRoutesOptions> = (app, opts) => {
     {
       schema: {
         tags: ["desk-stable"],
-        summary: "Board-MAD fires for one game at the live default K (K_MAD_LIVE)",
+        summary: "Board state-space observations for one game at the live default trigger",
         description:
-          "Returns detector_observations for board-mad at K_MAD_LIVE. Cache-backed by per-game source watermark hash; first call computes and persists, subsequent calls read the cache.",
+          "Returns whole-board state-space observations for the live board lane. Cache-backed by per-game source watermark hash; first call computes and persists, subsequent calls read the cache.",
         params: paramsJsonSchema,
         response: {
           200: responseSchema,
@@ -86,16 +93,25 @@ const boardRoutes: FastifyPluginAsync<BoardRoutesOptions> = (app, opts) => {
         },
       },
     },
-    (request: FastifyRequest, reply: FastifyReply) => {
+    async (request: FastifyRequest, reply: FastifyReply) => {
       const parsed = paramSchema.safeParse(request.params);
       if (!parsed.success) {
         reply.code(400).send({ error: "invalid params" });
         return;
       }
-      const result = getOrComputeBoard({
+      const result = await getOrComputeBoard({
         goldDbPath,
         cacheDbPath,
         gameId: parsed.data.gameId,
+        ...(opts.boardVolatilityFetchImpl === undefined
+          ? {}
+          : { boardVolatilityFetchImpl: opts.boardVolatilityFetchImpl }),
+        ...(opts.boardVolatilityRunner === undefined
+          ? {}
+          : { boardVolatilityRunner: opts.boardVolatilityRunner }),
+        ...(opts.boardVolatilitySidecarBaseUrl === undefined
+          ? {}
+          : { boardVolatilitySidecarBaseUrl: opts.boardVolatilitySidecarBaseUrl }),
       });
       reply.send(result);
     },

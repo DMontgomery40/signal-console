@@ -19,7 +19,6 @@ import { createHash } from "node:crypto";
 
 import { openCacheDb, openGoldDb } from "@signal-console/db";
 import {
-  detector as boardMad,
   Params as BoardMadParams,
   type ParamsResolved as BoardMadParamsResolved,
 } from "@signal-console/detectors/board-mad";
@@ -43,7 +42,9 @@ import type {
   Tick,
 } from "@signal-console/detectors";
 import type Database from "better-sqlite3";
+import { z } from "zod";
 
+import { buildBoardVolatilityModelRequest } from "./board-volatility-model";
 import { buildBoardMadHistoricalPriors, loadBoardMadTicksForGame } from "./board-mad-context";
 import {
   boardMadDetectorVersion,
@@ -51,6 +52,12 @@ import {
   type DetectorDefaults,
 } from "./detector-defaults";
 import { loadMicrostructureForGames } from "./loaders/microstructure-loader";
+import {
+  fetchBoardVolatilityStateSpace,
+  type VolatilityStateSpaceParams,
+  type VolatilityStateSpaceRequest,
+  type VolatilityStateSpaceResponse,
+} from "./volatility-model-sidecar";
 
 export type { ClockSource, GameTimingContext } from "@signal-console/detectors";
 
@@ -69,6 +76,17 @@ export type RunScope =
       readonly gameIds: readonly string[];
     };
 
+type FetchLike = typeof fetch;
+
+export interface BoardVolatilityRunnerArgs {
+  readonly fetchImpl?: FetchLike;
+  readonly sidecarBaseUrl?: string;
+  readonly window: DetectorWindow;
+  readonly params: BoardMadParamsResolved;
+}
+
+export type BoardVolatilityRunner = (args: BoardVolatilityRunnerArgs) => Promise<DetectorResult>;
+
 export interface RunSpec {
   readonly detectorId: DetectorId;
   // Raw params from caller; validated by the per-detector zod schema inside
@@ -77,6 +95,9 @@ export interface RunSpec {
   readonly scope: RunScope;
   readonly goldDbPath: string;
   readonly cacheDbPath: string;
+  readonly boardVolatilityFetchImpl?: FetchLike;
+  readonly boardVolatilityRunner?: BoardVolatilityRunner;
+  readonly boardVolatilitySidecarBaseUrl?: string;
   readonly now?: Date;
 }
 
@@ -151,10 +172,20 @@ export function resolveGameTimingContext(goldDb: GoldDbHandle, gameId: string): 
   };
 }
 
-export function runDetector(spec: RunSpec): RunResult {
+export async function runDetector(spec: RunSpec): Promise<RunResult> {
   const now = spec.now ?? new Date();
   const defaults = readDetectorDefaults();
-  const dispatch = resolveDispatch(spec.detectorId, spec.params, defaults);
+  const dispatch = resolveDispatch(spec.detectorId, spec.params, defaults, {
+    ...(spec.boardVolatilityFetchImpl === undefined
+      ? {}
+      : { boardVolatilityFetchImpl: spec.boardVolatilityFetchImpl }),
+    ...(spec.boardVolatilityRunner === undefined
+      ? {}
+      : { boardVolatilityRunner: spec.boardVolatilityRunner }),
+    ...(spec.boardVolatilitySidecarBaseUrl === undefined
+      ? {}
+      : { boardVolatilitySidecarBaseUrl: spec.boardVolatilitySidecarBaseUrl }),
+  });
   const paramsJson = canonicalJson(dispatch.resolvedParams);
   const paramsHash = sha256Hex(paramsJson);
 
@@ -269,7 +300,7 @@ export function runDetector(spec: RunSpec): RunResult {
         timingContexts,
       };
 
-      const rawResult: DetectorResult = dispatch.run(window);
+      const rawResult: DetectorResult = await dispatch.run(window);
       // Normalize lane tags so cold-path and warm-path RunResult.fires have
       // the SAME shape. off-price-print emits lane-less fires upstream
       // (off-price-print/index.ts:34-42); ensemble-or wraps and tags them
@@ -327,15 +358,22 @@ interface Dispatch {
   readonly resolvedParams: unknown;
   readonly boardMadParams?: BoardMadParamsResolved;
   readonly sources: readonly SourceKind[];
-  readonly run: (window: DetectorWindow) => DetectorResult;
+  readonly run: (window: DetectorWindow) => Promise<DetectorResult> | DetectorResult;
 }
 
 type SourceKind = "ticks" | "microstructure";
+
+interface BoardVolatilityRuntimeOptions {
+  readonly boardVolatilityFetchImpl?: FetchLike;
+  readonly boardVolatilityRunner?: BoardVolatilityRunner;
+  readonly boardVolatilitySidecarBaseUrl?: string;
+}
 
 function resolveDispatch(
   detectorId: DetectorId,
   rawParams: unknown,
   defaults: DetectorDefaults,
+  runtime: BoardVolatilityRuntimeOptions,
 ): Dispatch {
   switch (detectorId) {
     case "board-mad": {
@@ -347,7 +385,7 @@ function resolveDispatch(
         resolvedParams: params,
         boardMadParams: params,
         sources: ["ticks"],
-        run: (w) => boardMad.run(w, params),
+        run: (w) => runBoardVolatilityDetector(w, params, runtime),
       };
     }
     case "off-price-print": {
@@ -358,7 +396,7 @@ function resolveDispatch(
         detectorVersion: offPricePrint.version,
         resolvedParams: params,
         sources: ["microstructure"],
-        run: (w) => offPricePrint.run(w, params),
+        run: (w) => Promise.resolve(offPricePrint.run(w, params)),
       };
     }
     case "ensemble-or": {
@@ -373,7 +411,7 @@ function resolveDispatch(
         resolvedParams: params,
         boardMadParams: params.board,
         sources: ["ticks", "microstructure"],
-        run: (w) => ensembleOr.run(w, params),
+        run: (w) => runEnsembleOrDetector(w, params, runtime),
       };
     }
     default: {
@@ -381,6 +419,201 @@ function resolveDispatch(
       throw new RunnerError("unknown_detector", `unknown detector: ${String(exhaustive)}`);
     }
   }
+}
+
+function boardVolatilityParams(
+  params: BoardMadParamsResolved,
+  historicalPrior?: VolatilityStateSpaceRequest["params"]["historicalPrior"],
+): VolatilityStateSpaceParams {
+  return {
+    baselineMode: params.baselineMode,
+    bucketSeconds: params.bucketSeconds,
+    ...(historicalPrior === undefined ? {} : { historicalPrior }),
+    historicalPriorWeight: params.historicalPriorWeight,
+    historicalRampCompleteGameMinutes: params.historicalRampCompleteGameMinutes,
+    kMad: params.kMad,
+    openingBaselineBuckets: params.openingBaselineBuckets,
+    openingRampCompleteBuckets: params.openingRampCompleteBuckets,
+    recentWallMinutes: params.recentWallMinutes,
+    recentWallWeight: params.recentWallWeight,
+    trailingBuckets: params.trailingBuckets,
+    trailingGameMinutes: params.trailingGameMinutes,
+    warmupBuckets: params.warmupBuckets,
+  };
+}
+
+function detectorBucketsFromSidecarResponse(
+  request: VolatilityStateSpaceRequest,
+  response: VolatilityStateSpaceResponse,
+): readonly DetectorBucket[] {
+  if (response.observations.length !== request.observations.length) {
+    throw new Error(
+      `Board volatility sidecar returned ${String(response.observations.length)} observations for ${request.gameId ?? "unknown"} but ${String(request.observations.length)} were requested.`,
+    );
+  }
+  if (
+    response.gameId !== undefined &&
+    request.gameId !== undefined &&
+    response.gameId !== request.gameId
+  ) {
+    throw new Error(
+      `Board volatility sidecar gameId mismatch: expected ${request.gameId}, received ${response.gameId}.`,
+    );
+  }
+  return response.observations.map((observation, index): DetectorBucket => {
+    const input = request.observations[index];
+    if (input === undefined) {
+      throw new Error("board volatility sidecar response index is out of bounds");
+    }
+    return {
+      gameId: request.gameId ?? "",
+      bucketStart: new Date(observation.bucketStart),
+      bucketEnd: new Date(observation.bucketEnd),
+      intensity: input.intensity,
+      ...(input.gameElapsedSeconds == null ? {} : { gameElapsedSeconds: input.gameElapsedSeconds }),
+      baselineMedian: observation.baselineMedian,
+      baselineMad: observation.baselineMad,
+      threshold: observation.threshold,
+      standardizedInnovation: observation.standardizedInnovation,
+      regimeScore: observation.regimeScore,
+      warmedUp: observation.warmedUp,
+      fired: observation.fired,
+    };
+  });
+}
+
+function boardFiresFromBuckets(buckets: readonly DetectorBucket[]): readonly DetectorFire[] {
+  return buckets.flatMap((bucket): readonly DetectorFire[] =>
+    bucket.fired && bucket.warmedUp
+      ? [
+          {
+            gameId: bucket.gameId,
+            bucketStart: bucket.bucketStart,
+            bucketEnd: bucket.bucketEnd,
+            intensity: bucket.intensity,
+            baselineMedian: bucket.baselineMedian,
+            baselineMad: bucket.baselineMad,
+            ...(bucket.threshold === undefined ? {} : { threshold: bucket.threshold }),
+            ...(bucket.standardizedInnovation === undefined
+              ? {}
+              : { standardizedInnovation: bucket.standardizedInnovation }),
+            ...(bucket.regimeScore === undefined ? {} : { regimeScore: bucket.regimeScore }),
+          },
+        ]
+      : [],
+  );
+}
+
+async function runBoardVolatilityViaSidecar(
+  window: DetectorWindow,
+  params: BoardMadParamsResolved,
+  runtime: BoardVolatilityRuntimeOptions,
+): Promise<DetectorResult> {
+  const ticks = window.ticks ?? [];
+  const historicalPriorByGame = new Map(
+    (window.boardMadHistoricalPriors ?? []).map((prior) => [prior.gameId, prior]),
+  );
+  const timingByGame = new Map((window.timingContexts ?? []).map((ctx) => [ctx.gameId, ctx]));
+  const perGameBuckets = await Promise.all(
+    uniqueGameIds(window.gameIds).map(async (gameId) => {
+      const request = buildBoardVolatilityModelRequest({
+        bucketSeconds: params.bucketSeconds,
+        freshCapSeconds: params.freshCapSeconds,
+        gameId,
+        ...(historicalPriorByGame.get(gameId) === undefined
+          ? {}
+          : { historicalPrior: historicalPriorByGame.get(gameId) }),
+        params: boardVolatilityParams(params, historicalPriorByGame.get(gameId)),
+        ticks: ticks.filter((tick) => tick.gameId === gameId),
+        ...(timingByGame.get(gameId) === undefined
+          ? {}
+          : { timingContext: timingByGame.get(gameId) }),
+        weighting: params.weighting,
+      });
+      if (request.observations.length === 0) return [] as const;
+      const response = await fetchBoardVolatilityStateSpace({
+        ...(runtime.boardVolatilityFetchImpl === undefined
+          ? {}
+          : { fetchImpl: runtime.boardVolatilityFetchImpl }),
+        ...(runtime.boardVolatilitySidecarBaseUrl === undefined
+          ? {}
+          : { baseUrl: runtime.boardVolatilitySidecarBaseUrl }),
+        request,
+      });
+      return detectorBucketsFromSidecarResponse(request, response);
+    }),
+  );
+  const buckets = perGameBuckets.flat();
+  const fires = boardFiresFromBuckets(buckets);
+  const games = uniqueGameIds(window.gameIds).length;
+  return {
+    buckets,
+    fires,
+    stats: {
+      firesPerGame: games === 0 ? 0 : fires.length / games,
+      totalFires: fires.length,
+      gamesInWindow: games,
+    },
+  };
+}
+
+async function runBoardVolatilityDetector(
+  window: DetectorWindow,
+  params: BoardMadParamsResolved,
+  runtime: BoardVolatilityRuntimeOptions,
+): Promise<DetectorResult> {
+  if (runtime.boardVolatilityRunner !== undefined) {
+    return await runtime.boardVolatilityRunner({
+      ...(runtime.boardVolatilityFetchImpl === undefined
+        ? {}
+        : { fetchImpl: runtime.boardVolatilityFetchImpl }),
+      ...(runtime.boardVolatilitySidecarBaseUrl === undefined
+        ? {}
+        : { sidecarBaseUrl: runtime.boardVolatilitySidecarBaseUrl }),
+      window,
+      params,
+    });
+  }
+  return await runBoardVolatilityViaSidecar(window, params, runtime);
+}
+
+function fireDedupKey(fire: DetectorFire): string {
+  return [
+    fire.gameId,
+    fire.bucketStart.toISOString(),
+    fire.bucketEnd.toISOString(),
+    fire.lane ?? "",
+    fire.sourceMarketId ?? "",
+  ].join("|");
+}
+
+async function runEnsembleOrDetector(
+  window: DetectorWindow,
+  params: z.infer<typeof EnsembleOrParams>,
+  runtime: BoardVolatilityRuntimeOptions,
+): Promise<DetectorResult> {
+  const [boardResult, offResult] = await Promise.all([
+    runBoardVolatilityDetector(window, params.board, runtime),
+    Promise.resolve(offPricePrint.run(window, params.offprice)),
+  ]);
+  const boardFires = boardResult.fires.map((fire) => ({ ...fire, lane: "board" as const }));
+  const offFires = offResult.fires.map((fire) => ({ ...fire, lane: "offprice" as const }));
+  const fires = [...boardFires, ...offFires].reduce<DetectorFire[]>((acc, fire) => {
+    const key = fireDedupKey(fire);
+    if (acc.some((existing) => fireDedupKey(existing) === key)) return acc;
+    acc.push(fire);
+    return acc;
+  }, []);
+  const games = uniqueGameIds(window.gameIds).length;
+  return {
+    buckets: boardResult.buckets,
+    fires,
+    stats: {
+      firesPerGame: games === 0 ? 0 : fires.length / games,
+      totalFires: fires.length,
+      gamesInWindow: games,
+    },
+  };
 }
 
 // --- window resolution ------------------------------------------------------
@@ -784,6 +1017,25 @@ function persistRun(cacheDb: Database.Database, args: PersistArgs): number {
     // carries warmedUp in detail_json so the live chart can render "no active
     // threshold yet" without faking a zero baseline.
     for (const b of args.buckets) {
+      const detail: Record<string, boolean | number | string> = {
+        warmedUp: b.warmedUp,
+        lane: "board",
+      };
+      if (typeof b.gameElapsedSeconds === "number" && Number.isFinite(b.gameElapsedSeconds)) {
+        detail.gameElapsedSeconds = b.gameElapsedSeconds;
+      }
+      if (typeof b.threshold === "number" && Number.isFinite(b.threshold)) {
+        detail.threshold = b.threshold;
+      }
+      if (
+        typeof b.standardizedInnovation === "number" &&
+        Number.isFinite(b.standardizedInnovation)
+      ) {
+        detail.standardizedInnovation = b.standardizedInnovation;
+      }
+      if (typeof b.regimeScore === "number" && Number.isFinite(b.regimeScore)) {
+        detail.regimeScore = b.regimeScore;
+      }
       insertObs.run(
         runId,
         b.gameId,
@@ -793,7 +1045,7 @@ function persistRun(cacheDb: Database.Database, args: PersistArgs): number {
         b.intensity,
         b.baselineMedian,
         b.baselineMad,
-        JSON.stringify({ warmedUp: b.warmedUp, lane: "board" }),
+        JSON.stringify(detail),
       );
     }
     // Persist non-bucket fires as standalone observations. These are point-in-
@@ -838,8 +1090,12 @@ interface PersistedObservation {
   readonly bucketEnd: string;
   readonly fired: number;
   readonly intensity: number;
+  readonly gameElapsedSeconds?: number | null;
   readonly baselineMedian: number;
   readonly baselineMad: number;
+  readonly threshold?: number;
+  readonly standardizedInnovation?: number;
+  readonly regimeScore?: number;
   readonly lane: "board" | "offprice";
   readonly warmedUp: boolean;
   readonly sourceMarketId?: string;
@@ -867,6 +1123,10 @@ function loadObservations(
       pickNumber(row, "baseline_median") !== 0 ||
       pickNumber(row, "baseline_mad") !== 0;
     let sourceMarketId: string | undefined;
+    let gameElapsedSeconds: number | null | undefined;
+    let threshold: number | undefined;
+    let standardizedInnovation: number | undefined;
+    let regimeScore: number | undefined;
     if (typeof detailJson === "string" && detailJson.length > 0) {
       try {
         const parsed: unknown = JSON.parse(detailJson);
@@ -876,6 +1136,22 @@ function loadObservations(
           if (typeof parsed["warmedUp"] === "boolean") warmedUp = parsed["warmedUp"];
           const sm = parsed["sourceMarketId"];
           if (typeof sm === "string" && sm.length > 0) sourceMarketId = sm;
+          const elapsed = parsed["gameElapsedSeconds"];
+          if (typeof elapsed === "number" && Number.isFinite(elapsed)) {
+            gameElapsedSeconds = elapsed;
+          }
+          const parsedThreshold = parsed["threshold"];
+          if (typeof parsedThreshold === "number" && Number.isFinite(parsedThreshold)) {
+            threshold = parsedThreshold;
+          }
+          const parsedInnovation = parsed["standardizedInnovation"];
+          if (typeof parsedInnovation === "number" && Number.isFinite(parsedInnovation)) {
+            standardizedInnovation = parsedInnovation;
+          }
+          const parsedRegimeScore = parsed["regimeScore"];
+          if (typeof parsedRegimeScore === "number" && Number.isFinite(parsedRegimeScore)) {
+            regimeScore = parsedRegimeScore;
+          }
         }
       } catch {
         // Older cache rows fall back to the derived warmedUp heuristic above.
@@ -887,8 +1163,12 @@ function loadObservations(
       bucketEnd: pickString(row, "bucket_end"),
       fired: pickNumber(row, "fired"),
       intensity: pickNumber(row, "intensity"),
+      ...(gameElapsedSeconds == null ? {} : { gameElapsedSeconds }),
       baselineMedian: pickNumber(row, "baseline_median"),
       baselineMad: pickNumber(row, "baseline_mad"),
+      ...(threshold === undefined ? {} : { threshold }),
+      ...(standardizedInnovation === undefined ? {} : { standardizedInnovation }),
+      ...(regimeScore === undefined ? {} : { regimeScore }),
       lane,
       warmedUp,
       ...(sourceMarketId === undefined ? {} : { sourceMarketId }),
@@ -909,8 +1189,14 @@ function splitObservations(observations: readonly PersistedObservation[]): {
         bucketStart: new Date(o.bucketStart),
         bucketEnd: new Date(o.bucketEnd),
         intensity: o.intensity,
+        ...(o.gameElapsedSeconds == null ? {} : { gameElapsedSeconds: o.gameElapsedSeconds }),
         baselineMedian: o.baselineMedian,
         baselineMad: o.baselineMad,
+        ...(o.threshold === undefined ? {} : { threshold: o.threshold }),
+        ...(o.standardizedInnovation === undefined
+          ? {}
+          : { standardizedInnovation: o.standardizedInnovation }),
+        ...(o.regimeScore === undefined ? {} : { regimeScore: o.regimeScore }),
         warmedUp: o.warmedUp,
         fired: o.fired === 1,
       });
@@ -922,6 +1208,11 @@ function splitObservations(observations: readonly PersistedObservation[]): {
           intensity: o.intensity,
           baselineMedian: o.baselineMedian,
           baselineMad: o.baselineMad,
+          ...(o.threshold === undefined ? {} : { threshold: o.threshold }),
+          ...(o.standardizedInnovation === undefined
+            ? {}
+            : { standardizedInnovation: o.standardizedInnovation }),
+          ...(o.regimeScore === undefined ? {} : { regimeScore: o.regimeScore }),
           lane: "board",
         });
       }

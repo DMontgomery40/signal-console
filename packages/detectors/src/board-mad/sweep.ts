@@ -29,6 +29,7 @@ interface Baseline {
   readonly bucketStart: Date;
   readonly bucketEnd: Date;
   readonly intensity: number;
+  readonly gameElapsedSeconds?: number | null;
   readonly median: number;
   readonly mad: number;
   readonly warmedUp: boolean;
@@ -58,6 +59,7 @@ const baselinesForGame = (
       bucketStart,
       bucketEnd,
       intensity: e.intensity,
+      ...(e.gameElapsedSeconds == null ? {} : { gameElapsedSeconds: e.gameElapsedSeconds }),
       median: baseline.median,
       mad: baseline.mad,
       warmedUp: baseline.warmedUp,
@@ -93,6 +95,7 @@ const detectorBucketsFromBaselines = (
         bucketStart: b.bucketStart,
         bucketEnd: b.bucketEnd,
         intensity: b.intensity,
+        ...(b.gameElapsedSeconds == null ? {} : { gameElapsedSeconds: b.gameElapsedSeconds }),
         baselineMedian: 0,
         baselineMad: 0,
         warmedUp: false,
@@ -106,6 +109,7 @@ const detectorBucketsFromBaselines = (
       bucketStart: b.bucketStart,
       bucketEnd: b.bucketEnd,
       intensity: b.intensity,
+      ...(b.gameElapsedSeconds == null ? {} : { gameElapsedSeconds: b.gameElapsedSeconds }),
       baselineMedian: b.median,
       baselineMad: b.mad,
       warmedUp: true,

@@ -1,3 +1,21 @@
+## In-Flight Architectural Notes
+
+Before designing changes to numerical state (formulas, constants, baselines, thresholds, calibration data) or proposing a new package layout, read `.codex/memory.md`. It contains the current architectural direction being staged (math/calibration/detectors/domain split, provenance rules for empirical constants, enforcement plan) plus the staging rule that says these are not yet codified here. Update `.codex/memory.md` when the direction shifts; only promote framings to this file after at least one real concept has moved through the new boundaries.
+
+## Odds-API.io Live Comparator Policy
+
+Odds-API.io is the preferred live sportsbook/prediction-market comparator when its feed covers the required sport, bookmaker, market family, and player-prop depth. It is a distinct provider surface from the older `api.the-odds-api.com/v4` API; do not mix endpoint shapes, auth assumptions, source IDs, or adapter names without explicit migration proof.
+
+Before designing or editing Odds-API.io ingestion, fetch `https://docs.odds-api.io/llms.txt`; fetch `https://docs.odds-api.io/llms-full.txt`, `https://docs.odds-api.io/guides/websockets`, `https://docs.odds-api.io/guides/prediction-markets`, `https://docs.odds-api.io/examples/player-props`, and `https://docs.odds-api.io/api-reference/openapi.json` when implementation details matter.
+
+The current selected-bookmaker spine for this account is `Bet365,DraftKings,FanDuel,Kalshi,Polymarket`. Verify it with `GET /bookmakers/selected?apiKey=...` before relying on it in a proof run. Credential lookup for this provider is `ODDSAPI_API_KEY`, then `ODDS_API_KEY`, then `ODDS_API_IO_KEY`; never write the key into evidence artifacts.
+
+For live odds, build WebSocket-first against `wss://api.odds-api.io/v3/ws` with `markets=ML,Spread,Totals,Player Props` for NBA smoke/proof work. Do not create live quote polling loops when the Odds-API.io WebSocket supports the needed stream. REST is acceptable for initial snapshots, health/readiness checks, historical/backfill work, and gap repair after `resync_required`; when REST is used for fresh deltas, use `GET /odds/updated?since=...` rather than repeated full `/odds` or `/odds/multi` polling.
+
+Player-prop and prediction-market coverage must be proven from real provider responses for the exact sport/league/event/bookmaker set before product-ready claims. The docs say the unified `/v3/odds` shape can include Bet365, DraftKings, FanDuel, Kalshi, Polymarket, and player props, but docs alone are not completion evidence. Kalshi is a special case: this repo already ingests Kalshi NBA player props from the direct Kalshi API, while Odds-API.io docs and live payloads may lag that surface. Keep direct Kalshi as the authoritative Kalshi player-prop path until Odds-API.io proves equivalent Kalshi player-prop coverage in live payloads; do not treat missing Odds-API.io Kalshi props as missing Kalshi props overall.
+
+For TypeScript workers, evaluate the official `odds-api-io` Node SDK before hand-rolling REST calls for sports/events/odds/bookmaker selection/updated odds. The WebSocket replay/reconnect implementation currently appears in the SDK repo examples on `feat/websocket-reconnect-replay`, not as a stable exported library API, so treat it as a reference pattern to port or pin deliberately, with tests around `seq`, `lastSeq`, `resync_required`, raw-payload persistence, and replay gaps. The durable NBA runbook and repeatable smoke command live in `docs/odds-api-io-live-comparator.md`; update it when the provider contract or proof path changes.
+
 ## Change Inventory Checklist
 
 Before making any product tweak, first write a short inventory of every surface that might need to move. Keep it scoped to the change, but do not skip a category because the request sounds small. For each category, either make the change or explicitly mark it "checked, no change".
@@ -18,7 +36,7 @@ End every mutating turn by running the narrow changed-surface tests plus the rep
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **signal-console** (7532 symbols, 12480 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **signal-console** (7545 symbols, 12503 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 

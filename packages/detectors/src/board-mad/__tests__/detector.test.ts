@@ -33,8 +33,8 @@ const windowOf = (gameIds: readonly string[], ticks: readonly Tick[]): DetectorW
 describe("board-mad detector", () => {
   it("identity matches PRD §10", () => {
     expect(detector.id).toBe("board-mad");
-    expect(detector.version).toBe("1.6.0");
-    expect(detector.displayName).toBe("Board MAD (whole-board volatility)");
+    expect(detector.version).toBe("1.6.1");
+    expect(detector.displayName).toBe("Board State-Space (whole-board volatility)");
   });
 
   it("default Params resolves K to live default 3.0 and weighting='volume'", () => {

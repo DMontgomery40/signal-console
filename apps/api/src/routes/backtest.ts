@@ -14,11 +14,15 @@ import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 
 import { BacktestError, discoverGameIdsInWindow, runBacktest } from "../services/backtest";
+import type { BoardVolatilityRunner } from "../services/detector-runner";
 import { parseStrictIsoTimestamp } from "../services/timestamps";
 
 export interface BacktestRoutesOptions {
   readonly goldDbPath?: string;
   readonly cacheDbPath?: string;
+  readonly boardVolatilityFetchImpl?: typeof fetch;
+  readonly boardVolatilityRunner?: BoardVolatilityRunner;
+  readonly boardVolatilitySidecarBaseUrl?: string;
 }
 
 const MAX_WINDOW_DAYS = 28;
@@ -75,8 +79,12 @@ const observationJsonSchema = {
     bucketEnd: { type: "string" },
     fired: { type: "integer" },
     intensity: { type: "number" },
+    gameElapsedSeconds: { type: "number" },
     baselineMedian: { type: "number" },
     baselineMad: { type: "number" },
+    threshold: { type: "number" },
+    standardizedInnovation: { type: "number" },
+    regimeScore: { type: "number" },
     // Optional: ensemble-or tags each observation with its lane so the UI
     // can render board fires (intensity-vs-threshold timeline) differently
     // from off-price-print fires (point-in-time tape prints).
@@ -158,7 +166,7 @@ const backtestRoutes: FastifyPluginAsync<BacktestRoutesOptions> = (app, opts) =>
         },
       },
     },
-    (request: FastifyRequest, reply: FastifyReply) => {
+    async (request: FastifyRequest, reply: FastifyReply) => {
       const parsed = bodySchema.safeParse(request.body);
       if (!parsed.success) {
         reply.code(400).send({ error: "invalid request body" });
@@ -205,11 +213,20 @@ const backtestRoutes: FastifyPluginAsync<BacktestRoutesOptions> = (app, opts) =>
       }
 
       try {
-        const result = runBacktest({
+        const result = await runBacktest({
           goldDbPath,
           cacheDbPath,
           detectorId: body.detector_id,
           params: body.params,
+          ...(opts.boardVolatilityFetchImpl === undefined
+            ? {}
+            : { boardVolatilityFetchImpl: opts.boardVolatilityFetchImpl }),
+          ...(opts.boardVolatilityRunner === undefined
+            ? {}
+            : { boardVolatilityRunner: opts.boardVolatilityRunner }),
+          ...(opts.boardVolatilitySidecarBaseUrl === undefined
+            ? {}
+            : { boardVolatilitySidecarBaseUrl: opts.boardVolatilitySidecarBaseUrl }),
           windowStart: win.start,
           windowEnd: win.end,
           gameIds,

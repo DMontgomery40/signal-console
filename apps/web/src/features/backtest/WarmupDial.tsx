@@ -23,7 +23,7 @@ const HOLDOFF_FAST = Math.max(HOLDOFF_MIN, Math.round(HOLDOFF_DEFAULT / 2));
 const HOLDOFF_EARLIEST = HOLDOFF_MIN;
 
 const TOOLTIP_TEXT =
-  "Opening holdoff: suppress fires until N bucket durations have elapsed. Once the holdoff ends, the selected prior sample decides which buckets set median and MAD.";
+  "Alert holdoff: suppress fires until N bucket durations have elapsed. Once the holdoff ends, the selected prior anchor and state-space baseline take over.";
 
 interface SnapChip {
   readonly label: string;
@@ -83,7 +83,7 @@ export function WarmupDial({ value, bucketSeconds, onChange }: WarmupDialProps):
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
         <div className="min-w-0">
           <div className="text-text-lo text-xs uppercase tracking-[0.08em] font-sans">
-            <ExplainerCard id="warmup-buckets">Opening holdoff</ExplainerCard>
+            <ExplainerCard id="warmup-buckets">Alert holdoff</ExplainerCard>
           </div>
           <p className="mt-1 max-w-[34ch] text-xs text-text-md">
             Opening buckets that cannot fire while the game builds enough context.
@@ -113,7 +113,7 @@ export function WarmupDial({ value, bucketSeconds, onChange }: WarmupDialProps):
         value={String(clamped)}
         onChange={handleSliderChange}
         title={TOOLTIP_TEXT}
-        aria-label="Opening holdoff buckets"
+        aria-label="Alert holdoff buckets"
         aria-valuemin={HOLDOFF_MIN}
         aria-valuemax={HOLDOFF_MAX}
         aria-valuenow={clamped}

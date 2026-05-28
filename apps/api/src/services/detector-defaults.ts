@@ -209,6 +209,7 @@ interface CacheEntry {
 
 let cache: CacheEntry | null = null;
 let activePath: string = DETECTOR_DEFAULTS_PATH;
+const BOARD_MAD_RUNTIME_MODEL_VERSION = `${boardMad.version}-pyssm.1`;
 
 function schedulePathFor(path: string): string {
   return `${path}.scheduled.json`;
@@ -320,12 +321,12 @@ export function setDetectorDefaultsPath(path: string): void {
 // next access. SemVer build-metadata syntax — ignored by version comparators
 // but visible to the cache discriminator.
 export function boardMadDetectorVersion(defaults: DetectorDefaults): string {
-  if (isBaselineDefaults(defaults)) return boardMad.version;
+  if (isBaselineDefaults(defaults)) return BOARD_MAD_RUNTIME_MODEL_VERSION;
   const hash = createHash("sha256")
     .update(JSON.stringify(orderedDefaults(defaults)))
     .digest("hex")
     .slice(0, 8);
-  return `${boardMad.version}+def.${hash}`;
+  return `${BOARD_MAD_RUNTIME_MODEL_VERSION}+def.${hash}`;
 }
 
 function orderedDefaults(d: DetectorDefaults): Record<string, number | string> {

@@ -233,6 +233,9 @@ function observationToBaselineEntry(
   const parsed = Date.parse(observation.bucketStart);
   return {
     bucket: Number.isFinite(parsed) ? Math.floor(parsed / 1000) : fallbackBucket,
+    ...(observation.gameElapsedSeconds == null
+      ? {}
+      : { gameElapsedSeconds: observation.gameElapsedSeconds }),
     intensity: observation.intensity,
   };
 }

@@ -17,6 +17,7 @@
     "verify:no-stale-plan": "tsx scripts/verify-no-stale-plan.ts",
     "verify:no-hex-literals": "tsx scripts/verify-no-hex-literals.ts",
     "verify:queries": "tsx scripts/verify-queries.ts",
+    "smoke:odds-api-io:nba": "tsx scripts/odds-api-io-nba-smoke.ts",
     "cache:reset": "tsx scripts/cache-reset.ts",
     "backfill:nba-history": "pnpm --filter @signal-console/worker backfill nba-history --since 2026-04-22",
     "bakeoff:nba-detectors": "tsx scripts/run-nba-detector-bakeoff.ts",

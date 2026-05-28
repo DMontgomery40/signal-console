@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { buildServer } from "../src/server";
+import { tsBoardVolatilityRunner } from "./helpers/board-volatility-runner";
 
 type FastifyApp = Awaited<ReturnType<typeof buildServer>>;
 
@@ -35,6 +36,11 @@ interface SeedGame {
   readonly tickCount: number;
   readonly markets?: number;
   readonly pbpTimes?: readonly string[];
+  readonly pbpRows?: readonly {
+    readonly timeActual: string;
+    readonly period: number;
+    readonly clock: string;
+  }[];
   readonly sport?: string;
   readonly scheduledStart?: string;
 }
@@ -81,7 +87,9 @@ function seedGoldDb(path: string, games: readonly SeedGame[]): void {
     CREATE TABLE IF NOT EXISTS nba_play_by_play_actions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       game_id TEXT NOT NULL,
-      time_actual TEXT NOT NULL
+      time_actual TEXT NOT NULL,
+      period INTEGER,
+      clock TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_quote_ticks_source_market
       ON quote_ticks(source_market_id, captured_at);
@@ -99,7 +107,7 @@ function seedGoldDb(path: string, games: readonly SeedGame[]): void {
      VALUES (?, ?, ?, ?, 0)`,
   );
   const insertPbp = db.prepare(
-    `INSERT INTO nba_play_by_play_actions (game_id, time_actual) VALUES (?, ?)`,
+    `INSERT INTO nba_play_by_play_actions (game_id, time_actual, period, clock) VALUES (?, ?, ?, ?)`,
   );
 
   for (const g of games) {
@@ -128,7 +136,10 @@ function seedGoldDb(path: string, games: readonly SeedGame[]): void {
       );
     }
     for (const t of g.pbpTimes ?? []) {
-      insertPbp.run(g.id, t);
+      insertPbp.run(g.id, t, null, null);
+    }
+    for (const row of g.pbpRows ?? []) {
+      insertPbp.run(g.id, row.timeActual, row.period, row.clock);
     }
   }
   db.close();
@@ -222,7 +233,11 @@ afterEach(async () => {
 async function startApp(): Promise<FastifyApp> {
   const app = await buildServer({
     auth: { tokenPath: ctx.tokenPath, cacheTtlMs: 0 },
-    backtest: { goldDbPath: ctx.goldDbPath, cacheDbPath: ctx.cacheDbPath },
+    backtest: {
+      goldDbPath: ctx.goldDbPath,
+      cacheDbPath: ctx.cacheDbPath,
+      boardVolatilityRunner: tsBoardVolatilityRunner,
+    },
   });
   ctx.app = app;
   return app;
@@ -309,6 +324,77 @@ describe("backtest route (US-034)", () => {
     const secondBody = asRecord(second.json(), "second");
     expect(secondBody["runId"]).toBe(firstBody["runId"]);
     expect(secondBody["observations"]).toEqual(firstBody["observations"]);
+  });
+
+  it("backtest observations preserve gameElapsedSeconds across first compute and cache hit", async () => {
+    const tipoffMs = Date.parse("2026-05-23T03:00:00.000Z");
+    seedGoldDb(ctx.goldDbPath, [
+      {
+        id: "nba-elapsed-1",
+        tickCount: 120,
+        markets: 1,
+        pbpRows: Array.from({ length: 11 }, (_, i) => {
+          const elapsedSec = i * 60;
+          const timeActual = new Date(tipoffMs + elapsedSec * 1000).toISOString();
+          const secondsRemaining = 12 * 60 - elapsedSec;
+          const minutes = Math.floor(secondsRemaining / 60);
+          const seconds = secondsRemaining % 60;
+          return {
+            timeActual,
+            period: 1,
+            clock: `PT${String(minutes).padStart(2, "0")}M${String(seconds).padStart(2, "0")}.00S`,
+          };
+        }),
+      },
+    ]);
+    const app = await startApp();
+    const payload = {
+      detector_id: "board-mad",
+      params: defaultBoardMadParams(3.0),
+      window: { start: "2026-05-23T02:30:00Z", end: "2026-05-23T05:00:00Z" },
+      game_ids: ["nba-elapsed-1"],
+    };
+
+    const first = await app.inject({
+      method: "POST",
+      url: "/v1/backtest",
+      headers: authHeaders(),
+      payload,
+    });
+    expect(first.statusCode).toBe(200);
+    const firstBody = asRecord(first.json(), "first elapsed body");
+    const firstObs = firstBody["observations"];
+    if (!isUnknownArray(firstObs)) throw new Error("first observations not array");
+    const firstBoardObsWithElapsed = firstObs
+      .map((o) => asRecord(o, "first obs"))
+      .find(
+        (o) =>
+          (o["lane"] === "board" || o["lane"] === undefined) &&
+          typeof o["gameElapsedSeconds"] === "number",
+      );
+    expect(firstBoardObsWithElapsed).toBeDefined();
+
+    const second = await app.inject({
+      method: "POST",
+      url: "/v1/backtest",
+      headers: authHeaders(),
+      payload,
+    });
+    expect(second.statusCode).toBe(200);
+    const secondBody = asRecord(second.json(), "second elapsed body");
+    expect(secondBody["runId"]).toBe(firstBody["runId"]);
+    const secondObs = secondBody["observations"];
+    if (!isUnknownArray(secondObs)) throw new Error("second observations not array");
+    const secondBoardObs = secondObs
+      .map((o) => asRecord(o, "second obs"))
+      .find(
+        (o) =>
+          (o["lane"] === "board" || o["lane"] === undefined) &&
+          o["bucketStart"] === firstBoardObsWithElapsed?.["bucketStart"],
+      );
+    expect(secondBoardObs?.["gameElapsedSeconds"]).toBe(
+      firstBoardObsWithElapsed?.["gameElapsedSeconds"],
+    );
   });
 
   // AMENDED 2026-05-25 (audit-fix A0-followup #1, Codex review P1):

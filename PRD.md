@@ -19,7 +19,7 @@ This PRD describes a clean rebuild in a new sibling repo at `~/signal-console/`.
 - Sport-agnostic from day 1 (NFL + NCAA football named as first-class), but no speculative scaffolding for sports we are not yet ingesting.
 - The 54 GB SQLite is **moved at phase 0** to `~/signal-console/data/signal-console.sqlite` (with `-wal` and `-shm` siblings); the API/UI/cache paths open it read-only thereafter. The old `~/nba-predict/data/...` location becomes reference-only with a loud sentinel.
 
-The "Sensitivity adapter" is not a new algorithm — it is the existing `K_MAD` multiplier on the trailing `median + K·MAD` board-volatility threshold. The live runtime default is `3.0`; `6.0` remains the calmer Backtest comparison preset. Current fires/game and known-case recall numbers come from the regenerated bakeoff artifacts and Known Cases page, not from this PRD prose, because the official incident corpus changes as the desk adds cases.
+The "Sensitivity adapter" is not a new algorithm — it is the existing `K_MAD` multiplier on the trailing `median + K·MAD` board-volatility threshold. The live runtime default is `3.0`; `6.0` remains the calmer Backtest comparison preset. Current fires/game, known-case recall, and market-native outlier-alignment numbers come from the regenerated bakeoff artifacts and Known Cases page, not from this PRD prose, because the official incident corpus and tape-derived denominator change as the desk adds cases and the local coverage window moves.
 
 ---
 
@@ -52,7 +52,7 @@ The "Sensitivity adapter" is not a new algorithm — it is the existing `K_MAD` 
 | Derived state            | A separate **cache DB** at `~/signal-console/data/detector-cache.sqlite`, owned and freely writable by the new app. Keyed by detector id, version, params hash, and a **scoped source watermark hash** (per-game and per-window) computed at compute time. Throwaway; losing it just triggers recompute. |
 | Worker / ingest          | Old `nba-predict/apps/worker` is **dead after Phase 0**. No shadow period, no crossover. If live ingest is needed in the next few days, port the minimal slice of the old worker into `~/signal-console/apps/worker/` as **Phase 0.5**, writing to the moved DB path. Otherwise live ingest pauses until Phase 0.5 ships. |
 | Sport-agnosticism        | SQL **CTEs in query modules**, referencing the read-only gold DB. No startup-time `CREATE TEMP VIEW` (incompatible with `PRAGMA query_only`). New table additions wait for the second sport's data. |
-| Canonical math (K_MAD)   | **K = 3.0** (volume-weighted) is the **live / Recent / default** board-lane operating value. **K = 6.0** is a Backtest-only calmer comparison preset. Current fires/game and recall numbers are read from Backtest and the regenerated bakeoff artifacts, not hard-coded in product copy. The Backtest dial sweeps continuously between them. Both values declared in `packages/detectors/src/board-mad/config.ts`; the runtime/UI default is the K=3 entry. K is a **compute parameter, not a persisted dimension** — the gold DB has no K column anywhere. |
+| Canonical math (K_MAD)   | **K = 3.0** (volume-weighted) is the **live / Recent / default** board-lane operating value. **K = 6.0** is a Backtest-only calmer comparison preset. Current fires/game, recall, and tape-outlier alignment numbers are read from Backtest and the regenerated bakeoff artifacts, not hard-coded in product copy. The Backtest dial sweeps continuously between them. Both values declared in `packages/detectors/src/board-mad/config.ts`; the runtime/UI default is the K=3 entry. K is a **compute parameter, not a persisted dimension** — the gold DB has no K column anywhere. |
 
 ---
 
@@ -195,7 +195,7 @@ TDD + SDD principles fail if the math under test is wrong. The new repo honours 
 | 1.1.0 | 2026-05-23 | API path narrowed tick load per-game to the PBP-anchored in-play window. | Pre-narrowing, pre-game ticks polluted the trailing baseline and inflated fire counts ~14-17×. |
 | 1.2.0 | 2026-05-24 | Signal timing extracted to `baseline.ts` with explicit opening-ramp mode. | Make the ramp + holdoff knobs tunable without touching the detector loop. |
 | 1.3.0 | 2026-05-24 | Historical/live blended baseline added (5-game prior fading to live). | David-requested historical context for cold-start games. |
-| 1.4.0 | 2026-05-24 | Opening holdoff redefined as elapsed time (`warmupBuckets × bucketSeconds`), not sparse-bucket count. | Fixed the "8 minutes = 8 sparse market blips" failure mode the live game caught. |
+| 1.4.0 | 2026-05-24 | Alert holdoff redefined as elapsed time (`warmupBuckets × bucketSeconds`), not sparse-bucket count. | Fixed the "8 minutes = 8 sparse market blips" failure mode the live game caught. |
 | 1.5.0 | 2026-05-24 | Trailing/opening-ramp baseline sample selected by elapsed time, not sparse-index slice. | Closed the silent silent-noise inflation where "last 20 minutes" actually meant "last 20 nonzero buckets" — quiet games drew baselines from non-quiet windows. |
 | 1.6.0 | 2026-05-25 | PBP-missing elapsed fallback anchors on per-game `GameTimingContext.tipoffAnchorUtc` (PBP `MIN(time_actual)` → `games.scheduled_start` → fail-closed). Historical-blend gameValues filter honors the same tipoff anchor. Historical priors combined with weighted-pooled samples (away/home symmetric regardless of sample-size imbalance). `liveValuesForHistoricalBucket` returns a typed `{median, mad}` estimator instead of a synthetic `[m-mad, m, m+mad]` tuple. | Closed the audit's last category of "fake math" — never anchor elapsed on "first nonzero market bucket"; never let one side dominate priors by sample-count accident; never launder summary stats through a fake sample. |
 
@@ -305,7 +305,7 @@ const Params = z.object({
 export const detector: Detector<typeof Params> = {
   id: "board-mad",
   version: "1.6.0",
-  displayName: "Board MAD (whole-board volatility)",
+  displayName: "Board State-Space (whole-board volatility)",
   paramsSchema: Params,
   run(window, params) {
     /* return { fires: BoardFire[], stats: { firesPerGame, ... } } */
@@ -653,10 +653,10 @@ Three sections, no buttons that mutate (except "clear cache"):
 - [ ] Typecheck/lint passes.
 
 #### US-006: Port `board-mad` detector from `board_signal_v2.py`
-**Description:** As a developer, I need a TypeScript port of `scripts/board_signal_v2.py` as the canonical `board-mad` detector, including the rolling-current-game `median + K·MAD` baseline, configurable signal timing, 8-minute elapsed warmup default at 60 s buckets, 300 s fresh cap, and `is_heartbeat`/`0.500` sanitations.
+**Description:** As a developer, I need a detector with stable `board-mad` identity but Python-owned state-space runtime semantics, including configurable trigger timing, 8-minute elapsed warmup default at 60 s buckets, 300 s fresh cap, and `is_heartbeat`/`0.500` sanitations.
 
 **Acceptance Criteria:**
-- [ ] `packages/detectors/src/board-mad/index.ts` exports `detector: Detector<Params>` matching the §10 sketch (id `board-mad`, version `1.0.0`, displayName `"Board MAD (whole-board volatility)"`).
+- [ ] `packages/detectors/src/board-mad/index.ts` exports `detector: Detector<Params>` matching the §10 sketch (id `board-mad`, version `1.0.0`, displayName `"Board State-Space (whole-board volatility)"`).
 - [ ] `packages/detectors/src/board-mad/config.ts` declares `K_MAD_LIVE = 3.0` and `K_MAD_CALM = 6.0`; these are the **only** declarations of either K value in the repo (enforced by `pnpm verify:no-stale-plan`).
 - [ ] Detector iterates `quote_ticks` in time order, bucketed by `bucketSeconds` (default 60), applies the selected signal timing mode, fires when current bucket intensity exceeds threshold, after the elapsed `warmupBuckets × bucketSeconds` warmup, with `freshCapSeconds` per-market delta cap, and the `is_heartbeat`/`0.500` opening-anchor sanitations.
 - [ ] Detector defaults match `nba-predict` `BOARD_VW_K_MAD = 3` for the live path with the elapsed-time opening-ramp profile: `kMad=3.0`, `weighting="volume"`, `baselineMode="opening-ramp"`, `openingBaselineBuckets=4`, `openingRampCompleteBuckets=20`, `trailingBuckets=20`, `warmupBuckets=8`, `freshCapSeconds=300`.
@@ -847,7 +847,7 @@ Three sections, no buttons that mutate (except "clear cache"):
 **Description:** As an operator, I need a `/settings` page showing detector defaults plus the diagnostic sections in §20 with no mutating buttons except detector-default edits and "clear cache".
 
 **Acceptance Criteria:**
-- [ ] Renders Detector defaults section: live sensitivity, prior sample, opening sample/ramp, lookback/holdoff, freshness cap, and PBP buffers.
+- [ ] Renders Detector defaults section: live trigger, prior anchor, opening anchor sample/fade-out, filter-memory/alert-holdoff timing, freshness cap, and PBP buffers.
 - [ ] Renders Database section: path, size (bytes + human), WAL bytes, page count, page size, last-modified, mode (red banner if not `read-only`).
 - [ ] Renders Sources section: heartbeat file path; per-source last sync, last error, rate-limit cooldown. If no heartbeat, shows "ingest paused" with last-known values.
 - [ ] Renders Errors section: tail of last 200 log entries with level filter.
@@ -1016,11 +1016,11 @@ Three sections, no buttons that mutate (except "clear cache"):
 - [ ] Opening-holdoff slider: integer `warmupBuckets` = 2–20, step 1, **default 8**, with a visible elapsed duration readout computed from `warmupBuckets × bucketSeconds`.
 - [ ] Profile + prior sample controls: live defaults start at `"opening-ramp"`; Backtest and Settings can switch to `"historical-blend"` or legacy `"trailing"`. Historical mode uses last-five same-side priors, 50/50 away/home by default, ramps to current-game-only by 12 game minutes, measures 30 s wall-clock buckets, keeps 12 game minutes of current memory, and can blend in the last 4 wall minutes at 1.5× weight.
 - [ ] Two labelled snap points: "Sensitive — live default" at K=3.0; "Calm — comparison preset" at K=6.0.
-- [ ] As either recompute dial moves: estimated fires/game updates live (in-memory recompute, no DB scan, < 1 s response).
+- [ ] After a run, changing detector params marks the snapshot stale and requires a fresh server-side `/v1/backtest` run; the browser does not re-run detector math locally.
 - [ ] Per-game small timeline shows fire markers at the chosen K.
 - [ ] For Reaves/Hayes and Hartenstein incidents (if they fall inside the window), shows lead time at current K or "no fire".
 - [ ] First sweep ≤ 60 s on 28-d / 20-game window.
-- [ ] Subsequent K changes ≤ 1 s.
+- [ ] Subsequent reruns should reuse cached upstream loading where possible, but detector math remains server-owned.
 - [ ] Typecheck/lint passes.
 - [ ] Verify in browser using dev-browser skill.
 
@@ -1266,7 +1266,7 @@ Three sections, no buttons that mutate (except "clear cache"):
 - `~/nba-predict/packages/shared/src/migrations.ts` — schema documentation.
 - `~/nba-predict/packages/shared/src/live-repository.ts` — query examples worth porting (extract small ones; do not import the file).
 - `~/nba-predict/apps/web/src/lib/{game-state,time-format,market-format,source-coverage,game-triage,divergence-history,chart-theme}.ts` — pure utilities to port wholesale with their tests.
-- `outputs/nba-detector-bakeoff/REPORT.md` — current generated evidence for incident recall and fire burden after v1.6 math fixes.
+- `outputs/nba-detector-bakeoff/REPORT.md` — current generated evidence for incident recall, market-native outlier alignment, and fire burden after the v1.6 math/runtime fixes.
 - `~/nba-predict/outputs/innovation-team-suspend-signal-report/REPORT.md` — historical design rationale only; do not copy its benchmark counts into runtime code or product copy.
 - `~/markdown-video-experiment/projects/signal-console-explainer/plan.json` — historical narration source for the Backtest dial metaphor only; regenerate before treating numbers or incident claims as current.
 - `~/nba-predict/.codex/hooks.json` — the regression-coverage guard to port.

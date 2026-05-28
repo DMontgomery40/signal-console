@@ -375,6 +375,59 @@ describe("games routes (US-018)", () => {
     expect(first["status"]).toBe("in_play");
   });
 
+  it("GET /v1/games excludes cancelled and postponed rows from Recent", async () => {
+    seedGoldDb(ctx.goldDbPath, [
+      {
+        id: "nba-active-1",
+        sport: "NBA",
+        league: "national",
+        homeParticipantJson: '{"a":"H"}',
+        awayParticipantJson: '{"a":"A"}',
+        scheduledStart: isoMinutesAgo(30),
+        status: "in_play",
+      },
+      {
+        id: "nba-cancelled-1",
+        sport: "NBA",
+        league: "national",
+        homeParticipantJson: '{"a":"H"}',
+        awayParticipantJson: '{"a":"A"}',
+        scheduledStart: isoMinutesAgo(30),
+        status: "cancelled",
+      },
+      {
+        id: "nba-postponed-1",
+        sport: "NBA",
+        league: "national",
+        homeParticipantJson: '{"a":"H"}',
+        awayParticipantJson: '{"a":"A"}',
+        scheduledStart: isoMinutesAgo(30),
+        status: "postponed",
+      },
+    ]);
+    const app = await startApp();
+
+    const res = await app.inject({
+      method: "GET",
+      url: "/v1/games",
+      headers: authHeaders(),
+    });
+    expect(res.statusCode).toBe(200);
+    const body: unknown = res.json();
+    if (!isRecord(body)) throw new Error("body not an object");
+    const games = body["games"];
+    if (!isUnknownArray(games)) throw new Error("body.games not an array");
+    const ids = games.map((g): string => {
+      if (!isRecord(g)) throw new Error("game not an object");
+      const id = g["id"];
+      if (typeof id !== "string") throw new Error("game.id not a string");
+      return id;
+    });
+    expect(ids).toContain("nba-active-1");
+    expect(ids).not.toContain("nba-cancelled-1");
+    expect(ids).not.toContain("nba-postponed-1");
+  });
+
   it("GET /v1/games/:gameId returns the row when the id exists", async () => {
     seedGoldDb(ctx.goldDbPath, [
       {

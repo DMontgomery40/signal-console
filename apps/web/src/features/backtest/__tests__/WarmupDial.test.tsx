@@ -1,6 +1,6 @@
 // WarmupDial unit tests (US-042).
 //
-// Component-level checks for the opening-holdoff slider: HTML attributes
+// Component-level checks for the alert-holdoff slider: HTML attributes
 // (min/max/step), tooltip text, snap-chip commit semantics, and current-value display.
 // End-to-end recompute behavior + round-trip stability lives in
 // BacktestPage.test.tsx where the dial is mounted alongside form state.
@@ -34,7 +34,7 @@ describe("WarmupDial", () => {
     render(<WarmupDial value={8} bucketSeconds={60} onChange={() => {}} />);
     const slider = screen.getByTestId("warmup-dial-slider");
     expect(slider.getAttribute("title")).toBe(
-      "Opening holdoff: suppress fires until N bucket durations have elapsed. Once the holdoff ends, the selected prior sample decides which buckets set median and MAD.",
+      "Alert holdoff: suppress fires until N bucket durations have elapsed. Once the holdoff ends, the selected prior anchor and state-space baseline take over.",
     );
   });
 

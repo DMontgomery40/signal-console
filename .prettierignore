@@ -10,6 +10,10 @@ data/
 *.sqlite-shm
 .gitnexus/
 .claude/skills/
+.codex/
+outputs/odds-api-io-live-comparator/
+outputs/nba-detector-bakeoff/report.html
+outputs/nba-detector-bakeoff/research/*.json
 
 # Owner-maintained docs / Ralph runtime state
 AGENTS.md

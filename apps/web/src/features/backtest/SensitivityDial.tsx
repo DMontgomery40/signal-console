@@ -17,7 +17,7 @@ const SENSITIVITY_LARGE_STEP = 1.0;
 const SENSITIVITY_SNAP_POINTS: readonly number[] = [K_MAD_LIVE, K_MAD_CALM];
 
 const SENSITIVITY_SNAP_CHIPS: readonly RotaryDialSnapChip[] = [
-  { value: K_MAD_LIVE, label: "Sensitive", testId: "sensitivity-chip-sensitive" },
+  { value: K_MAD_LIVE, label: "Live", testId: "sensitivity-chip-sensitive" },
   { value: K_MAD_CALM, label: "Calm", testId: "sensitivity-chip-calm" },
 ];
 
@@ -42,7 +42,7 @@ export function SensitivityDial({
     <RotaryDial
       value={value}
       onChange={onChange}
-      ariaLabel={`${ariaLabel ?? "Sensitivity"}; center readout is estimated fires per game`}
+      ariaLabel={`${ariaLabel ?? "Innovation trigger"}; center readout is estimated fires per game`}
       valueMin={SENSITIVITY_MIN}
       valueMax={SENSITIVITY_MAX}
       smallStep={SENSITIVITY_SMALL_STEP}
@@ -54,7 +54,7 @@ export function SensitivityDial({
       inlineDetailText="fires/gm"
       showInlineValue
       testIdPrefix="sensitivity-dial"
-      label="Sensitivity"
+      label="Innovation trigger"
       labelExplainerId="k-mad"
     />
   );

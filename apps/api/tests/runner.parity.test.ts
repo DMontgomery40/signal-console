@@ -29,6 +29,7 @@ import {
   setDetectorDefaultsPath,
 } from "../src/services/detector-defaults";
 import { runDetector } from "../src/services/detector-runner";
+import { tsBoardVolatilityRunner } from "./helpers/board-volatility-runner";
 
 interface TestCtx {
   tempDir: string;
@@ -214,15 +215,16 @@ function bucketKey(b: {
 }
 
 describe("detector-runner parity (audit-fix phase A0)", () => {
-  it("board-mad: game-scope and window-scope produce identical buckets and fires", () => {
-    const gameResult = runDetector({
+  it("board-mad: game-scope and window-scope produce identical buckets and fires", async () => {
+    const gameResult = await runDetector({
       detectorId: "board-mad",
       params: DEFAULT_BOARD_PARAMS,
       scope: { kind: "game", gameId: GAME_ID },
       goldDbPath: ctx.goldDbPath,
       cacheDbPath: ctx.cacheDbPath,
+      boardVolatilityRunner: tsBoardVolatilityRunner,
     });
-    const windowResult = runDetector({
+    const windowResult = await runDetector({
       detectorId: "board-mad",
       params: DEFAULT_BOARD_PARAMS,
       scope: {
@@ -233,6 +235,7 @@ describe("detector-runner parity (audit-fix phase A0)", () => {
       },
       goldDbPath: ctx.goldDbPath,
       cacheDbPath: ctx.cacheDbPath,
+      boardVolatilityRunner: tsBoardVolatilityRunner,
     });
 
     expect(gameResult.buckets.length).toBeGreaterThan(0);
@@ -247,20 +250,22 @@ describe("detector-runner parity (audit-fix phase A0)", () => {
     expect(gameResult.stats.firesPerGame).toBeCloseTo(windowResult.stats.firesPerGame, 9);
   });
 
-  it("ensemble-or board lane equals standalone board-mad (byte-identical buckets)", () => {
-    const standalone = runDetector({
+  it("ensemble-or board lane equals standalone board-mad (byte-identical buckets)", async () => {
+    const standalone = await runDetector({
       detectorId: "board-mad",
       params: DEFAULT_BOARD_PARAMS,
       scope: { kind: "game", gameId: GAME_ID },
       goldDbPath: ctx.goldDbPath,
       cacheDbPath: ctx.cacheDbPath,
+      boardVolatilityRunner: tsBoardVolatilityRunner,
     });
-    const ensemble = runDetector({
+    const ensemble = await runDetector({
       detectorId: "ensemble-or",
       params: { board: DEFAULT_BOARD_PARAMS },
       scope: { kind: "game", gameId: GAME_ID },
       goldDbPath: ctx.goldDbPath,
       cacheDbPath: ctx.cacheDbPath,
+      boardVolatilityRunner: tsBoardVolatilityRunner,
     });
 
     // ensemble.buckets and standalone.buckets are both the board lane's
@@ -288,15 +293,16 @@ describe("detector-runner parity (audit-fix phase A0)", () => {
     expect(ensembleOffpriceFires.length).toBeGreaterThan(0);
   });
 
-  it("resolveGameTimingContext returns clockSource=pbp when PBP exists", () => {
+  it("resolveGameTimingContext returns clockSource=pbp when PBP exists", async () => {
     // Indirect: the runner uses resolveGameTimingContext internally. We
     // inspect timingContexts on the result.
-    const result = runDetector({
+    const result = await runDetector({
       detectorId: "board-mad",
       params: DEFAULT_BOARD_PARAMS,
       scope: { kind: "game", gameId: GAME_ID },
       goldDbPath: ctx.goldDbPath,
       cacheDbPath: ctx.cacheDbPath,
+      boardVolatilityRunner: tsBoardVolatilityRunner,
     });
     expect(result.timingContexts).toHaveLength(1);
     const timing = result.timingContexts[0];
@@ -313,24 +319,26 @@ describe("detector-runner parity (audit-fix phase A0)", () => {
   // This test pins that the historical-prior pipeline reaches BOTH dispatches
   // (the pre-runner bug at backtest.ts:128-131 only built priors for the
   // standalone case; ensemble silently got priors=[]).
-  it("ensemble-or historical-blend board lane equals standalone board-mad historical-blend", () => {
+  it("ensemble-or historical-blend board lane equals standalone board-mad historical-blend", async () => {
     const boardParamsBlend = {
       ...DEFAULT_BOARD_PARAMS,
       baselineMode: "historical-blend" as const,
     };
-    const standalone = runDetector({
+    const standalone = await runDetector({
       detectorId: "board-mad",
       params: boardParamsBlend,
       scope: { kind: "game", gameId: GAME_ID },
       goldDbPath: ctx.goldDbPath,
       cacheDbPath: ctx.cacheDbPath,
+      boardVolatilityRunner: tsBoardVolatilityRunner,
     });
-    const ensemble = runDetector({
+    const ensemble = await runDetector({
       detectorId: "ensemble-or",
       params: { board: boardParamsBlend },
       scope: { kind: "game", gameId: GAME_ID },
       goldDbPath: ctx.goldDbPath,
       cacheDbPath: ctx.cacheDbPath,
+      boardVolatilityRunner: tsBoardVolatilityRunner,
     });
 
     // Both dispatches must have invoked buildBoardMadHistoricalPriors and
@@ -341,20 +349,22 @@ describe("detector-runner parity (audit-fix phase A0)", () => {
     expect(ensembleKeys).toEqual(standaloneKeys);
   });
 
-  it("cache hit on second call returns identical result without re-running detector", () => {
-    const first = runDetector({
+  it("cache hit on second call returns identical result without re-running detector", async () => {
+    const first = await runDetector({
       detectorId: "board-mad",
       params: DEFAULT_BOARD_PARAMS,
       scope: { kind: "game", gameId: GAME_ID },
       goldDbPath: ctx.goldDbPath,
       cacheDbPath: ctx.cacheDbPath,
+      boardVolatilityRunner: tsBoardVolatilityRunner,
     });
-    const second = runDetector({
+    const second = await runDetector({
       detectorId: "board-mad",
       params: DEFAULT_BOARD_PARAMS,
       scope: { kind: "game", gameId: GAME_ID },
       goldDbPath: ctx.goldDbPath,
       cacheDbPath: ctx.cacheDbPath,
+      boardVolatilityRunner: tsBoardVolatilityRunner,
     });
     expect(second.runId).toBe(first.runId);
     expect(second.buckets.map(bucketKey).toSorted()).toEqual(

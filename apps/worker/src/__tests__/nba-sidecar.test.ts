@@ -220,6 +220,86 @@ describe("nba sidecar worker integration", () => {
     ).toEqual({ count: 1 });
   });
 
+  it("cancels vanished if-necessary games when a successful scoreboard date no longer lists them", async () => {
+    ingestNbaSidecarScoreboard({
+      generatedAt: "2026-04-22T05:30:00.000Z",
+      requestedDate: "2026-04-22",
+      games: [
+        {
+          game: {
+            ...scoreboardPayload.games[0].game,
+            id: "nba-0042500305",
+            sourceGameKeyNba: "0042500305",
+          },
+          gameState: {
+            awayScore: null,
+            capturedAt: "2026-04-22T05:30:00.000Z",
+            clock: null,
+            finalAt: null,
+            homeScore: null,
+            isFinal: false,
+            period: 0,
+            startedAt: null,
+            status: "scheduled",
+          },
+          outcome: null,
+        },
+      ],
+    });
+
+    await syncNbaSidecarWindow({
+      baseUrl: "http://127.0.0.1:9393",
+      fetchImpl: (async (url: string) => {
+        if (url.includes("/play-by-play")) {
+          return {
+            json: async () => ({
+              data: {
+                actions: [
+                  {
+                    actionNumber: 1,
+                    actionType: "rebound",
+                    clock: "PT05M07.00S",
+                    description: "TEAM offensive REBOUND",
+                    period: 2,
+                    scoreAway: "46",
+                    scoreHome: "31",
+                    teamTricode: "CLE",
+                    timeActual: "2026-05-18T01:04:20.400Z",
+                  },
+                ],
+                gameId: "0022600001",
+                generatedAt: "2026-04-22T06:00:00.000Z",
+              },
+            }),
+            ok: true,
+            status: 200,
+          };
+        }
+        return {
+          json: async () => ({
+            data: {
+              ...scoreboardPayload,
+              requestedDate: "2026-04-22",
+            },
+          }),
+          ok: true,
+          status: 200,
+        };
+      }) as never,
+      lookaheadDays: 0,
+      lookbackDays: 0,
+      now: () => new Date("2026-04-22T06:00:00.000Z"),
+    });
+
+    expect(getResearchGame("nba-0042500305")).toMatchObject({
+      gameState: expect.objectContaining({
+        isFinal: false,
+        status: "cancelled",
+      }),
+      outcome: null,
+    });
+  });
+
   it("derives a final game state and outcome from official play-by-play when scoreboard is still scheduled", async () => {
     await syncNbaSidecarWindow({
       baseUrl: "http://127.0.0.1:9393",

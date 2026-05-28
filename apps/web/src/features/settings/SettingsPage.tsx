@@ -167,13 +167,13 @@ const NUMERIC_DETECTOR_DEFAULT_FIELDS: ReadonlyArray<{
 }> = [
   {
     key: "kMadLive",
-    label: "Live sensitivity",
+    label: "Live trigger",
     explainerId: "settings-k-mad-live",
     step: 0.1,
     integer: false,
     min: BOARD_MAD_K_MAD_MIN,
     max: BOARD_MAD_K_MAD_MAX,
-    unit: "× MAD",
+    unit: "innovation z",
   },
   {
     key: "bucketSeconds",
@@ -187,7 +187,7 @@ const NUMERIC_DETECTOR_DEFAULT_FIELDS: ReadonlyArray<{
   },
   {
     key: "openingBaselineBuckets",
-    label: "Opening sample",
+    label: "Opening anchor sample",
     explainerId: "settings-opening-baseline-buckets",
     step: 1,
     integer: true,
@@ -197,7 +197,7 @@ const NUMERIC_DETECTOR_DEFAULT_FIELDS: ReadonlyArray<{
   },
   {
     key: "openingRampCompleteBuckets",
-    label: "Ramp complete",
+    label: "Opening anchor fade-out",
     explainerId: "settings-opening-ramp-complete-buckets",
     step: 1,
     integer: true,
@@ -207,7 +207,7 @@ const NUMERIC_DETECTOR_DEFAULT_FIELDS: ReadonlyArray<{
   },
   {
     key: "trailingBuckets",
-    label: "Volatility lookback",
+    label: "Filter memory",
     explainerId: "settings-trailing-buckets",
     step: 1,
     integer: true,
@@ -217,7 +217,7 @@ const NUMERIC_DETECTOR_DEFAULT_FIELDS: ReadonlyArray<{
   },
   {
     key: "warmupBuckets",
-    label: "Opening holdoff",
+    label: "Alert holdoff",
     explainerId: "settings-warmup-buckets",
     step: 1,
     integer: true,
@@ -277,7 +277,7 @@ const NUMERIC_DETECTOR_DEFAULT_FIELDS: ReadonlyArray<{
   },
   {
     key: "trailingGameMinutes",
-    label: "Game-clock memory",
+    label: "Historical game memory",
     explainerId: "settings-trailing-game-minutes",
     step: 0.5,
     integer: false,
@@ -287,7 +287,7 @@ const NUMERIC_DETECTOR_DEFAULT_FIELDS: ReadonlyArray<{
   },
   {
     key: "recentWallMinutes",
-    label: "Recent all-clock tack-on",
+    label: "Recent wall-memory",
     explainerId: "settings-recent-wall-minutes",
     step: 0.5,
     integer: false,
@@ -297,7 +297,7 @@ const NUMERIC_DETECTOR_DEFAULT_FIELDS: ReadonlyArray<{
   },
   {
     key: "recentWallWeight",
-    label: "Recent tack-on weight",
+    label: "Recent wall-memory weight",
     explainerId: "settings-recent-wall-weight",
     step: 0.1,
     integer: false,
@@ -386,7 +386,7 @@ const DETECTOR_PROFILE_PRESETS: ReadonlyArray<{
 }> = [
   {
     id: "opening-ramp-live",
-    label: "Opening ramp live",
+    label: "Opening anchor live",
     patch: {
       baselineMode: BOARD_MAD_BASELINE_MODE_OPENING_RAMP,
       bucketSeconds: 60,
@@ -398,7 +398,7 @@ const DETECTOR_PROFILE_PRESETS: ReadonlyArray<{
   },
   {
     id: "historical-blend",
-    label: "Historical to live",
+    label: "Historical prior live",
     patch: {
       baselineMode: BOARD_MAD_BASELINE_MODE_HISTORICAL_BLEND,
       bucketSeconds: 30,
@@ -417,7 +417,7 @@ const DETECTOR_PROFILE_PRESETS: ReadonlyArray<{
   },
   {
     id: "legacy-trailing",
-    label: "Legacy rolling",
+    label: "Pure trailing state",
     patch: {
       baselineMode: BOARD_MAD_BASELINE_MODE_TRAILING,
       bucketSeconds: 60,
@@ -574,12 +574,12 @@ function DetectorDefaultsSection({
               Promote {pendingProfile.label}
             </h4>
             <p className="mt-3 text-sm text-text-md">
-              This writes the live detector defaults used by Recent and Live. New board-mad requests
-              will pick it up within 5 seconds after the effective time, the runtime detector
-              version gets a defaults hash, and old cached runs miss naturally.
+              This writes the live board-model defaults used by Recent and Live. New board-lane
+              requests will pick it up within 5 seconds after the effective time, the runtime
+              detector version gets a defaults hash, and old cached runs miss naturally.
             </p>
             <p className="mt-3 text-sm text-text-md">
-              Rollback is the same operation in reverse: choose Opening ramp live or Legacy rolling
+              Rollback is the same operation in reverse: choose a different board-model profile
               here, apply it, and the next request recomputes against that profile. Scheduled
               changes are stored beside detector-defaults.json and are promoted on the first API
               read at or after {pendingProfile.effectiveAt}.
@@ -631,7 +631,7 @@ function DetectorDefaultsSection({
           {" "}
           ~/signal-console/data/detector-defaults.json
         </span>
-        ; the API picks them up within 5 s and bumps the board-mad version so cached results
+        ; the API picks them up within 5 s and bumps the board-model version so cached results
         recompute on next access.
       </p>
       <dl className="mt-4 grid grid-cols-1 gap-x-4 gap-y-3 text-sm sm:grid-cols-[180px_minmax(0,1fr)]">
@@ -669,7 +669,7 @@ function DetectorDefaultsSection({
           data-flashing={flashing.has("baselineMode") ? "1" : "0"}
           className="contents"
         >
-          <ExplainDt id="settings-baseline-mode">Prior sample</ExplainDt>
+          <ExplainDt id="settings-baseline-mode">Prior anchor</ExplainDt>
           <dd
             className={
               flashing.has("baselineMode")
@@ -684,13 +684,13 @@ function DetectorDefaultsSection({
                   updateBaselineMode(e.target.value);
                 }}
                 data-testid="detector-default-input-baselineMode"
-                aria-label="Prior sample"
+                aria-label="Prior anchor"
                 className="w-52 border border-surface-2 bg-surface-0-from px-2 py-1 text-sm font-mono text-text-hi focus:border-accent-green focus:outline-none"
               >
-                <option value={BOARD_MAD_BASELINE_MODE_TRAILING}>rolling current game</option>
-                <option value={BOARD_MAD_BASELINE_MODE_OPENING_RAMP}>opening sample ramp</option>
+                <option value={BOARD_MAD_BASELINE_MODE_TRAILING}>pure trailing state</option>
+                <option value={BOARD_MAD_BASELINE_MODE_OPENING_RAMP}>opening anchor ramp</option>
                 <option value={BOARD_MAD_BASELINE_MODE_HISTORICAL_BLEND}>
-                  historical to live ramp
+                  historical prior blend
                 </option>
               </select>
               {defaults.baselineMode === BASELINE_DEFAULTS.baselineMode ? null : (

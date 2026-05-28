@@ -1,0 +1,169 @@
+from __future__ import annotations
+
+from nba_sidecar.main import post_board_volatility_state_space
+from nba_sidecar.models import (
+    VolatilityHistoricalPrior,
+    VolatilityStateSpaceObservation,
+    VolatilityStateSpaceParams,
+    VolatilityStateSpaceRequest,
+)
+from nba_sidecar.volatility import score_volatility_state_space
+
+
+def observation(intensity: float, minute: int) -> VolatilityStateSpaceObservation:
+    return VolatilityStateSpaceObservation(
+        bucketStart=f"2026-05-25T00:{minute:02d}:00.000Z",
+        bucketEnd=f"2026-05-25T00:{minute + 1:02d}:00.000Z",
+        intensity=intensity,
+        gameElapsedSeconds=minute * 60,
+        activeMarketCount=25,
+        sourceCount=3,
+        sourceDominance=0.2,
+    )
+
+
+def test_state_space_scores_regime_entry_without_paging_every_bucket() -> None:
+    request = VolatilityStateSpaceRequest(
+        gameId="nba-synth-1",
+        params=VolatilityStateSpaceParams(
+            baselineMode="trailing",
+            bucketSeconds=60,
+            kMad=3,
+            trailingBuckets=20,
+            warmupBuckets=8,
+        ),
+        observations=[
+            *[observation(8 + (i % 3), i) for i in range(10)],
+            *[observation(90 + (i % 5) * 8, i + 10) for i in range(20)],
+        ],
+    )
+
+    result = score_volatility_state_space(request)
+
+    assert sum(1 for row in result.observations if row.fired) == 1
+
+
+def test_state_space_keeps_historical_prior_early_then_fades() -> None:
+    request = VolatilityStateSpaceRequest(
+        gameId="nba-synth-2",
+        params=VolatilityStateSpaceParams(
+            baselineMode="historical-blend",
+            bucketSeconds=60,
+            kMad=3,
+            trailingBuckets=20,
+            warmupBuckets=2,
+            historicalPrior=VolatilityHistoricalPrior(mad=4, median=40, sampleSize=25),
+            historicalPriorWeight=1,
+            historicalRampCompleteGameMinutes=12,
+        ),
+        observations=[observation(12 + i, i) for i in range(12)],
+    )
+
+    result = score_volatility_state_space(request)
+
+    assert result.observations[1].baselineMedian > 20
+    assert result.observations[-1].baselineMedian < result.observations[1].baselineMedian
+
+
+def test_state_space_uses_opening_anchor_controls_in_opening_ramp_mode() -> None:
+    request = VolatilityStateSpaceRequest(
+        gameId="nba-synth-opening",
+        params=VolatilityStateSpaceParams(
+            baselineMode="opening-ramp",
+            bucketSeconds=60,
+            kMad=3,
+            trailingBuckets=20,
+            warmupBuckets=2,
+            openingBaselineBuckets=4,
+            openingRampCompleteBuckets=10,
+        ),
+        observations=[
+            observation(6, 0),
+            observation(7, 1),
+            observation(8, 2),
+            observation(9, 3),
+            observation(24, 4),
+            observation(26, 5),
+            observation(28, 6),
+            observation(30, 7),
+            observation(32, 8),
+            observation(34, 9),
+            observation(36, 10),
+        ],
+    )
+
+    result = score_volatility_state_space(request)
+
+    assert result.observations[4].baselineMedian < result.observations[-1].baselineMedian
+
+
+def test_state_space_uses_game_and_wall_memory_in_historical_blend_mode() -> None:
+    request = VolatilityStateSpaceRequest(
+        gameId="nba-synth-hist-live",
+        params=VolatilityStateSpaceParams(
+            baselineMode="historical-blend",
+            bucketSeconds=60,
+            kMad=3,
+            trailingBuckets=20,
+            trailingGameMinutes=6,
+            recentWallMinutes=2,
+            recentWallWeight=2,
+            warmupBuckets=2,
+        ),
+        observations=[
+            observation(8, 0),
+            observation(9, 1),
+            observation(10, 2),
+            observation(11, 3),
+            observation(12, 4),
+            observation(30, 5),
+            observation(32, 6),
+            observation(34, 7),
+        ],
+    )
+
+    result = score_volatility_state_space(request)
+
+    assert result.observations[5].baselineMedian > result.observations[2].baselineMedian
+
+
+def test_state_space_endpoint_returns_observable_contract() -> None:
+    payload = post_board_volatility_state_space(
+        VolatilityStateSpaceRequest(
+            gameId="nba-synth-3",
+            params=VolatilityStateSpaceParams(
+                baselineMode="trailing",
+                bucketSeconds=60,
+                kMad=3,
+                trailingBuckets=20,
+                warmupBuckets=8,
+            ),
+            observations=[
+                VolatilityStateSpaceObservation(
+                    bucketStart="2026-05-25T00:00:00.000Z",
+                    bucketEnd="2026-05-25T00:01:00.000Z",
+                    intensity=10,
+                    gameElapsedSeconds=0,
+                ),
+                VolatilityStateSpaceObservation(
+                    bucketStart="2026-05-25T00:01:00.000Z",
+                    bucketEnd="2026-05-25T00:02:00.000Z",
+                    intensity=15,
+                    gameElapsedSeconds=60,
+                ),
+            ],
+        )
+    )["data"]
+    assert payload["gameId"] == "nba-synth-3"
+    assert len(payload["observations"]) == 2
+    assert set(payload["observations"][0].keys()) == {
+        "baselineMad",
+        "baselineMedian",
+        "bucketEnd",
+        "bucketStart",
+        "fired",
+        "regimeScore",
+        "standardizedInnovation",
+        "threshold",
+        "warmedUp",
+    }

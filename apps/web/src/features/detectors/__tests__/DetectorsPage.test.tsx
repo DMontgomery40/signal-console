@@ -79,7 +79,7 @@ const DETECTORS_RESPONSE = {
     {
       id: "board-mad",
       version: "1.2.0",
-      displayName: "Board MAD (whole-board volatility)",
+      displayName: "Board State-Space (whole-board volatility)",
       sources: ["bet365", "kalshi", "polymarket"],
       paramsSchema: {
         type: "object",
@@ -179,12 +179,12 @@ describe("DetectorsPage", () => {
     expect(ids).toEqual(["board-mad", "off-price-print"]);
   });
 
-  it("renders the board-mad displayName, version, and id", async () => {
+  it("renders the board state-space displayName, version, and id", async () => {
     mockDetectors();
     render(<DetectorsPage />, { wrapper: makeWrapper() });
 
     const card = await findCardById("board-mad");
-    expect(card.textContent).toContain("Board MAD (whole-board volatility)");
+    expect(card.textContent).toContain("Board State-Space (whole-board volatility)");
     expect(within(card).getByTestId("detector-version").textContent).toBe("v1.2.0");
     expect(card.textContent).toContain("board-mad");
   });

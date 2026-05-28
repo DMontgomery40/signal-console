@@ -1,0 +1,1642 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Signal Console Bake-Off and Core Math Assessment</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --paper: #f8faf7;
+        --panel: #ffffff;
+        --ink: #202326;
+        --muted: #61686f;
+        --line: #d7ddd6;
+        --soft: #eef2ee;
+        --teal: #216f69;
+        --red: #b94835;
+        --gold: #a97920;
+        --blue: #335f91;
+        --violet: #6d587e;
+        --green: #4d7b39;
+        --shadow: 0 12px 28px rgba(27, 34, 36, 0.1);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background:
+          linear-gradient(90deg, rgba(32, 35, 38, 0.035) 1px, transparent 1px),
+          linear-gradient(0deg, rgba(32, 35, 38, 0.03) 1px, transparent 1px), var(--paper);
+        background-size: 28px 28px;
+        color: var(--ink);
+        font:
+          15px/1.45 ui-sans-serif,
+          -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          sans-serif;
+      }
+
+      main {
+        width: min(1380px, calc(100vw - 32px));
+        margin: 0 auto;
+        padding: 24px 0 44px;
+      }
+
+      header {
+        display: grid;
+        grid-template-columns: 1.1fr 0.9fr;
+        gap: 18px;
+        align-items: stretch;
+        margin-bottom: 18px;
+      }
+
+      h1,
+      h2,
+      h3,
+      p {
+        margin: 0;
+      }
+
+      h1 {
+        font-size: clamp(32px, 5vw, 72px);
+        line-height: 0.96;
+        letter-spacing: 0;
+        max-width: 900px;
+      }
+
+      h2 {
+        font-size: 18px;
+        line-height: 1.15;
+      }
+
+      h3 {
+        font-size: 14px;
+        letter-spacing: 0.03em;
+        text-transform: uppercase;
+      }
+
+      code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 0.92em;
+        background: #f0f3ef;
+        border: 1px solid #dfe5df;
+        border-radius: 4px;
+        padding: 0 4px;
+      }
+
+      a {
+        color: var(--blue);
+        text-decoration-thickness: 1px;
+      }
+
+      .panel {
+        background: rgba(255, 255, 255, 0.92);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        box-shadow: var(--shadow);
+      }
+
+      .lead {
+        padding: 22px;
+        min-height: 280px;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        gap: 22px;
+      }
+
+      .verdict {
+        display: grid;
+        grid-template-columns: 120px 1fr;
+        gap: 14px;
+        align-items: start;
+      }
+
+      .stamp {
+        border: 2px solid var(--red);
+        color: var(--red);
+        font-weight: 900;
+        text-align: center;
+        padding: 10px 8px;
+        border-radius: 4px;
+        transform: rotate(-1.5deg);
+      }
+
+      .summaryText {
+        color: var(--muted);
+        font-size: 17px;
+        max-width: 850px;
+      }
+
+      .metricGrid {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 10px;
+      }
+
+      .metric {
+        border-top: 4px solid var(--ink);
+        background: var(--panel);
+        padding: 12px;
+        min-height: 94px;
+      }
+
+      .metric strong {
+        display: block;
+        font-size: 30px;
+        line-height: 1;
+      }
+
+      .metric span {
+        display: block;
+        color: var(--muted);
+        margin-top: 8px;
+        font-size: 13px;
+      }
+
+      .metric:nth-child(2) {
+        border-color: var(--teal);
+      }
+
+      .metric:nth-child(3) {
+        border-color: var(--gold);
+      }
+
+      .metric:nth-child(4) {
+        border-color: var(--red);
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: 330px 1fr;
+        gap: 18px;
+        align-items: start;
+      }
+
+      .controls {
+        padding: 16px;
+        position: sticky;
+        top: 14px;
+      }
+
+      .control {
+        padding: 14px 0;
+        border-top: 1px solid var(--line);
+      }
+
+      .control:first-of-type {
+        border-top: 0;
+      }
+
+      label {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        color: var(--ink);
+        font-weight: 700;
+        margin-bottom: 8px;
+      }
+
+      label output {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        color: var(--teal);
+      }
+
+      input[type="range"] {
+        width: 100%;
+        accent-color: var(--teal);
+      }
+
+      .segmented {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 6px;
+      }
+
+      button {
+        border: 1px solid var(--line);
+        background: var(--soft);
+        color: var(--ink);
+        border-radius: 6px;
+        min-height: 36px;
+        font-weight: 800;
+        cursor: pointer;
+      }
+
+      button.active {
+        background: var(--ink);
+        color: white;
+        border-color: var(--ink);
+      }
+
+      .check {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        color: var(--muted);
+        font-weight: 700;
+      }
+
+      .check input {
+        width: 16px;
+        height: 16px;
+        accent-color: var(--teal);
+      }
+
+      .dash {
+        display: grid;
+        gap: 18px;
+      }
+
+      .winner {
+        display: grid;
+        grid-template-columns: minmax(220px, 1fr) minmax(220px, 1fr) minmax(220px, 1fr);
+        gap: 12px;
+      }
+
+      .tile {
+        padding: 16px;
+        border-radius: 8px;
+        border: 1px solid var(--line);
+        background: var(--panel);
+      }
+
+      .tile .eyebrow {
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        font-size: 12px;
+        font-weight: 800;
+        margin-bottom: 8px;
+      }
+
+      .tile strong {
+        display: block;
+        font-size: 28px;
+        line-height: 1.05;
+      }
+
+      .tile p {
+        color: var(--muted);
+        margin-top: 8px;
+      }
+
+      .chartWrap {
+        padding: 16px;
+      }
+
+      .chartHead {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        align-items: end;
+        margin-bottom: 10px;
+      }
+
+      svg {
+        width: 100%;
+        height: auto;
+        display: block;
+        overflow: visible;
+      }
+
+      .axis,
+      .gridline {
+        stroke: #cfd7d1;
+        stroke-width: 1;
+      }
+
+      .axisText {
+        font-size: 12px;
+        fill: var(--muted);
+      }
+
+      .dot {
+        stroke: white;
+        stroke-width: 1.5;
+        cursor: pointer;
+      }
+
+      .dot.muted {
+        opacity: 0.22;
+      }
+
+      .tooltip {
+        position: fixed;
+        pointer-events: none;
+        background: var(--ink);
+        color: white;
+        border-radius: 6px;
+        padding: 9px 10px;
+        font-size: 12px;
+        max-width: 300px;
+        z-index: 20;
+        opacity: 0;
+        transform: translate(10px, 10px);
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13px;
+      }
+
+      th,
+      td {
+        text-align: left;
+        padding: 10px 8px;
+        border-bottom: 1px solid var(--line);
+        vertical-align: top;
+      }
+
+      th {
+        color: var(--muted);
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        background: #f3f6f3;
+        position: sticky;
+        top: 0;
+      }
+
+      .num {
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .pill {
+        display: inline-block;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        padding: 2px 8px;
+        font-size: 12px;
+        font-weight: 800;
+        color: var(--muted);
+        background: #f5f7f5;
+        white-space: nowrap;
+      }
+
+      .bar {
+        height: 8px;
+        background: #e2e9e2;
+        border-radius: 999px;
+        overflow: hidden;
+        margin-top: 5px;
+      }
+
+      .bar i {
+        display: block;
+        height: 100%;
+        background: var(--teal);
+      }
+
+      .sections {
+        margin-top: 18px;
+        display: grid;
+        gap: 12px;
+      }
+
+      details {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 0;
+        overflow: hidden;
+      }
+
+      summary {
+        cursor: pointer;
+        padding: 14px 16px;
+        font-weight: 900;
+        background: #f1f5f2;
+      }
+
+      .detailBody {
+        padding: 16px;
+        display: grid;
+        gap: 14px;
+      }
+
+      .cols {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 14px;
+      }
+
+      .callout {
+        border-left: 4px solid var(--teal);
+        background: #f2f8f6;
+        padding: 12px;
+      }
+
+      .callout.warn {
+        border-left-color: var(--red);
+        background: #fff4f1;
+      }
+
+      .callout.gold {
+        border-left-color: var(--gold);
+        background: #fff8e9;
+      }
+
+      ul {
+        margin: 0;
+        padding-left: 18px;
+      }
+
+      li {
+        margin: 6px 0;
+      }
+
+      .small {
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .kBox {
+        display: grid;
+        grid-template-columns: 240px 1fr;
+        gap: 14px;
+        align-items: center;
+      }
+
+      .kReadout {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 8px;
+      }
+
+      .kReadout div {
+        background: #f6f8f6;
+        border: 1px solid var(--line);
+        padding: 10px;
+        border-radius: 6px;
+      }
+
+      .kReadout strong {
+        display: block;
+        font-size: 20px;
+      }
+
+      @media (max-width: 980px) {
+        header,
+        .grid,
+        .winner,
+        .cols,
+        .kBox {
+          grid-template-columns: 1fr;
+        }
+
+        .controls {
+          position: static;
+        }
+
+        .metricGrid {
+          grid-template-columns: repeat(2, 1fr);
+        }
+      }
+
+      @media (max-width: 560px) {
+        main {
+          width: min(100vw - 20px, 1380px);
+          padding-top: 12px;
+        }
+
+        .lead,
+        .controls,
+        .chartWrap,
+        .tile,
+        .detailBody {
+          padding: 12px;
+        }
+
+        .metricGrid,
+        .kReadout {
+          grid-template-columns: 1fr;
+        }
+
+        table {
+          font-size: 12px;
+        }
+
+        th,
+        td {
+          padding: 8px 6px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <section class="lead panel">
+          <div>
+            <h1>Bake-Off and Core Math Assessment</h1>
+            <p class="summaryText">
+              Verdict: useful for triage and direction-setting, but overconfident as deployment
+              proof. The repaired Board MAD math has a real causal observation contract; the
+              bake-off still rewards high recall rows that page too often, and several advertised
+              microstructure ideas are not evaluable against the current local data.
+            </p>
+          </div>
+          <div class="verdict">
+            <div class="stamp">PROMISING<br />WITH CAVEATS</div>
+            <p>
+              The live-safe path is closer to "robust anomaly screen" than "stat correction
+              detector." It sees market repricing around some known stat-allocation weirdness, not
+              the stat error itself. That distinction is healthy and should stay explicit.
+            </p>
+          </div>
+        </section>
+        <section class="panel" style="padding: 16px">
+          <h2>Current Bake-Off Contract</h2>
+          <div class="metricGrid" style="margin-top: 14px">
+            <div class="metric"><strong>26</strong><span>surfaced incident candidates</span></div>
+            <div class="metric"><strong>16</strong><span>exact UTC/PBP anchors</span></div>
+            <div class="metric"><strong>14</strong><span>locally scoreable incidents</span></div>
+            <div class="metric">
+              <strong>1,292</strong><span>denominator games with windows</span>
+            </div>
+          </div>
+          <p class="small" style="margin-top: 12px">
+            Source artifact:
+            <code>outputs/nba-detector-bakeoff/research/bakeoff-results.json</code>, generated
+            2026-05-25T21:36:29.357Z.
+          </p>
+        </section>
+      </header>
+
+      <section class="grid">
+        <aside class="controls panel">
+          <h2>What-if Scoring</h2>
+          <p class="small" style="margin-top: 6px">
+            These controls do not change the raw bake-off. They change the operator preference used
+            to rank rows by recall, alert burden, efficiency, and outlier penalty.
+          </p>
+
+          <div class="control">
+            <label for="modeRecall">Ranking Mode <output id="modeOut">balanced</output></label>
+            <div class="segmented">
+              <button type="button" data-mode="recall">Recall</button>
+              <button type="button" data-mode="balanced" class="active">Balanced</button>
+              <button type="button" data-mode="desk">Desk</button>
+            </div>
+          </div>
+
+          <div class="control">
+            <label for="minCaught">Minimum caught <output id="minCaughtOut">5</output></label>
+            <input id="minCaught" type="range" min="0" max="8" step="1" value="5" />
+          </div>
+
+          <div class="control">
+            <label for="maxEpisodes"
+              >Episode budget <output id="maxEpisodesOut">6.0/game</output></label
+            >
+            <input id="maxEpisodes" type="range" min="1" max="6" step="0.1" value="6" />
+          </div>
+
+          <div class="control">
+            <label for="alertCost">Alert cost <output id="alertCostOut">1.0x</output></label>
+            <input id="alertCost" type="range" min="0" max="3" step="0.1" value="1" />
+          </div>
+
+          <div class="control">
+            <label for="outlierCost">Outlier cost <output id="outlierCostOut">1.0x</output></label>
+            <input id="outlierCost" type="range" min="0" max="3" step="0.1" value="1" />
+          </div>
+
+          <div class="control">
+            <label for="efficiencyWeight"
+              >Efficiency weight <output id="efficiencyOut">1.0x</output></label
+            >
+            <input id="efficiencyWeight" type="range" min="0" max="3" step="0.1" value="1" />
+          </div>
+
+          <div class="control">
+            <label class="check">
+              <input id="excludeUnevaluable" type="checkbox" checked />
+              Hide non-evaluable rows
+            </label>
+          </div>
+
+          <div class="control">
+            <h3>K endpoint contrast</h3>
+            <p class="small">
+              The slider interpolates the observed A01 K=3 and A02 K=6 endpoints. It is a visual
+              sensitivity aid, not new evidence.
+            </p>
+            <label for="kSlider" style="margin-top: 10px">K <output id="kOut">3.0</output></label>
+            <input id="kSlider" type="range" min="3" max="6" step="0.1" value="3" />
+          </div>
+        </aside>
+
+        <section class="dash">
+          <section class="winner">
+            <div class="tile">
+              <div class="eyebrow">Selected Row</div>
+              <strong id="winnerName">-</strong>
+              <p id="winnerWhy">-</p>
+            </div>
+            <div class="tile">
+              <div class="eyebrow">Recall</div>
+              <strong id="winnerRecall">-</strong>
+              <p id="winnerTiming">-</p>
+            </div>
+            <div class="tile">
+              <div class="eyebrow">Burden</div>
+              <strong id="winnerBurden">-</strong>
+              <p id="winnerRisk">-</p>
+            </div>
+          </section>
+
+          <section class="panel chartWrap">
+            <div class="chartHead">
+              <div>
+                <h2>Recall vs Alert Burden</h2>
+                <p class="small">
+                  X = mean alert episodes per game. Y = caught scoreable incidents. Circle size =
+                  P95 fires per game.
+                </p>
+              </div>
+              <span class="pill" id="visibleCount">0 rows</span>
+            </div>
+            <svg
+              id="scatter"
+              viewBox="0 0 940 420"
+              role="img"
+              aria-label="Algorithm comparison scatter plot"
+            ></svg>
+          </section>
+
+          <section class="panel chartWrap">
+            <div class="kBox">
+              <div>
+                <h2>Observed K Tradeoff</h2>
+                <p class="small">
+                  A01 uses K=3 and A02 uses K=6 on the legacy 60s volume-weighted path. The current
+                  live default is K=3; K=6 is calmer but misses more.
+                </p>
+              </div>
+              <div class="kReadout">
+                <div><span class="small">Caught</span><strong id="kCaught">-</strong></div>
+                <div><span class="small">Mean fires/game</span><strong id="kFires">-</strong></div>
+                <div><span class="small">P95 fires/game</span><strong id="kP95">-</strong></div>
+              </div>
+            </div>
+          </section>
+
+          <section class="panel" style="overflow: auto">
+            <table>
+              <thead>
+                <tr>
+                  <th>Rank</th>
+                  <th>Algorithm</th>
+                  <th class="num">Caught</th>
+                  <th class="num">Episodes/game</th>
+                  <th class="num">P95 fires</th>
+                  <th class="num">Outliers</th>
+                  <th class="num">Score</th>
+                </tr>
+              </thead>
+              <tbody id="rankRows"></tbody>
+            </table>
+          </section>
+        </section>
+      </section>
+
+      <section class="sections">
+        <details open>
+          <summary>Assessment Findings</summary>
+          <div class="detailBody">
+            <div class="cols">
+              <div class="callout">
+                <h3>What is legitimate</h3>
+                <ul>
+                  <li>
+                    Board MAD now has a clean causal split: <code>prebucket</code> builds
+                    K-independent buckets, <code>sweep</code> applies K-dependent thresholds.
+                  </li>
+                  <li>
+                    Warmup, trailing windows, and historical-prior fade are anchored to elapsed game
+                    time when PBP or scheduled timing exists, with fail-closed behavior when no
+                    anchor exists.
+                  </li>
+                  <li>
+                    The current bake-off records skipped/not-scoreable rows instead of counting
+                    anchor gaps as misses.
+                  </li>
+                </ul>
+              </div>
+              <div class="callout warn">
+                <h3>What is still overconfident</h3>
+                <ul>
+                  <li>
+                    The top recall rows, A09 and A06, catch 8/14 but require about 4.7 to 5.5 alert
+                    episodes per game and still show 67 to 69 outlier games.
+                  </li>
+                  <li>
+                    Off-price rows A10/A11 have zero scoreable incidents because local
+                    microstructure coverage is absent for the relevant cases.
+                  </li>
+                  <li>
+                    The game-state volatility surface still carries a fallback baseline and local
+                    constants that should not become durable calibration truth.
+                  </li>
+                </ul>
+              </div>
+            </div>
+            <div class="callout gold">
+              <h3>Bottom line</h3>
+              <p>
+                Treat the bake-off as a falsifiable scorecard, not a proof. The credible next step
+                is not a fancier filter by itself; it is better observation coverage, alert-episode
+                scoring, source/family de-duplication, and generated calibration provenance.
+              </p>
+            </div>
+          </div>
+        </details>
+
+        <details>
+          <summary>Observation Contract</summary>
+          <div class="detailBody">
+            <table>
+              <thead>
+                <tr>
+                  <th>Field</th>
+                  <th>Current Contract</th>
+                  <th>Assessment</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Time</td>
+                  <td>Bucket end time for fires; UTC/PBP anchor for known incidents.</td>
+                  <td>Good enough for causal lead/lag only when exact anchors exist.</td>
+                </tr>
+                <tr>
+                  <td>Entity</td>
+                  <td>Game, source market, market family, source.</td>
+                  <td>Needs stronger independent-market de-duplication before fanout claims.</td>
+                </tr>
+                <tr>
+                  <td>Measurement</td>
+                  <td>
+                    Summed absolute implied-probability or logit movement, usually volume weighted.
+                  </td>
+                  <td>
+                    Useful shock proxy, but it measures board repricing rather than stat-error
+                    truth.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Expected value</td>
+                  <td>
+                    Median + K * MAD, EWMA, CUSUM, RV/BV, or generated/fallback percentile bands.
+                  </td>
+                  <td>Robust baseline shape is sane; zero-bucket and provenance gaps remain.</td>
+                </tr>
+                <tr>
+                  <td>Ground truth</td>
+                  <td>14 locally scoreable known incidents out of 26 surfaced rows.</td>
+                  <td>Too sparse for deployment claims, useful for regression and triage.</td>
+                </tr>
+                <tr>
+                  <td>Uncertainty</td>
+                  <td>
+                    Anchor gaps, no local coverage, microstructure missingness, source imbalance.
+                  </td>
+                  <td>Partly explicit in JSON skips; should be first-class in ranking.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </details>
+
+        <details>
+          <summary>Code Evidence</summary>
+          <div class="detailBody">
+            <ul>
+              <li>
+                <code>packages/detectors/src/board-mad/prebucket.ts:75-106</code> sanitizes
+                heartbeats and 0.500 anchors, then emits weighted per-market probability deltas.
+              </li>
+              <li>
+                <code>packages/detectors/src/board-mad/baseline.ts:123-183</code> anchors elapsed
+                fallback on tipoff context and fails closed when no clock source exists.
+              </li>
+              <li>
+                <code>packages/detectors/src/board-mad/baseline.ts:268-354</code> now returns a
+                typed blended estimator instead of laundering summary stats through a fake sample.
+              </li>
+              <li>
+                <code>packages/detectors/src/board-mad/sweep.ts:119-142</code> precomputes baselines
+                once and sweeps K over the same bucket series.
+              </li>
+              <li>
+                <code>scripts/run-nba-detector-bakeoff.ts:646-1029</code> defines 21 contestants,
+                including controls, historical-prior rows, fanout rows, EWMA, CUSUM, and RV/BV.
+              </li>
+              <li>
+                <code>scripts/run-nba-detector-bakeoff.ts:2111-2310</code> records alert episodes,
+                fire outliers, caught-per-fire efficiency, and ranking. That is the right direction.
+              </li>
+              <li>
+                <code>packages/shared/src/board-volatility-baselines.ts:57-66</code> still contains
+                hand-written fallback bands with no provenance, matching the repo staging note's
+                first calibration move.
+              </li>
+              <li>
+                GitNexus context showed <code>runBoardStressKalmanFilter</code> has no incoming
+                calls. The exported Kalman-style helper exists, but current game-state volatility
+                output uses heuristic ratios and first differences.
+              </li>
+            </ul>
+          </div>
+        </details>
+
+        <details>
+          <summary>Not Evaluable</summary>
+          <div class="detailBody">
+            <div class="cols">
+              <div class="callout warn">
+                <h3>Off-price microstructure</h3>
+                <p>
+                  A10 and A11 are not scored against any incident because the bake-off reports no
+                  local quote or microstructure coverage for those algorithm contracts across 15
+                  otherwise anchored candidates. Do not call them misses or wins.
+                </p>
+              </div>
+              <div class="callout warn">
+                <h3>Kalman claims</h3>
+                <p>
+                  A Kalman-style helper is present but unused in the current graph. The live output
+                  should not be described as Kalman-filtered unless that path becomes executable and
+                  tested against residual/innovation behavior.
+                </p>
+              </div>
+            </div>
+            <div class="callout warn">
+              <h3>Known-case completeness</h3>
+              <p>
+                Ten surfaced incidents lack exact UTC/PBP anchors and one lacks a usable normalized
+                game id. Those are data-quality holes, not detector performance measurements.
+              </p>
+            </div>
+          </div>
+        </details>
+
+        <details>
+          <summary>Sources and Next Filters</summary>
+          <div class="detailBody">
+            <div class="cols">
+              <div>
+                <h3>Additional data sources</h3>
+                <ul>
+                  <li>Persisted order-book snapshots near the mid price for Kalshi/Polymarket.</li>
+                  <li>
+                    Trade direction, signed size, and depth near touch for order-flow imbalance.
+                  </li>
+                  <li>
+                    Provider-native sequence numbers or ingestion lag metrics for source-lag
+                    windows.
+                  </li>
+                  <li>
+                    Explicit quiet-time buckets so calm games are observations, not missing rows.
+                  </li>
+                  <li>
+                    Incident registry fields that separate official correction, suspected
+                    correction, and archive-only lead.
+                  </li>
+                </ul>
+              </div>
+              <div>
+                <h3>Next filters worth testing</h3>
+                <ul>
+                  <li>
+                    Episode-first scoring: merge fires within 90 seconds before optimizing recall.
+                  </li>
+                  <li>Qn/Sn or quantile-range scale floor for short tied MAD windows.</li>
+                  <li>
+                    Latency-tolerant source confirmation rather than same-bucket source
+                    confirmation.
+                  </li>
+                  <li>Hierarchical historical priors with sample-strength shrinkage.</li>
+                  <li>
+                    BOCPD or HMM regime rows after the observation contract includes zeros and
+                    source lag.
+                  </li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </details>
+      </section>
+    </main>
+
+    <div class="tooltip" id="tooltip"></div>
+
+    <script>
+      const DATA = {
+        coverage: {
+          totalIncidents: 26,
+          exactAnchorIncidents: 16,
+          scoreableIncidents: 14,
+          denominatorGames: 1292,
+        },
+        algorithms: [
+          {
+            id: "A09_volume_heavy_short",
+            name: "Volume-Heavy Short Memory",
+            family: "money-weighted",
+            caught: 8,
+            scoreable: 14,
+            meanFires: 8.91,
+            meanEpisodes: 4.74,
+            p95Fires: 47,
+            maxFires: 81,
+            outliers: 67,
+            medianLead: -1.9,
+            meanLead: 35.3,
+            pre: 4,
+            post: 4,
+            caughtPer100: 0.07,
+            totalFires: 11510,
+            formula:
+              "sum(|Delta logit(p)| * log1p(volume)^1.5) over 30s, six-minute wall baseline.",
+            rationale: "Less time memory, more weight on actual wager/volume magnitude.",
+          },
+          {
+            id: "A06_wall4_timeout_sensitive",
+            name: "4 Wall Min Timeout-Sensitive",
+            family: "wall-clock",
+            caught: 8,
+            scoreable: 14,
+            meanFires: 9.86,
+            meanEpisodes: 5.47,
+            p95Fires: 51,
+            maxFires: 76,
+            outliers: 69,
+            medianLead: 16.1,
+            meanLead: 20.9,
+            pre: 4,
+            post: 4,
+            caughtPer100: 0.063,
+            totalFires: 12738,
+            formula: "I_t versus robust baseline over prior four wall-clock minutes.",
+            rationale: "Lets timeout/stoppage betting pressure alter the baseline quickly.",
+          },
+          {
+            id: "A05_game6_fast",
+            name: "6 Game Min Fast Memory",
+            family: "game-clock",
+            caught: 6,
+            scoreable: 14,
+            meanFires: 9.57,
+            meanEpisodes: 4.34,
+            p95Fires: 55,
+            maxFires: 100,
+            outliers: 66,
+            medianLead: 131,
+            meanLead: 106.9,
+            pre: 1,
+            post: 5,
+            caughtPer100: 0.049,
+            totalFires: 12363,
+            formula: "I_t versus robust baseline over the prior six game-clock minutes.",
+            rationale: "Tests the user's view that basketball memory should be much shorter.",
+          },
+          {
+            id: "A03_opening_ramp_30",
+            name: "30s Opening Ramp",
+            family: "faster-memory",
+            caught: 6,
+            scoreable: 14,
+            meanFires: 10.2,
+            meanEpisodes: 4.67,
+            p95Fires: 56.45,
+            maxFires: 97,
+            outliers: 65,
+            medianLead: -18.5,
+            meanLead: -3.1,
+            pre: 5,
+            post: 1,
+            caughtPer100: 0.046,
+            totalFires: 13174,
+            formula: "30s buckets, first-fire gate at 2m, trailing wall baseline up to 8m.",
+            rationale: "Basketball-specific shorter window; tests whether 60s is too slow.",
+          },
+          {
+            id: "A12_board_fanout_range",
+            name: "Board Fanout Range Required",
+            family: "fanout",
+            caught: 6,
+            scoreable: 14,
+            meanFires: 8.21,
+            meanEpisodes: 4.75,
+            p95Fires: 46,
+            maxFires: 78,
+            outliers: 67,
+            medianLead: 66.6,
+            meanLead: 66.9,
+            pre: 2,
+            post: 4,
+            caughtPer100: 0.057,
+            totalFires: 10610,
+            formula: "A04, but require at least three markets and two families to move.",
+            rationale: "No single market can take out the detector by itself.",
+          },
+          {
+            id: "A16_rv_bv_jump",
+            name: "RV/BV Jump Split",
+            family: "volatility-model",
+            caught: 6,
+            scoreable: 14,
+            meanFires: 7.89,
+            meanEpisodes: 4.84,
+            p95Fires: 43,
+            maxFires: 95,
+            outliers: 67,
+            medianLead: 131,
+            meanLead: 106.9,
+            pre: 2,
+            post: 4,
+            caughtPer100: 0.059,
+            totalFires: 10196,
+            formula: "Require robust high x_t and current squared move / bipower variation > 2.25.",
+            rationale: "Separates one ugly print from broad repricing.",
+          },
+          {
+            id: "A19_historical5_fanout",
+            name: "Historical Prior + Fanout Guard",
+            family: "historical-prior",
+            caught: 6,
+            scoreable: 14,
+            meanFires: 8.95,
+            meanEpisodes: 5,
+            p95Fires: 49,
+            maxFires: 76,
+            outliers: 66,
+            medianLead: -18.5,
+            meanLead: -3.1,
+            pre: 5,
+            post: 1,
+            caughtPer100: 0.052,
+            totalFires: 11568,
+            formula:
+              "A18 with at least three moving markets and two market families in the 30s bucket.",
+            rationale:
+              "Keeps the historical opening prior, but refuses to let one market or family carry the alarm by itself.",
+          },
+          {
+            id: "A18_historical5_live_ramp",
+            name: "Last-5 Home/Away Prior Ramp",
+            family: "historical-prior",
+            caught: 6,
+            scoreable: 14,
+            meanFires: 9.43,
+            meanEpisodes: 5.07,
+            p95Fires: 53,
+            maxFires: 85,
+            outliers: 67,
+            medianLead: -18.5,
+            meanLead: -3.1,
+            pre: 5,
+            post: 1,
+            caughtPer100: 0.049,
+            totalFires: 12178,
+            formula:
+              "prior = 50% last five away-team away openings + 50% last five home-team home openings; share fades to zero by 12 game minutes.",
+            rationale:
+              "Tests the real deployable historical-prior profile instead of making the first few minutes depend only on current-game noise.",
+          },
+          {
+            id: "A15_cusum_shift",
+            name: "CUSUM Regime Shift",
+            family: "change-point",
+            caught: 6,
+            scoreable: 14,
+            meanFires: 9.75,
+            meanEpisodes: 5.14,
+            p95Fires: 54,
+            maxFires: 93,
+            outliers: 66,
+            medianLead: -18.5,
+            meanLead: 23.1,
+            pre: 4,
+            post: 2,
+            caughtPer100: 0.048,
+            totalFires: 12599,
+            formula: "C_t = max(0, C_t-1 + robust_z_t - drift), alarm when C_t > h.",
+            rationale: "Finds starts of sustained repricing regimes, not only one tall bucket.",
+          },
+          {
+            id: "A01_legacy_60_vw_k3",
+            name: "Legacy 60s VW K=3",
+            family: "control",
+            caught: 5,
+            scoreable: 14,
+            meanFires: 4.44,
+            meanEpisodes: 2.86,
+            p95Fires: 22.45,
+            maxFires: 44,
+            outliers: 65,
+            medianLead: -3.9,
+            meanLead: 22.6,
+            pre: 3,
+            post: 2,
+            caughtPer100: 0.087,
+            totalFires: 5741,
+            formula: "I_t > median(I_t-20:t-1) + 3 * MAD(I_t-20:t-1)",
+            rationale: "Current sensitive control; catches more but cries more.",
+          },
+          {
+            id: "A20_coverage_norm_historical5",
+            name: "Coverage-Normalized Historical Prior",
+            family: "fire-control",
+            caught: 5,
+            scoreable: 14,
+            meanFires: 8.13,
+            meanEpisodes: 4.71,
+            p95Fires: 46,
+            maxFires: 74,
+            outliers: 67,
+            medianLead: -23.4,
+            meanLead: -1.5,
+            pre: 4,
+            post: 1,
+            caughtPer100: 0.048,
+            totalFires: 10510,
+            formula:
+              "A19, but board intensity is divided by sqrt(active moving markets) before the robust baseline.",
+            rationale:
+              "Tests whether 300-fire games are partly listed-market breadth artifacts rather than true per-market volatility.",
+          },
+          {
+            id: "A21_historical5_fanout_cooldown",
+            name: "Historical Prior + Fanout + Cooldown",
+            family: "fire-control",
+            caught: 5,
+            scoreable: 14,
+            meanFires: 4.84,
+            meanEpisodes: 4.84,
+            p95Fires: 25,
+            maxFires: 37,
+            outliers: 76,
+            medianLead: 125.5,
+            meanLead: 70.5,
+            pre: 2,
+            post: 3,
+            caughtPer100: 0.08,
+            totalFires: 6247,
+            formula:
+              "A19, plus one fire can suppress the next four 30s buckets so a regime shift does not page every bucket.",
+            rationale:
+              "Tests alert-hygiene hysteresis separately from the underlying volatility score.",
+          },
+          {
+            id: "A14_gap_ewma",
+            name: "Gap-Decay EWMA",
+            family: "volatility-model",
+            caught: 3,
+            scoreable: 14,
+            meanFires: 1.91,
+            meanEpisodes: 1.77,
+            p95Fires: 9,
+            maxFires: 17,
+            outliers: 0,
+            medianLead: 136.4,
+            meanLead: 103.5,
+            pre: 0,
+            post: 3,
+            caughtPer100: 0.122,
+            totalFires: 2469,
+            formula:
+              "z_t = (x_t - mu_t) / sigma_t with alpha = exp(-Delta t / tau), tau = 6 wall minutes.",
+            rationale: "Handles uneven sparse ticks without pretending samples are evenly spaced.",
+          },
+          {
+            id: "A02_legacy_60_vw_k6",
+            name: "Legacy 60s VW K=6",
+            family: "control",
+            caught: 3,
+            scoreable: 14,
+            meanFires: 2.8,
+            meanEpisodes: 1.8,
+            p95Fires: 18,
+            maxFires: 39,
+            outliers: 55,
+            medianLead: 166.4,
+            meanLead: 172.8,
+            pre: 0,
+            post: 3,
+            caughtPer100: 0.083,
+            totalFires: 3612,
+            formula: "I_t > median(I_t-20:t-1) + 6 * MAD(I_t-20:t-1)",
+            rationale: "Calmer control from the original report.",
+          },
+          {
+            id: "A04_game12_recent4",
+            name: "12 Game Min + Recent 4 Wall Min",
+            family: "game-clock",
+            caught: 3,
+            scoreable: 14,
+            meanFires: 8.27,
+            meanEpisodes: 4.63,
+            p95Fires: 46,
+            maxFires: 87,
+            outliers: 68,
+            medianLead: 7.6,
+            meanLead: 36.6,
+            pre: 1,
+            post: 2,
+            caughtPer100: 0.028,
+            totalFires: 10684,
+            formula:
+              "baseline = game-clock 12m robust scale blended with 1.5x recent wall 4m robust scale.",
+            rationale: "Directly tests game minutes versus timeout/wall-clock stress.",
+          },
+          {
+            id: "A07_final5_close_suppressed",
+            name: "Final 5 Close Suppressed",
+            family: "late-game-suppression",
+            caught: 3,
+            scoreable: 14,
+            meanFires: 8.54,
+            meanEpisodes: 4.76,
+            p95Fires: 47,
+            maxFires: 89,
+            outliers: 69,
+            medianLead: 7.6,
+            meanLead: 36.6,
+            pre: 1,
+            post: 2,
+            caughtPer100: 0.027,
+            totalFires: 11032,
+            formula: "A04, but multiply threshold by 1.75 in final five minutes when margin <= 5.",
+            rationale: "Explicit false-alarm control for normal clutch volatility.",
+          },
+          {
+            id: "A08_final60_foul_mode",
+            name: "Final 60s Foul-Game Suppressed",
+            family: "late-game-suppression",
+            caught: 3,
+            scoreable: 14,
+            meanFires: 8.54,
+            meanEpisodes: 4.76,
+            p95Fires: 47,
+            maxFires: 89,
+            outliers: 69,
+            medianLead: 7.6,
+            meanLead: 36.6,
+            pre: 1,
+            post: 2,
+            caughtPer100: 0.027,
+            totalFires: 11032,
+            formula: "A04 with stronger threshold in final 60s when margin <= 3.",
+            rationale: "Separates intentional-foul chaos from true stat-misallocation risk.",
+          },
+          {
+            id: "A17_clutch_har_fanout",
+            name: "Clutch HAR + Fanout",
+            family: "late-game-suppression",
+            caught: 3,
+            scoreable: 14,
+            meanFires: 8.7,
+            meanEpisodes: 4.86,
+            p95Fires: 47.45,
+            maxFires: 82,
+            outliers: 65,
+            medianLead: 7.6,
+            meanLead: 36.6,
+            pre: 1,
+            post: 2,
+            caughtPer100: 0.027,
+            totalFires: 11234,
+            formula:
+              "Hybrid board + off-price stress, HAR-like memory, late-game threshold lift, fanout >= 2.",
+            rationale: "Most NBA-specific all-in contestant for final-minute false-alarm control.",
+          },
+          {
+            id: "A13_cross_source_confirm",
+            name: "Cross-Source Confirmed",
+            family: "fanout",
+            caught: 1,
+            scoreable: 14,
+            meanFires: 2.72,
+            meanEpisodes: 1.77,
+            p95Fires: 16.45,
+            maxFires: 82,
+            outliers: 58,
+            medianLead: -23.4,
+            meanLead: -23.4,
+            pre: 1,
+            post: 0,
+            caughtPer100: 0.028,
+            totalFires: 3510,
+            formula: "A04, but require at least two sources to contribute inside the bucket.",
+            rationale: "Suppresses single-venue noise while preserving cross-venue repricing.",
+          },
+          {
+            id: "A10_offprice_concentration",
+            name: "Off-Price Concentration",
+            family: "microstructure",
+            caught: 0,
+            scoreable: 0,
+            meanFires: 0,
+            meanEpisodes: 0,
+            p95Fires: 0,
+            maxFires: 0,
+            outliers: 0,
+            medianLead: null,
+            meanLead: null,
+            pre: 0,
+            post: 0,
+            caughtPer100: 0,
+            totalFires: 0,
+            formula: "severity = volumeShare * offPriceDistance * spread/depth stress.",
+            rationale: "Single-print detector extended with volume share and depth/spread stress.",
+          },
+          {
+            id: "A11_offprice_fanout",
+            name: "Off-Price Fanout Required",
+            family: "microstructure",
+            caught: 0,
+            scoreable: 0,
+            meanFires: 0,
+            meanEpisodes: 0,
+            p95Fires: 0,
+            maxFires: 0,
+            outliers: 0,
+            medianLead: null,
+            meanLead: null,
+            pre: 0,
+            post: 0,
+            caughtPer100: 0,
+            totalFires: 0,
+            formula:
+              "A10, but require off-price activity in at least two source markets in the bucket.",
+            rationale: "Prevents one isolated print from suspending a game.",
+          },
+        ],
+      };
+
+      const palette = {
+        "money-weighted": "#b94835",
+        "wall-clock": "#a97920",
+        "game-clock": "#216f69",
+        "faster-memory": "#335f91",
+        fanout: "#6d587e",
+        "volatility-model": "#4d7b39",
+        "historical-prior": "#8b5f2a",
+        "change-point": "#7c3f58",
+        control: "#202326",
+        "fire-control": "#586b2e",
+        microstructure: "#757b80",
+        "late-game-suppression": "#6c614b",
+      };
+
+      const state = {
+        mode: "balanced",
+      };
+
+      const byId = (id) => document.getElementById(id);
+      const fmt = (n, d = 1) => (n === null || n === undefined ? "n/a" : Number(n).toFixed(d));
+      const pct = (a) => (a.scoreable === 0 ? 0 : a.caught / a.scoreable);
+
+      function inputs() {
+        return {
+          minCaught: Number(byId("minCaught").value),
+          maxEpisodes: Number(byId("maxEpisodes").value),
+          alertCost: Number(byId("alertCost").value),
+          outlierCost: Number(byId("outlierCost").value),
+          efficiencyWeight: Number(byId("efficiencyWeight").value),
+          excludeUnevaluable: byId("excludeUnevaluable").checked,
+        };
+      }
+
+      function scoreAlgorithm(a, c) {
+        if (a.scoreable === 0) return -999;
+        const recallWeight = state.mode === "recall" ? 120 : state.mode === "desk" ? 70 : 95;
+        const burdenWeight = state.mode === "recall" ? 3 : state.mode === "desk" ? 12 : 7;
+        const fireWeight = state.mode === "recall" ? 0.8 : state.mode === "desk" ? 2.8 : 1.7;
+        const outlierWeight = state.mode === "recall" ? 0.25 : state.mode === "desk" ? 1.6 : 0.8;
+        const preBonus = state.mode === "recall" ? 1.4 : state.mode === "desk" ? 2.4 : 1.8;
+        return (
+          pct(a) * recallWeight +
+          a.caughtPer100 * 120 * c.efficiencyWeight +
+          a.pre * preBonus -
+          a.meanEpisodes * burdenWeight * c.alertCost -
+          a.meanFires * fireWeight * c.alertCost -
+          (a.outliers / DATA.coverage.denominatorGames) * 100 * outlierWeight * c.outlierCost
+        );
+      }
+
+      function ranked() {
+        const c = inputs();
+        byId("minCaughtOut").textContent = String(c.minCaught);
+        byId("maxEpisodesOut").textContent = `${fmt(c.maxEpisodes, 1)}/game`;
+        byId("alertCostOut").textContent = `${fmt(c.alertCost, 1)}x`;
+        byId("outlierCostOut").textContent = `${fmt(c.outlierCost, 1)}x`;
+        byId("efficiencyOut").textContent = `${fmt(c.efficiencyWeight, 1)}x`;
+        byId("modeOut").textContent = state.mode;
+
+        return DATA.algorithms
+          .filter((a) => (c.excludeUnevaluable ? a.scoreable > 0 : true))
+          .map((a) => ({ ...a, modelScore: scoreAlgorithm(a, c) }))
+          .sort((a, b) => b.modelScore - a.modelScore);
+      }
+
+      function activeRows() {
+        const c = inputs();
+        return ranked().filter((a) => a.caught >= c.minCaught && a.meanEpisodes <= c.maxEpisodes);
+      }
+
+      function updateWinner(rows) {
+        const winner = rows[0] || ranked()[0];
+        if (!winner) return;
+        byId("winnerName").textContent = winner.name;
+        byId("winnerWhy").textContent = `${winner.family}; ${winner.formula}`;
+        byId("winnerRecall").textContent = `${winner.caught}/${winner.scoreable}`;
+        byId("winnerTiming").textContent =
+          winner.medianLead === null
+            ? "No scored lead/lag"
+            : `${fmt(winner.medianLead, 1)}s median lead; ${winner.pre}/${winner.post} pre/post caught`;
+        byId("winnerBurden").textContent = `${fmt(winner.meanEpisodes, 2)} episodes/game`;
+        byId("winnerRisk").textContent =
+          `${fmt(winner.meanFires, 2)} fires/game, P95 ${fmt(winner.p95Fires, 1)}, ${winner.outliers} outlier games`;
+      }
+
+      function renderTable(rows) {
+        const body = byId("rankRows");
+        body.innerHTML = "";
+        rows.forEach((a, index) => {
+          const tr = document.createElement("tr");
+          const recall = pct(a);
+          tr.innerHTML = `
+            <td class="num">${index + 1}</td>
+            <td>
+              <strong>${a.name}</strong><br />
+              <span class="pill">${a.family}</span>
+              <div class="small">${a.rationale}</div>
+            </td>
+            <td class="num">${a.caught}/${a.scoreable}<div class="bar"><i style="width:${recall * 100}%"></i></div></td>
+            <td class="num">${fmt(a.meanEpisodes, 2)}</td>
+            <td class="num">${fmt(a.p95Fires, 1)}</td>
+            <td class="num">${a.outliers}</td>
+            <td class="num">${fmt(a.modelScore, 1)}</td>
+          `;
+          body.appendChild(tr);
+        });
+      }
+
+      function renderScatter(rows) {
+        const svg = byId("scatter");
+        svg.innerHTML = "";
+        const W = 940;
+        const H = 420;
+        const P = { l: 62, r: 30, t: 24, b: 54 };
+        const maxX = 6;
+        const maxY = 8;
+        const x = (v) => P.l + (v / maxX) * (W - P.l - P.r);
+        const y = (v) => H - P.b - (v / maxY) * (H - P.t - P.b);
+        const make = (name, attrs = {}) => {
+          const el = document.createElementNS("http://www.w3.org/2000/svg", name);
+          Object.entries(attrs).forEach(([k, v]) => el.setAttribute(k, v));
+          return el;
+        };
+
+        [0, 1, 2, 3, 4, 5, 6].forEach((tick) => {
+          svg.appendChild(
+            make("line", { x1: x(tick), y1: P.t, x2: x(tick), y2: H - P.b, class: "gridline" }),
+          );
+          const text = make("text", {
+            x: x(tick),
+            y: H - 22,
+            class: "axisText",
+            "text-anchor": "middle",
+          });
+          text.textContent = tick;
+          svg.appendChild(text);
+        });
+        [0, 2, 4, 6, 8].forEach((tick) => {
+          svg.appendChild(
+            make("line", { x1: P.l, y1: y(tick), x2: W - P.r, y2: y(tick), class: "gridline" }),
+          );
+          const text = make("text", {
+            x: 48,
+            y: y(tick) + 4,
+            class: "axisText",
+            "text-anchor": "end",
+          });
+          text.textContent = tick;
+          svg.appendChild(text);
+        });
+        svg.appendChild(
+          make("line", { x1: P.l, y1: H - P.b, x2: W - P.r, y2: H - P.b, class: "axis" }),
+        );
+        svg.appendChild(make("line", { x1: P.l, y1: P.t, x2: P.l, y2: H - P.b, class: "axis" }));
+
+        const xLabel = make("text", {
+          x: W / 2,
+          y: H - 5,
+          class: "axisText",
+          "text-anchor": "middle",
+        });
+        xLabel.textContent = "Mean alert episodes per game";
+        svg.appendChild(xLabel);
+        const yLabel = make("text", {
+          x: 14,
+          y: H / 2,
+          class: "axisText",
+          "text-anchor": "middle",
+          transform: `rotate(-90 14 ${H / 2})`,
+        });
+        yLabel.textContent = "Caught scoreable incidents";
+        svg.appendChild(yLabel);
+
+        const visibleSet = new Set(rows.map((r) => r.id));
+        DATA.algorithms
+          .filter((a) => a.scoreable > 0)
+          .forEach((a) => {
+            const dot = make("circle", {
+              cx: x(Math.min(maxX, a.meanEpisodes)),
+              cy: y(a.caught),
+              r: 5 + Math.min(14, a.p95Fires / 5),
+              fill: palette[a.family] || "#444",
+              class: visibleSet.has(a.id) ? "dot" : "dot muted",
+              tabindex: "0",
+            });
+            dot.addEventListener("mousemove", (ev) => showTip(ev, a));
+            dot.addEventListener("mouseleave", hideTip);
+            dot.addEventListener("focus", (ev) => showTip(ev, a));
+            dot.addEventListener("blur", hideTip);
+            svg.appendChild(dot);
+          });
+
+        byId("visibleCount").textContent = `${rows.length} rows pass filters`;
+      }
+
+      function showTip(ev, a) {
+        const tip = byId("tooltip");
+        tip.innerHTML = `<strong>${a.name}</strong><br>${a.caught}/${a.scoreable} caught, ${fmt(a.meanEpisodes, 2)} episodes/game<br>P95 ${fmt(a.p95Fires, 1)} fires, ${a.outliers} outliers`;
+        tip.style.left = `${ev.clientX}px`;
+        tip.style.top = `${ev.clientY}px`;
+        tip.style.opacity = 1;
+      }
+
+      function hideTip() {
+        byId("tooltip").style.opacity = 0;
+      }
+
+      function renderK() {
+        const k = Number(byId("kSlider").value);
+        byId("kOut").textContent = fmt(k, 1);
+        const a3 = DATA.algorithms.find((a) => a.id === "A01_legacy_60_vw_k3");
+        const a6 = DATA.algorithms.find((a) => a.id === "A02_legacy_60_vw_k6");
+        const t = (k - 3) / 3;
+        const lerp = (lo, hi) => lo + (hi - lo) * t;
+        byId("kCaught").textContent = fmt(lerp(a3.caught, a6.caught), 1);
+        byId("kFires").textContent = fmt(lerp(a3.meanFires, a6.meanFires), 2);
+        byId("kP95").textContent = fmt(lerp(a3.p95Fires, a6.p95Fires), 1);
+      }
+
+      function render() {
+        const rows = activeRows();
+        updateWinner(rows);
+        renderScatter(rows);
+        renderTable(rows);
+        renderK();
+      }
+
+      document.querySelectorAll("[data-mode]").forEach((button) => {
+        button.addEventListener("click", () => {
+          state.mode = button.dataset.mode;
+          document
+            .querySelectorAll("[data-mode]")
+            .forEach((b) => b.classList.toggle("active", b === button));
+          render();
+        });
+      });
+
+      [
+        "minCaught",
+        "maxEpisodes",
+        "alertCost",
+        "outlierCost",
+        "efficiencyWeight",
+        "excludeUnevaluable",
+        "kSlider",
+      ].forEach((id) => {
+        byId(id).addEventListener("input", render);
+        byId(id).addEventListener("change", render);
+      });
+
+      render();
+    </script>
+  </body>
+</html>

@@ -79,6 +79,25 @@ function sparseMemoryBacktest(): BacktestResponse {
   };
 }
 
+function tipoffAnchoredSparseBacktest(includeElapsed: boolean): BacktestResponse {
+  return {
+    runId: 9,
+    stats: { firesPerGame: 0, gamesInWindow: 1, totalFires: 0 },
+    observations: [
+      {
+        baselineMad: 0,
+        baselineMedian: 0,
+        bucketEnd: new Date(16 * 60_000).toISOString(),
+        bucketStart: new Date(15 * 60_000).toISOString(),
+        fired: 0,
+        ...(includeElapsed ? { gameElapsedSeconds: 15 * 60 } : {}),
+        gameId: "nba-tipoff-anchored",
+        intensity: 5,
+      },
+    ],
+  };
+}
+
 describe("applyClientRecompute", () => {
   it("uses the shared opening-ramp baseline math for client-side backtest preview", () => {
     const recomputed = applyClientRecompute(BOARD_MAD_DETECTOR_ID, openingRampBacktest(), {
@@ -118,5 +137,32 @@ describe("applyClientRecompute", () => {
     expect(late?.baselineMad).toBe(1e-9);
     expect(late?.fired).toBe(1);
     expect(recomputed?.stats.totalFires).toBeGreaterThanOrEqual(1);
+  });
+
+  it("uses per-bucket gameElapsedSeconds instead of treating first observed market activity as tipoff", () => {
+    const params = {
+      baselineMode: BOARD_MAD_BASELINE_MODE_OPENING_RAMP,
+      kMad: 3,
+      openingBaselineBuckets: BOARD_MAD_OPENING_BASELINE_BUCKETS_DEFAULT,
+      openingRampCompleteBuckets: BOARD_MAD_OPENING_RAMP_COMPLETE_BUCKETS_DEFAULT,
+      trailingBuckets: BOARD_MAD_TRAILING_BUCKETS_DEFAULT,
+      warmupBuckets: BOARD_MAD_WARMUP_BUCKETS_DEFAULT,
+    } as const;
+    const withElapsed = applyClientRecompute(
+      BOARD_MAD_DETECTOR_ID,
+      tipoffAnchoredSparseBacktest(true),
+      params,
+    );
+    const withoutElapsed = applyClientRecompute(
+      BOARD_MAD_DETECTOR_ID,
+      tipoffAnchoredSparseBacktest(false),
+      params,
+    );
+
+    expect(withElapsed?.observations[0]?.fired).toBe(1);
+    expect(withElapsed?.observations[0]?.baselineMedian).toBe(0);
+    expect(withoutElapsed?.observations[0]?.fired).toBe(0);
+    expect(withElapsed?.stats.totalFires).toBe(1);
+    expect(withoutElapsed?.stats.totalFires).toBe(0);
   });
 });

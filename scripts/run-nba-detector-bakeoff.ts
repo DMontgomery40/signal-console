@@ -51,6 +51,14 @@ const HIGH_LATE_GAME_FIRE_SHARE = 0.35;
 const OUTLIER_MIN_FIRE_COUNT = 20;
 const OUTLIER_MEDIAN_MULTIPLIER = 2.5;
 const ALERT_EPISODE_MERGE_SECONDS = 90;
+const MARKET_OUTLIER_BUCKET_SECONDS = 30;
+const MARKET_OUTLIER_MIN_BUCKETS = 8;
+const MARKET_OUTLIER_PRICE_MOVE_Z = 3;
+const MARKET_OUTLIER_CONFIRMATION_Z = 1.5;
+const MARKET_OUTLIER_EXTREME_PRICE_MOVE_Z = 5;
+const MARKET_OUTLIER_MIN_ACTIVE_MARKETS = 4;
+const MARKET_OUTLIER_MIN_SOURCES = 2;
+const MARKET_OUTLIER_EPISODE_BUFFER_SECONDS = 30;
 const REPORT_GENERATED_AT = new Date().toISOString();
 
 type ScoreKind =
@@ -248,6 +256,13 @@ interface AlgorithmSummary {
   readonly maxFiresPerGame: number;
   readonly fireDispersionRatio: number | null;
   readonly outlierGameCount: number;
+  readonly marketOutlierEpisodesCaught: number;
+  readonly marketOutlierEpisodeCount: number;
+  readonly marketOutlierRecall: number;
+  readonly medianMarketOutlierLeadSeconds: number | null;
+  readonly firesInsideMarketOutlierWindows: number;
+  readonly firesOutsideMarketOutlierWindows: number;
+  readonly firesInsideMarketOutlierShare: number;
   readonly firesPerCaughtIncident: number | null;
   readonly caughtPer100Fires: number;
   readonly totalFires: number;
@@ -270,6 +285,8 @@ interface BakeoffPayload {
   readonly algorithms: readonly AlgoSpec[];
   readonly summaries: readonly AlgorithmSummary[];
   readonly gameSummaries: readonly GameAlgorithmSummary[];
+  readonly marketOutlierEpisodes: readonly MarketOutlierEpisode[];
+  readonly marketOutlierResults: readonly MarketOutlierAlgoResult[];
   readonly fireOutliers: readonly FireOutlier[];
   readonly incidentResults: readonly IncidentAlgoResult[];
   readonly researchSources: readonly ResearchSource[];
@@ -322,6 +339,39 @@ interface FireOutlier {
   readonly familyCount: number;
   readonly finalFiveCloseFires: number;
   readonly diagnosis: string;
+}
+
+interface MarketOutlierEpisode {
+  readonly gameId: string;
+  readonly scheduledStart: string;
+  readonly matchup: string;
+  readonly startSec: number;
+  readonly endSec: number;
+  readonly startIso: string;
+  readonly endIso: string;
+  readonly bucketSeconds: number;
+  readonly bucketCount: number;
+  readonly peakSeverity: number;
+  readonly meanSeverity: number;
+  readonly peakPriceMoveZ: number;
+  readonly peakBreadthZ: number;
+  readonly peakOffpriceZ: number;
+  readonly peakActiveMarkets: number;
+  readonly peakSources: number;
+  readonly peakFamilies: number;
+  readonly diagnosis: string;
+}
+
+interface MarketOutlierAlgoResult {
+  readonly algoId: string;
+  readonly gameId: string;
+  readonly episodeStartIso: string;
+  readonly episodeEndIso: string;
+  readonly scoreable: boolean;
+  readonly caught: boolean;
+  readonly leadSeconds: number | null;
+  readonly fireIso: string | null;
+  readonly firesInWindow: number;
 }
 
 interface ResearchSource {
@@ -2108,6 +2158,205 @@ function countAlertEpisodes(fires: readonly Fire[]): number {
   return episodes;
 }
 
+function coverageNormalizedIntensity(bucket: Bucket): number {
+  const marketBreadth = Math.max(COVERAGE_NORMALIZATION_MARKET_FLOOR, bucket.activeMarketCount);
+  return bucket.vwIntensity / Math.sqrt(marketBreadth);
+}
+
+function positiveRobustZ(value: number, stats: HistoricalPrior | null): number {
+  if (stats === null) return 0;
+  const scale = Math.max(MAD_SCALE * stats.mad, SCALE_FLOOR);
+  return Math.max(0, (value - stats.median) / scale);
+}
+
+interface MarketOutlierBucketCandidate {
+  readonly bucket: Bucket;
+  readonly severity: number;
+  readonly priceMoveZ: number;
+  readonly breadthZ: number;
+  readonly offpriceZ: number;
+}
+
+function diagnoseMarketOutlierEpisode(
+  peakPriceMoveZ: number,
+  peakBreadthZ: number,
+  peakOffpriceZ: number,
+  peakActiveMarkets: number,
+  peakSources: number,
+): string {
+  const notes: string[] = [];
+  if (peakPriceMoveZ >= MARKET_OUTLIER_EXTREME_PRICE_MOVE_Z) {
+    notes.push("extreme price move");
+  } else {
+    notes.push("price move outlier");
+  }
+  if (
+    peakBreadthZ >= MARKET_OUTLIER_CONFIRMATION_Z ||
+    peakActiveMarkets >= MARKET_OUTLIER_MIN_ACTIVE_MARKETS ||
+    peakSources >= MARKET_OUTLIER_MIN_SOURCES
+  ) {
+    notes.push("broad market participation");
+  }
+  if (peakOffpriceZ >= MARKET_OUTLIER_CONFIRMATION_Z) {
+    notes.push("microstructure confirmation");
+  }
+  if (notes.length === 1) {
+    notes.push("thin confirmation; review for coverage artifact");
+  }
+  return notes.join("; ");
+}
+
+export function buildMarketOutlierEpisodes(game: GameData): readonly MarketOutlierEpisode[] {
+  const buckets = bucketize(game, MARKET_OUTLIER_BUCKET_SECONDS);
+  if (buckets.length < MARKET_OUTLIER_MIN_BUCKETS) return [];
+
+  const priceMoveSeries = buckets.map((bucket) => Math.log1p(coverageNormalizedIntensity(bucket)));
+  const breadthSeries = buckets.map((bucket) => Math.log1p(bucket.activeMarketCount));
+  const offpriceSeries = buckets.map((bucket) => Math.log1p(bucket.offpriceSeverity));
+  const priceMoveStats = robustStats(priceMoveSeries);
+  const breadthStats = robustStats(breadthSeries);
+  const offpriceStats = robustStats(offpriceSeries);
+
+  const candidates = buckets.flatMap((bucket, index): readonly MarketOutlierBucketCandidate[] => {
+    const priceMoveZ = positiveRobustZ(priceMoveSeries[index] ?? 0, priceMoveStats);
+    const breadthZ = positiveRobustZ(breadthSeries[index] ?? 0, breadthStats);
+    const offpriceZ = positiveRobustZ(offpriceSeries[index] ?? 0, offpriceStats);
+    const hasConfirmation =
+      breadthZ >= MARKET_OUTLIER_CONFIRMATION_Z ||
+      offpriceZ >= MARKET_OUTLIER_CONFIRMATION_Z ||
+      bucket.activeMarketCount >= MARKET_OUTLIER_MIN_ACTIVE_MARKETS ||
+      bucket.sourceCount >= MARKET_OUTLIER_MIN_SOURCES;
+    const confirmed = priceMoveZ >= MARKET_OUTLIER_PRICE_MOVE_Z && hasConfirmation;
+    if (!confirmed) return [];
+    return [
+      {
+        bucket,
+        severity: priceMoveZ + breadthZ * 0.5 + offpriceZ * 0.35,
+        priceMoveZ,
+        breadthZ,
+        offpriceZ,
+      },
+    ];
+  });
+
+  if (candidates.length === 0) return [];
+
+  const episodes: MarketOutlierEpisode[] = [];
+  let current: MarketOutlierBucketCandidate[] = [];
+  for (const candidate of candidates) {
+    const previous = current.at(-1);
+    if (
+      previous !== undefined &&
+      candidate.bucket.startSec - previous.bucket.startSec > ALERT_EPISODE_MERGE_SECONDS
+    ) {
+      const episode = marketOutlierEpisodeFromCandidates(game, current);
+      if (episode !== null) episodes.push(episode);
+      current = [];
+    }
+    current.push(candidate);
+  }
+  const finalEpisode = marketOutlierEpisodeFromCandidates(game, current);
+  if (finalEpisode !== null) episodes.push(finalEpisode);
+  return episodes;
+}
+
+function marketOutlierEpisodeFromCandidates(
+  game: GameData,
+  candidates: readonly MarketOutlierBucketCandidate[],
+): MarketOutlierEpisode | null {
+  if (candidates.length === 0) return null;
+  const first = candidates[0];
+  const last = candidates.at(-1);
+  if (first === undefined || last === undefined) return null;
+  const severities = candidates.map((candidate) => candidate.severity);
+  const peakPriceMoveZ = Math.max(...candidates.map((candidate) => candidate.priceMoveZ));
+  const peakBreadthZ = Math.max(...candidates.map((candidate) => candidate.breadthZ));
+  const peakOffpriceZ = Math.max(...candidates.map((candidate) => candidate.offpriceZ));
+  const peakActiveMarkets = Math.max(
+    ...candidates.map((candidate) => candidate.bucket.activeMarketCount),
+  );
+  const peakSources = Math.max(...candidates.map((candidate) => candidate.bucket.sourceCount));
+  const peakFamilies = Math.max(...candidates.map((candidate) => candidate.bucket.familyCount));
+  return {
+    gameId: game.gameId,
+    scheduledStart: game.window.scheduledStart,
+    matchup: matchupLabel(game.window),
+    startSec: first.bucket.startSec,
+    endSec: last.bucket.endSec,
+    startIso: isoFromSeconds(first.bucket.startSec),
+    endIso: isoFromSeconds(last.bucket.endSec),
+    bucketSeconds: MARKET_OUTLIER_BUCKET_SECONDS,
+    bucketCount: candidates.length,
+    peakSeverity: rounded(Math.max(...severities), 3) ?? 0,
+    meanSeverity: rounded(mean(severities) ?? 0, 3) ?? 0,
+    peakPriceMoveZ: rounded(peakPriceMoveZ, 3) ?? 0,
+    peakBreadthZ: rounded(peakBreadthZ, 3) ?? 0,
+    peakOffpriceZ: rounded(peakOffpriceZ, 3) ?? 0,
+    peakActiveMarkets,
+    peakSources,
+    peakFamilies,
+    diagnosis: diagnoseMarketOutlierEpisode(
+      peakPriceMoveZ,
+      peakBreadthZ,
+      peakOffpriceZ,
+      peakActiveMarkets,
+      peakSources,
+    ),
+  };
+}
+
+function episodeWindowBounds(episode: MarketOutlierEpisode): { startSec: number; endSec: number } {
+  return {
+    startSec: episode.startSec - MARKET_OUTLIER_EPISODE_BUFFER_SECONDS,
+    endSec: episode.endSec + MARKET_OUTLIER_EPISODE_BUFFER_SECONDS,
+  };
+}
+
+export function buildMarketOutlierResults(
+  algorithms: readonly AlgoSpec[],
+  episodes: readonly MarketOutlierEpisode[],
+  firesByAlgoGame: ReadonlyMap<string, readonly Fire[]>,
+): readonly MarketOutlierAlgoResult[] {
+  return algorithms.flatMap((algo) =>
+    episodes.map((episode): MarketOutlierAlgoResult => {
+      const fires = firesByAlgoGame.get(`${algo.id}:${episode.gameId}`) ?? [];
+      const bounds = episodeWindowBounds(episode);
+      const matching = fires
+        .filter(
+          (fire) => fire.observedAtSec >= bounds.startSec && fire.observedAtSec <= bounds.endSec,
+        )
+        .toSorted((a, b) => a.observedAtSec - b.observedAtSec);
+      const first = matching[0];
+      return {
+        algoId: algo.id,
+        gameId: episode.gameId,
+        episodeStartIso: episode.startIso,
+        episodeEndIso: episode.endIso,
+        scoreable: true,
+        caught: first !== undefined,
+        leadSeconds:
+          first === undefined ? null : (rounded(first.observedAtSec - episode.startSec, 1) ?? 0),
+        fireIso: first?.observedAtIso ?? null,
+        firesInWindow: matching.length,
+      };
+    }),
+  );
+}
+
+function fireMatchesAnyMarketOutlierWindow(
+  fire: Fire,
+  episodes: readonly MarketOutlierEpisode[],
+): boolean {
+  return episodes.some((episode) => {
+    const bounds = episodeWindowBounds(episode);
+    return (
+      episode.gameId === fire.gameId &&
+      fire.observedAtSec >= bounds.startSec &&
+      fire.observedAtSec <= bounds.endSec
+    );
+  });
+}
+
 function diagnoseGameSummary(summary: Omit<GameAlgorithmSummary, "diagnosis">): string {
   if (summary.fires === 0) return "silent: no qualifying fire in this game";
   const notes: string[] = [];
@@ -2216,11 +2465,13 @@ function buildFireOutliers(
   });
 }
 
-function summarizeAlgorithm(
+export function summarizeAlgorithm(
   algo: AlgoSpec,
   incidentResults: readonly IncidentAlgoResult[],
   firesByGame: ReadonlyMap<string, readonly Fire[]>,
   gameSummaries: readonly GameAlgorithmSummary[],
+  marketOutlierResults: readonly MarketOutlierAlgoResult[],
+  marketOutlierEpisodes: readonly MarketOutlierEpisode[],
 ): AlgorithmSummary {
   const matchingResults = incidentResults.filter((result) => result.algoId === algo.id);
   const scoreable = matchingResults.filter((result) => result.scoreable);
@@ -2241,6 +2492,18 @@ function summarizeAlgorithm(
   const p95Fires = percentile(fireCounts, 0.95) ?? 0;
   const maxFires = fireCounts.length === 0 ? 0 : Math.max(...fireCounts);
   const totalFires = fireCounts.reduce((sum, count) => sum + count, 0);
+  const algoEpisodes = marketOutlierResults.filter((result) => result.algoId === algo.id);
+  const caughtEpisodes = algoEpisodes.filter((result) => result.scoreable && result.caught);
+  const marketLeads = caughtEpisodes.flatMap((result): readonly number[] =>
+    result.leadSeconds === null ? [] : [result.leadSeconds],
+  );
+  const allFires = [...firesByGame.entries()]
+    .filter(([key]) => key.startsWith(`${algo.id}:`))
+    .flatMap(([, fires]) => fires);
+  const firesInsideMarketOutlierWindows = allFires.filter((fire) =>
+    fireMatchesAnyMarketOutlierWindow(fire, marketOutlierEpisodes),
+  ).length;
+  const firesOutsideMarketOutlierWindows = allFires.length - firesInsideMarketOutlierWindows;
   const finalFiveCloseFires = [...firesByGame.entries()]
     .filter(([key]) => key.startsWith(`${algo.id}:`))
     .reduce((sum, [, fires]) => sum + fires.filter(isFinalFiveClose).length, 0);
@@ -2270,6 +2533,18 @@ function summarizeAlgorithm(
     outlierGameCount: algoGameSummaries.filter((summary) =>
       isFireOutlier(summary.fires, medianFires, p95Fires),
     ).length,
+    marketOutlierEpisodesCaught: caughtEpisodes.length,
+    marketOutlierEpisodeCount: algoEpisodes.length,
+    marketOutlierRecall:
+      rounded(
+        algoEpisodes.length === 0 ? 0 : (caughtEpisodes.length / algoEpisodes.length) * 100,
+        1,
+      ) ?? 0,
+    medianMarketOutlierLeadSeconds: rounded(percentile(marketLeads, 0.5), 1),
+    firesInsideMarketOutlierWindows,
+    firesOutsideMarketOutlierWindows,
+    firesInsideMarketOutlierShare:
+      rounded(totalFires === 0 ? 0 : (firesInsideMarketOutlierWindows / totalFires) * 100, 1) ?? 0,
     firesPerCaughtIncident:
       caught.length === 0
         ? null
@@ -2288,6 +2563,10 @@ function rankAlgorithmSummaries(
   return summaries.toSorted((a, b) => {
     const caughtDelta = b.caughtScoreable - a.caughtScoreable;
     if (caughtDelta !== 0) return caughtDelta;
+    const marketOutlierDelta = b.marketOutlierRecall - a.marketOutlierRecall;
+    if (marketOutlierDelta !== 0) return marketOutlierDelta;
+    const insideShareDelta = b.firesInsideMarketOutlierShare - a.firesInsideMarketOutlierShare;
+    if (insideShareDelta !== 0) return insideShareDelta;
     const finalFiveDelta = a.finalFiveCloseFiresPerGame - b.finalFiveCloseFiresPerGame;
     if (finalFiveDelta !== 0) return finalFiveDelta;
     return a.meanFiresPerGame - b.meanFiresPerGame;
@@ -2301,6 +2580,12 @@ function reportNoteFor(algoId: string): ReportNote | null {
 function warningText(summary: AlgorithmSummary): string {
   const note = reportNoteFor(summary.algoId);
   if (note !== null) return `${note.severity}: ${note.note}`;
+  if (summary.marketOutlierEpisodesCaught === 0 && summary.marketOutlierEpisodeCount > 0) {
+    return "weak: misses every market-native outlier episode in the current tape-derived denominator.";
+  }
+  if (summary.firesInsideMarketOutlierShare < 25 && summary.totalFires >= 10) {
+    return "caution: most fires land outside the market-native outlier windows.";
+  }
   if (summary.outlierGameCount > 0) {
     return `caution: ${String(summary.outlierGameCount)} game(s) hit the fire-count outlier rule.`;
   }
@@ -2315,7 +2600,14 @@ function buildReportMarkdown(payload: BakeoffPayload): string {
     .slice(0, 10)
     .map(
       (summary) =>
-        `| ${summary.algoId} | ${summary.caughtScoreable}/${summary.scoreableIncidents} | ${summary.preEventCaughtScoreable}/${summary.postEventCaughtScoreable} | ${summary.meanFiresPerGame} | ${summary.meanEpisodesPerGame} | ${summary.p95FiresPerGame} | ${summary.maxFiresPerGame} | ${summary.outlierGameCount} | ${summary.medianLeadSeconds ?? "n/a"} | ${warningText(summary)} |`,
+        `| ${summary.algoId} | ${summary.caughtScoreable}/${summary.scoreableIncidents} | ${summary.marketOutlierEpisodesCaught}/${summary.marketOutlierEpisodeCount} (${summary.marketOutlierRecall}%) | ${summary.firesInsideMarketOutlierShare}% | ${summary.meanFiresPerGame} | ${summary.meanEpisodesPerGame} | ${summary.p95FiresPerGame} | ${summary.maxFiresPerGame} | ${summary.outlierGameCount} | ${summary.medianLeadSeconds ?? "n/a"} | ${warningText(summary)} |`,
+    )
+    .join("\n");
+  const marketOutlierRows = payload.marketOutlierEpisodes
+    .slice(0, 12)
+    .map(
+      (episode) =>
+        `| ${episode.gameId} | ${episode.matchup} | ${episode.startIso} | ${episode.endIso} | ${episode.peakSeverity} | ${episode.peakPriceMoveZ} | ${episode.peakBreadthZ} | ${episode.peakOffpriceZ} | ${episode.diagnosis} |`,
     )
     .join("\n");
   const outlierRows = payload.fireOutliers
@@ -2339,14 +2631,21 @@ This is an offline research artifact, not an official NBA source of truth. It sc
 - Incidents surfaced: ${payload.coverage.totalIncidents}
 - Exact UTC anchors: ${payload.coverage.exactAnchorIncidents}
 - Locally scoreable incidents: ${payload.coverage.scoreableIncidents}
+- Market-native outlier episodes: ${payload.marketOutlierEpisodes.length}
 - Denominator games with PBP windows: ${payload.coverage.denominatorGames}
 - Algorithms tested: ${payload.algorithms.length}
 
 ## Top Rows
 
-| Algorithm | Caught | Pre/post caught | Mean fires/game | Episodes/game | P95 fires | Max fires | Outlier games | Median lag seconds | Report read |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| Algorithm | Incident caught | Tape outliers caught | Fires inside tape windows | Mean fires/game | Episodes/game | P95 fires | Max fires | Outlier games | Median lag seconds | Report read |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
 ${topRows}
+
+## Market-Native Outlier Episodes
+
+| Game | Matchup | Start | End | Peak severity | Price-move z | Breadth z | Offprice z | Diagnosis |
+| --- | --- | --- | --- | ---: | ---: | ---: | ---: | --- |
+${marketOutlierRows.length === 0 ? "| none | none | n/a | n/a | 0 | 0 | 0 | 0 | no tape-derived outlier episodes |" : marketOutlierRows}
 
 ## Fire-Count Outliers
 
@@ -2394,7 +2693,7 @@ function buildReportHtml(payload: BakeoffPayload): string {
   const bestText =
     best === null
       ? "No scoreable algorithms"
-      : `Highest recall row: ${best.name} ${best.caughtScoreable}/${best.scoreableIncidents}, ${best.meanFiresPerGame} fires/game, ${best.meanEpisodesPerGame} episodes/game`;
+      : `Highest recall row: ${best.name} ${best.caughtScoreable}/${best.scoreableIncidents} incidents, ${best.marketOutlierEpisodesCaught}/${best.marketOutlierEpisodeCount} tape outliers, ${best.meanEpisodesPerGame} episodes/game`;
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -2414,58 +2713,63 @@ function buildReportHtml(payload: BakeoffPayload): string {
 <header><div class="wrap">
   <p class="kicker"><span class="dot"></span>Signal Console · NBA Detector Bake-Off · ${htmlEscape(payload.generatedAt)}</p>
   <h1>Baseline timing, historical priors, and the fire-burden problem.</h1>
-  <p class="dek">This report tests the detector ideas against known NBA stat-credit scares, but it also audits the thing that was previously hidden: why some games produce a handful of fires while others can produce hundreds. A row is not deployable just because it catches the known cases.</p>
-  <div class="routing"><span class="tag">${htmlEscape(bestText)}</span><span class="tag">${payload.algorithms.length} algorithms</span><span class="tag">${payload.coverage.denominatorGames} denominator games</span><span class="tag">${payload.fireOutliers.length} fire-count outlier rows</span></div>
+  <p class="dek">This report still tests detector ideas against known NBA stat-credit scares, but it now adds a second denominator from the tape itself: market-native outlier episodes. A row is not deployable just because it catches the known cases if most of its fires land outside the tape's own volatility separations.</p>
+  <div class="routing"><span class="tag">${htmlEscape(bestText)}</span><span class="tag">${payload.algorithms.length} algorithms</span><span class="tag">${payload.marketOutlierEpisodes.length} tape outlier episodes</span><span class="tag">${payload.fireOutliers.length} fire-count outlier rows</span></div>
 </div></header>
-<nav><div class="wrap"><a href="#decision">1·Decision</a><a href="#leaderboard">2·Leaderboard</a><a href="#burden">3·Fire Burden</a><a href="#weak">4·Weak Rows</a><a href="#incidents">5·Incidents</a><a href="#algos">6·Algorithms</a><a href="#method">7·Method</a><a href="#sources">8·Research</a></div></nav>
+<nav><div class="wrap"><a href="#decision">1·Decision</a><a href="#leaderboard">2·Leaderboard</a><a href="#market">3·Tape Outliers</a><a href="#burden">4·Fire Burden</a><a href="#weak">5·Weak Rows</a><a href="#incidents">6·Incidents</a><a href="#algos">7·Algorithms</a><a href="#method">8·Method</a><a href="#sources">9·Research</a></div></nav>
 <main class="wrap">
 <section id="decision">
   <div class="snum">SECTION 01</div><h2>Decision Read</h2>
-  <p class="lede">Treat this as a tuning bakeoff, not a shipping verdict. The headline catcher can still be a bad production detector if it pages every few buckets in coverage-heavy games.</p>
+  <p class="lede">Treat this as a tuning bakeoff, not a shipping verdict. The headline catcher can still be a bad production detector if it pages every few buckets in coverage-heavy games or if its fires mostly miss the tape's own outlier episodes.</p>
   <div class="stats">
     <div class="stat green"><div class="v">${payload.coverage.totalIncidents}</div><div class="l">surfaced incidents and archived complaints</div></div>
     <div class="stat amber"><div class="v">${payload.coverage.scoreableIncidents}</div><div class="l">scoreable with exact UTC plus matching market coverage</div></div>
-    <div class="stat cyan"><div class="v">${payload.algorithms.length}</div><div class="l">candidate formulas tested</div></div>
-    <div class="stat red"><div class="v">${payload.coverage.denominatorGames}</div><div class="l">PBP games used for false-alarm denominator</div></div>
+    <div class="stat cyan"><div class="v">${payload.marketOutlierEpisodes.length}</div><div class="l">tape-derived outlier episodes from the market itself</div></div>
+    <div class="stat red"><div class="v">${payload.algorithms.length}</div><div class="l">candidate formulas tested</div></div>
   </div>
   <div class="grid2">
-    <div class="panel"><h3>What changed in this run</h3><p class="muted">The bakeoff now scores no-fire games as misses when the incident is anchored and the local game has coverage. It also emits per-game fire diagnostics, alert episodes, coverage breadth, and outlier explanations.</p></div>
-    <div class="panel"><h3>Working recommendation</h3><p class="muted">Keep the historical-to-live profile in the bakeoff, but judge it by catch rate plus episodes/game and outlier burden. Coverage-normalized and cooldown rows are research candidates, not silent live defaults.</p></div>
+    <div class="panel"><h3>What changed in this run</h3><p class="muted">The bakeoff still scores no-fire games as misses when the incident is anchored and the local game has coverage. It now also emits tape-derived outlier episodes, per-algorithm outlier recall, and the share of fires that actually land inside those windows.</p></div>
+    <div class="panel"><h3>Working recommendation</h3><p class="muted">Keep the historical-to-live profile in the bakeoff, but judge it by incident catch rate plus tape-outlier recall plus episodes/game and outlier burden. Coverage-normalized and cooldown rows are research candidates, not silent live defaults.</p></div>
   </div>
-  <div class="callout warn"><b>Important:</b> positive lag seconds mean the detector fired after the disputed play. The practical question is whether that still beats the trading desk and whether the false-alert load is survivable.</div>
+  <div class="callout warn"><b>Important:</b> incident lag seconds are still relative to the disputed play. Tape-outlier recall is a separate denominator built from 30-second within-game robust z outliers on coverage-normalized board intensity, breadth, and offprice confirmation.</div>
 </section>
 <section id="leaderboard">
   <div class="snum">SECTION 02</div><h2>Leaderboard and Trade-Off</h2>
-  <p class="lede">The chart plots scoreable cases caught against alert episodes per game. Episodes merge fires within 90 seconds so one sustained repricing regime does not pretend to be dozens of separate desk decisions.</p>
+  <p class="lede">The chart still plots scoreable cases caught against alert episodes per game. Episodes merge fires within 90 seconds so one sustained repricing regime does not pretend to be dozens of separate desk decisions, while the table adds whether those fires align with tape-native outlier windows.</p>
   <div class="chart"><div class="ct">Caught cases vs alert episodes per game</div><div class="cs">Left is calmer; higher is better. Hover/click rows in the tables below for detail.</div><svg id="leaderSvg" viewBox="0 0 1100 420" role="img" aria-label="Caught cases versus alert episodes per game"></svg></div>
   <div class="t-scroll"><table id="summary-table"></table></div>
 </section>
+<section id="market">
+  <div class="snum">SECTION 03</div><h2>Market-Native Outlier Episodes</h2>
+  <p class="lede">This denominator comes from the tape itself, not from the incident registry. A bucket qualifies when coverage-normalized board intensity becomes a within-game robust outlier and broader participation or offprice microstructure confirms that the move is a board-level event rather than one isolated market twitch.</p>
+  <div class="t-scroll"><table id="market-table"></table></div>
+</section>
 <section id="burden">
-  <div class="snum">SECTION 03</div><h2>Fire-Count Outliers</h2>
+  <div class="snum">SECTION 04</div><h2>Fire-Count Outliers</h2>
   <p class="lede">This is the audit for the 300-fire-versus-10-fire problem. If a game lands here, the report forces a diagnosis: coverage-heavy board breadth, late-game churn, repeated adjacent buckets, or threshold behavior.</p>
   <div class="chart"><div class="ct">Top fire-count outliers</div><div class="cs">Bars show raw fires; markers show alert episodes after 90s merging.</div><svg id="outlierSvg" viewBox="0 0 1100 420" role="img" aria-label="Top fire-count outlier games"></svg></div>
   <div class="t-scroll"><table id="outlier-table"></table></div>
 </section>
 <section id="weak">
-  <div class="snum">SECTION 04</div><h2>Weak Or Misleading Rows</h2>
+  <div class="snum">SECTION 05</div><h2>Weak Or Misleading Rows</h2>
   <p class="lede">These warnings are part of the result. Some rows are good controls or good research scaffolding, but they are not honest deployable winners under the current evidence.</p>
   <div class="t-scroll"><table id="weak-table"></table></div>
 </section>
 <section id="incidents">
-  <div class="snum">SECTION 05</div><h2>Incident Timing</h2>
+  <div class="snum">SECTION 06</div><h2>Incident Timing</h2>
   <p class="lede">Pick an algorithm to see whether it fired in the incident window. Positive lag seconds are post-play; negative values are pre-play. Rows without anchors remain visible as data gaps, not fake misses.</p>
   <div class="chart"><div class="ct">Catch matrix for selected algorithms</div><div class="cs">Green = caught in the incident window, red = scoreable miss, gray = anchor/coverage gap.</div><svg id="matrixSvg" viewBox="0 0 1100 420" role="img" aria-label="Algorithm catch matrix"></svg></div>
   <div class="controls"><div><label for="incident-algo">Algorithm</label><select id="incident-algo"></select></div><div><label for="score-filter">Rows</label><select id="score-filter"><option value="all">All incidents</option><option value="scoreable">Scoreable only</option><option value="caught">Caught only</option><option value="missed">Missed scoreable only</option><option value="gap">Anchor/data gaps</option></select></div></div>
   <div class="t-scroll"><table id="incident-table"></table></div>
 </section>
 <section id="algos">
-  <div class="snum">SECTION 06</div><h2>Algorithm Detail</h2>
+  <div class="snum">SECTION 07</div><h2>Algorithm Detail</h2>
   <p class="lede">Each row is causal and uses only prior information. Historical rows model last-five same-side openings, then fade toward current game memory. Fire-control rows test normalization and episode hygiene separately from raw recall.</p>
   <div class="controls"><div><label for="algo-select">Algorithm</label><select id="algo-select"></select></div></div>
   <div id="algo-detail" class="panel"></div>
 </section>
 <section id="method">
-  <div class="snum">SECTION 07</div><h2>Method and Failure Modes</h2>
+  <div class="snum">SECTION 08</div><h2>Method and Failure Modes</h2>
   <div class="grid2">
     <div class="panel"><h3>Scoreability contract</h3><p class="muted">A row is scoreable only when the incident has exact UTC, a normalized local game id, PBP coverage, and quote or microstructure coverage for that algorithm. Zero fires on a scoreable game is an honest miss.</p></div>
     <div class="panel"><h3>Memory contract</h3><p class="muted">The historical-to-live profile uses the requested home/away opening prior shape, then shifts weight to current-game baseline. The report keeps game-clock memory, recent wall-clock memory, and opening holdoff visible because each answers a different timing question.</p></div>
@@ -2473,10 +2777,10 @@ function buildReportHtml(payload: BakeoffPayload): string {
     <div class="panel"><h3>Next math work</h3><p class="muted">The next serious rows should add zero-filled calendar buckets, flow from volume deltas, signed-move coherence, latency-tolerant fanout, and robust Qn/Sn-style short-window scale candidates.</p></div>
   </div>
   <div class="t-scroll"><table id="method-table"></table></div>
-  <details open><summary>Appendix: artifact contract</summary><p class="muted">Machine source: <code>research/bakeoff-results.json</code>. The JSON now includes <code>gameSummaries</code> and <code>fireOutliers</code> so future reports cannot hide outlier games behind a mean fires/game number.</p></details>
+  <details open><summary>Appendix: artifact contract</summary><p class="muted">Machine source: <code>research/bakeoff-results.json</code>. The JSON now includes <code>gameSummaries</code>, <code>marketOutlierEpisodes</code>, <code>marketOutlierResults</code>, and <code>fireOutliers</code> so future reports cannot hide tape misalignment or outlier games behind a mean fires/game number.</p></details>
 </section>
 <section id="sources">
-  <div class="snum">SECTION 08</div><h2>Research Hooks</h2>
+  <div class="snum">SECTION 09</div><h2>Research Hooks</h2>
   <p class="lede">These are formula inspirations and operational guardrails, not proof that any one detector should ship. The report keeps them attached so tuning does not drift into numerology.</p>
   <div class="t-scroll"><table id="source-table"></table></div>
 </section>
@@ -2490,12 +2794,12 @@ const byId=(id)=>document.getElementById(id);
 const pct=(a,b)=>b?Math.round((a/b)*100)+"%":"n/a";
 function pill(text,cls){return '<span class="pill '+cls+'">'+text+'</span>'}
 function esc(v){return String(v??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
-function ranked(){return [...DATA.summaries].sort((a,b)=>(b.caughtScoreable-a.caughtScoreable)||(a.meanEpisodesPerGame-b.meanEpisodesPerGame)||(a.meanFiresPerGame-b.meanFiresPerGame))}
+function ranked(){return [...DATA.summaries].sort((a,b)=>(b.caughtScoreable-a.caughtScoreable)||(b.marketOutlierRecall-a.marketOutlierRecall)||(b.firesInsideMarketOutlierShare-a.firesInsideMarketOutlierShare)||(a.meanEpisodesPerGame-b.meanEpisodesPerGame)||(a.meanFiresPerGame-b.meanFiresPerGame))}
 function reportNote(algoId){return REPORT_NOTES.find(n=>n.algoId===algoId)||null}
-function reportRead(r){const n=reportNote(r.algoId);if(n)return '<span class="pill '+(n.severity==='weak'?'r':n.severity==='pending'?'n':'y')+'">'+n.severity+'</span> '+esc(n.note);if(r.outlierGameCount>0)return pill('caution','y')+' '+r.outlierGameCount+' outlier game(s)';if(r.meanFiresPerGame>=15)return pill('caution','y')+' high alert burden';return pill('ok','g')+' comparator'}
+function reportRead(r){const n=reportNote(r.algoId);if(n)return '<span class="pill '+(n.severity==='weak'?'r':n.severity==='pending'?'n':'y')+'">'+n.severity+'</span> '+esc(n.note);if(r.marketOutlierEpisodesCaught===0&&r.marketOutlierEpisodeCount>0)return pill('weak','r')+' misses every tape outlier';if(r.firesInsideMarketOutlierShare<25&&r.totalFires>=10)return pill('caution','y')+' low tape alignment';if(r.outlierGameCount>0)return pill('caution','y')+' '+r.outlierGameCount+' outlier game(s)';if(r.meanFiresPerGame>=15)return pill('caution','y')+' high alert burden';return pill('ok','g')+' comparator'}
 function renderSummary(){
   const rows=ranked();
-  byId('summary-table').innerHTML='<thead><tr><th>Algorithm</th><th>Family</th><th class="num">Caught</th><th class="num">Pre/post</th><th class="num">Fires/gm</th><th class="num">Episodes/gm</th><th class="num">P95 fires</th><th class="num">Max fires</th><th class="num">Outliers</th><th class="num">Median lag s</th><th>Read</th></tr></thead><tbody>'+rows.map(r=>'<tr><td class="mono">'+esc(r.algoId)+'<br>'+esc(r.name)+'</td><td>'+esc(r.family)+'</td><td class="num">'+r.caughtScoreable+'/'+r.scoreableIncidents+'<br>'+pct(r.caughtScoreable,r.scoreableIncidents)+'</td><td class="num">'+r.preEventCaughtScoreable+'/'+r.postEventCaughtScoreable+'</td><td class="num">'+r.meanFiresPerGame+'</td><td class="num">'+r.meanEpisodesPerGame+'</td><td class="num">'+r.p95FiresPerGame+'</td><td class="num">'+r.maxFiresPerGame+'</td><td class="num">'+r.outlierGameCount+'</td><td class="num">'+(r.medianLeadSeconds??'n/a')+'</td><td>'+reportRead(r)+'</td></tr>').join('')+'</tbody>';
+  byId('summary-table').innerHTML='<thead><tr><th>Algorithm</th><th>Family</th><th class="num">Incidents</th><th class="num">Tape outliers</th><th class="num">Inside share</th><th class="num">Fires/gm</th><th class="num">Episodes/gm</th><th class="num">P95 fires</th><th class="num">Max fires</th><th class="num">Median lag s</th><th>Read</th></tr></thead><tbody>'+rows.map(r=>'<tr><td class="mono">'+esc(r.algoId)+'<br>'+esc(r.name)+'</td><td>'+esc(r.family)+'</td><td class="num">'+r.caughtScoreable+'/'+r.scoreableIncidents+'<br>'+pct(r.caughtScoreable,r.scoreableIncidents)+'</td><td class="num">'+r.marketOutlierEpisodesCaught+'/'+r.marketOutlierEpisodeCount+'<br>'+r.marketOutlierRecall+'%</td><td class="num">'+r.firesInsideMarketOutlierShare+'%</td><td class="num">'+r.meanFiresPerGame+'</td><td class="num">'+r.meanEpisodesPerGame+'</td><td class="num">'+r.p95FiresPerGame+'</td><td class="num">'+r.maxFiresPerGame+'</td><td class="num">'+(r.medianLeadSeconds??'n/a')+'</td><td>'+reportRead(r)+'</td></tr>').join('')+'</tbody>';
 }
 function fillSelect(id){
   const html=DATA.algorithms.map(a=>'<option value="'+a.id+'">'+a.id+' · '+a.name+'</option>').join('');
@@ -2507,7 +2811,7 @@ function renderAlgo(){
   const summary=DATA.summaries.find(s=>s.algoId===id);
   if(!algo||!summary)return;
   const games=DATA.gameSummaries.filter(g=>g.algoId===id).sort((a,b)=>b.fires-a.fires).slice(0,8);
-  byId('algo-detail').innerHTML='<h3>'+esc(algo.name)+'</h3><p class="muted">'+esc(algo.rationale)+'</p><p><b>Formula:</b> <code>'+esc(algo.formula)+'</code></p><div class="callout">'+reportRead(summary)+'</div><div class="stats"><div class="stat green"><div class="v">'+summary.caughtScoreable+'/'+summary.scoreableIncidents+'</div><div class="l">scoreable incidents caught</div></div><div class="stat amber"><div class="v">'+summary.meanEpisodesPerGame+'</div><div class="l">alert episodes/game</div></div><div class="stat red"><div class="v">'+summary.maxFiresPerGame+'</div><div class="l">max raw fires in one game</div></div><div class="stat cyan"><div class="v">'+summary.caughtPer100Fires+'</div><div class="l">caught per 100 fires</div></div></div><p><b>Citations:</b> '+algo.citations.map(esc).join(' · ')+'</p><div class="t-scroll"><table><thead><tr><th>Highest-fire games</th><th class="num">Fires</th><th class="num">Episodes</th><th class="num">Quote pairs</th><th class="num">Markets</th><th>Diagnosis</th></tr></thead><tbody>'+games.map(g=>'<tr><td class="mono">'+esc(g.gameId)+'<br><span class="muted">'+esc(g.matchup)+'</span></td><td class="num">'+g.fires+'</td><td class="num">'+g.episodes+'</td><td class="num">'+g.quotePairCount+'</td><td class="num">'+g.activeMarketCount+'</td><td>'+esc(g.diagnosis)+'</td></tr>').join('')+'</tbody></table></div>';
+  byId('algo-detail').innerHTML='<h3>'+esc(algo.name)+'</h3><p class="muted">'+esc(algo.rationale)+'</p><p><b>Formula:</b> <code>'+esc(algo.formula)+'</code></p><div class="callout">'+reportRead(summary)+'</div><div class="stats"><div class="stat green"><div class="v">'+summary.caughtScoreable+'/'+summary.scoreableIncidents+'</div><div class="l">scoreable incidents caught</div></div><div class="stat amber"><div class="v">'+summary.marketOutlierEpisodesCaught+'/'+summary.marketOutlierEpisodeCount+'</div><div class="l">tape outlier episodes caught</div></div><div class="stat red"><div class="v">'+summary.maxFiresPerGame+'</div><div class="l">max raw fires in one game</div></div><div class="stat cyan"><div class="v">'+summary.firesInsideMarketOutlierShare+'%</div><div class="l">fires inside tape outlier windows</div></div></div><p><b>Citations:</b> '+algo.citations.map(esc).join(' · ')+'</p><div class="t-scroll"><table><thead><tr><th>Highest-fire games</th><th class="num">Fires</th><th class="num">Episodes</th><th class="num">Quote pairs</th><th class="num">Markets</th><th>Diagnosis</th></tr></thead><tbody>'+games.map(g=>'<tr><td class="mono">'+esc(g.gameId)+'<br><span class="muted">'+esc(g.matchup)+'</span></td><td class="num">'+g.fires+'</td><td class="num">'+g.episodes+'</td><td class="num">'+g.quotePairCount+'</td><td class="num">'+g.activeMarketCount+'</td><td>'+esc(g.diagnosis)+'</td></tr>').join('')+'</tbody></table></div>';
 }
 function incidentStatus(result){
   if(!result.scoreable)return pill('gap','n');
@@ -2529,6 +2833,10 @@ function renderIncidents(){
 }
 function renderSources(){
   byId('source-table').innerHTML='<thead><tr><th>Source</th><th>Use</th></tr></thead><tbody>'+DATA.researchSources.map(s=>'<tr><td><a href="'+esc(s.url)+'">'+esc(s.title)+'</a></td><td>'+esc(s.use)+'</td></tr>').join('')+'</tbody>';
+}
+function renderMarketOutliers(){
+  const rows=[...DATA.marketOutlierEpisodes].sort((a,b)=>b.peakSeverity-a.peakSeverity);
+  byId('market-table').innerHTML='<thead><tr><th>Game</th><th>Window</th><th class="num">Peak severity</th><th class="num">Price z</th><th class="num">Breadth z</th><th class="num">Offprice z</th><th class="num">Peak markets</th><th>Diagnosis</th></tr></thead><tbody>'+rows.map(r=>'<tr><td class="mono">'+esc(r.gameId)+'<br><span class="muted">'+esc(r.matchup)+'</span></td><td class="mono">'+esc(r.startIso)+'<br>'+esc(r.endIso)+'</td><td class="num">'+r.peakSeverity+'</td><td class="num">'+r.peakPriceMoveZ+'</td><td class="num">'+r.peakBreadthZ+'</td><td class="num">'+r.peakOffpriceZ+'</td><td class="num">'+r.peakActiveMarkets+'</td><td>'+esc(r.diagnosis)+'</td></tr>').join('')+'</tbody>';
 }
 function renderOutliers(){
   const rows=[...DATA.fireOutliers].sort((a,b)=>b.fires-a.fires);
@@ -2562,7 +2870,7 @@ function renderMatrix(){
   incs.forEach((inc,i)=>txt(svg,P.l+i*cw+cw/2,34,inc.id.replace(/_/g,' ').slice(0,10),{'text-anchor':'middle',fill:'var(--ink3)','font-family':'IBM Plex Mono','font-size':9,transform:'rotate(-30 '+(P.l+i*cw+cw/2)+' 34)'}));
   algos.forEach((algo,j)=>{txt(svg,12,P.t+j*rh+rh/2+4,algo,{fill:'var(--ink2)','font-family':'IBM Plex Mono','font-size':11});incs.forEach((inc,i)=>{const r=DATA.incidentResults.find(x=>x.algoId===algo&&x.incidentId===inc.id);const fill=!r||!r.scoreable?'#273a34':r.caught?'var(--green)':'var(--red)';svg.appendChild(svgEl('rect',{x:P.l+i*cw+2,y:P.t+j*rh+2,width:Math.max(4,cw-4),height:Math.max(4,rh-4),rx:3,fill,opacity:(!r||!r.scoreable) ? .45 : .82}))})});
 }
-renderSummary();renderOutliers();renderWeakRows();renderMethods();fillSelect('algo-select');fillSelect('incident-algo');renderAlgo();renderIncidents();renderSources();renderLeaderChart();renderOutlierChart();renderMatrix();
+renderSummary();renderMarketOutliers();renderOutliers();renderWeakRows();renderMethods();fillSelect('algo-select');fillSelect('incident-algo');renderAlgo();renderIncidents();renderSources();renderLeaderChart();renderOutlierChart();renderMatrix();
 byId('algo-select').addEventListener('change',renderAlgo);
 byId('incident-algo').addEventListener('change',renderIncidents);
 byId('score-filter').addEventListener('change',renderIncidents);
@@ -2592,8 +2900,23 @@ async function run(): Promise<number> {
       findIncidentFire(incident, firesByAlgoGame, games),
     );
     const gameSummaries = buildGameSummaries(ALGORITHMS, games, firesByAlgoGame);
+    const marketOutlierEpisodes = [...games.values()].flatMap((game) =>
+      buildMarketOutlierEpisodes(game),
+    );
+    const marketOutlierResults = buildMarketOutlierResults(
+      ALGORITHMS,
+      marketOutlierEpisodes,
+      firesByAlgoGame,
+    );
     const summaries = ALGORITHMS.map((algo) =>
-      summarizeAlgorithm(algo, incidentResults, firesByAlgoGame, gameSummaries),
+      summarizeAlgorithm(
+        algo,
+        incidentResults,
+        firesByAlgoGame,
+        gameSummaries,
+        marketOutlierResults,
+        marketOutlierEpisodes,
+      ),
     );
     const fireOutliers = buildFireOutliers(summaries, gameSummaries);
     const exactAnchorIncidents = incidents.filter(
@@ -2617,6 +2940,8 @@ async function run(): Promise<number> {
       algorithms: ALGORITHMS,
       summaries,
       gameSummaries,
+      marketOutlierEpisodes,
+      marketOutlierResults,
       fireOutliers,
       incidentResults,
       researchSources: RESEARCH_SOURCES,
@@ -2654,6 +2979,7 @@ async function run(): Promise<number> {
           output: OUT_DIR,
           incidents: payload.coverage.totalIncidents,
           scoreable: payload.coverage.scoreableIncidents,
+          marketOutlierEpisodes: payload.marketOutlierEpisodes.length,
           algorithms: payload.algorithms.length,
           denominatorGames: payload.coverage.denominatorGames,
           best: payload.bestSummary,

@@ -23,7 +23,7 @@ import {
   readDetectorDefaults,
   type DetectorDefaults,
 } from "./detector-defaults";
-import { runDetector } from "./detector-runner";
+import { runDetector, type BoardVolatilityRunner } from "./detector-runner";
 
 export interface BoardObservation {
   readonly bucketStart: string;
@@ -32,6 +32,9 @@ export interface BoardObservation {
   readonly intensity: number;
   readonly baselineMedian: number;
   readonly baselineMad: number;
+  readonly threshold?: number;
+  readonly standardizedInnovation?: number;
+  readonly regimeScore?: number;
   readonly warmedUp: boolean;
 }
 
@@ -46,6 +49,9 @@ export interface GetOrComputeBoardArgs {
   readonly goldDbPath: string;
   readonly cacheDbPath: string;
   readonly gameId: string;
+  readonly boardVolatilityFetchImpl?: typeof fetch;
+  readonly boardVolatilityRunner?: BoardVolatilityRunner;
+  readonly boardVolatilitySidecarBaseUrl?: string;
   readonly now?: Date;
 }
 
@@ -74,16 +80,25 @@ function resolveLiveBoardMadParams(
   });
 }
 
-export function getOrComputeBoard(args: GetOrComputeBoardArgs): BoardResult {
+export async function getOrComputeBoard(args: GetOrComputeBoardArgs): Promise<BoardResult> {
   const defaults = readDetectorDefaults();
   const params = resolveLiveBoardMadParams(defaults);
 
-  const result = runDetector({
+  const result = await runDetector({
     detectorId: "board-mad",
     params,
     scope: { kind: "game", gameId: args.gameId },
     goldDbPath: args.goldDbPath,
     cacheDbPath: args.cacheDbPath,
+    ...(args.boardVolatilityFetchImpl === undefined
+      ? {}
+      : { boardVolatilityFetchImpl: args.boardVolatilityFetchImpl }),
+    ...(args.boardVolatilityRunner === undefined
+      ? {}
+      : { boardVolatilityRunner: args.boardVolatilityRunner }),
+    ...(args.boardVolatilitySidecarBaseUrl === undefined
+      ? {}
+      : { boardVolatilitySidecarBaseUrl: args.boardVolatilitySidecarBaseUrl }),
     ...(args.now === undefined ? {} : { now: args.now }),
   });
 
@@ -99,6 +114,11 @@ export function getOrComputeBoard(args: GetOrComputeBoardArgs): BoardResult {
         intensity: b.intensity,
         baselineMedian: b.baselineMedian,
         baselineMad: b.baselineMad,
+        ...(b.threshold === undefined ? {} : { threshold: b.threshold }),
+        ...(b.standardizedInnovation === undefined
+          ? {}
+          : { standardizedInnovation: b.standardizedInnovation }),
+        ...(b.regimeScore === undefined ? {} : { regimeScore: b.regimeScore }),
         warmedUp: b.warmedUp,
       }),
     ),

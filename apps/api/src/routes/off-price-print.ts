@@ -76,7 +76,7 @@ const offPricePrintRoutes: FastifyPluginAsync<OffPricePrintRoutesOptions> = (app
         },
       },
     },
-    (request: FastifyRequest, reply: FastifyReply) => {
+    async (request: FastifyRequest, reply: FastifyReply) => {
       const parsed = paramSchema.safeParse(request.params);
       if (!parsed.success) {
         reply.code(400).send({ error: "invalid params" });
@@ -87,7 +87,7 @@ const offPricePrintRoutes: FastifyPluginAsync<OffPricePrintRoutesOptions> = (app
       // thresholds via /v1/settings/detector-defaults auto-invalidates
       // off-price cache rows on the next access.
       const defaults = readDetectorDefaults();
-      const result = runDetector({
+      const result = await runDetector({
         detectorId: "off-price-print",
         params: {
           minVolumeShare: defaults.offPriceMinVolumeShare,

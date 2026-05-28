@@ -20,6 +20,7 @@ export type Source = "bet365" | "kalshi" | "polymarket";
 export type Tick = {
   readonly gameId: string;
   readonly sourceMarketId: string;
+  readonly source?: string;
   readonly capturedAt: Date;
   readonly impliedProbability: number | null;
   readonly volume: number;
@@ -108,6 +109,9 @@ export type DetectorFire = {
   readonly intensity: number;
   readonly baselineMedian: number;
   readonly baselineMad: number;
+  readonly threshold?: number;
+  readonly standardizedInnovation?: number;
+  readonly regimeScore?: number;
   readonly lane?: DetectorFireLane;
   readonly sourceMarketId?: string;
 };
@@ -128,8 +132,12 @@ export type DetectorBucket = {
   readonly bucketStart: Date;
   readonly bucketEnd: Date;
   readonly intensity: number;
+  readonly gameElapsedSeconds?: number | null;
   readonly baselineMedian: number;
   readonly baselineMad: number;
+  readonly threshold?: number;
+  readonly standardizedInnovation?: number;
+  readonly regimeScore?: number;
   readonly warmedUp: boolean;
   readonly fired: boolean;
 };
@@ -144,7 +152,7 @@ export type DetectorResult = {
 //   export const detector: Detector<typeof Params> = {
 //     id: "board-mad",
 //     version: "1.0.0",
-//     displayName: "Board MAD (whole-board volatility)",
+//     displayName: "Board State-Space (whole-board volatility)",
 //     paramsSchema: Params,
 //     run(window, params) { ... },
 //   };

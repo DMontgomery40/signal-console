@@ -1,0 +1,445 @@
+{
+  "capturedAt": "2026-05-27T04:21:19.153Z",
+  "headers": {
+    "x-ratelimit-limit": "5000",
+    "x-ratelimit-remaining": "4974",
+    "x-ratelimit-reset": "2026-05-27T05:11:37Z"
+  },
+  "payload": [
+    {
+      "name": "Argentina - Liga Argentina",
+      "slug": "argentina-liga-argentina",
+      "eventsCount": 3
+    },
+    {
+      "name": "Argentina - LNB",
+      "slug": "argentina-lnb",
+      "eventsCount": 2
+    },
+    {
+      "name": "Australia - Big V",
+      "slug": "australia-big-v",
+      "eventsCount": 17
+    },
+    {
+      "name": "Australia - Big V, Women",
+      "slug": "australia-big-v-women",
+      "eventsCount": 17
+    },
+    {
+      "name": "Australia - NBL1, Central",
+      "slug": "australia-nbl1-central",
+      "eventsCount": 20
+    },
+    {
+      "name": "Australia - NBL1 Central, Women",
+      "slug": "australia-nbl1-central-women",
+      "eventsCount": 20
+    },
+    {
+      "name": "Australia - NBL1, East",
+      "slug": "australia-nbl1-east",
+      "eventsCount": 35
+    },
+    {
+      "name": "Australia - NBL1 East, Women",
+      "slug": "australia-nbl1-east-women",
+      "eventsCount": 35
+    },
+    {
+      "name": "Australia - NBL1, North",
+      "slug": "australia-nbl1-north",
+      "eventsCount": 31
+    },
+    {
+      "name": "Australia - NBL1 North, Women",
+      "slug": "australia-nbl1-north-women",
+      "eventsCount": 31
+    },
+    {
+      "name": "Australia - NBL1, South",
+      "slug": "australia-nbl1-south",
+      "eventsCount": 43
+    },
+    {
+      "name": "Australia - NBL1 South, Women",
+      "slug": "australia-nbl1-south-women",
+      "eventsCount": 43
+    },
+    {
+      "name": "Australia - NBL1, West",
+      "slug": "australia-nbl1-west",
+      "eventsCount": 37
+    },
+    {
+      "name": "Australia - NBL1 West, Women",
+      "slug": "australia-nbl1-west-women",
+      "eventsCount": 31
+    },
+    {
+      "name": "Austria - Superliga",
+      "slug": "austria-superliga",
+      "eventsCount": 1
+    },
+    {
+      "name": "Belarus - Vysshaya League",
+      "slug": "belarus-vysshaya-league",
+      "eventsCount": 3
+    },
+    {
+      "name": "Belgium - BNXT Belgian League",
+      "slug": "belgium-bnxt-belgian-league",
+      "eventsCount": 2
+    },
+    {
+      "name": "Brazil - LBF, Women",
+      "slug": "brazil-lbf-women",
+      "eventsCount": 17
+    },
+    {
+      "name": "Bulgaria - NBL",
+      "slug": "bulgaria-nbl",
+      "eventsCount": 2
+    },
+    {
+      "name": "Canada - CEBL",
+      "slug": "canada-cebl",
+      "eventsCount": 40
+    },
+    {
+      "name": "Chile - Liga Nacional",
+      "slug": "chile-liga-nacional",
+      "eventsCount": 1
+    },
+    {
+      "name": "China - CBA",
+      "slug": "china-cba",
+      "eventsCount": 6
+    },
+    {
+      "name": "Chinese Taipei - P League",
+      "slug": "chinese-taipei-p-league",
+      "eventsCount": 1
+    },
+    {
+      "name": "Chinese Taipei - TPBL",
+      "slug": "chinese-taipei-tpbl",
+      "eventsCount": 3
+    },
+    {
+      "name": "Costa Rica - LSB",
+      "slug": "costa-rica-lsb",
+      "eventsCount": 1
+    },
+    {
+      "name": "Croatia - Premijer liga",
+      "slug": "croatia-premijer-liga",
+      "eventsCount": 1
+    },
+    {
+      "name": "Czech Republic - NBL",
+      "slug": "czech-republic-nbl",
+      "eventsCount": 1
+    },
+    {
+      "name": "Dominican Republic - LNB",
+      "slug": "dominican-republic-lnb",
+      "eventsCount": 4
+    },
+    {
+      "name": "El Salvador - Liga Mayor de Baloncesto",
+      "slug": "el-salvador-liga-mayor-de-baloncesto",
+      "eventsCount": 13
+    },
+    {
+      "name": "El Salvador - U21 League",
+      "slug": "el-salvador-u21-league",
+      "eventsCount": 2
+    },
+    {
+      "name": "Estonia - KML",
+      "slug": "estonia-kml",
+      "eventsCount": 1
+    },
+    {
+      "name": "France - Nationale 1",
+      "slug": "france-nationale-1",
+      "eventsCount": 4
+    },
+    {
+      "name": "France - Pro A",
+      "slug": "france-pro-a",
+      "eventsCount": 4
+    },
+    {
+      "name": "France - Pro B",
+      "slug": "france-pro-b",
+      "eventsCount": 4
+    },
+    {
+      "name": "France - Trophee du Futur",
+      "slug": "france-trophee-du-futur",
+      "eventsCount": 4
+    },
+    {
+      "name": "Georgia - Superleague",
+      "slug": "georgia-superleague",
+      "eventsCount": 1
+    },
+    {
+      "name": "Germany - BBL",
+      "slug": "germany-bbl",
+      "eventsCount": 2
+    },
+    {
+      "name": "Germany - Pro A",
+      "slug": "germany-pro-a",
+      "eventsCount": 2
+    },
+    {
+      "name": "Greece - Greek Basketball League",
+      "slug": "greece-greek-basketball-league",
+      "eventsCount": 4
+    },
+    {
+      "name": "Hungary - NB I. A",
+      "slug": "hungary-nb-i-a",
+      "eventsCount": 1
+    },
+    {
+      "name": "Indonesia - IBL",
+      "slug": "indonesia-ibl",
+      "eventsCount": 5
+    },
+    {
+      "name": "International - Basketball Africa League",
+      "slug": "international-basketball-africa-league",
+      "eventsCount": 2
+    },
+    {
+      "name": "International - Club Friendly Games, Women",
+      "slug": "international-club-friendly-games-women",
+      "eventsCount": 3
+    },
+    {
+      "name": "International - Liga ABA",
+      "slug": "international-liga-aba",
+      "eventsCount": 1
+    },
+    {
+      "name": "International - U18 FIBA Americup",
+      "slug": "international-u18-fiba-americup",
+      "eventsCount": 12
+    },
+    {
+      "name": "International - United League",
+      "slug": "international-united-league",
+      "eventsCount": 1
+    },
+    {
+      "name": "International - World Cup Qualification, Africa",
+      "slug": "international-world-cup-qualification-africa",
+      "eventsCount": 24
+    },
+    {
+      "name": "International - World Cup Qualification, Americas",
+      "slug": "international-world-cup-qualification-americas",
+      "eventsCount": 17
+    },
+    {
+      "name": "International - World Cup Qualification, Asia & Oceania",
+      "slug": "international-world-cup-qualification-asia-&-oceania",
+      "eventsCount": 20
+    },
+    {
+      "name": "International - World Cup Qualification, Europe",
+      "slug": "international-world-cup-qualification-europe",
+      "eventsCount": 32
+    },
+    {
+      "name": "Israel - National League",
+      "slug": "israel-national-league",
+      "eventsCount": 4
+    },
+    {
+      "name": "Israel - Super League",
+      "slug": "israel-super-league",
+      "eventsCount": 4
+    },
+    {
+      "name": "Italy - Serie A",
+      "slug": "italy-serie-a",
+      "eventsCount": 6
+    },
+    {
+      "name": "Italy - Serie A2",
+      "slug": "italy-serie-a2",
+      "eventsCount": 2
+    },
+    {
+      "name": "Italy - Serie B",
+      "slug": "italy-serie-b",
+      "eventsCount": 5
+    },
+    {
+      "name": "Kazakhstan - National League",
+      "slug": "kazakhstan-national-league",
+      "eventsCount": 3
+    },
+    {
+      "name": "Lebanon - First Division",
+      "slug": "lebanon-first-division",
+      "eventsCount": 10
+    },
+    {
+      "name": "Lithuania - LKL",
+      "slug": "lithuania-lkl",
+      "eventsCount": 5
+    },
+    {
+      "name": "Mexico - LNBP, Women",
+      "slug": "mexico-lnbp-women",
+      "eventsCount": 1
+    },
+    {
+      "name": "Moldova - Divizia Nationala",
+      "slug": "moldova-divizia-nationala",
+      "eventsCount": 1
+    },
+    {
+      "name": "Netherlands - BNXT Dutch League",
+      "slug": "netherlands-bnxt-dutch-league",
+      "eventsCount": 2
+    },
+    {
+      "name": "New Zealand - NBL",
+      "slug": "new-zealand-nbl",
+      "eventsCount": 28
+    },
+    {
+      "name": "Paraguay - LNB",
+      "slug": "paraguay-lnb",
+      "eventsCount": 4
+    },
+    {
+      "name": "Philippines - MPBL",
+      "slug": "philippines-mpbl",
+      "eventsCount": 75
+    },
+    {
+      "name": "Philippines - PBA, Commissioner Cup",
+      "slug": "philippines-pba-commissioner-cup",
+      "eventsCount": 4
+    },
+    {
+      "name": "Poland - 1. Liga",
+      "slug": "poland-1-liga",
+      "eventsCount": 1
+    },
+    {
+      "name": "Poland - PLK",
+      "slug": "poland-plk",
+      "eventsCount": 5
+    },
+    {
+      "name": "Portugal - LPB",
+      "slug": "portugal-lpb",
+      "eventsCount": 3
+    },
+    {
+      "name": "Portugal - Proliga",
+      "slug": "portugal-proliga",
+      "eventsCount": 1
+    },
+    {
+      "name": "Puerto Rico - BSN",
+      "slug": "puerto-rico-bsn",
+      "eventsCount": 30
+    },
+    {
+      "name": "Romania - Liga I",
+      "slug": "romania-liga-i",
+      "eventsCount": 2
+    },
+    {
+      "name": "Romania - Liga Nationala",
+      "slug": "romania-liga-nationala",
+      "eventsCount": 6
+    },
+    {
+      "name": "Serbia - KLS",
+      "slug": "serbia-kls",
+      "eventsCount": 2
+    },
+    {
+      "name": "Slovakia - Extraliga",
+      "slug": "slovakia-extraliga",
+      "eventsCount": 1
+    },
+    {
+      "name": "Slovenia - 1. A SKL",
+      "slug": "slovenia-1-a-skl",
+      "eventsCount": 3
+    },
+    {
+      "name": "Spain - Liga ACB",
+      "slug": "spain-liga-acb",
+      "eventsCount": 11
+    },
+    {
+      "name": "Spain - Primera FEB",
+      "slug": "spain-primera-feb",
+      "eventsCount": 1
+    },
+    {
+      "name": "Spain - Segunda FEB",
+      "slug": "spain-segunda-feb",
+      "eventsCount": 2
+    },
+    {
+      "name": "Switzerland - NLB",
+      "slug": "switzerland-nlb",
+      "eventsCount": 1
+    },
+    {
+      "name": "Turkiye - Super Lig",
+      "slug": "turkiye-super-lig",
+      "eventsCount": 6
+    },
+    {
+      "name": "Uruguay - LFB, Women",
+      "slug": "uruguay-lfb-women",
+      "eventsCount": 3
+    },
+    {
+      "name": "Uruguay - LUB",
+      "slug": "uruguay-lub",
+      "eventsCount": 1
+    },
+    {
+      "name": "USA - NBA",
+      "slug": "usa-nba",
+      "eventsCount": 9
+    },
+    {
+      "name": "USA - WNBA",
+      "slug": "usa-wnba",
+      "eventsCount": 86
+    },
+    {
+      "name": "Venezuela - SuperLiga",
+      "slug": "venezuela-superliga",
+      "eventsCount": 8
+    },
+    {
+      "name": "Vietnam - VBA",
+      "slug": "vietnam-vba",
+      "eventsCount": 17
+    }
+  ],
+  "request": {
+    "method": "GET",
+    "url": "https://api.odds-api.io/v3/leagues?apiKey=REDACTED&sport=basketball"
+  },
+  "status": 200
+}

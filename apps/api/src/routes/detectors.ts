@@ -10,6 +10,8 @@ import { registry, type RegisteredDetector } from "@signal-console/detectors";
 import type { FastifyPluginAsync } from "fastify";
 import { zodToJsonSchema } from "zod-to-json-schema";
 
+import { boardMadDetectorVersion, readDetectorDefaults } from "../services/detector-defaults";
+
 export interface DetectorsRoutesOptions {
   // Tests can inject a smaller registry without rebuilding the module graph.
   // Keys must mirror the live registry shape (id -> RegisteredDetector).
@@ -67,9 +69,16 @@ function toJsonSchemaObject(d: RegisteredDetector): Record<string, unknown> {
 }
 
 function buildRows(reg: ReadonlyMap<string, RegisteredDetector>): readonly DetectorRow[] {
+  const defaults = readDetectorDefaults();
+  const runtimeBoardVersion = boardMadDetectorVersion(defaults);
   return Array.from(reg.values()).map((d) => ({
     id: d.id,
-    version: d.version,
+    version:
+      d.id === "board-mad"
+        ? runtimeBoardVersion
+        : d.id === "ensemble-or"
+          ? `${d.version}+board=${runtimeBoardVersion}+off=${reg.get("off-price-print")?.version ?? "1.0.0"}`
+          : d.version,
     displayName: d.displayName,
     sources: d.sources,
     paramsSchema: toJsonSchemaObject(d),

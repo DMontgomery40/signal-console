@@ -122,12 +122,12 @@ export function listGames(
   const hasSport = args.sport !== undefined && args.sport.length > 0;
   if (hasSport) {
     const stmt = db.prepare(
-      `WITH v_games AS (${v_games}) SELECT ${SELECT_COLS} FROM v_games WHERE scheduled_start >= ? AND scheduled_start <= ? AND sport = ? ORDER BY scheduled_start DESC`,
+      `WITH v_games AS (${v_games}) SELECT ${SELECT_COLS} FROM v_games WHERE scheduled_start >= ? AND scheduled_start <= ? AND sport = ? AND COALESCE(status, '') NOT IN ('cancelled', 'postponed') ORDER BY scheduled_start DESC`,
     );
     return stmt.all(cutoff, upper, args.sport).map(asGameRow);
   }
   const stmt = db.prepare(
-    `WITH v_games AS (${v_games}) SELECT ${SELECT_COLS} FROM v_games WHERE scheduled_start >= ? AND scheduled_start <= ? ORDER BY scheduled_start DESC`,
+    `WITH v_games AS (${v_games}) SELECT ${SELECT_COLS} FROM v_games WHERE scheduled_start >= ? AND scheduled_start <= ? AND COALESCE(status, '') NOT IN ('cancelled', 'postponed') ORDER BY scheduled_start DESC`,
   );
   return stmt.all(cutoff, upper).map(asGameRow);
 }

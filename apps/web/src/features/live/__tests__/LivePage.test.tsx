@@ -393,7 +393,7 @@ describe("LivePage", () => {
     expect(screen.getByTestId("live-fires-count").textContent).toBe("2");
   });
 
-  it("renders the alert threshold line and off-price markers on the live chart", async () => {
+  it("renders the state-space threshold line and off-price markers on the live chart", async () => {
     mockLiveAndBoard(
       fetchMock,
       liveResponse({ gameId: GAME_ID, tickCount: 0 }),
@@ -411,7 +411,7 @@ describe("LivePage", () => {
       expect(screen.getByTestId("live-offprice-count").textContent).toBe("1");
     });
     expect(screen.getByTestId("live-threshold-legend").textContent).toContain(
-      "active alert threshold",
+      "active state-space threshold",
     );
     expect(container.querySelector("[data-testid='live-timeline']")).not.toBeNull();
   });
@@ -440,7 +440,7 @@ describe("LivePage", () => {
     });
   });
 
-  it("renders the live sensitivity value from the ensemble response (not from any fallback)", async () => {
+  it("renders the live trigger value from the ensemble response (not from any fallback)", async () => {
     // Codex B-followup review P1 (2026-05-25): the rendered K must come
     // from /v1/ensemble-or's `k` field, NOT from a separate /v1/settings
     // round-trip or any fallback. Set a NON-default K (4.5) via the

@@ -1,0 +1,355 @@
+{
+  "capturedAt": "2026-05-27T04:21:18.506Z",
+  "docsFetchedBeforeImplementation": [
+    "https://docs.odds-api.io/llms.txt",
+    "https://docs.odds-api.io/llms-full.txt",
+    "https://docs.odds-api.io/guides/websockets",
+    "https://docs.odds-api.io/guides/prediction-markets",
+    "https://docs.odds-api.io/examples/player-props"
+  ],
+  "eventDiscovery": {
+    "dateRange": {
+      "from": "2026-05-26T16:21:18.506Z",
+      "to": "2026-06-17T04:21:18.506Z"
+    },
+    "eventIds": [
+      70505028,
+      70505034,
+      70505022,
+      70505018,
+      70505016,
+      70505010,
+      70505012,
+      70505008
+    ],
+    "eventsFound": 8,
+    "leagueCandidates": [
+      "usa-nba"
+    ],
+    "selectedLeague": "usa-nba"
+  },
+  "familyEvidence": {
+    "moneyline": {
+      "restSnapshotCount": 5,
+      "restUpdatedDeltaCount": 6,
+      "websocketCount": 12
+    },
+    "spread": {
+      "restSnapshotCount": 4,
+      "restUpdatedDeltaCount": 4,
+      "websocketCount": 12
+    },
+    "total": {
+      "restSnapshotCount": 4,
+      "restUpdatedDeltaCount": 5,
+      "websocketCount": 12
+    },
+    "player-prop": {
+      "restSnapshotCount": 3,
+      "restUpdatedDeltaCount": 2,
+      "websocketCount": 12
+    }
+  },
+  "marketProofStatus": "websocket-updates-observed",
+  "rawPayloadProvenance": [
+    {
+      "path": "outputs/odds-api-io-live-comparator/2026-05-27T04-21-18-506Z/raw/selected-bookmakers.json",
+      "sha256": "0d17a8cccd9c4aa0a7b5c478d53a2f824b80550f207652478434a67ebe17409a"
+    },
+    {
+      "path": "outputs/odds-api-io-live-comparator/2026-05-27T04-21-18-506Z/raw/basketball-leagues.json",
+      "sha256": "511694cf069788a592a1c3eef2e9794e4319fdda7951011f6ff60c143aab415b"
+    },
+    {
+      "path": "outputs/odds-api-io-live-comparator/2026-05-27T04-21-18-506Z/raw/nba-events-usa-nba.json",
+      "sha256": "df75062cbd5ba9c9a7a57325601753d46c7255a139a9cc93fd914b2bd7301d47"
+    },
+    {
+      "path": "outputs/odds-api-io-live-comparator/2026-05-27T04-21-18-506Z/raw/odds-snapshot.json",
+      "sha256": "b9cfb6075be2afa2eedb797de34e9c46b25db2ceaf5599f4444d366accd521e6"
+    },
+    {
+      "path": "outputs/odds-api-io-live-comparator/2026-05-27T04-21-18-506Z/raw/odds-updated-Bet365.json",
+      "sha256": "9e4b4ac977c03d36580f85081594eae91b3b2e11cf52d472bdf8e690e7e0107d"
+    },
+    {
+      "path": "outputs/odds-api-io-live-comparator/2026-05-27T04-21-18-506Z/raw/odds-updated-DraftKings.json",
+      "sha256": "c0814d1d9d860cc59d683833189d34f79f0fb8e0474d25ac7260d83c0bcfc5fa"
+    },
+    {
+      "path": "outputs/odds-api-io-live-comparator/2026-05-27T04-21-18-506Z/raw/odds-updated-FanDuel.json",
+      "sha256": "a7c451ff9c216c9a005f1bb8aaa996c07b8847557bcf5b52507291001bf9bf77"
+    },
+    {
+      "path": "outputs/odds-api-io-live-comparator/2026-05-27T04-21-18-506Z/raw/odds-updated-Kalshi.json",
+      "sha256": "23894fdfe465a1015e9feb4798fed9694794be03dde60b99324fa9204b79440c"
+    },
+    {
+      "path": "outputs/odds-api-io-live-comparator/2026-05-27T04-21-18-506Z/raw/odds-updated-Polymarket.json",
+      "sha256": "00b10c042c2434084cb9adec02236b42b0ba90d73bf8827e28174ef7fad1a4aa"
+    },
+    {
+      "path": "outputs/odds-api-io-live-comparator/2026-05-27T04-21-18-506Z/raw/websocket-messages.jsonl",
+      "sha256": "fdc70b78124d4a5477f36cf52e30aa1fd78a0e49119f1bbf2a43aea4019da95f"
+    }
+  ],
+  "requests": [
+    {
+      "label": "selected-bookmakers",
+      "ok": true,
+      "redactedUrl": "https://api.odds-api.io/v3/bookmakers/selected?apiKey=REDACTED",
+      "status": 200
+    },
+    {
+      "label": "basketball-leagues",
+      "ok": true,
+      "redactedUrl": "https://api.odds-api.io/v3/leagues?apiKey=REDACTED&sport=basketball",
+      "status": 200
+    },
+    {
+      "label": "nba-events-usa-nba",
+      "ok": true,
+      "redactedUrl": "https://api.odds-api.io/v3/events?apiKey=REDACTED&from=2026-05-26T16%3A21%3A18.506Z&league=usa-nba&sport=basketball&status=pending%2Clive&to=2026-06-17T04%3A21%3A18.506Z",
+      "status": 200
+    },
+    {
+      "label": "odds-snapshot",
+      "ok": true,
+      "redactedUrl": "https://api.odds-api.io/v3/odds/multi?apiKey=REDACTED&bookmakers=Bet365%2CDraftKings%2CFanDuel%2CKalshi%2CPolymarket&eventIds=70505028%2C70505034%2C70505022%2C70505018%2C70505016%2C70505010%2C70505012%2C70505008&includeSeq=true",
+      "status": 200
+    },
+    {
+      "label": "odds-updated-Bet365",
+      "ok": true,
+      "redactedUrl": "https://api.odds-api.io/v3/odds/updated?apiKey=REDACTED&bookmaker=Bet365&since=1779855634&sport=Basketball",
+      "status": 200
+    },
+    {
+      "label": "odds-updated-DraftKings",
+      "ok": true,
+      "redactedUrl": "https://api.odds-api.io/v3/odds/updated?apiKey=REDACTED&bookmaker=DraftKings&since=1779855634&sport=Basketball",
+      "status": 200
+    },
+    {
+      "label": "odds-updated-FanDuel",
+      "ok": true,
+      "redactedUrl": "https://api.odds-api.io/v3/odds/updated?apiKey=REDACTED&bookmaker=FanDuel&since=1779855634&sport=Basketball",
+      "status": 200
+    },
+    {
+      "label": "odds-updated-Kalshi",
+      "ok": true,
+      "redactedUrl": "https://api.odds-api.io/v3/odds/updated?apiKey=REDACTED&bookmaker=Kalshi&since=1779855634&sport=Basketball",
+      "status": 200
+    },
+    {
+      "label": "odds-updated-Polymarket",
+      "ok": true,
+      "redactedUrl": "https://api.odds-api.io/v3/odds/updated?apiKey=REDACTED&bookmaker=Polymarket&since=1779855634&sport=Basketball",
+      "status": 200
+    }
+  ],
+  "restSnapshotCoverage": {
+    "eventsInspected": 2,
+    "familiesByBookmaker": {
+      "Bet365": {
+        "marketNames": [
+          "ML",
+          "Spread",
+          "Totals"
+        ],
+        "moneyline": 1,
+        "spread": 1,
+        "total": 1
+      },
+      "DraftKings": {
+        "marketNames": [
+          "ML",
+          "Player Props",
+          "Spread",
+          "Totals"
+        ],
+        "moneyline": 1,
+        "spread": 1,
+        "total": 1,
+        "player-prop": 1
+      },
+      "FanDuel": {
+        "marketNames": [
+          "ML",
+          "Player Props",
+          "Spread",
+          "Totals",
+          "Totals HT"
+        ],
+        "moneyline": 1,
+        "spread": 1,
+        "total": 2,
+        "player-prop": 1
+      },
+      "Polymarket": {
+        "marketNames": [
+          "ML",
+          "ML HT",
+          "Player Props",
+          "Spread HT"
+        ],
+        "moneyline": 2,
+        "other": 1,
+        "spread": 1,
+        "player-prop": 1
+      }
+    },
+    "marketFamiliesObserved": {
+      "moneyline": 5,
+      "spread": 4,
+      "total": 4,
+      "player-prop": 3,
+      "other": 1
+    },
+    "predictionMarketBooksObserved": [
+      "Polymarket"
+    ],
+    "playerPropBooksObserved": [
+      "DraftKings",
+      "FanDuel",
+      "Polymarket"
+    ]
+  },
+  "restUpdatedCoverage": {
+    "eventsInspected": 6,
+    "familiesByBookmaker": {
+      "DraftKings": {
+        "marketNames": [
+          "ML",
+          "Player Props",
+          "Spread",
+          "Totals"
+        ],
+        "moneyline": 2,
+        "spread": 2,
+        "total": 2,
+        "player-prop": 1
+      },
+      "FanDuel": {
+        "marketNames": [
+          "ML",
+          "Player Props",
+          "Spread",
+          "Totals",
+          "Totals HT"
+        ],
+        "moneyline": 1,
+        "spread": 1,
+        "total": 2,
+        "player-prop": 1
+      },
+      "Polymarket": {
+        "marketNames": [
+          "ML",
+          "Spread",
+          "Totals"
+        ],
+        "moneyline": 3,
+        "spread": 1,
+        "total": 1
+      }
+    },
+    "marketFamiliesObserved": {
+      "moneyline": 6,
+      "spread": 4,
+      "total": 5,
+      "player-prop": 2
+    },
+    "predictionMarketBooksObserved": [
+      "Polymarket"
+    ],
+    "playerPropBooksObserved": [
+      "DraftKings",
+      "FanDuel"
+    ]
+  },
+  "selectedBookmakers": [
+    "Polymarket",
+    "Bet365",
+    "DraftKings",
+    "FanDuel",
+    "Kalshi"
+  ],
+  "selectedVerification": {
+    "extra": [],
+    "missing": [],
+    "ok": true,
+    "selected": [
+      "Polymarket",
+      "Bet365",
+      "DraftKings",
+      "FanDuel",
+      "Kalshi"
+    ]
+  },
+  "websocket": {
+    "coverage": {
+      "eventsInspected": 12,
+      "familiesByBookmaker": {
+        "FanDuel": {
+          "marketNames": [
+            "ML",
+            "Player Props",
+            "Spread",
+            "Totals"
+          ],
+          "spread": 10,
+          "total": 10,
+          "moneyline": 10,
+          "player-prop": 10
+        },
+        "DraftKings": {
+          "marketNames": [
+            "ML",
+            "Player Props",
+            "Spread",
+            "Totals"
+          ],
+          "moneyline": 2,
+          "player-prop": 2,
+          "spread": 2,
+          "total": 2
+        }
+      },
+      "marketFamiliesObserved": {
+        "spread": 12,
+        "total": 12,
+        "moneyline": 12,
+        "player-prop": 12
+      },
+      "predictionMarketBooksObserved": [],
+      "playerPropBooksObserved": [
+        "FanDuel",
+        "DraftKings"
+      ]
+    },
+    "summary": {
+      "closeInfo": null,
+      "error": null,
+      "messageCount": 13,
+      "ok": true,
+      "openedAt": "2026-05-27T04:21:20.922Z",
+      "redactedUrl": "wss://api.odds-api.io/v3/ws?apiKey=REDACTED&markets=ML%2CSpread%2CTotals%2CPlayer+Props&sport=basketball&eventIds=70505028%2C70505034%2C70505022%2C70505018%2C70505016%2C70505010%2C70505012%2C70505008&lastSeq=55711659",
+      "state": {
+        "connected": true,
+        "createdCount": 0,
+        "deletedCount": 0,
+        "lastMessageAt": "2026-05-27T04:22:02.676Z",
+        "lastSeq": 55715421,
+        "noMarketsCount": 0,
+        "replayGapCount": 11,
+        "resyncRequired": false,
+        "staleSeqCount": 0,
+        "updatedCount": 12,
+        "warningMessages": [],
+        "welcomeCount": 1
+      }
+    }
+  }
+}

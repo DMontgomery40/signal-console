@@ -19,6 +19,7 @@ import {
   setDetectorDefaultsPath,
   writeDetectorDefaults,
 } from "../src/services/detector-defaults";
+import { tsBoardVolatilityRunner } from "./helpers/board-volatility-runner";
 
 type FastifyApp = Awaited<ReturnType<typeof buildServer>>;
 
@@ -149,7 +150,11 @@ afterEach(async () => {
 async function startApp(): Promise<FastifyApp> {
   const app = await buildServer({
     auth: { tokenPath: ctx.tokenPath, cacheTtlMs: 0 },
-    ensembleOr: { goldDbPath: ctx.goldDbPath, cacheDbPath: ctx.cacheDbPath },
+    ensembleOr: {
+      goldDbPath: ctx.goldDbPath,
+      cacheDbPath: ctx.cacheDbPath,
+      boardVolatilityRunner: tsBoardVolatilityRunner,
+    },
   });
   ctx.app = app;
   return app;

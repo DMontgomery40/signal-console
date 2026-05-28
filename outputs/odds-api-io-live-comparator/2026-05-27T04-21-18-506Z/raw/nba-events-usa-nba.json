@@ -1,0 +1,183 @@
+{
+  "capturedAt": "2026-05-27T04:21:19.352Z",
+  "headers": {
+    "x-ratelimit-limit": "5000",
+    "x-ratelimit-remaining": "4973",
+    "x-ratelimit-reset": "2026-05-27T05:11:37Z"
+  },
+  "payload": [
+    {
+      "id": 70505028,
+      "home": "San Antonio Spurs",
+      "away": "Oklahoma City Thunder",
+      "homeId": 3429,
+      "awayId": 3418,
+      "date": "2026-05-29T00:30:00Z",
+      "sport": {
+        "name": "Basketball",
+        "slug": "basketball"
+      },
+      "league": {
+        "name": "USA - NBA",
+        "slug": "usa-nba"
+      },
+      "status": "pending",
+      "scores": {
+        "home": 0,
+        "away": 0
+      }
+    },
+    {
+      "id": 70505034,
+      "home": "Oklahoma City Thunder",
+      "away": "San Antonio Spurs",
+      "homeId": 3418,
+      "awayId": 3429,
+      "date": "2026-05-31T00:00:00Z",
+      "sport": {
+        "name": "Basketball",
+        "slug": "basketball"
+      },
+      "league": {
+        "name": "USA - NBA",
+        "slug": "usa-nba"
+      },
+      "status": "pending",
+      "scores": {
+        "home": 0,
+        "away": 0
+      }
+    },
+    {
+      "id": 70505022,
+      "home": "Winner of Wc",
+      "away": "New York Knicks",
+      "homeId": 892391,
+      "awayId": 3421,
+      "date": "2026-06-04T00:30:00Z",
+      "sport": {
+        "name": "Basketball",
+        "slug": "basketball"
+      },
+      "league": {
+        "name": "USA - NBA",
+        "slug": "usa-nba"
+      },
+      "status": "pending",
+      "scores": {
+        "home": 0,
+        "away": 0
+      }
+    },
+    {
+      "id": 70505018,
+      "home": "Winner of Wc",
+      "away": "New York Knicks",
+      "homeId": 892391,
+      "awayId": 3421,
+      "date": "2026-06-06T00:30:00Z",
+      "sport": {
+        "name": "Basketball",
+        "slug": "basketball"
+      },
+      "league": {
+        "name": "USA - NBA",
+        "slug": "usa-nba"
+      },
+      "status": "pending",
+      "scores": {
+        "home": 0,
+        "away": 0
+      }
+    },
+    {
+      "id": 70505016,
+      "home": "New York Knicks",
+      "away": "Winner of Wc",
+      "homeId": 3421,
+      "awayId": 892391,
+      "date": "2026-06-09T00:30:00Z",
+      "sport": {
+        "name": "Basketball",
+        "slug": "basketball"
+      },
+      "league": {
+        "name": "USA - NBA",
+        "slug": "usa-nba"
+      },
+      "status": "pending",
+      "scores": {
+        "home": 0,
+        "away": 0
+      }
+    },
+    {
+      "id": 70505010,
+      "home": "New York Knicks",
+      "away": "Winner of Wc",
+      "homeId": 3421,
+      "awayId": 892391,
+      "date": "2026-06-11T00:30:00Z",
+      "sport": {
+        "name": "Basketball",
+        "slug": "basketball"
+      },
+      "league": {
+        "name": "USA - NBA",
+        "slug": "usa-nba"
+      },
+      "status": "pending",
+      "scores": {
+        "home": 0,
+        "away": 0
+      }
+    },
+    {
+      "id": 70505012,
+      "home": "Winner of Wc",
+      "away": "New York Knicks",
+      "homeId": 892391,
+      "awayId": 3421,
+      "date": "2026-06-14T00:30:00Z",
+      "sport": {
+        "name": "Basketball",
+        "slug": "basketball"
+      },
+      "league": {
+        "name": "USA - NBA",
+        "slug": "usa-nba"
+      },
+      "status": "pending",
+      "scores": {
+        "home": 0,
+        "away": 0
+      }
+    },
+    {
+      "id": 70505008,
+      "home": "New York Knicks",
+      "away": "Winner of Wc",
+      "homeId": 3421,
+      "awayId": 892391,
+      "date": "2026-06-17T00:30:00Z",
+      "sport": {
+        "name": "Basketball",
+        "slug": "basketball"
+      },
+      "league": {
+        "name": "USA - NBA",
+        "slug": "usa-nba"
+      },
+      "status": "pending",
+      "scores": {
+        "home": 0,
+        "away": 0
+      }
+    }
+  ],
+  "request": {
+    "method": "GET",
+    "url": "https://api.odds-api.io/v3/events?apiKey=REDACTED&from=2026-05-26T16%3A21%3A18.506Z&league=usa-nba&sport=basketball&status=pending%2Clive&to=2026-06-17T04%3A21%3A18.506Z"
+  },
+  "status": 200
+}

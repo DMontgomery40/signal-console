@@ -251,7 +251,7 @@ function ContextTimeline({
   const data = series.map((o) => ({
     bucketStart: o.bucketStart,
     intensity: o.intensity,
-    threshold: o.baselineMedian + k * o.baselineMad,
+    threshold: o.threshold ?? o.baselineMedian + k * o.baselineMad,
   }));
   const focusPoint = data.find((d) => d.bucketStart === focusBucketStart);
   return (
@@ -392,6 +392,11 @@ function FiredBucketRow({
           <p className="mb-3 font-mono text-xs uppercase tracking-[0.08em] text-text-lo">
             Context: prior {CONTEXT_PRIOR_BUCKETS} buckets + this fire
           </p>
+          <p className="mb-3 font-mono text-xs text-text-lo" data-testid="backtest-context-metrics">
+            threshold {formatNumber(obs.threshold ?? obs.baselineMedian + k * obs.baselineMad, 3)} ·
+            innovation z {formatNumber(obs.standardizedInnovation ?? NaN, 3)} · regime{" "}
+            {formatNumber(obs.regimeScore ?? NaN, 3)}
+          </p>
           <ContextTimeline series={contextSeries} focusBucketStart={obs.bucketStart} k={k} />
           <div className="-mx-1 overflow-x-auto px-1" data-testid="backtest-fanout-scroll">
             <div className="min-w-[680px]">
@@ -460,14 +465,14 @@ function GameCard({
           data-testid="backtest-timeline-drilldown"
         >
           <h4 className="text-sm font-semibold text-text-hi">
-            Past fires in this game at sensitivity {k.toFixed(2)}
+            Past fires in this game at trigger {k.toFixed(2)}
           </h4>
           {fires.length === 0 ? (
             <p
               className="mt-3 font-mono text-sm text-text-lo"
               data-testid="backtest-no-fires-empty"
             >
-              No fires for this game at sensitivity {k.toFixed(2)}.
+              No fires for this game at trigger {k.toFixed(2)}.
             </p>
           ) : (
             <div className="mt-3 max-h-[60vh] overflow-auto bg-surface-0-to">
@@ -478,8 +483,8 @@ function GameCard({
                 >
                   <span>Bucket start</span>
                   <span>Intensity</span>
-                  <span>Baseline med</span>
-                  <span>Baseline MAD</span>
+                  <span>Baseline level</span>
+                  <span>Baseline scale</span>
                   <span />
                 </div>
                 <ul data-testid="backtest-fired-bucket-list">

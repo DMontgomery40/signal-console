@@ -73,6 +73,9 @@ const boardObservationSchema = z
     intensity: z.number(),
     baselineMedian: z.number(),
     baselineMad: z.number(),
+    threshold: z.number().optional(),
+    standardizedInnovation: z.number().optional(),
+    regimeScore: z.number().optional(),
     warmedUp: z.boolean().optional(),
     lane: z.enum(["board", "offprice"]).optional(),
     sourceMarketId: z.string().optional(),
@@ -216,6 +219,9 @@ const ensembleOrBoardObservationSchema = z.object({
   intensity: z.number(),
   baselineMedian: z.number(),
   baselineMad: z.number(),
+  threshold: z.number().optional(),
+  standardizedInnovation: z.number().optional(),
+  regimeScore: z.number().optional(),
   warmedUp: z.boolean(),
 });
 const ensembleOrFireSchema = z.object({
@@ -606,8 +612,12 @@ const backtestObservationSchema = z.object({
   bucketEnd: z.string(),
   fired: z.number().int(),
   intensity: z.number(),
+  gameElapsedSeconds: z.number().nullable().optional(),
   baselineMedian: z.number(),
   baselineMad: z.number(),
+  threshold: z.number().optional(),
+  standardizedInnovation: z.number().optional(),
+  regimeScore: z.number().optional(),
   lane: z.enum(["board", "offprice"]).optional(),
   sourceMarketId: z.string().optional(),
 });

@@ -77,7 +77,7 @@ const DETECTORS_RESPONSE = {
     {
       id: "board-mad",
       version: "1.2.0",
-      displayName: "Board MAD (whole-board volatility)",
+      displayName: "Board State-Space (whole-board volatility)",
       sources: ["bet365", "kalshi", "polymarket"],
       paramsSchema: {
         type: "object",
@@ -471,7 +471,7 @@ describe("BacktestPage", () => {
     expect(weighting.value).toBe("volume");
   });
 
-  it("renders the signal timing panel with lookback and holdoff durations from bucketSeconds", async () => {
+  it("renders the signal timing panel with filter-memory and holdoff durations from bucketSeconds", async () => {
     mockDetectors();
     render(<BacktestPage />, { wrapper: makeWrapper() });
     await waitFor(() => {
@@ -482,11 +482,11 @@ describe("BacktestPage", () => {
       "Signal timing",
     );
     expect(screen.getByTestId("backtest-signal-timing-panel").textContent).toContain(
-      "Volatility lookback",
+      "Filter memory",
     );
     expect(screen.getByTestId("memory-dial-headline").textContent).toBe("20");
     expect(screen.getByTestId("memory-dial-headline-detail").textContent).toBe("(20 min)");
-    expect(screen.getByTestId("backtest-warmup-dial").textContent).toContain("Opening holdoff");
+    expect(screen.getByTestId("backtest-warmup-dial").textContent).toContain("Alert holdoff");
     const baselineMode = screen.getByTestId("backtest-baseline-mode");
     if (!(baselineMode instanceof HTMLSelectElement)) throw new Error("baseline mode not a select");
     expect(baselineMode.value).toBe(BOARD_MAD_BASELINE_MODE_DEFAULT);
@@ -676,7 +676,7 @@ describe("BacktestPage", () => {
     }).length;
     expect(postCountBefore).toBe(1);
 
-    // Bump trailingBuckets 20 -> 30 via the Volatility lookback slider.
+    // Bump trailingBuckets 20 -> 30 via the Filter memory slider.
     const memory = screen.getByTestId("memory-dial");
     act(() => {
       fireEvent.change(memory, { target: { value: "30" } });
@@ -738,7 +738,8 @@ describe("BacktestPage", () => {
     const dial = screen.getByTestId("sensitivity-dial");
 
     // (b) Move K via keyboard: 3.0 → 6.0 (12 × +0.25 via ArrowRight).
-    // No POST should be issued — the recompute is in-memory.
+    // No POST should be issued — the snapshot is now marked stale until the
+    // Python-sidecar model is rerun on the server.
     act(() => {
       for (let i = 0; i < 12; i++) {
         fireEvent.keyDown(dial, { key: "ArrowRight" });
@@ -746,14 +747,15 @@ describe("BacktestPage", () => {
     });
     expect(dial.getAttribute("aria-valuenow")).toBe("6");
     const Y = screen.getByTestId("backtest-stat-fires-per-game").textContent;
-    expect(Y).not.toBe(X);
+    expect(Y).toBe(X);
+    expect(screen.getByTestId("backtest-stale-warning")).not.toBeNull();
     const postCountAfterDial = fetchMock.mock.calls.filter(([input, init]) => {
       const url = urlOf(input);
       return url.startsWith("/v1/backtest") && init?.method === "POST";
     }).length;
     expect(postCountAfterDial).toBe(1);
 
-    // (c) Second knob: Volatility lookback 20 → 30. Still no
+    // (c) Second knob: Filter memory 20 -> 30. Still no
     // API round-trip — the in-memory recompute reads baseline_median /
     // baseline_mad from the cached observations.
     const memory = screen.getByTestId("memory-dial");
@@ -899,9 +901,10 @@ describe("BacktestPage", () => {
     expect(postCountAfter).toBe(1);
 
     const after = screen.getByTestId("sensitivity-dial-inline-value");
-    expect(after.textContent).not.toBe(baseline);
+    expect(after.textContent).toBe(baseline);
     // Preview and Results-panel stat stay in lockstep — one source of truth.
     expect(after.textContent).toBe(screen.getByTestId("backtest-stat-fires-per-game").textContent);
+    expect(screen.getByTestId("backtest-stale-warning")).not.toBeNull();
   });
 
   it("preview shows '…' while a backtest run is pending (US-037)", async () => {
@@ -1080,9 +1083,8 @@ describe("BacktestPage", () => {
     const chartNodesAfter = screen.getAllByTestId("backtest-timeline-chart");
     const firesAfter = screen.getAllByTestId("backtest-timeline-fires").map((s) => s.textContent);
 
-    // Per-row fires must change (markers updated in place).
-    expect(firesAfter).not.toEqual(firesBefore);
-    expect(firesAfter.every((f) => f.startsWith("0"))).toBe(true);
+    // Without client recompute, the rows stay pinned to the last server run.
+    expect(firesAfter).toEqual(firesBefore);
 
     // Critical non-remount evidence: the chart container DOM nodes are the
     // SAME references before and after the K change. If the chart had
@@ -1096,7 +1098,7 @@ describe("BacktestPage", () => {
     expect(Object.is(chartNodesBefore[1], chartNodesAfter[1])).toBe(true);
 
     fireEvent.click(screen.getAllByTestId("backtest-timeline-row-toggle")[0]!);
-    expect(screen.getByText("Past fires in this game at sensitivity 6.00")).not.toBeNull();
+    expect(screen.getByText(/Past fires in this game at trigger/)).not.toBeNull();
   });
 
   it("recomputes ensemble board rows while preserving off-price lane fires", async () => {
@@ -1142,7 +1144,7 @@ describe("BacktestPage", () => {
     await waitFor(() => {
       expect(screen.getByTestId("backtest-run-id").textContent).toBe("138");
     });
-    expect(screen.getByTestId("backtest-stat-total-fires").textContent).toBe("1");
+    expect(screen.getByTestId("backtest-stat-total-fires").textContent).toBe("2");
 
     const postCalls = fetchMock.mock.calls.filter(([input, init]) => {
       const url = urlOf(input);
@@ -1155,8 +1157,8 @@ describe("BacktestPage", () => {
     expect(body.params["board"]).toMatchObject({ kMad: 6 });
 
     fireEvent.click(screen.getByTestId("backtest-timeline-row-toggle"));
-    expect(screen.getByText("Past fires in this game at sensitivity 6.00")).not.toBeNull();
-    expect(screen.getByTestId("backtest-timeline-fires").textContent).toBe("0 fires");
+    expect(screen.getByText(/Past fires in this game at trigger/)).not.toBeNull();
+    expect(screen.getByTestId("backtest-timeline-fires").textContent).toBe("1 fire");
 
     act(() => {
       for (let i = 0; i < 12; i++) {
@@ -1164,10 +1166,9 @@ describe("BacktestPage", () => {
       }
     });
     expect(dial.getAttribute("aria-valuenow")).toBe("3");
-    expect(screen.queryByTestId("backtest-stale-warning")).toBeNull();
+    expect(screen.getByTestId("backtest-stale-warning")).not.toBeNull();
     expect(screen.getByTestId("backtest-stat-total-fires").textContent).toBe("2");
-    expect(screen.getByText("Past fires in this game at sensitivity 3.00")).not.toBeNull();
-    expect(screen.queryByText("Past fires in this game at sensitivity 6.00")).toBeNull();
+    expect(screen.getByText(/Past fires in this game at trigger/)).not.toBeNull();
   });
 
   it("flips data-from-recompute canary after dial-driven K change (US-038)", async () => {
@@ -1181,11 +1182,10 @@ describe("BacktestPage", () => {
       expect(screen.getByTestId("backtest-run-id").textContent).toBe("138");
     });
 
-    // After a run at defaults, the recompute pipeline already runs (K=3 is a
-    // recompute-eligible K), so the canary is "1" from the start.
+    // With browser recompute retired, timeline rows stay server-owned.
     await waitFor(() => {
       const row = screen.getByTestId("backtest-timeline-row");
-      expect(row.getAttribute("data-from-recompute")).toBe("1");
+      expect(row.getAttribute("data-from-recompute")).toBe("0");
     });
 
     const dial = screen.getByTestId("sensitivity-dial");
@@ -1193,7 +1193,7 @@ describe("BacktestPage", () => {
       fireEvent.keyDown(dial, { key: "ArrowRight" });
     });
     const row = screen.getByTestId("backtest-timeline-row");
-    expect(row.getAttribute("data-from-recompute")).toBe("1");
+    expect(row.getAttribute("data-from-recompute")).toBe("0");
 
     // Cross-check: zero POST /v1/backtest after the dial move. The canary
     // proves it was the in-memory recompute that produced the row, not a
@@ -1312,9 +1312,9 @@ describe("BacktestPage", () => {
     });
     expect(dial.getAttribute("aria-valuenow")).toBe("6");
 
-    expect(screen.queryByTestId("backtest-pbp-bucket-end-hartenstein-nba-0042500222")).toBeNull();
-    const noFire = screen.getByTestId("backtest-pbp-no-fire-hartenstein-nba-0042500222");
-    expect(noFire.textContent).toBe("no fire");
+    expect(screen.getByTestId("backtest-pbp-bucket-end-hartenstein-nba-0042500222")).not.toBeNull();
+    expect(screen.queryByTestId("backtest-pbp-no-fire-hartenstein-nba-0042500222")).toBeNull();
+    expect(screen.getByTestId("backtest-stale-warning")).not.toBeNull();
 
     const postCountAfter = fetchMock.mock.calls.filter(([input, init]) => {
       const url = urlOf(input);

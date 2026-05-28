@@ -13,7 +13,7 @@
 
 import { openGoldDb, v_games } from "@signal-console/db";
 
-import { runDetector, RunnerError } from "./detector-runner";
+import { runDetector, RunnerError, type BoardVolatilityRunner } from "./detector-runner";
 import { parseStrictIsoTimestamp } from "./timestamps";
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -26,8 +26,12 @@ export interface BacktestObservation {
   readonly bucketEnd: string;
   readonly fired: number;
   readonly intensity: number;
+  readonly gameElapsedSeconds?: number | null;
   readonly baselineMedian: number;
   readonly baselineMad: number;
+  readonly threshold?: number;
+  readonly standardizedInnovation?: number;
+  readonly regimeScore?: number;
   // Set by composite detectors (ensemble-or) so the UI can render board fires
   // and off-price-print fires differently. Single-lane runs leave it undefined.
   readonly lane?: "board" | "offprice";
@@ -53,6 +57,9 @@ export interface RunBacktestArgs {
   readonly cacheDbPath: string;
   readonly detectorId: string;
   readonly params: unknown;
+  readonly boardVolatilityFetchImpl?: typeof fetch;
+  readonly boardVolatilityRunner?: BoardVolatilityRunner;
+  readonly boardVolatilitySidecarBaseUrl?: string;
   readonly windowStart: string;
   readonly windowEnd: string;
   readonly gameIds: readonly string[];
@@ -83,7 +90,7 @@ function assertKnownDetectorId(
   }
 }
 
-export function runBacktest(args: RunBacktestArgs): BacktestResult {
+export async function runBacktest(args: RunBacktestArgs): Promise<BacktestResult> {
   assertKnownDetectorId(args.detectorId);
   const sortedGameIds = Array.from(
     new Set(args.gameIds.map((id) => id.trim()).filter((id) => id.length > 0)),
@@ -93,7 +100,7 @@ export function runBacktest(args: RunBacktestArgs): BacktestResult {
 
   let result;
   try {
-    result = runDetector({
+    result = await runDetector({
       detectorId: args.detectorId,
       params: args.params,
       scope: {
@@ -104,6 +111,15 @@ export function runBacktest(args: RunBacktestArgs): BacktestResult {
       },
       goldDbPath: args.goldDbPath,
       cacheDbPath: args.cacheDbPath,
+      ...(args.boardVolatilityFetchImpl === undefined
+        ? {}
+        : { boardVolatilityFetchImpl: args.boardVolatilityFetchImpl }),
+      ...(args.boardVolatilityRunner === undefined
+        ? {}
+        : { boardVolatilityRunner: args.boardVolatilityRunner }),
+      ...(args.boardVolatilitySidecarBaseUrl === undefined
+        ? {}
+        : { boardVolatilitySidecarBaseUrl: args.boardVolatilitySidecarBaseUrl }),
       ...(args.now === undefined ? {} : { now: args.now }),
     });
   } catch (err) {
@@ -128,8 +144,14 @@ export function runBacktest(args: RunBacktestArgs): BacktestResult {
       bucketEnd: b.bucketEnd.toISOString(),
       fired: b.fired ? 1 : 0,
       intensity: b.intensity,
+      ...(b.gameElapsedSeconds == null ? {} : { gameElapsedSeconds: b.gameElapsedSeconds }),
       baselineMedian: b.baselineMedian,
       baselineMad: b.baselineMad,
+      ...(b.threshold === undefined ? {} : { threshold: b.threshold }),
+      ...(b.standardizedInnovation === undefined
+        ? {}
+        : { standardizedInnovation: b.standardizedInnovation }),
+      ...(b.regimeScore === undefined ? {} : { regimeScore: b.regimeScore }),
       lane: "board",
     });
   }

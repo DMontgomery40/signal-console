@@ -1,0 +1,19 @@
+{
+  "capturedAt": "2026-05-27T04:21:18.958Z",
+  "headers": {},
+  "payload": {
+    "bookmakers": [
+      "Polymarket",
+      "Bet365",
+      "DraftKings",
+      "FanDuel",
+      "Kalshi"
+    ],
+    "count": 5
+  },
+  "request": {
+    "method": "GET",
+    "url": "https://api.odds-api.io/v3/bookmakers/selected?apiKey=REDACTED"
+  },
+  "status": 200
+}

@@ -1,7 +1,7 @@
 // MemoryDial unit tests (US-053).
 //
 // The component name and test ids stay stable for compatibility, but the
-// operator-facing contract is volatility lookback: a trailing-bucket count plus
+// operator-facing contract is filter memory: a trailing-bucket count plus
 // the exact wall-clock duration implied by the active bucketSeconds setting.
 
 import { useState } from "react";
@@ -32,18 +32,18 @@ describe("formatBucketDurationForDisplay", () => {
   });
 });
 
-describe("MemoryDial volatility-lookback display", () => {
+describe("MemoryDial filter-memory display", () => {
   it("renders the trader label, slider bounds, and exact duration", () => {
     render(<Harness initial={20} bucketSeconds={60} />);
 
-    expect(screen.getByText("Volatility lookback")).not.toBeNull();
+    expect(screen.getByText("Filter memory")).not.toBeNull();
     expect(screen.getByTestId("memory-dial-headline").textContent).toBe("20");
     expect(screen.getByTestId("memory-dial-headline-detail").textContent).toBe("(20 min)");
     expect(screen.getByTestId("memory-dial-min-label").textContent).toBe("5 min");
     expect(screen.getByTestId("memory-dial-max-label").textContent).toBe("60 min");
 
     const dial = screen.getByTestId("memory-dial");
-    expect(dial.getAttribute("aria-label")).toBe("Volatility lookback buckets");
+    expect(dial.getAttribute("aria-label")).toBe("Filter memory buckets");
     expect(dial.getAttribute("aria-valuenow")).toBe("20");
     expect(dial.getAttribute("aria-valuetext")).toBe("20 (20 min)");
   });
@@ -60,7 +60,7 @@ describe("MemoryDial volatility-lookback display", () => {
     expect(screen.getByTestId("memory-dial-headline-detail").textContent).toBe("(3 min)");
   });
 
-  it("snap chips commit named lookback presets", () => {
+  it("snap chips commit named filter-memory presets", () => {
     render(<Harness initial={20} bucketSeconds={60} />);
     fireEvent.click(screen.getByTestId("memory-dial-chip-quick"));
     expect(screen.getByTestId("memory-dial").getAttribute("aria-valuenow")).toBe("10");

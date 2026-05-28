@@ -78,3 +78,58 @@ class PlayByPlayResponse(BaseModel):
     gameId: str
     actions: list[PlayByPlayAction]
 
+
+class VolatilityHistoricalPrior(BaseModel):
+    mad: float
+    median: float
+    sampleSize: int
+
+
+class VolatilityStateSpaceObservation(BaseModel):
+    bucketStart: str
+    bucketEnd: str
+    intensity: float
+    gameElapsedSeconds: float | None = None
+    activeMarketCount: int | None = None
+    sourceCount: int | None = None
+    sourceDominance: float | None = None
+
+
+class VolatilityStateSpaceParams(BaseModel):
+    baselineMode: Literal["trailing", "opening-ramp", "historical-blend"]
+    bucketSeconds: int
+    kMad: float
+    trailingBuckets: int
+    trailingGameMinutes: float | None = None
+    warmupBuckets: int
+    openingBaselineBuckets: int | None = None
+    openingRampCompleteBuckets: int | None = None
+    historicalPrior: VolatilityHistoricalPrior | None = None
+    historicalPriorWeight: float | None = None
+    historicalRampCompleteGameMinutes: float | None = None
+    recentWallMinutes: float | None = None
+    recentWallWeight: float | None = None
+
+
+class VolatilityStateSpaceRequest(BaseModel):
+    gameId: str | None = None
+    params: VolatilityStateSpaceParams
+    observations: list[VolatilityStateSpaceObservation]
+
+
+class VolatilityStateSpaceResultObservation(BaseModel):
+    bucketStart: str
+    bucketEnd: str
+    baselineMedian: float
+    baselineMad: float
+    threshold: float
+    standardizedInnovation: float
+    regimeScore: float
+    warmedUp: bool
+    fired: bool
+
+
+class VolatilityStateSpaceResponse(BaseModel):
+    generatedAt: str
+    gameId: str | None = None
+    observations: list[VolatilityStateSpaceResultObservation]

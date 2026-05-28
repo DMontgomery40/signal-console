@@ -1,4 +1,5 @@
 import {
+  getDatabase,
   recordAdapterRun,
   recordGameStateObservation,
   recordNbaPlayByPlayActions,
@@ -285,6 +286,72 @@ export function ingestNbaSidecarScoreboard(payload: NbaSidecarScoreboardPayload)
   };
 }
 
+function cancelMissingScheduledGamesForDate(input: {
+  capturedAt: string;
+  presentGameIds: ReadonlySet<string>;
+  requestedDate: string;
+}) {
+  const db = getDatabase();
+  const candidateRows = db
+    .prepare(
+      `
+        WITH latest_game_states AS (
+          SELECT
+            game_id AS gameId,
+            status,
+            started_at AS startedAt,
+            is_final AS isFinal,
+            ROW_NUMBER() OVER (
+              PARTITION BY game_id
+              ORDER BY datetime(captured_at) DESC, id DESC
+            ) AS rn
+          FROM game_states
+        )
+        SELECT g.id AS gameId
+        FROM games g
+        LEFT JOIN latest_game_states lgs
+          ON lgs.gameId = g.id
+         AND lgs.rn = 1
+        LEFT JOIN game_outcomes go
+          ON go.game_id = g.id
+        WHERE g.sport = 'basketball'
+          AND g.league = 'NBA'
+          AND g.source_game_key_nba IS NOT NULL
+          AND substr(g.scheduled_start, 1, 10) = ?
+          AND go.game_id IS NULL
+          AND COALESCE(lgs.status, 'scheduled') = 'scheduled'
+          AND lgs.startedAt IS NULL
+          AND COALESCE(lgs.isFinal, 0) = 0
+      `,
+    )
+    .all(input.requestedDate) as Array<{ gameId: string }>;
+
+  let statesWritten = 0;
+  for (const row of candidateRows) {
+    if (input.presentGameIds.has(row.gameId)) {
+      continue;
+    }
+
+    const stateResult = recordGameStateObservation({
+      awayScore: null,
+      capturedAt: input.capturedAt,
+      clock: null,
+      finalAt: null,
+      gameId: row.gameId,
+      homeScore: null,
+      isFinal: false,
+      period: null,
+      startedAt: null,
+      status: "cancelled",
+    });
+    if (stateResult.wrote) {
+      statesWritten += 1;
+    }
+  }
+
+  return statesWritten;
+}
+
 export function ingestNbaSidecarPlayByPlay(options: {
   canonicalGameId: string;
   payload: NbaSidecarPlayByPlayPayload;
@@ -320,11 +387,19 @@ export async function syncNbaSidecarScoreboard(options?: {
   try {
     const payload = await fetchNbaSidecarScoreboard(options);
     const summary = ingestNbaSidecarScoreboard(payload);
+    const cancelledStatesWritten =
+      payload.requestedDate == null
+        ? 0
+        : cancelMissingScheduledGamesForDate({
+            capturedAt: payload.generatedAt,
+            presentGameIds: new Set(payload.games.map((entry) => entry.game.id)),
+            requestedDate: payload.requestedDate,
+          });
     const finishedAt = (options?.now ?? (() => new Date()))().toISOString();
     recordAdapterRun({
       finishedAt,
       recordsSeen: summary.gamesSeen,
-      recordsWritten: summary.statesWritten + summary.outcomesWritten,
+      recordsWritten: summary.statesWritten + summary.outcomesWritten + cancelledStatesWritten,
       source: "nba",
       startedAt,
       status: "ok",
@@ -338,6 +413,7 @@ export async function syncNbaSidecarScoreboard(options?: {
       playByPlayActionsWritten: 0,
       requestedDate: payload.requestedDate ?? null,
       startedAt,
+      statesWritten: summary.statesWritten + cancelledStatesWritten,
     };
   } catch (error) {
     const finishedAt = (options?.now ?? (() => new Date()))().toISOString();
@@ -389,6 +465,11 @@ export async function syncNbaSidecarWindow(options?: {
         gamesSeen += summary.gamesSeen;
         outcomesWritten += summary.outcomesWritten;
         statesWritten += summary.statesWritten;
+        statesWritten += cancelMissingScheduledGamesForDate({
+          capturedAt: payload.generatedAt,
+          presentGameIds: new Set(payload.games.map((entry) => entry.game.id)),
+          requestedDate: payload.requestedDate ?? date,
+        });
 
         for (const entry of payload.games) {
           const nbaGameId = entry.game.sourceGameKeyNba;

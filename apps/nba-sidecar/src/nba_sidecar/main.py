@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from fastapi import FastAPI, HTTPException, Query
 
+from .models import VolatilityStateSpaceRequest
 from .service import NbaSidecarService, NbaSidecarUpstreamError
+from .volatility import score_volatility_state_space
 
 app = FastAPI(title="Signal Console NBA Sidecar", version="0.1.0")
 service = NbaSidecarService()
@@ -68,4 +70,12 @@ def get_play_by_play(game_id: str) -> dict:
     return {
         "data": payload.model_dump(mode="json"),
         "meta": {"source": "nba_api"},
+    }
+
+
+@app.post("/api/v1/models/board-volatility/state-space")
+def post_board_volatility_state_space(request: VolatilityStateSpaceRequest) -> dict:
+    return {
+        "data": score_volatility_state_space(request).model_dump(mode="json"),
+        "meta": {"source": "python-sidecar"},
     }

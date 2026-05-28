@@ -1,0 +1,14 @@
+{
+  "capturedAt": "2026-05-27T04:21:20.377Z",
+  "headers": {
+    "x-ratelimit-limit": "5000",
+    "x-ratelimit-remaining": "4968",
+    "x-ratelimit-reset": "2026-05-27T05:11:37Z"
+  },
+  "payload": [],
+  "request": {
+    "method": "GET",
+    "url": "https://api.odds-api.io/v3/odds/updated?apiKey=REDACTED&bookmaker=Kalshi&since=1779855634&sport=Basketball"
+  },
+  "status": 200
+}

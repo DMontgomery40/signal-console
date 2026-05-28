@@ -5,6 +5,7 @@ export * from "./kalshi-direct";
 export * from "./kalshi-historical";
 export * from "./kalshi-trades";
 export * from "./odds-api";
+export * from "./odds-api-io-live-comparator";
 export * from "./polymarket";
 export * from "./polymarket-historical";
 export * from "./polymarket-trades";

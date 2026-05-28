@@ -6,11 +6,10 @@
 // timeline (US-038), Reaves/Hartenstein anchor display (US-039), and warmup
 // dial (US-042) attach in later stories.
 //
-// In-memory recompute (round-trip stability): editing sensitivity,
-// signal timing, trailingBuckets, or warmupBuckets re-derives the fires/game stat from the cached
-// observations (`applyClientRecompute`) without re-hitting /v1/backtest. The
-// remaining knobs (bucketSeconds, weighting, freshCapSeconds) re-roll the
-// prebucket so they require a fresh Run — the UI marks them as such.
+// The board-volatility model now lives in the Python sidecar, so the browser
+// no longer tries to recompute backtest results locally. Once params change
+// after a run, the page keeps showing the last server snapshot and marks it
+// stale until the user reruns /v1/backtest.
 
 import { useEffect, useMemo, useState } from "react";
 import type { ChangeEvent, JSX } from "react";
@@ -36,9 +35,6 @@ import {
 } from "../../data/queries";
 import { defaultValuesFor, parseSchema, type ParsedProperty } from "../../lib/paramsSchema";
 import {
-  applyClientRecompute,
-  clientRecomputeSupportsBaselineMode,
-  hasBoardMadPrebucketDrift,
   isBoardMadPrebucketField,
   BOARD_MAD_DETECTOR_ID,
   ENSEMBLE_OR_DETECTOR_ID,
@@ -106,7 +102,7 @@ const BOARD_PROFILE_PRESETS: ReadonlyArray<{
 }> = [
   {
     id: "opening-ramp-live",
-    label: "Opening ramp live",
+    label: "Opening anchor live",
     patch: {
       [BASELINE_MODE_PARAM_NAME]: BOARD_MAD_BASELINE_MODE_OPENING_RAMP,
       [BUCKET_SECONDS_PARAM_NAME]: 60,
@@ -118,7 +114,7 @@ const BOARD_PROFILE_PRESETS: ReadonlyArray<{
   },
   {
     id: "historical-blend",
-    label: "Historical to live",
+    label: "Historical prior live",
     patch: {
       [BASELINE_MODE_PARAM_NAME]: BOARD_MAD_BASELINE_MODE_HISTORICAL_BLEND,
       [BUCKET_SECONDS_PARAM_NAME]: 30,
@@ -138,7 +134,7 @@ const BOARD_PROFILE_PRESETS: ReadonlyArray<{
   },
   {
     id: "legacy-trailing",
-    label: "Legacy rolling",
+    label: "Pure trailing state",
     patch: {
       [BASELINE_MODE_PARAM_NAME]: BOARD_MAD_BASELINE_MODE_TRAILING,
       [BUCKET_SECONDS_PARAM_NAME]: 60,
@@ -542,7 +538,7 @@ function SignalTimingPanel({
           </label>
           <label className="flex min-w-0 flex-col gap-1">
             <span className={FIELD_LABEL_CLASS}>
-              <ExplainerCard id="baseline-source-mode">Prior sample</ExplainerCard>
+              <ExplainerCard id="baseline-source-mode">Prior anchor</ExplainerCard>
             </span>
             <select
               value={baselineMode}
@@ -553,16 +549,18 @@ function SignalTimingPanel({
               data-testid="backtest-baseline-mode"
               aria-label="baseline mode"
             >
-              <option value={BOARD_MAD_BASELINE_MODE_TRAILING}>Rolling current game</option>
-              <option value={BOARD_MAD_BASELINE_MODE_OPENING_RAMP}>Opening sample ramp</option>
+              <option value={BOARD_MAD_BASELINE_MODE_TRAILING}>Pure trailing state</option>
+              <option value={BOARD_MAD_BASELINE_MODE_OPENING_RAMP}>Opening anchor ramp</option>
               <option value={BOARD_MAD_BASELINE_MODE_HISTORICAL_BLEND}>
-                Historical to live ramp
+                Historical prior blend
               </option>
             </select>
           </label>
           <label className="flex min-w-0 flex-col gap-1">
             <span className={FIELD_LABEL_CLASS}>
-              <ExplainerCard id="settings-opening-baseline-buckets">Opening sample</ExplainerCard>
+              <ExplainerCard id="settings-opening-baseline-buckets">
+                Opening anchor sample
+              </ExplainerCard>
             </span>
             <input
               type="number"
@@ -582,7 +580,7 @@ function SignalTimingPanel({
           <label className="flex min-w-0 flex-col gap-1">
             <span className={FIELD_LABEL_CLASS}>
               <ExplainerCard id="settings-opening-ramp-complete-buckets">
-                Ramp complete
+                Opening anchor fade-out
               </ExplainerCard>
             </span>
             <input
@@ -661,18 +659,11 @@ function clampedStats(
   snapshot: RunSnapshot,
   currentParams: Readonly<Record<string, unknown>>,
 ): RecomputeView {
-  const recomputed = applyClientRecompute(snapshot.detectorId, snapshot.response, currentParams);
-  if (recomputed === null) {
-    return {
-      stats: snapshot.response.stats,
-      observations: snapshot.response.observations,
-      fromRecompute: false,
-    };
-  }
+  void currentParams;
   return {
-    stats: recomputed.stats,
-    observations: recomputed.observations,
-    fromRecompute: true,
+    stats: snapshot.response.stats,
+    observations: snapshot.response.observations,
+    fromRecompute: false,
   };
 }
 
@@ -697,67 +688,25 @@ function formatFiresPerGamePreview(
   return firesPerGame.toFixed(2);
 }
 
-// True when any param that the client cannot re-apply has drifted from the
-// snapshot's last-run values. Board-like detectors can recompute sensitivity,
-// volatility lookback, and opening holdoff in memory, but bucket/weighting/freshness
-// and historical-prior context changes still need a server run.
+function stableParamJson(value: unknown): string {
+  if (value === undefined) return '"__undefined__"';
+  if (value === null) return "null";
+  if (Array.isArray(value)) return `[${value.map((entry) => stableParamJson(entry)).join(",")}]`;
+  if (isPlainRecord(value)) {
+    const record = value;
+    return `{${Object.keys(record)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableParamJson(record[key])}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
 function snapshotIsStale(
   snapshot: RunSnapshot,
   currentParams: Readonly<Record<string, unknown>>,
 ): boolean {
-  if (snapshot.detectorId === BOARD_MAD_DETECTOR_ID) {
-    if (hasBoardMadPrebucketDrift(snapshot.detectorId, snapshot.params, currentParams)) return true;
-    return clientRecomputeUnsupportedDrift(snapshot.detectorId, snapshot.params, currentParams);
-  }
-  if (snapshot.detectorId === ENSEMBLE_OR_DETECTOR_ID) {
-    if (hasBoardMadPrebucketDrift(snapshot.detectorId, snapshot.params, currentParams)) return true;
-    if (clientRecomputeUnsupportedDrift(snapshot.detectorId, snapshot.params, currentParams)) {
-      return true;
-    }
-    return snapshot.params["offprice"] !== currentParams["offprice"];
-  }
-  for (const key of Object.keys(currentParams)) {
-    if (snapshot.params[key] !== currentParams[key]) return true;
-  }
-  return false;
-}
-
-// Phase B5 (2026-05-25): the client-side recompute can't apply
-// historical-blend (needs same-side historical priors the snapshot doesn't
-// carry). When the user flips the form's baselineMode to a mode the
-// recompute can't handle AND it differs from the snapshot's mode, mark
-// stale so the UI prompts "click Run" instead of silently showing the
-// snapshot numbers as if the form change took effect.
-function clientRecomputeUnsupportedDrift(
-  detectorId: string,
-  snapshotParams: Readonly<Record<string, unknown>>,
-  currentParams: Readonly<Record<string, unknown>>,
-): boolean {
-  const snapshotBoard =
-    detectorId === ENSEMBLE_OR_DETECTOR_ID && isPlainRecord(snapshotParams["board"])
-      ? snapshotParams["board"]
-      : snapshotParams;
-  const currentBoard =
-    detectorId === ENSEMBLE_OR_DETECTOR_ID && isPlainRecord(currentParams["board"])
-      ? currentParams["board"]
-      : currentParams;
-  const snapshotMode = snapshotBoard["baselineMode"];
-  const currentMode = currentBoard["baselineMode"];
-  if (typeof currentMode !== "string") return false;
-  if (
-    currentMode !== BOARD_MAD_BASELINE_MODE_TRAILING &&
-    currentMode !== BOARD_MAD_BASELINE_MODE_OPENING_RAMP &&
-    currentMode !== BOARD_MAD_BASELINE_MODE_HISTORICAL_BLEND
-  ) {
-    return false;
-  }
-  if (clientRecomputeSupportsBaselineMode(currentMode)) return false;
-  // Unsupported mode (historical-blend today). If the user just brought us
-  // here via the form, treat as stale so the preview honestly says "needs
-  // server Run." If the snapshot was ALREADY in this mode (already ran
-  // historical-blend on server) and the user hasn't changed mode, NOT stale
-  // — the snapshot is still the right numbers for this mode.
-  return snapshotMode !== currentMode;
+  return stableParamJson(snapshot.params) !== stableParamJson(currentParams);
 }
 
 function selectInitialDetector(rows: readonly DetectorEntry[]): string {
@@ -1138,8 +1087,8 @@ export function BacktestPage(): JSX.Element {
         </p>
       </div>
       <p className="mt-2 text-sm text-text-md">
-        Replay a detector over a window. The sensitivity dial recomputes the live preview in memory
-        after the first sweep — no API round-trip.
+        Replay a detector over a window. Results stay pinned to the last server run until you rerun
+        with the current params.
       </p>
 
       <form
@@ -1395,7 +1344,7 @@ export function BacktestPage(): JSX.Element {
                 />
                 <p className="max-w-[42ch] text-center text-xs text-text-md">
                   The center readout is estimated fires per game for the last run. It updates in
-                  memory as sensitivity moves.
+                  memory as the trigger moves.
                 </p>
               </div>
             </div>
@@ -1450,7 +1399,7 @@ export function BacktestPage(): JSX.Element {
 
         {selectedDetector?.id === BOARD_MAD_DETECTOR_ID ? (
           <p data-testid="backtest-recompute-hint" className="text-xs text-text-lo max-w-[64ch]">
-            Sensitivity and signal timing recompute in memory after the first run. Changing
+            Trigger and board-model timing recompute in memory after the first run. Changing
             bucketSeconds, weighting, or freshCapSeconds requires re-running.
           </p>
         ) : null}
@@ -1549,14 +1498,14 @@ function RunSummary({
         <p className="font-mono text-xs text-text-lo">
           run id <span data-testid="backtest-run-id">{String(snapshot.response.runId)}</span> ·{" "}
           {String(snapshot.response.observations.length)} observations
-          {recompute?.fromRecompute === true ? " · in-memory recompute" : ""}
+          {recompute?.fromRecompute === true ? " · client preview" : ""}
         </p>
         {stale ? (
           <p
             data-testid="backtest-stale-warning"
             className="mt-2 font-mono text-xs text-accent-yellow"
           >
-            Prebucket params changed since last run — re-run to refresh.
+            Params changed since last run — re-run to refresh.
           </p>
         ) : null}
       </div>

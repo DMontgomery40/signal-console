@@ -37,13 +37,13 @@ const isExplainerId = (id: string): id is ExplainerId =>
 
 const PARAM_DISPLAY_NAMES: Readonly<Record<string, string>> = {
   bucketSeconds: "Bucket size",
-  baselineMode: "Prior sample",
+  baselineMode: "Prior anchor",
   freshCapSeconds: "Freshness cap",
-  kMad: "Sensitivity",
-  openingBaselineBuckets: "Opening sample",
-  openingRampCompleteBuckets: "Ramp complete",
-  trailingBuckets: "Volatility lookback",
-  warmupBuckets: "Opening holdoff",
+  kMad: "Innovation trigger",
+  openingBaselineBuckets: "Opening anchor sample",
+  openingRampCompleteBuckets: "Opening anchor fade-out",
+  trailingBuckets: "Filter memory",
+  warmupBuckets: "Alert holdoff",
 };
 
 const PARAM_EXPLAINER_IDS: Readonly<Record<string, ExplainerId>> = {

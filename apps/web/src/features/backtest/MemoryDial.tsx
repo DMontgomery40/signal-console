@@ -1,7 +1,7 @@
-// Volatility-lookback slider (US-053).
+// Filter-memory slider (US-053).
 //
-// Controls `trailingBuckets`: how much elapsed current-game time defines
-// "normal" for the trailing median + MAD threshold. It is intentionally a
+// Controls `trailingBuckets`: how much elapsed current-game time the board
+// state-space filter treats as its adaptation horizon. It is intentionally a
 // slider, paired visually with the opening holdoff slider, because traders
 // tune those two timing choices together.
 
@@ -88,10 +88,10 @@ export function MemoryDial({ value, bucketSeconds, onChange }: MemoryDialProps):
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
         <div className="min-w-0">
           <div className="text-text-lo text-xs uppercase tracking-[0.08em] font-sans">
-            <ExplainerCard id="trailing-window-memory">Volatility lookback</ExplainerCard>
+            <ExplainerCard id="trailing-window-memory">Filter memory</ExplainerCard>
           </div>
           <p className="mt-1 max-w-[34ch] text-xs text-text-md">
-            Recent in-game minutes used to decide what normal board movement looks like.
+            Recent in-game minutes that define the board model's adaptation horizon.
           </p>
         </div>
         <div className="shrink-0 sm:text-right">
@@ -117,8 +117,8 @@ export function MemoryDial({ value, bucketSeconds, onChange }: MemoryDialProps):
         step={1}
         value={String(clamped)}
         onChange={handleSliderChange}
-        title="Volatility lookback: how much recent elapsed current-game time feeds the trailing median and MAD threshold."
-        aria-label="Volatility lookback buckets"
+        title="Filter memory: how much recent elapsed current-game time shapes the state-space baseline."
+        aria-label="Filter memory buckets"
         aria-valuemin={LOOKBACK_MIN}
         aria-valuemax={LOOKBACK_MAX}
         aria-valuenow={clamped}

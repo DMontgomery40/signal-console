@@ -201,6 +201,31 @@ describe("runSweep", () => {
     expect(lateBucket?.fired).toBe(true);
   });
 
+  it("preserves bucket gameElapsedSeconds on the emitted detector buckets", () => {
+    const elapsedSeries: BucketSeries = {
+      bucketSeconds: BOARD_MAD_BUCKET_SECONDS_DEFAULT,
+      weighting: "volume",
+      freshCapSeconds: BOARD_MAD_FRESH_CAP_SECONDS_DEFAULT,
+      perGame: [
+        {
+          gameId: "synth-elapsed-carry",
+          buckets: [
+            { bucket: 0, gameElapsedSeconds: 0, intensity: 1 },
+            { bucket: 60, gameElapsedSeconds: 60, intensity: 2 },
+            { bucket: 120, gameElapsedSeconds: 120, intensity: 3 },
+          ],
+        },
+      ],
+    };
+
+    const result = runForK(elapsedSeries, 3.0, {
+      ...DEFAULT_PARAMS,
+      warmupBuckets: 1,
+    });
+
+    expect(result.buckets.map((bucket) => bucket.gameElapsedSeconds ?? null)).toEqual([0, 60, 120]);
+  });
+
   it("opening-ramp baseline can judge the first active alert check against the opening sample", () => {
     const openingRampSeries: BucketSeries = {
       bucketSeconds: BOARD_MAD_BUCKET_SECONDS_DEFAULT,

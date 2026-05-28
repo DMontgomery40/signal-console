@@ -77,10 +77,14 @@ export function loadBoardMadTicksForGame(
   end: string,
 ): readonly Tick[] {
   const clockColumns = pbpHasGameClockColumns(goldDb);
+  const sourceColumn = sourceMarketsHaveSourceColumn(goldDb)
+    ? "sm.source AS source"
+    : "NULL AS source";
   const rows = goldDb
     .prepare(
       clockColumns
         ? `SELECT sm.game_id AS game_id,
+                  ${sourceColumn},
                   qt.source_market_id AS source_market_id,
                   qt.captured_at AS captured_at,
                   qt.implied_probability AS implied_probability,
@@ -113,6 +117,7 @@ export function loadBoardMadTicksForGame(
              AND qt.captured_at <= ?
            ORDER BY qt.source_market_id, qt.captured_at`
         : `SELECT sm.game_id AS game_id,
+                  ${sourceColumn},
                   qt.source_market_id AS source_market_id,
                   qt.captured_at AS captured_at,
                   qt.implied_probability AS implied_probability,
@@ -370,6 +375,22 @@ function pbpHasGameClockColumns(goldDb: GoldDbHandle): boolean {
   }
 }
 
+function sourceMarketsHaveSourceColumn(goldDb: GoldDbHandle): boolean {
+  try {
+    const rows = goldDb.prepare("PRAGMA table_info(source_markets)").all();
+    const names = new Set(
+      rows.flatMap((row): readonly string[] => {
+        if (!isRecord(row)) return [];
+        const name = row["name"];
+        return typeof name === "string" ? [name] : [];
+      }),
+    );
+    return names.has("source");
+  } catch {
+    return false;
+  }
+}
+
 function rowToTick(row: unknown): Tick {
   if (!isRecord(row)) throw new Error("tick row not an object");
   const ip = row["implied_probability"];
@@ -377,6 +398,7 @@ function rowToTick(row: unknown): Tick {
   return {
     gameId: pickString(row, "game_id"),
     sourceMarketId: pickString(row, "source_market_id"),
+    ...(typeof row["source"] === "string" ? { source: row["source"] } : {}),
     capturedAt: new Date(pickString(row, "captured_at")),
     impliedProbability: ip === null ? null : typeof ip === "number" ? ip : null,
     volume: pickNumber(row, "volume"),

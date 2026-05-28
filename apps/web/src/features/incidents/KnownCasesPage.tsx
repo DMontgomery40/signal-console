@@ -671,8 +671,8 @@ function IncidentReplay({ incident }: { readonly incident: KnownCase }): JSX.Ele
           >
             <span>{anchorBucket.bucketStart}</span>
             <span>intensity {anchorBucket.intensity.toFixed(3)}</span>
-            <span>median {anchorBucket.baselineMedian.toFixed(3)}</span>
-            <span>MAD {anchorBucket.baselineMad.toFixed(3)}</span>
+            <span>level {anchorBucket.baselineMedian.toFixed(3)}</span>
+            <span>scale {anchorBucket.baselineMad.toFixed(3)}</span>
           </div>
         </details>
       ) : null}

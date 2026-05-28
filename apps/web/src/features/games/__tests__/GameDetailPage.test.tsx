@@ -177,7 +177,7 @@ describe("GameDetailPage", () => {
     });
     const text = String(screen.getByTestId("no-fires-empty-state").textContent);
     expect(text).toContain("No fires recorded");
-    expect(text).toContain("live sensitivity 3.0");
+    expect(text).toContain("live trigger");
   });
 
   it("each fired bucket row exposes bucket_start, intensity, baseline_median, baseline_mad, and the 'why this fired' explainer trigger", async () => {

@@ -10,6 +10,10 @@
 > page, and tests at every layer. The 3-step "add an algorithm" recipe on the
 > Detectors page is for detectors that consume data **we already ingest**.
 > A new feed is not that.
+>
+> Odds-API.io NBA comparator work also has a provider-specific runbook:
+> `docs/odds-api-io-live-comparator.md`. Read it before touching live
+> Odds-API.io ingestion or evidence runs.
 
 The "How to add a detector ALGORITHM" panel applies when a new detector
 consumes data we already have on disk (`quote_ticks`,

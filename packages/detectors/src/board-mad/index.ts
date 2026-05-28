@@ -47,6 +47,12 @@ const timingContextMap = (
 ): ReadonlyMap<string, GameTimingContext> =>
   new Map((contexts ?? []).map((ctx) => [ctx.gameId, ctx]));
 
+// 1.6.1 (2026-05-27): DetectorBucket now carries per-bucket
+// gameElapsedSeconds so backtest/client consumers can recompute warmup and
+// prior-window timing from real game-clock elapsed time instead of assuming
+// the first observed market bucket is tipoff. Cached rows from 1.6.0 are
+// intentionally invalidated and recomputed on next access.
+//
 // 1.6.0 (2026-05-25): The PBP-missing elapsed fallback (for ticks without
 // per-tick gameElapsedSeconds) now anchors on the per-game GameTimingContext
 // resolved by the shared detector runner (services/detector-runner.ts).
@@ -63,7 +69,7 @@ const timingContextMap = (
 // clock, regardless of how many market observations occurred inside that
 // duration. Cached runs from earlier versions must be recomputed.
 //
-// 1.4.0 (2026-05-24): Opening holdoff activation is elapsed time
+// 1.4.0 (2026-05-24): Alert holdoff activation is elapsed time
 // (`warmupBuckets * bucketSeconds`), not the count of market observations.
 // This is a detector semantics change, so cached board-mad runs from earlier
 // versions must be recomputed.
@@ -86,8 +92,8 @@ const timingContextMap = (
 // that's the intentional invalidation.
 export const detector: Detector<typeof Params> = {
   id: "board-mad",
-  version: "1.6.0",
-  displayName: "Board MAD (whole-board volatility)",
+  version: "1.6.1",
+  displayName: "Board State-Space (whole-board volatility)",
   sources: ["bet365", "kalshi", "polymarket"],
   paramsSchema: Params,
   run(window: DetectorWindow, params: ParamsResolved): DetectorResult {

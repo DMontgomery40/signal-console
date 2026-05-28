@@ -18,6 +18,7 @@ import {
   writeDetectorDefaults,
 } from "../src/services/detector-defaults";
 import { getOrComputeBoard } from "../src/services/board";
+import { tsBoardVolatilityRunner } from "./helpers/board-volatility-runner";
 
 type FastifyApp = Awaited<ReturnType<typeof buildServer>>;
 
@@ -217,7 +218,11 @@ afterEach(async () => {
 async function startApp(): Promise<FastifyApp> {
   const app = await buildServer({
     auth: { tokenPath: ctx.tokenPath, cacheTtlMs: 0 },
-    board: { goldDbPath: ctx.goldDbPath, cacheDbPath: ctx.cacheDbPath },
+    board: {
+      goldDbPath: ctx.goldDbPath,
+      cacheDbPath: ctx.cacheDbPath,
+      boardVolatilityRunner: tsBoardVolatilityRunner,
+    },
     cache: { cacheDbPath: ctx.cacheDbPath },
   });
   ctx.app = app;
@@ -651,19 +656,21 @@ describe("board route (US-021)", () => {
     }
   });
 
-  it("paramsHash + watermarkHash discipline: rerunning preserves a single cache row", () => {
+  it("paramsHash + watermarkHash discipline: rerunning preserves a single cache row", async () => {
     // Direct service invocation shows we do not insert duplicate detector_runs
     // rows on identical inputs. The UNIQUE constraint would throw if we did.
     seedGoldDb(ctx.goldDbPath, [{ id: "nba-unique-1", tickCount: 100 }]);
-    const r1 = getOrComputeBoard({
+    const r1 = await getOrComputeBoard({
       goldDbPath: ctx.goldDbPath,
       cacheDbPath: ctx.cacheDbPath,
       gameId: "nba-unique-1",
+      boardVolatilityRunner: tsBoardVolatilityRunner,
     });
-    const r2 = getOrComputeBoard({
+    const r2 = await getOrComputeBoard({
       goldDbPath: ctx.goldDbPath,
       cacheDbPath: ctx.cacheDbPath,
       gameId: "nba-unique-1",
+      boardVolatilityRunner: tsBoardVolatilityRunner,
     });
     expect(r2.runId).toBe(r1.runId);
 
@@ -679,7 +686,7 @@ describe("board route (US-021)", () => {
     }
   });
 
-  it("live board params include signal timing defaults in cache identity", () => {
+  it("live board params include signal timing defaults in cache identity", async () => {
     seedGoldDb(ctx.goldDbPath, [{ id: "nba-baseline-defaults-1", tickCount: 100 }]);
     writeDetectorDefaults({
       ...BASELINE_DEFAULTS,
@@ -687,10 +694,11 @@ describe("board route (US-021)", () => {
       openingRampCompleteBuckets: 12,
     });
 
-    getOrComputeBoard({
+    await getOrComputeBoard({
       goldDbPath: ctx.goldDbPath,
       cacheDbPath: ctx.cacheDbPath,
       gameId: "nba-baseline-defaults-1",
+      boardVolatilityRunner: tsBoardVolatilityRunner,
     });
 
     const cacheDb = new Database(ctx.cacheDbPath, { readonly: true });

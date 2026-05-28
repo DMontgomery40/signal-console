@@ -1,0 +1,194 @@
+{
+  "capturedAt": "2026-05-27T04:21:20.579Z",
+  "headers": {
+    "x-ratelimit-limit": "5000",
+    "x-ratelimit-remaining": "4967",
+    "x-ratelimit-reset": "2026-05-27T05:11:37Z"
+  },
+  "payload": [
+    {
+      "id": 68096164,
+      "home": "Golden State Valkyries",
+      "away": "Las Vegas Aces",
+      "date": "2026-05-31T19:30:00Z",
+      "status": "pending",
+      "sport": {
+        "name": "Basketball",
+        "slug": "basketball"
+      },
+      "league": {
+        "name": "USA - WNBA",
+        "slug": "usa-wnba"
+      },
+      "urls": {
+        "Polymarket": "https://polymarket.com/event/wnba-las-gsv-2026-05-31"
+      },
+      "bookmakerIds": {
+        "Polymarket": "496960"
+      },
+      "bookmakers": {
+        "Polymarket": [
+          {
+            "name": "ML",
+            "updatedAt": "2026-05-27T04:20:48.64Z",
+            "odds": [
+              {
+                "home": "1.075",
+                "away": "1.064",
+                "layHome": "16.667",
+                "layAway": "14.286",
+                "depthHome": "19",
+                "depthAway": "29",
+                "depthLayHome": "2",
+                "depthLayAway": "1"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": 68096286,
+      "home": "New York Liberty",
+      "away": "Phoenix Mercury",
+      "date": "2026-05-27T23:00:00Z",
+      "status": "pending",
+      "sport": {
+        "name": "Basketball",
+        "slug": "basketball"
+      },
+      "league": {
+        "name": "USA - WNBA",
+        "slug": "usa-wnba"
+      },
+      "urls": {
+        "Polymarket": "https://polymarket.com/event/wnba-phx-nyl-2026-05-27"
+      },
+      "bookmakerIds": {
+        "Polymarket": "483399"
+      },
+      "bookmakers": {
+        "Polymarket": [
+          {
+            "name": "ML",
+            "updatedAt": "2026-05-27T04:00:23.612Z",
+            "odds": [
+              {
+                "home": "1.502",
+                "away": "2.985",
+                "layHome": "1.504",
+                "layAway": "2.994",
+                "depthHome": "1998",
+                "depthAway": "808",
+                "depthLayHome": "1603",
+                "depthLayAway": "1002"
+              }
+            ]
+          },
+          {
+            "name": "Spread",
+            "updatedAt": "2026-05-27T04:20:33.634Z",
+            "odds": [
+              {
+                "hdp": -5.5,
+                "home": "2.041",
+                "away": "1.887",
+                "layHome": "2.128",
+                "layAway": "1.961",
+                "depthHome": "56",
+                "depthAway": "160",
+                "depthLayHome": "142",
+                "depthLayAway": "58"
+              },
+              {
+                "hdp": -6.5,
+                "home": "2.222",
+                "away": "1.754",
+                "layHome": "2.326",
+                "layAway": "1.818",
+                "depthHome": "135",
+                "depthAway": "178",
+                "depthLayHome": "134",
+                "depthLayAway": "165"
+              }
+            ]
+          },
+          {
+            "name": "Totals",
+            "updatedAt": "2026-05-27T04:20:53.638Z",
+            "odds": [
+              {
+                "hdp": 172.5,
+                "over": "2.083",
+                "under": "1.852",
+                "layOver": "2.174",
+                "layUnder": "1.923",
+                "depthOver": "196",
+                "depthUnder": "48",
+                "depthLayOver": "41",
+                "depthLayUnder": "212"
+              },
+              {
+                "hdp": 171.5,
+                "over": "1.961",
+                "under": "2.00",
+                "layOver": "2.00",
+                "layUnder": "2.041",
+                "depthOver": "3",
+                "depthUnder": "320",
+                "depthLayOver": "320",
+                "depthLayUnder": "2"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": 71628770,
+      "home": "Ferro Carril Oeste",
+      "away": "Gimnasia de Comodoro",
+      "date": "2026-05-28T23:05:00Z",
+      "status": "pending",
+      "sport": {
+        "name": "Basketball",
+        "slug": "basketball"
+      },
+      "league": {
+        "name": "Argentina - LNB",
+        "slug": "argentina-lnb"
+      },
+      "urls": {
+        "Polymarket": "https://polymarket.com/event/bkarg-fer-gim-2026-05-28"
+      },
+      "bookmakerIds": {
+        "Polymarket": "526239"
+      },
+      "bookmakers": {
+        "Polymarket": [
+          {
+            "name": "ML",
+            "updatedAt": "2026-05-27T04:20:13.651Z",
+            "odds": [
+              {
+                "home": "1.818",
+                "away": "1.923",
+                "layHome": "2.083",
+                "layAway": "2.222",
+                "depthHome": "22",
+                "depthAway": "85",
+                "depthLayHome": "79",
+                "depthLayAway": "18"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "request": {
+    "method": "GET",
+    "url": "https://api.odds-api.io/v3/odds/updated?apiKey=REDACTED&bookmaker=Polymarket&since=1779855634&sport=Basketball"
+  },
+  "status": 200
+}

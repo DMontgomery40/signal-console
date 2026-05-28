@@ -1,0 +1,21 @@
+{
+  "kMadLive": 5,
+  "bucketSeconds": 30,
+  "baselineMode": "historical-blend",
+  "openingBaselineBuckets": 3,
+  "openingRampCompleteBuckets": 16,
+  "trailingBuckets": 24,
+  "warmupBuckets": 4,
+  "freshCapSeconds": 300,
+  "historicalLastGames": 5,
+  "historicalAwayWeight": 0.5,
+  "historicalPriorWeight": 1,
+  "historicalRampCompleteGameMinutes": 12,
+  "trailingGameMinutes": 12,
+  "recentWallMinutes": 4,
+  "recentWallWeight": 1.5,
+  "pbpPreBufferMs": 300000,
+  "pbpPostBufferMs": 60000,
+  "offPriceMinVolumeShare": 0.1,
+  "offPriceMinOffPriceDistance": 0.4
+}

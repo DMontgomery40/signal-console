@@ -87,7 +87,7 @@ export function buildChartData(observations: readonly BoardObservation[], k: num
 }
 
 function thresholdFor(obs: BoardObservation, k: number): number {
-  return obs.baselineMedian + k * obs.baselineMad;
+  return obs.threshold ?? obs.baselineMedian + k * obs.baselineMad;
 }
 
 function formatAxisTime(ms: number): string {
@@ -203,7 +203,7 @@ export function IntensityTimeline({ data, offPriceEvents }: IntensityTimelinePro
           <Line
             type="linear"
             dataKey="threshold"
-            name="active alert threshold"
+            name="active state-space threshold"
             connectNulls={false}
             stroke={colors.textLo}
             strokeWidth={1}
@@ -375,7 +375,7 @@ export function LivePage({ gameId }: LivePageProps): JSX.Element {
       <div className="mt-8" data-testid="live-board-panel">
         <div className="flex items-baseline justify-between gap-6">
           <h3 className="text-sm font-semibold text-text-hi">
-            board-mad fires (sensitivity{" "}
+            board state-space fires (trigger{" "}
             <span data-testid="live-k" className="text-accent-yellow">
               {liveK !== null ? liveK.toFixed(1) : "—"}
             </span>
@@ -432,11 +432,11 @@ export function LivePage({ gameId }: LivePageProps): JSX.Element {
               aria-hidden
               className="inline-block h-0 w-5 border-t border-dashed border-text-lo"
             />
-            active alert threshold
+            active state-space threshold
           </span>
           <span className="flex items-center gap-2">
             <span aria-hidden className="inline-block h-2 w-2 rounded-full bg-accent-yellow" />
-            board-mad fire
+            board state-space fire
           </span>
           <span className="flex items-center gap-2">
             <span

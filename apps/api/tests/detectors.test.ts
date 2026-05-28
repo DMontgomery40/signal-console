@@ -183,8 +183,8 @@ describe("detectors route (US-030)", () => {
     const boardMad = findById(rows, "board-mad");
     expect(boardMad).toBeDefined();
     if (boardMad === undefined) return;
-    expect(boardMad["version"]).toBe("1.6.0");
-    expect(boardMad["displayName"]).toBe("Board MAD (whole-board volatility)");
+    expect(String(boardMad["version"])).toMatch(/^1\.6\.1-pyssm\.1(?:\+def\.[0-9a-f]{8})?$/);
+    expect(boardMad["displayName"]).toBe("Board State-Space (whole-board volatility)");
 
     const schema = asRecord(boardMad["paramsSchema"], "board-mad.paramsSchema");
     expect(schema["type"]).toBe("object");
