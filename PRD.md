@@ -300,6 +300,7 @@ const Params = z.object({
   recentWallMinutes: z.number().min(0).max(20).default(4),
   recentWallWeight: z.number().min(0).max(5).default(1.5),
   freshCapSeconds: z.number().int().min(30).max(3600).default(300),
+  stateSpace: BoardStateSpaceConfigSchema.default(BOARD_STATE_SPACE_CONFIG_DEFAULTS),
 });
 
 export const detector: Detector<typeof Params> = {
@@ -653,13 +654,13 @@ Three sections, no buttons that mutate (except "clear cache"):
 - [ ] Typecheck/lint passes.
 
 #### US-006: Port `board-mad` detector from `board_signal_v2.py`
-**Description:** As a developer, I need a detector with stable `board-mad` identity but Python-owned state-space runtime semantics, including configurable trigger timing, 8-minute elapsed warmup default at 60 s buckets, 300 s fresh cap, and `is_heartbeat`/`0.500` sanitations.
+**Description:** As a developer, I need a detector with stable `board-mad` identity but Python-owned state-space runtime semantics, including configurable trigger timing, an explicit advanced `stateSpace` config object for hidden-state / disagreement / noise terms, 8-minute elapsed warmup default at 60 s buckets, 300 s fresh cap, and `is_heartbeat`/`0.500` sanitations.
 
 **Acceptance Criteria:**
 - [ ] `packages/detectors/src/board-mad/index.ts` exports `detector: Detector<Params>` matching the §10 sketch (id `board-mad`, version `1.0.0`, displayName `"Board State-Space (whole-board volatility)"`).
 - [ ] `packages/detectors/src/board-mad/config.ts` declares `K_MAD_LIVE = 3.0` and `K_MAD_CALM = 6.0`; these are the **only** declarations of either K value in the repo (enforced by `pnpm verify:no-stale-plan`).
 - [ ] Detector iterates `quote_ticks` in time order, bucketed by `bucketSeconds` (default 60), applies the selected signal timing mode, fires when current bucket intensity exceeds threshold, after the elapsed `warmupBuckets × bucketSeconds` warmup, with `freshCapSeconds` per-market delta cap, and the `is_heartbeat`/`0.500` opening-anchor sanitations.
-- [ ] Detector defaults match `nba-predict` `BOARD_VW_K_MAD = 3` for the live path with the elapsed-time opening-ramp profile: `kMad=3.0`, `weighting="volume"`, `baselineMode="opening-ramp"`, `openingBaselineBuckets=4`, `openingRampCompleteBuckets=20`, `trailingBuckets=20`, `warmupBuckets=8`, `freshCapSeconds=300`.
+- [ ] Detector defaults match `nba-predict` `BOARD_VW_K_MAD = 3` for the live path with the elapsed-time opening-ramp profile: `kMad=3.0`, `weighting="volume"`, `baselineMode="opening-ramp"`, `openingBaselineBuckets=4`, `openingRampCompleteBuckets=20`, `trailingBuckets=20`, `warmupBuckets=8`, `freshCapSeconds=300`, plus a persisted `stateSpace` object carrying trigger, breadth, anchors, process-noise, observation-noise, and variance-adaptation tunables.
 - [ ] `eslint-plugin-functional` (`no-let`, `no-mutation`) passes in this package.
 - [ ] Total LOC under `packages/detectors/src/board-mad/` is ≤ 250.
 - [ ] Typecheck/lint passes.
@@ -847,7 +848,7 @@ Three sections, no buttons that mutate (except "clear cache"):
 **Description:** As an operator, I need a `/settings` page showing detector defaults plus the diagnostic sections in §20 with no mutating buttons except detector-default edits and "clear cache".
 
 **Acceptance Criteria:**
-- [ ] Renders Detector defaults section: live trigger, prior anchor, opening anchor sample/fade-out, filter-memory/alert-holdoff timing, freshness cap, and PBP buffers.
+- [ ] Renders Detector defaults section: live trigger, prior anchor, opening anchor sample/fade-out, filter-memory/alert-holdoff timing, freshness cap, a structured advanced `stateSpace` config object, and PBP buffers.
 - [ ] Renders Database section: path, size (bytes + human), WAL bytes, page count, page size, last-modified, mode (red banner if not `read-only`).
 - [ ] Renders Sources section: heartbeat file path; per-source last sync, last error, rate-limit cooldown. If no heartbeat, shows "ingest paused" with last-known values.
 - [ ] Renders Errors section: tail of last 200 log entries with level filter.

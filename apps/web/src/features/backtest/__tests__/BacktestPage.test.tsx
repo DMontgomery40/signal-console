@@ -29,6 +29,7 @@ import {
   BOARD_MAD_WARMUP_BUCKETS_DEFAULT,
   K_MAD_LIVE,
 } from "@signal-console/detectors/board-mad/config";
+import { BOARD_STATE_SPACE_CONFIG_DEFAULTS } from "@signal-console/detectors/board-mad/state-space-config";
 
 import { BacktestPage } from "../BacktestPage";
 
@@ -652,6 +653,7 @@ describe("BacktestPage", () => {
     );
     expect(body.params["trailingBuckets"]).toBe(BOARD_MAD_TRAILING_BUCKETS_DEFAULT);
     expect(body.params["warmupBuckets"]).toBe(BOARD_MAD_WARMUP_BUCKETS_DEFAULT);
+    expect(body.params["stateSpace"]).toEqual(BOARD_STATE_SPACE_CONFIG_DEFAULTS);
     expect(body.window.start.startsWith("20")).toBe(true);
     expect(body.window.end.startsWith("20")).toBe(true);
   });
@@ -1440,6 +1442,7 @@ describe("BacktestPage", () => {
         recentWallWeight: 1.5,
         pbpPreBufferMs: 300000,
         pbpPostBufferMs: 60000,
+        stateSpace: BOARD_STATE_SPACE_CONFIG_DEFAULTS,
         offPriceMinVolumeShare: opts.offPriceMinVolumeShare ?? 0.1,
         offPriceMinOffPriceDistance: opts.offPriceMinOffPriceDistance ?? 0.4,
       },

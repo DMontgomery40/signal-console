@@ -49,3 +49,15 @@ The three-question framing is the durable bit, worth keeping verbatim:
 `apps/nba-sidecar` is a thin FastAPI service that uses Python `nba_api` (`>=1.11.4,<2` per `pyproject.toml`) directly via `from nba_api.live.nba.endpoints import boxscore, playbyplay, scoreboard` and `from nba_api.stats.endpoints import scoreboardv3`. It is NOT a hand-rolled wrapper of `nbastatR` (which is R-only and unusable from this stack). The 366-line `normalizers.py` is doing project-specific schema translation from `nba_api` payload shape into signal-console's domain shape — no community library exists for that and one shouldn't.
 
 The TS `packages/adapters/{kalshi,polymarket,bet365,odds-api}` are BETTING-MARKET adapters, not NBA stat sources — different category, no community wrapper exists for those vendors either.
+
+## State-space tunables (implemented 2026-05-28)
+
+The board-volatility runtime no longer treats the Python sidecar's inner filter coefficients as invisible code literals. Advanced model terms now live in a structured `stateSpace` object (`packages/detectors/src/board-mad/state-space-config.ts`) that flows through:
+
+- detector params / backtest payloads
+- detector defaults JSON (`data/detector-defaults.json`)
+- `/v1/settings` and `/settings`
+- Backtest's advanced JSON editor
+- the Python sidecar request contract
+
+This is the current sanctioned home for trigger-shape coefficients, breadth normalization, anchor floors, process-noise terms, observation-noise weights, and variance-adaptation limits.

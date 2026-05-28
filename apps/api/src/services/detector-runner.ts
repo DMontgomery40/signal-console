@@ -436,6 +436,7 @@ function boardVolatilityParams(
     openingRampCompleteBuckets: params.openingRampCompleteBuckets,
     recentWallMinutes: params.recentWallMinutes,
     recentWallWeight: params.recentWallWeight,
+    stateSpace: params.stateSpace,
     trailingBuckets: params.trailingBuckets,
     trailingGameMinutes: params.trailingGameMinutes,
     warmupBuckets: params.warmupBuckets,

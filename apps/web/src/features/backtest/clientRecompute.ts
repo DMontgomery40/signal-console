@@ -89,6 +89,7 @@ export const BOARD_MAD_PREBUCKET_PARAMS: readonly string[] = [
   "trailingGameMinutes",
   "recentWallMinutes",
   "recentWallWeight",
+  "stateSpace",
 ];
 // Phase B5 (2026-05-25): exposed so BacktestPage can flag the snapshot as
 // stale when the user picks a baselineMode the client recompute can't
@@ -120,6 +121,19 @@ export function isBoardMadPrebucketField(name: string): boolean {
 
 function isPlainRecord(value: unknown): value is Readonly<Record<string, unknown>> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function stableJson(value: unknown): string {
+  if (value === undefined) return '"__undefined__"';
+  if (value === null) return "null";
+  if (Array.isArray(value)) return `[${value.map((entry) => stableJson(entry)).join(",")}]`;
+  if (isPlainRecord(value)) {
+    return `{${Object.keys(value)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableJson(value[key])}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
 }
 
 function boardParamsForDetector(
@@ -191,7 +205,9 @@ export function hasBoardMadPrebucketDrift(
   const snapshotBoard = boardParamsForDetector(detectorId, snapshotParams);
   const currentBoard = boardParamsForDetector(detectorId, currentParams);
   if (snapshotBoard === null || currentBoard === null) return false;
-  return BOARD_MAD_PREBUCKET_PARAMS.some((key) => snapshotBoard[key] !== currentBoard[key]);
+  return BOARD_MAD_PREBUCKET_PARAMS.some(
+    (key) => stableJson(snapshotBoard[key]) !== stableJson(currentBoard[key]),
+  );
 }
 
 function isBoardLaneObservation(obs: BacktestObservation): boolean {

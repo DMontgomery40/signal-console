@@ -11,6 +11,7 @@
     "./board-mad": "./src/board-mad/index.ts",
     "./board-mad/baseline": "./src/board-mad/baseline.ts",
     "./board-mad/config": "./src/board-mad/config.ts",
+    "./board-mad/state-space-config": "./src/board-mad/state-space-config.ts",
     "./board-mad/prebucket": "./src/board-mad/prebucket.ts",
     "./board-mad/weighted-stats": "./src/board-mad/weighted-stats.ts",
     "./off-price-print": "./src/off-price-print/index.ts",

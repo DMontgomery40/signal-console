@@ -70,6 +70,10 @@ import {
   BOARD_MAD_WARMUP_BUCKETS_MIN,
   K_MAD_LIVE,
 } from "@signal-console/detectors/board-mad/config";
+import {
+  BOARD_STATE_SPACE_CONFIG_DEFAULTS,
+  BoardStateSpaceConfigSchema,
+} from "@signal-console/detectors/board-mad/state-space-config";
 import { ExplainerCard } from "@signal-console/ui";
 import type { ExplainerId } from "@signal-console/ui";
 
@@ -153,7 +157,7 @@ function ExplainHeader({ id, children }: { id: ExplainerId; children: ReactNode 
 
 // ── Detector defaults section (US-053) ──────────────────────────────────────
 
-type NumericDetectorDefaultKey = Exclude<keyof DetectorDefaults, "baselineMode">;
+type NumericDetectorDefaultKey = Exclude<keyof DetectorDefaults, "baselineMode" | "stateSpace">;
 
 const NUMERIC_DETECTOR_DEFAULT_FIELDS: ReadonlyArray<{
   readonly key: NumericDetectorDefaultKey;
@@ -350,6 +354,17 @@ const NUMERIC_DETECTOR_DEFAULT_FIELDS: ReadonlyArray<{
 const PBP_PRE_BUFFER_MS_DEFAULT = 5 * 60 * 1000;
 const PBP_POST_BUFFER_MS_DEFAULT = 60_000;
 
+function stableJson(value: unknown): string {
+  return JSON.stringify(value, null, 2);
+}
+
+function detectorDefaultValueEquals(left: unknown, right: unknown): boolean {
+  if (typeof left === "object" && left !== null && typeof right === "object" && right !== null) {
+    return stableJson(left) === stableJson(right);
+  }
+  return left === right;
+}
+
 // Fallback when /v1/settings hasn't reported them yet. Board MAD defaults come
 // from the package config; PBP windows are local Settings/API defaults.
 const BASELINE_DEFAULTS: DetectorDefaults = {
@@ -370,6 +385,7 @@ const BASELINE_DEFAULTS: DetectorDefaults = {
   recentWallWeight: BOARD_MAD_RECENT_WALL_WEIGHT_DEFAULT,
   pbpPreBufferMs: PBP_PRE_BUFFER_MS_DEFAULT,
   pbpPostBufferMs: PBP_POST_BUFFER_MS_DEFAULT,
+  stateSpace: BOARD_STATE_SPACE_CONFIG_DEFAULTS,
   // Phase B3: off-price-print thresholds, runtime-tunable.
   offPriceMinVolumeShare: 0.1,
   offPriceMinOffPriceDistance: 0.4,
@@ -456,6 +472,8 @@ function DetectorDefaultsSection({
   const mutation = useUpdateDetectorDefaults();
   const scheduleMutation = useScheduleDetectorDefaults();
   const [draft, setDraft] = useState<DetectorDefaults>(defaults);
+  const [stateSpaceText, setStateSpaceText] = useState<string>(stableJson(defaults.stateSpace));
+  const [stateSpaceError, setStateSpaceError] = useState<string | null>(null);
   const [pendingProfile, setPendingProfile] = useState<{
     readonly label: string;
     readonly next: DetectorDefaults;
@@ -469,6 +487,8 @@ function DetectorDefaultsSection({
   // successful write (server normalizes values through its Zod schema).
   useEffect(() => {
     setDraft(defaults);
+    setStateSpaceText(stableJson(defaults.stateSpace));
+    setStateSpaceError(null);
   }, [defaults]);
 
   function updateField(key: NumericDetectorDefaultKey, raw: string): void {
@@ -495,7 +515,7 @@ function DetectorDefaultsSection({
   }
 
   function commitNext(changedKey: keyof DetectorDefaults, next: DetectorDefaults): void {
-    if (next[changedKey] === defaults[changedKey]) return;
+    if (detectorDefaultValueEquals(next[changedKey], defaults[changedKey])) return;
     mutation.mutate(next, {
       onSuccess: () => {
         flashField(changedKey);
@@ -523,7 +543,23 @@ function DetectorDefaultsSection({
   function resetField(key: keyof DetectorDefaults): void {
     const next: DetectorDefaults = { ...draft, [key]: BASELINE_DEFAULTS[key] };
     setDraft(next);
+    if (key === "stateSpace") {
+      setStateSpaceText(stableJson(BASELINE_DEFAULTS.stateSpace));
+      setStateSpaceError(null);
+    }
     commitNext(key, next);
+  }
+
+  function updateStateSpaceText(raw: string): void {
+    setStateSpaceText(raw);
+    try {
+      const parsedUnknown: unknown = JSON.parse(raw);
+      const parsed = BoardStateSpaceConfigSchema.parse(parsedUnknown);
+      setStateSpaceError(null);
+      setDraft((prev) => ({ ...prev, stateSpace: parsed }));
+    } catch {
+      setStateSpaceError("State-space config must be valid JSON matching the model schema.");
+    }
   }
 
   function chooseProfile(profileId: DetectorProfileId): void {
@@ -712,8 +748,8 @@ function DetectorDefaultsSection({
           const isFlashing = flashing.has(field.key);
           const draftValue = draft[field.key];
           const serverValue = defaults[field.key];
-          const dirty = draftValue !== serverValue;
-          const isBaseline = serverValue === BASELINE_DEFAULTS[field.key];
+          const dirty = detectorDefaultValueEquals(draftValue, serverValue) === false;
+          const isBaseline = detectorDefaultValueEquals(serverValue, BASELINE_DEFAULTS[field.key]);
           return (
             <div
               key={field.key}
@@ -772,6 +808,67 @@ function DetectorDefaultsSection({
             </div>
           );
         })}
+        <div
+          data-testid="detector-default-row"
+          data-field="stateSpace"
+          data-dirty={detectorDefaultValueEquals(draft.stateSpace, defaults.stateSpace) ? "0" : "1"}
+          data-flashing={flashing.has("stateSpace") ? "1" : "0"}
+          className="contents"
+        >
+          <ExplainDt id="settings-state-space-config">State-space config</ExplainDt>
+          <dd
+            className={
+              flashing.has("stateSpace")
+                ? "transition-colors duration-fast bg-accent-yellow/15"
+                : "transition-colors duration-fast"
+            }
+          >
+            <div className="flex max-w-3xl flex-col gap-2">
+              <textarea
+                value={stateSpaceText}
+                onChange={(e: ChangeEvent<HTMLTextAreaElement>) => {
+                  updateStateSpaceText(e.target.value);
+                }}
+                onBlur={() => {
+                  if (stateSpaceError === null) commit("stateSpace");
+                }}
+                data-testid="detector-default-input-stateSpace"
+                aria-label="State-space config"
+                className="min-h-64 w-full border border-surface-2 bg-surface-0-from px-3 py-2 text-xs font-mono text-text-hi focus:border-accent-green focus:outline-none"
+              />
+              <div className="flex items-center gap-3">
+                {stateSpaceError === null ? (
+                  <span className="text-text-lo font-mono text-xs">
+                    Structured advanced model config for trigger shape, breadth normalization,
+                    process noise, anchors, and variance adaptation.
+                  </span>
+                ) : (
+                  <span
+                    data-testid="detector-default-error-stateSpace"
+                    className="font-mono text-xs text-accent-yellow"
+                  >
+                    {stateSpaceError}
+                  </span>
+                )}
+                {detectorDefaultValueEquals(
+                  defaults.stateSpace,
+                  BASELINE_DEFAULTS.stateSpace,
+                ) ? null : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      resetField("stateSpace");
+                    }}
+                    data-testid="detector-default-reset-stateSpace"
+                    className="font-mono text-xs uppercase tracking-wider text-accent-green hover:text-text-hi"
+                  >
+                    Reset to default
+                  </button>
+                )}
+              </div>
+            </div>
+          </dd>
+        </div>
       </dl>
       {mutation.isError ? (
         <p

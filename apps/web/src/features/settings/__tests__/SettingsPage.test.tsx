@@ -26,6 +26,7 @@ import {
   BOARD_MAD_WARMUP_BUCKETS_DEFAULT,
   K_MAD_LIVE,
 } from "@signal-console/detectors/board-mad/config";
+import { BOARD_STATE_SPACE_CONFIG_DEFAULTS } from "@signal-console/detectors/board-mad/state-space-config";
 
 import { SettingsPage } from "../SettingsPage";
 
@@ -90,6 +91,7 @@ interface DetectorDefaultsFixture {
   readonly recentWallWeight: number;
   readonly pbpPreBufferMs: number;
   readonly pbpPostBufferMs: number;
+  readonly stateSpace: Record<string, unknown>;
 }
 
 const DEFAULT_DETECTOR_DEFAULTS: DetectorDefaultsFixture = {
@@ -110,6 +112,7 @@ const DEFAULT_DETECTOR_DEFAULTS: DetectorDefaultsFixture = {
   recentWallWeight: BOARD_MAD_RECENT_WALL_WEIGHT_DEFAULT,
   pbpPreBufferMs: 5 * 60 * 1000,
   pbpPostBufferMs: 60_000,
+  stateSpace: BOARD_STATE_SPACE_CONFIG_DEFAULTS,
 };
 
 interface SettingsFixture {
@@ -485,10 +488,9 @@ describe("SettingsPage > Detector defaults (US-053)", () => {
       expect(screen.getByTestId("settings-detector-defaults")).toBeDefined();
     });
     const rows = screen.getAllByTestId("detector-default-row");
-    // Codex review P3 (2026-05-25): off-price thresholds added to the
-    // rendered Settings UI (+2 fields: offPriceMinVolumeShare,
-    // offPriceMinOffPriceDistance). Was 18, now 20.
-    expect(rows.length).toBe(20);
+    // Off-price thresholds and the advanced state-space JSON editor are now
+    // surfaced in Settings. Was 18, then 20, now 21.
+    expect(rows.length).toBe(21);
     const baselineMode = screen.getByTestId("detector-default-input-baselineMode");
     if (!(baselineMode instanceof HTMLSelectElement)) throw new Error("not select");
     expect(baselineMode.value).toBe(BOARD_MAD_BASELINE_MODE_DEFAULT);
@@ -576,6 +578,7 @@ describe("SettingsPage > Detector defaults (US-053)", () => {
     expect(obj["trailingGameMinutes"]).toBe(BOARD_MAD_TRAILING_GAME_MINUTES_DEFAULT);
     expect(obj["recentWallMinutes"]).toBe(BOARD_MAD_RECENT_WALL_MINUTES_DEFAULT);
     expect(obj["recentWallWeight"]).toBe(BOARD_MAD_RECENT_WALL_WEIGHT_DEFAULT);
+    expect(obj["stateSpace"]).toEqual(BOARD_STATE_SPACE_CONFIG_DEFAULTS);
   });
 
   it("profile promotion opens a confirmation and schedules the historical defaults", async () => {

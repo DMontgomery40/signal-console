@@ -71,6 +71,10 @@ import {
   BOARD_MAD_WARMUP_BUCKETS_MIN,
   K_MAD_LIVE,
 } from "@signal-console/detectors/board-mad/config";
+import {
+  BOARD_STATE_SPACE_CONFIG_DEFAULTS,
+  BoardStateSpaceConfigSchema,
+} from "@signal-console/detectors/board-mad/state-space-config";
 import { z } from "zod";
 
 export const DETECTOR_DEFAULTS_PATH: string = join(
@@ -184,6 +188,7 @@ export const DetectorDefaultsSchema = z
       .min(0)
       .max(1)
       .default(OFF_PRICE_MIN_OFF_PRICE_DISTANCE_DEFAULT),
+    stateSpace: BoardStateSpaceConfigSchema.default(BOARD_STATE_SPACE_CONFIG_DEFAULTS),
   })
   .strict();
 

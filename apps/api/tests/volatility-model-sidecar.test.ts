@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 
+import { BOARD_STATE_SPACE_CONFIG_DEFAULTS } from "@signal-console/detectors/board-mad/state-space-config";
+
 import { fetchBoardVolatilityStateSpace } from "../src/services/volatility-model-sidecar";
 
 describe("volatility model sidecar client", () => {
@@ -60,6 +62,7 @@ describe("volatility model sidecar client", () => {
           historicalPriorWeight: 1,
           historicalRampCompleteGameMinutes: 12,
           kMad: 5,
+          stateSpace: BOARD_STATE_SPACE_CONFIG_DEFAULTS,
           trailingBuckets: 20,
           warmupBuckets: 8,
         },
@@ -100,6 +103,7 @@ describe("volatility model sidecar client", () => {
             baselineMode: "trailing",
             bucketSeconds: 60,
             kMad: 3,
+            stateSpace: BOARD_STATE_SPACE_CONFIG_DEFAULTS,
             trailingBuckets: 20,
             warmupBuckets: 8,
           },

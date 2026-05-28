@@ -53,6 +53,10 @@ import {
   BOARD_MAD_WEIGHTING_DEFAULT,
   K_MAD_LIVE,
 } from "./config";
+import {
+  BOARD_STATE_SPACE_CONFIG_DEFAULTS,
+  BoardStateSpaceConfigSchema,
+} from "./state-space-config";
 
 export const Params = z.object({
   bucketSeconds: z
@@ -136,6 +140,7 @@ export const Params = z.object({
     .min(BOARD_MAD_FRESH_CAP_SECONDS_MIN)
     .max(BOARD_MAD_FRESH_CAP_SECONDS_MAX)
     .default(BOARD_MAD_FRESH_CAP_SECONDS_DEFAULT),
+  stateSpace: BoardStateSpaceConfigSchema.default(BOARD_STATE_SPACE_CONFIG_DEFAULTS),
 });
 
 export type ParamsResolved = z.infer<typeof Params>;

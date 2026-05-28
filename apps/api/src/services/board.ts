@@ -73,6 +73,7 @@ function resolveLiveBoardMadParams(
     openingRampCompleteBuckets: defaults.openingRampCompleteBuckets,
     recentWallMinutes: defaults.recentWallMinutes,
     recentWallWeight: defaults.recentWallWeight,
+    stateSpace: defaults.stateSpace,
     trailingGameMinutes: defaults.trailingGameMinutes,
     trailingBuckets: defaults.trailingBuckets,
     warmupBuckets: defaults.warmupBuckets,

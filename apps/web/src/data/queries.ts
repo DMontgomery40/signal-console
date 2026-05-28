@@ -20,6 +20,7 @@ import {
   BOARD_MAD_BASELINE_MODE_OPENING_RAMP,
   BOARD_MAD_BASELINE_MODE_TRAILING,
 } from "@signal-console/detectors/board-mad/config";
+import { BoardStateSpaceConfigSchema } from "@signal-console/detectors/board-mad/state-space-config";
 import { z } from "zod";
 
 const API_BASE_URL: string =
@@ -327,6 +328,7 @@ const detectorDefaultsSchema = z.object({
   recentWallWeight: z.number(),
   pbpPreBufferMs: z.number().int(),
   pbpPostBufferMs: z.number().int(),
+  stateSpace: BoardStateSpaceConfigSchema,
   // Phase B3: off-price-print thresholds, runtime-tunable.
   offPriceMinVolumeShare: z.number().default(0.1),
   offPriceMinOffPriceDistance: z.number().default(0.4),

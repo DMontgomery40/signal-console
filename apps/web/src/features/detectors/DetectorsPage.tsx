@@ -25,7 +25,7 @@ import type { ExplainerId } from "@signal-console/ui";
 import { ApiUnreachableBanner, isNetworkError } from "../../components/ApiUnreachableBanner";
 import { QueryErrorBanner } from "../../components/QueryErrorBanner";
 import { useDetectors, type DetectorEntry } from "../../data/queries";
-import { parseSchema, readBoolean, type ParsedProperty } from "../../lib/paramsSchema";
+import { isRecord, parseSchema, readBoolean, type ParsedProperty } from "../../lib/paramsSchema";
 
 // Per US-046, each detector card's title and each visible param name is
 // wrapped in an ExplainerCard so the registered HoverCard fires on hover.
@@ -42,6 +42,7 @@ const PARAM_DISPLAY_NAMES: Readonly<Record<string, string>> = {
   kMad: "Innovation trigger",
   openingBaselineBuckets: "Opening anchor sample",
   openingRampCompleteBuckets: "Opening anchor fade-out",
+  stateSpace: "State-space config",
   trailingBuckets: "Filter memory",
   warmupBuckets: "Alert holdoff",
 };
@@ -53,6 +54,7 @@ const PARAM_EXPLAINER_IDS: Readonly<Record<string, ExplainerId>> = {
   kMad: "k-mad",
   openingBaselineBuckets: "settings-opening-baseline-buckets",
   openingRampCompleteBuckets: "settings-opening-ramp-complete-buckets",
+  stateSpace: "settings-state-space-config",
   trailingBuckets: "trailing-buckets",
   warmupBuckets: "warmup-buckets",
 };
@@ -181,6 +183,19 @@ function readBooleanDefault(prop: ParsedProperty): boolean {
 }
 
 function UnknownField({ prop }: { prop: ParsedProperty }): JSX.Element {
+  if (isRecord(prop.defaultValue)) {
+    return (
+      <textarea
+        disabled
+        readOnly
+        value={JSON.stringify(prop.defaultValue, null, 2)}
+        data-testid={`param-input-${prop.name}`}
+        data-param-kind="unknown"
+        aria-label={prop.name}
+        className="min-h-40 w-full border border-surface-2 bg-surface-1 px-2 py-1 text-xs font-mono text-text-md disabled:cursor-not-allowed disabled:opacity-100"
+      />
+    );
+  }
   const raw =
     typeof prop.defaultValue === "string" || typeof prop.defaultValue === "number"
       ? String(prop.defaultValue)

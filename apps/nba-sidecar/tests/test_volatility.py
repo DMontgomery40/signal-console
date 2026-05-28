@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from copy import deepcopy
+
 from nba_sidecar.main import post_board_volatility_state_space
 from nba_sidecar.models import (
     VolatilityHistoricalPrior,
@@ -8,6 +10,60 @@ from nba_sidecar.models import (
     VolatilityStateSpaceRequest,
 )
 from nba_sidecar.volatility import score_volatility_state_space
+
+
+DEFAULT_STATE_SPACE = {
+    "trigger": {
+        "enterOffset": 0.9,
+        "enterKScale": 0.45,
+        "exitFloor": 0.75,
+        "exitRatio": 0.7,
+    },
+    "breadth": {"marketCountFloor": 1, "marketCountExponent": 0.5},
+    "anchors": {
+        "priorScaleFallback": 0.2,
+        "priorScaleFloor": 0.05,
+        "anchorScaleFloor": 0.05,
+        "precisionVarianceFloor": 1e-6,
+    },
+    "dynamics": {
+        "minMemoryBuckets": 2,
+        "trendDecayNumerator": 1,
+        "levelProcessNoiseBase": 0.015,
+        "levelProcessNoiseScale": 0.18,
+        "trendProcessNoiseRatio": 0.2,
+        "varianceAdaptationBase": 0.06,
+        "varianceAdaptationScale": 0.9,
+        "varianceAdaptationOffset": 10,
+        "initialLevelVariance": 1,
+        "initialTrendVariance": 1,
+        "initialVarianceFloor": 0.04,
+    },
+    "observationNoise": {
+        "floor": 0.05,
+        "minimum": 1e-4,
+        "singleSourceDominance": 1,
+        "multiSourceDominanceFallback": 0.5,
+        "sourceDominancePenalty": 1.2,
+        "sourceAgreementBonus": 0.45,
+        "sourceCountBonus": 0.15,
+    },
+    "variance": {
+        "madScale": 1.4826,
+        "floor": 1e-4,
+        "ceiling": 4,
+        "decay": 0.98,
+        "bumpCap": 9,
+        "bumpCenter": 1,
+        "agreementBase": 0.8,
+        "agreementScale": 0.4,
+        "baselineMadFloor": 1e-9,
+    },
+}
+
+
+def default_state_space() -> dict:
+    return deepcopy(DEFAULT_STATE_SPACE)
 
 
 def observation(intensity: float, minute: int) -> VolatilityStateSpaceObservation:
@@ -29,6 +85,7 @@ def test_state_space_scores_regime_entry_without_paging_every_bucket() -> None:
             baselineMode="trailing",
             bucketSeconds=60,
             kMad=3,
+            stateSpace=default_state_space(),
             trailingBuckets=20,
             warmupBuckets=8,
         ),
@@ -43,6 +100,46 @@ def test_state_space_scores_regime_entry_without_paging_every_bucket() -> None:
     assert sum(1 for row in result.observations if row.fired) == 1
 
 
+def test_state_space_trigger_config_is_operator_tunable() -> None:
+    observations = [
+        *[observation(8 + (i % 3), i) for i in range(10)],
+        *[observation(90 + (i % 5) * 8, i + 10) for i in range(20)],
+    ]
+    default_request = VolatilityStateSpaceRequest(
+        gameId="nba-synth-trigger-default",
+        params=VolatilityStateSpaceParams(
+            baselineMode="trailing",
+            bucketSeconds=60,
+            kMad=3,
+            stateSpace=default_state_space(),
+            trailingBuckets=20,
+            warmupBuckets=8,
+        ),
+        observations=observations,
+    )
+    strict_state_space = default_state_space()
+    strict_state_space["trigger"]["enterOffset"] = 5.0
+    strict_state_space["trigger"]["enterKScale"] = 0.8
+    strict_request = VolatilityStateSpaceRequest(
+        gameId="nba-synth-trigger-strict",
+        params=VolatilityStateSpaceParams(
+            baselineMode="trailing",
+            bucketSeconds=60,
+            kMad=3,
+            stateSpace=strict_state_space,
+            trailingBuckets=20,
+            warmupBuckets=8,
+        ),
+        observations=observations,
+    )
+
+    default_result = score_volatility_state_space(default_request)
+    strict_result = score_volatility_state_space(strict_request)
+
+    assert sum(1 for row in default_result.observations if row.fired) == 1
+    assert sum(1 for row in strict_result.observations if row.fired) == 0
+
+
 def test_state_space_keeps_historical_prior_early_then_fades() -> None:
     request = VolatilityStateSpaceRequest(
         gameId="nba-synth-2",
@@ -55,6 +152,7 @@ def test_state_space_keeps_historical_prior_early_then_fades() -> None:
             historicalPrior=VolatilityHistoricalPrior(mad=4, median=40, sampleSize=25),
             historicalPriorWeight=1,
             historicalRampCompleteGameMinutes=12,
+            stateSpace=default_state_space(),
         ),
         observations=[observation(12 + i, i) for i in range(12)],
     )
@@ -76,6 +174,7 @@ def test_state_space_uses_opening_anchor_controls_in_opening_ramp_mode() -> None
             warmupBuckets=2,
             openingBaselineBuckets=4,
             openingRampCompleteBuckets=10,
+            stateSpace=default_state_space(),
         ),
         observations=[
             observation(6, 0),
@@ -109,6 +208,7 @@ def test_state_space_uses_game_and_wall_memory_in_historical_blend_mode() -> Non
             recentWallMinutes=2,
             recentWallWeight=2,
             warmupBuckets=2,
+            stateSpace=default_state_space(),
         ),
         observations=[
             observation(8, 0),
@@ -135,6 +235,7 @@ def test_state_space_endpoint_returns_observable_contract() -> None:
                 baselineMode="trailing",
                 bucketSeconds=60,
                 kMad=3,
+                stateSpace=default_state_space(),
                 trailingBuckets=20,
                 warmupBuckets=8,
             ),

@@ -67,6 +67,11 @@ import {
   BOARD_MAD_WARMUP_BUCKETS_DEFAULT,
   K_MAD_LIVE,
 } from "@signal-console/detectors/board-mad/config";
+import {
+  BOARD_STATE_SPACE_CONFIG_DEFAULTS,
+  BoardStateSpaceConfigSchema,
+  type BoardStateSpaceConfig,
+} from "@signal-console/detectors/board-mad/state-space-config";
 
 const KMAD_PARAM_NAME = "kMad";
 const BUCKET_SECONDS_PARAM_NAME = "bucketSeconds";
@@ -82,6 +87,7 @@ const HISTORICAL_RAMP_GAME_MINUTES_PARAM_NAME = "historicalRampCompleteGameMinut
 const TRAILING_GAME_MINUTES_PARAM_NAME = "trailingGameMinutes";
 const RECENT_WALL_MINUTES_PARAM_NAME = "recentWallMinutes";
 const RECENT_WALL_WEIGHT_PARAM_NAME = "recentWallWeight";
+const STATE_SPACE_PARAM_NAME = "stateSpace";
 const BUCKET_SECONDS_DEFAULT = BOARD_MAD_BUCKET_SECONDS_DEFAULT;
 const BASELINE_MODE_DEFAULT = BOARD_MAD_BASELINE_MODE_DEFAULT;
 const OPENING_BASELINE_DEFAULT = BOARD_MAD_OPENING_BASELINE_BUCKETS_DEFAULT;
@@ -152,11 +158,46 @@ function readString(v: unknown, fallback: string): string {
   return typeof v === "string" && v.length > 0 ? v : fallback;
 }
 
+function stableJson(value: unknown): string {
+  return JSON.stringify(value, null, 2);
+}
+
+function jsonValuesEqual(left: unknown, right: unknown): boolean {
+  if (typeof left === "object" && left !== null && typeof right === "object" && right !== null) {
+    return stableJson(left) === stableJson(right);
+  }
+  return left === right;
+}
+
 // Both board-mad and ensemble-or share the board lane's sensitivity/baseline-timing knobs.
 // The dials are the marquee Backtest UX so they render for either detector;
 // the difference is just where in the params tree the values live.
 function isBoardLikeDetector(id: string | undefined): boolean {
   return id === BOARD_MAD_DETECTOR_ID || id === ENSEMBLE_OR_DETECTOR_ID;
+}
+
+function withBoardStateSpaceDefaults(
+  detectorId: string,
+  params: Readonly<Record<string, unknown>>,
+): Readonly<Record<string, unknown>> {
+  if (detectorId === ENSEMBLE_OR_DETECTOR_ID) {
+    const board = isPlainRecord(params["board"]) ? params["board"] : {};
+    return {
+      ...params,
+      board: {
+        ...board,
+        [STATE_SPACE_PARAM_NAME]:
+          board[STATE_SPACE_PARAM_NAME] ?? BOARD_STATE_SPACE_CONFIG_DEFAULTS,
+      },
+    };
+  }
+  if (detectorId === BOARD_MAD_DETECTOR_ID) {
+    return {
+      ...params,
+      [STATE_SPACE_PARAM_NAME]: params[STATE_SPACE_PARAM_NAME] ?? BOARD_STATE_SPACE_CONFIG_DEFAULTS,
+    };
+  }
+  return params;
 }
 
 function isPlainRecord(v: unknown): v is Record<string, unknown> {
@@ -191,6 +232,24 @@ function readBoardStringParam(
     return fallback;
   }
   return readString(params[name], fallback);
+}
+
+function readBoardStateSpaceConfig(
+  params: Readonly<Record<string, unknown>>,
+  detectorId: string | undefined,
+): BoardStateSpaceConfig {
+  if (detectorId === ENSEMBLE_OR_DETECTOR_ID) {
+    const board = params["board"];
+    if (isPlainRecord(board)) {
+      return BoardStateSpaceConfigSchema.parse(
+        board[STATE_SPACE_PARAM_NAME] ?? BOARD_STATE_SPACE_CONFIG_DEFAULTS,
+      );
+    }
+    return BoardStateSpaceConfigSchema.parse(BOARD_STATE_SPACE_CONFIG_DEFAULTS);
+  }
+  return BoardStateSpaceConfigSchema.parse(
+    params[STATE_SPACE_PARAM_NAME] ?? BOARD_STATE_SPACE_CONFIG_DEFAULTS,
+  );
 }
 
 function inferBoardProfile(baselineMode: string, bucketSeconds: number): BoardProfileId {
@@ -743,6 +802,10 @@ export function BacktestPage(): JSX.Element {
   }));
 
   const [snapshot, setSnapshot] = useState<RunSnapshot | null>(null);
+  const [stateSpaceText, setStateSpaceText] = useState<string>(
+    stableJson(BOARD_STATE_SPACE_CONFIG_DEFAULTS),
+  );
+  const [stateSpaceError, setStateSpaceError] = useState<string | null>(null);
 
   const detectorRows = useMemo(() => detectorsQuery.data?.detectors ?? [], [detectorsQuery.data]);
   const selectedDetector = useMemo(
@@ -764,7 +827,7 @@ export function BacktestPage(): JSX.Element {
     setForm((prev) => ({
       ...prev,
       detectorId: initial,
-      params: defaultValuesFor(props),
+      params: withBoardStateSpaceDefaults(initial, defaultValuesFor(props)),
     }));
   }, [detectorRows, form.detectorId]);
 
@@ -800,6 +863,18 @@ export function BacktestPage(): JSX.Element {
     });
   }
 
+  function updateBoardStateSpaceText(raw: string): void {
+    setStateSpaceText(raw);
+    try {
+      const parsedUnknown: unknown = JSON.parse(raw);
+      const parsed = BoardStateSpaceConfigSchema.parse(parsedUnknown);
+      setStateSpaceError(null);
+      updateBoardParam(STATE_SPACE_PARAM_NAME, parsed);
+    } catch {
+      setStateSpaceError("State-space config must be valid JSON matching the model schema.");
+    }
+  }
+
   function applyBoardProfile(profileId: BoardProfileId): void {
     if (profileId === "custom") return;
     const preset = BOARD_PROFILE_PRESETS.find((profile) => profile.id === profileId);
@@ -812,7 +887,7 @@ export function BacktestPage(): JSX.Element {
     setForm((prev) => ({
       ...prev,
       detectorId: id,
-      params: defaultValuesFor(props),
+      params: withBoardStateSpaceDefaults(id, defaultValuesFor(props)),
     }));
   }
 
@@ -839,6 +914,7 @@ export function BacktestPage(): JSX.Element {
     windowError === null &&
     !tooManyGames &&
     !noGamesSelected &&
+    stateSpaceError === null &&
     !runMutation.isPending;
 
   function buildRequest(): BacktestRequest {
@@ -933,7 +1009,15 @@ export function BacktestPage(): JSX.Element {
     WARMUP_PARAM_NAME,
     WARMUP_DEFAULT,
   );
+  const currentStateSpace = readBoardStateSpaceConfig(form.params, selectedDetector?.id);
+  const currentStateSpaceJson = stableJson(currentStateSpace);
   const currentProfile = inferBoardProfile(currentBaselineMode, currentBucketSeconds);
+
+  useEffect(() => {
+    if (!boardLikeSelected) return;
+    setStateSpaceText(currentStateSpaceJson);
+    setStateSpaceError(null);
+  }, [boardLikeSelected, currentStateSpaceJson, selectedDetector?.id]);
 
   // Phase B4 + Codex review P2 (2026-05-25): live-parity computation +
   // promote-to-live actions. For ensemble-or we ALSO compare the offprice
@@ -958,7 +1042,8 @@ export function BacktestPage(): JSX.Element {
         currentOpeningRampCompleteBuckets === liveDefaults.openingRampCompleteBuckets &&
         currentMemoryBuckets === liveDefaults.trailingBuckets &&
         currentWarmupBuckets === liveDefaults.warmupBuckets &&
-        currentSensitivity === liveDefaults.kMadLive
+        currentSensitivity === liveDefaults.kMadLive &&
+        jsonValuesEqual(currentStateSpace, liveDefaults.stateSpace)
       : null;
   const offpriceFieldsMatchLive =
     liveDefaults !== null && isEnsembleSelected && currentEnsembleOffprice !== null
@@ -1011,6 +1096,7 @@ export function BacktestPage(): JSX.Element {
       trailingBuckets: currentMemoryBuckets,
       warmupBuckets: currentWarmupBuckets,
       kMadLive: currentSensitivity,
+      stateSpace: currentStateSpace,
       ...offpriceFields,
     };
   }
@@ -1347,6 +1433,42 @@ export function BacktestPage(): JSX.Element {
                   memory as the trigger moves.
                 </p>
               </div>
+              <div
+                className="border border-surface-2 bg-surface-0-from/70 px-4 py-5 sm:px-5"
+                data-testid="backtest-state-space-config"
+              >
+                <div className="text-text-lo text-xs uppercase tracking-[0.08em] font-sans">
+                  <ExplainerCard id="settings-state-space-config">
+                    <span>State-space config</span>
+                  </ExplainerCard>
+                </div>
+                <p className="mt-2 max-w-[64ch] text-xs text-text-md">
+                  Advanced JSON object for trigger shape, breadth normalization, process noise,
+                  anchors, and variance adaptation. Any change here requires a rerun.
+                </p>
+                <textarea
+                  value={stateSpaceText}
+                  onChange={(e: ChangeEvent<HTMLTextAreaElement>) => {
+                    updateBoardStateSpaceText(e.target.value);
+                  }}
+                  data-testid="backtest-state-space-input"
+                  aria-label="State-space config"
+                  className="mt-3 min-h-64 w-full border border-surface-2 bg-surface-0-from px-3 py-2 text-xs font-mono text-text-hi focus:border-accent-green focus:outline-none"
+                />
+                {stateSpaceError === null ? (
+                  <p className="mt-2 text-xs text-text-lo">
+                    The browser keeps showing the last server snapshot until you rerun with this
+                    advanced config.
+                  </p>
+                ) : (
+                  <p
+                    data-testid="backtest-state-space-error"
+                    className="mt-2 font-mono text-xs text-accent-yellow"
+                  >
+                    {stateSpaceError}
+                  </p>
+                )}
+              </div>
             </div>
           ) : null}
         </div>
@@ -1376,7 +1498,8 @@ export function BacktestPage(): JSX.Element {
                     p.name !== OPENING_BASELINE_PARAM_NAME &&
                     p.name !== OPENING_RAMP_COMPLETE_PARAM_NAME &&
                     p.name !== TRAILING_PARAM_NAME &&
-                    p.name !== WARMUP_PARAM_NAME)
+                    p.name !== WARMUP_PARAM_NAME &&
+                    p.name !== STATE_SPACE_PARAM_NAME)
                 );
               })
               .map((p) => (

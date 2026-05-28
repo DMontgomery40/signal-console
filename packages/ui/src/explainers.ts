@@ -449,6 +449,14 @@ This is the switch that makes Backtest and live behavior match. If you promote h
     formal: String.raw`\`recentWallWeight\` is the relative precision weight assigned to the recent wall-clock anchor when both the game-clock and wall-clock anchors exist in \`historical-blend\`. Larger values make timeout-era market stress pull the baseline harder.`,
   },
 
+  "settings-state-space-config": {
+    title: "State-space config",
+    eli5: String.raw`This is the full advanced model object, not just a loose bag of extra numbers. It contains the internal choices that shape how the board model behaves: trigger math, breadth normalization, process noise, measurement noise, anchor handling, and variance adaptation.
+
+The point of exposing it as one structured JSON object is honesty and portability. Data-engineering or stats people can tune the actual model without spelunking Python literals, and the exact same object can travel through Settings, Backtest, saved defaults, and bakeoff runs.`,
+    formal: String.raw`Nested runtime config for the Python board state-space model. The object is validated end-to-end by \`BoardStateSpaceConfigSchema\` in \`packages/detectors/src/board-mad/state-space-config.ts\`, serialized through detector defaults and backtest params, and consumed by \`apps/nba-sidecar/src/nba_sidecar/volatility.py\`. This is the canonical home for advanced tunables such as trigger coefficients, breadth exponent, process-noise terms, observation-noise weights, anchor floors, and variance-adaptation limits.`,
+  },
+
   "settings-pbp-pre-buffer-ms": {
     title: "PBP pre-buffer (ms)",
     eli5: String.raw`How far before the first play-by-play timestamp to start reading quote ticks. 5 minutes by default — long enough to seed the trailing baseline without dragging in pre-game noise.`,

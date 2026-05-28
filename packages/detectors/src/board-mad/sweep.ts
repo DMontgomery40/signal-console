@@ -17,7 +17,9 @@ import { resolveBoardMadBaseline } from "./baseline";
 import type { ParamsResolved } from "./params";
 import type { BucketSeries, BucketSeriesGame } from "./prebucket";
 
-export type SweepParams = Omit<ParamsResolved, "kMad">;
+export type SweepParams = Omit<ParamsResolved, "kMad" | "stateSpace"> & {
+  readonly stateSpace?: ParamsResolved["stateSpace"];
+};
 
 export interface SweepResult {
   readonly k: number;

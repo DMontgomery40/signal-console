@@ -353,6 +353,7 @@ describe("detector-defaults route (US-053)", () => {
     expect(defaults["freshCapSeconds"]).toBe(BASELINE_DEFAULTS.freshCapSeconds);
     expect(defaults["pbpPreBufferMs"]).toBe(BASELINE_DEFAULTS.pbpPreBufferMs);
     expect(defaults["pbpPostBufferMs"]).toBe(BASELINE_DEFAULTS.pbpPostBufferMs);
+    expect(defaults["stateSpace"]).toEqual(BASELINE_DEFAULTS.stateSpace);
     // Phase B3: off-price thresholds in runtime defaults.
     expect(defaults["offPriceMinVolumeShare"]).toBe(BASELINE_DEFAULTS.offPriceMinVolumeShare);
     expect(defaults["offPriceMinOffPriceDistance"]).toBe(
@@ -399,6 +400,7 @@ describe("detector-defaults route (US-053)", () => {
     expect(body["baselineMode"]).toBe(BOARD_MAD_BASELINE_MODE_OPENING_RAMP);
     expect(body["openingRampCompleteBuckets"]).toBe(12);
     expect(body["trailingBuckets"]).toBe(30);
+    expect(body["stateSpace"]).toEqual(BASELINE_DEFAULTS.stateSpace);
 
     // Atomic write landed at the expected path.
     const path = join(ctx.tempDir, "detector-defaults.json");
@@ -407,6 +409,7 @@ describe("detector-defaults route (US-053)", () => {
     expect(onDisk["kMadLive"]).toBe(4.5);
     expect(onDisk["baselineMode"]).toBe(BOARD_MAD_BASELINE_MODE_OPENING_RAMP);
     expect(onDisk["openingRampCompleteBuckets"]).toBe(12);
+    expect(onDisk["stateSpace"]).toEqual(BASELINE_DEFAULTS.stateSpace);
 
     // Cache invalidated immediately: next GET reflects the new values.
     const get = await app.inject({
@@ -421,6 +424,7 @@ describe("detector-defaults route (US-053)", () => {
     expect(defaults["baselineMode"]).toBe(BOARD_MAD_BASELINE_MODE_OPENING_RAMP);
     expect(defaults["openingRampCompleteBuckets"]).toBe(12);
     expect(defaults["trailingBuckets"]).toBe(30);
+    expect(defaults["stateSpace"]).toEqual(BASELINE_DEFAULTS.stateSpace);
     const about = asRecord(getBody["about"], "about");
     const dv = about["detectorVersions"];
     if (!isUnknownArray(dv)) throw new Error("detectorVersions not array");

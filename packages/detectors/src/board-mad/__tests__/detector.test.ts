@@ -19,6 +19,7 @@ import {
   BOARD_MAD_WEIGHTING_DEFAULT,
   K_MAD_LIVE,
 } from "../config";
+import { BOARD_STATE_SPACE_CONFIG_DEFAULTS } from "../state-space-config";
 import { detector, Params } from "../index";
 
 const defaults = (): ReturnType<typeof Params.parse> => Params.parse({});
@@ -57,6 +58,7 @@ describe("board-mad detector", () => {
     expect(p.recentWallMinutes).toBe(BOARD_MAD_RECENT_WALL_MINUTES_DEFAULT);
     expect(p.recentWallWeight).toBe(BOARD_MAD_RECENT_WALL_WEIGHT_DEFAULT);
     expect(p.freshCapSeconds).toBe(BOARD_MAD_FRESH_CAP_SECONDS_DEFAULT);
+    expect(p.stateSpace).toEqual(BOARD_STATE_SPACE_CONFIG_DEFAULTS);
   });
 
   it("returns empty fires and zero firesPerGame on empty ticks (US-009 AC)", () => {

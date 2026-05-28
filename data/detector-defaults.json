@@ -16,6 +16,57 @@
   "recentWallWeight": 1.5,
   "pbpPreBufferMs": 300000,
   "pbpPostBufferMs": 60000,
+  "stateSpace": {
+    "trigger": {
+      "enterOffset": 0.9,
+      "enterKScale": 0.45,
+      "exitFloor": 0.75,
+      "exitRatio": 0.7
+    },
+    "breadth": {
+      "marketCountFloor": 1,
+      "marketCountExponent": 0.5
+    },
+    "anchors": {
+      "priorScaleFallback": 0.2,
+      "priorScaleFloor": 0.05,
+      "anchorScaleFloor": 0.05,
+      "precisionVarianceFloor": 0.000001
+    },
+    "dynamics": {
+      "minMemoryBuckets": 2,
+      "trendDecayNumerator": 1,
+      "levelProcessNoiseBase": 0.015,
+      "levelProcessNoiseScale": 0.18,
+      "trendProcessNoiseRatio": 0.2,
+      "varianceAdaptationBase": 0.06,
+      "varianceAdaptationScale": 0.9,
+      "varianceAdaptationOffset": 10,
+      "initialLevelVariance": 1,
+      "initialTrendVariance": 1,
+      "initialVarianceFloor": 0.04
+    },
+    "observationNoise": {
+      "floor": 0.05,
+      "minimum": 0.0001,
+      "singleSourceDominance": 1,
+      "multiSourceDominanceFallback": 0.5,
+      "sourceDominancePenalty": 1.2,
+      "sourceAgreementBonus": 0.45,
+      "sourceCountBonus": 0.15
+    },
+    "variance": {
+      "madScale": 1.4826,
+      "floor": 0.0001,
+      "ceiling": 4,
+      "decay": 0.98,
+      "bumpCap": 9,
+      "bumpCenter": 1,
+      "agreementBase": 0.8,
+      "agreementScale": 0.4,
+      "baselineMadFloor": 0.000000001
+    }
+  },
   "offPriceMinVolumeShare": 0.1,
   "offPriceMinOffPriceDistance": 0.4
 }

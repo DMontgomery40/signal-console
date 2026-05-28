@@ -95,6 +95,70 @@ class VolatilityStateSpaceObservation(BaseModel):
     sourceDominance: float | None = None
 
 
+class VolatilityStateSpaceTriggerConfig(BaseModel):
+    enterOffset: float
+    enterKScale: float
+    exitFloor: float
+    exitRatio: float
+
+
+class VolatilityStateSpaceBreadthConfig(BaseModel):
+    marketCountFloor: int
+    marketCountExponent: float
+
+
+class VolatilityStateSpaceAnchorConfig(BaseModel):
+    priorScaleFallback: float
+    priorScaleFloor: float
+    anchorScaleFloor: float
+    precisionVarianceFloor: float
+
+
+class VolatilityStateSpaceDynamicsConfig(BaseModel):
+    minMemoryBuckets: int
+    trendDecayNumerator: float
+    levelProcessNoiseBase: float
+    levelProcessNoiseScale: float
+    trendProcessNoiseRatio: float
+    varianceAdaptationBase: float
+    varianceAdaptationScale: float
+    varianceAdaptationOffset: float
+    initialLevelVariance: float
+    initialTrendVariance: float
+    initialVarianceFloor: float
+
+
+class VolatilityStateSpaceObservationNoiseConfig(BaseModel):
+    floor: float
+    minimum: float
+    singleSourceDominance: float
+    multiSourceDominanceFallback: float
+    sourceDominancePenalty: float
+    sourceAgreementBonus: float
+    sourceCountBonus: float
+
+
+class VolatilityStateSpaceVarianceConfig(BaseModel):
+    madScale: float
+    floor: float
+    ceiling: float
+    decay: float
+    bumpCap: float
+    bumpCenter: float
+    agreementBase: float
+    agreementScale: float
+    baselineMadFloor: float
+
+
+class VolatilityStateSpaceConfig(BaseModel):
+    trigger: VolatilityStateSpaceTriggerConfig
+    breadth: VolatilityStateSpaceBreadthConfig
+    anchors: VolatilityStateSpaceAnchorConfig
+    dynamics: VolatilityStateSpaceDynamicsConfig
+    observationNoise: VolatilityStateSpaceObservationNoiseConfig
+    variance: VolatilityStateSpaceVarianceConfig
+
+
 class VolatilityStateSpaceParams(BaseModel):
     baselineMode: Literal["trailing", "opening-ramp", "historical-blend"]
     bucketSeconds: int
@@ -109,6 +173,7 @@ class VolatilityStateSpaceParams(BaseModel):
     historicalRampCompleteGameMinutes: float | None = None
     recentWallMinutes: float | None = None
     recentWallWeight: float | None = None
+    stateSpace: VolatilityStateSpaceConfig
 
 
 class VolatilityStateSpaceRequest(BaseModel):

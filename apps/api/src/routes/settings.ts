@@ -10,43 +10,12 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { CACHE_DB_PATH, GOLD_DB_PATH } from "@signal-console/db";
-import {
-  BOARD_MAD_BASELINE_MODE_HISTORICAL_BLEND,
-  BOARD_MAD_BASELINE_MODE_OPENING_RAMP,
-  BOARD_MAD_BASELINE_MODE_TRAILING,
-  BOARD_MAD_BUCKET_SECONDS_MAX,
-  BOARD_MAD_BUCKET_SECONDS_MIN,
-  BOARD_MAD_FRESH_CAP_SECONDS_MAX,
-  BOARD_MAD_FRESH_CAP_SECONDS_MIN,
-  BOARD_MAD_HISTORICAL_AWAY_WEIGHT_MAX,
-  BOARD_MAD_HISTORICAL_AWAY_WEIGHT_MIN,
-  BOARD_MAD_HISTORICAL_LAST_GAMES_MAX,
-  BOARD_MAD_HISTORICAL_LAST_GAMES_MIN,
-  BOARD_MAD_HISTORICAL_PRIOR_WEIGHT_MAX,
-  BOARD_MAD_HISTORICAL_PRIOR_WEIGHT_MIN,
-  BOARD_MAD_HISTORICAL_RAMP_COMPLETE_GAME_MINUTES_MAX,
-  BOARD_MAD_HISTORICAL_RAMP_COMPLETE_GAME_MINUTES_MIN,
-  BOARD_MAD_K_MAD_MAX,
-  BOARD_MAD_K_MAD_MIN,
-  BOARD_MAD_OPENING_BASELINE_BUCKETS_MAX,
-  BOARD_MAD_OPENING_BASELINE_BUCKETS_MIN,
-  BOARD_MAD_OPENING_RAMP_COMPLETE_BUCKETS_MAX,
-  BOARD_MAD_OPENING_RAMP_COMPLETE_BUCKETS_MIN,
-  BOARD_MAD_RECENT_WALL_MINUTES_MAX,
-  BOARD_MAD_RECENT_WALL_MINUTES_MIN,
-  BOARD_MAD_RECENT_WALL_WEIGHT_MAX,
-  BOARD_MAD_RECENT_WALL_WEIGHT_MIN,
-  BOARD_MAD_TRAILING_BUCKETS_MAX,
-  BOARD_MAD_TRAILING_BUCKETS_MIN,
-  BOARD_MAD_TRAILING_GAME_MINUTES_MAX,
-  BOARD_MAD_TRAILING_GAME_MINUTES_MIN,
-  BOARD_MAD_WARMUP_BUCKETS_MAX,
-  BOARD_MAD_WARMUP_BUCKETS_MIN,
-} from "@signal-console/detectors/board-mad/config";
 import type { FastifyPluginAsync } from "fastify";
+import { zodToJsonSchema } from "zod-to-json-schema";
 
 import {
   DetectorDefaultsSchema,
+  ScheduledDetectorDefaultsSchema,
   scheduleDetectorDefaults,
   writeDetectorDefaults,
   type DetectorDefaults,
@@ -80,6 +49,10 @@ const DEFAULT_LOG_PATH = join(homedir(), "signal-console", "apps", "api", "data"
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null;
+}
+
+function toJsonSchemaObject(schema: unknown): Record<string, unknown> {
+  return isRecord(schema) ? schema : {};
 }
 
 function readDefaultAppVersion(): string {
@@ -131,6 +104,14 @@ const sourcesSchema = {
     },
   ],
 } as const;
+
+const detectorDefaultsResponseSchema = toJsonSchemaObject(
+  zodToJsonSchema(DetectorDefaultsSchema, { $refStrategy: "none" }),
+);
+
+const scheduledDetectorDefaultsResponseSchema = toJsonSchemaObject(
+  zodToJsonSchema(ScheduledDetectorDefaultsSchema, { $refStrategy: "none" }),
+);
 
 const responseSchema = {
   type: "object",
@@ -191,238 +172,8 @@ const responseSchema = {
         dbSchemaVersion: { type: "integer" },
       },
     },
-    detectorDefaults: {
-      type: "object",
-      required: [
-        "kMadLive",
-        "baselineMode",
-        "bucketSeconds",
-        "openingBaselineBuckets",
-        "openingRampCompleteBuckets",
-        "trailingBuckets",
-        "warmupBuckets",
-        "freshCapSeconds",
-        "historicalLastGames",
-        "historicalAwayWeight",
-        "historicalPriorWeight",
-        "historicalRampCompleteGameMinutes",
-        "trailingGameMinutes",
-        "recentWallMinutes",
-        "recentWallWeight",
-        "pbpPreBufferMs",
-        "pbpPostBufferMs",
-        "offPriceMinVolumeShare",
-        "offPriceMinOffPriceDistance",
-      ],
-      properties: {
-        kMadLive: {
-          type: "number",
-          minimum: BOARD_MAD_K_MAD_MIN,
-          maximum: BOARD_MAD_K_MAD_MAX,
-        },
-        baselineMode: {
-          type: "string",
-          enum: [
-            BOARD_MAD_BASELINE_MODE_TRAILING,
-            BOARD_MAD_BASELINE_MODE_OPENING_RAMP,
-            BOARD_MAD_BASELINE_MODE_HISTORICAL_BLEND,
-          ],
-        },
-        bucketSeconds: {
-          type: "integer",
-          minimum: BOARD_MAD_BUCKET_SECONDS_MIN,
-          maximum: BOARD_MAD_BUCKET_SECONDS_MAX,
-        },
-        openingBaselineBuckets: {
-          type: "integer",
-          minimum: BOARD_MAD_OPENING_BASELINE_BUCKETS_MIN,
-          maximum: BOARD_MAD_OPENING_BASELINE_BUCKETS_MAX,
-        },
-        openingRampCompleteBuckets: {
-          type: "integer",
-          minimum: BOARD_MAD_OPENING_RAMP_COMPLETE_BUCKETS_MIN,
-          maximum: BOARD_MAD_OPENING_RAMP_COMPLETE_BUCKETS_MAX,
-        },
-        trailingBuckets: {
-          type: "integer",
-          minimum: BOARD_MAD_TRAILING_BUCKETS_MIN,
-          maximum: BOARD_MAD_TRAILING_BUCKETS_MAX,
-        },
-        warmupBuckets: {
-          type: "integer",
-          minimum: BOARD_MAD_WARMUP_BUCKETS_MIN,
-          maximum: BOARD_MAD_WARMUP_BUCKETS_MAX,
-        },
-        freshCapSeconds: {
-          type: "integer",
-          minimum: BOARD_MAD_FRESH_CAP_SECONDS_MIN,
-          maximum: BOARD_MAD_FRESH_CAP_SECONDS_MAX,
-        },
-        historicalLastGames: {
-          type: "integer",
-          minimum: BOARD_MAD_HISTORICAL_LAST_GAMES_MIN,
-          maximum: BOARD_MAD_HISTORICAL_LAST_GAMES_MAX,
-        },
-        historicalAwayWeight: {
-          type: "number",
-          minimum: BOARD_MAD_HISTORICAL_AWAY_WEIGHT_MIN,
-          maximum: BOARD_MAD_HISTORICAL_AWAY_WEIGHT_MAX,
-        },
-        historicalPriorWeight: {
-          type: "number",
-          minimum: BOARD_MAD_HISTORICAL_PRIOR_WEIGHT_MIN,
-          maximum: BOARD_MAD_HISTORICAL_PRIOR_WEIGHT_MAX,
-        },
-        historicalRampCompleteGameMinutes: {
-          type: "number",
-          minimum: BOARD_MAD_HISTORICAL_RAMP_COMPLETE_GAME_MINUTES_MIN,
-          maximum: BOARD_MAD_HISTORICAL_RAMP_COMPLETE_GAME_MINUTES_MAX,
-        },
-        trailingGameMinutes: {
-          type: "number",
-          minimum: BOARD_MAD_TRAILING_GAME_MINUTES_MIN,
-          maximum: BOARD_MAD_TRAILING_GAME_MINUTES_MAX,
-        },
-        recentWallMinutes: {
-          type: "number",
-          minimum: BOARD_MAD_RECENT_WALL_MINUTES_MIN,
-          maximum: BOARD_MAD_RECENT_WALL_MINUTES_MAX,
-        },
-        recentWallWeight: {
-          type: "number",
-          minimum: BOARD_MAD_RECENT_WALL_WEIGHT_MIN,
-          maximum: BOARD_MAD_RECENT_WALL_WEIGHT_MAX,
-        },
-        pbpPreBufferMs: { type: "integer" },
-        pbpPostBufferMs: { type: "integer" },
-        // Phase B3: off-price-print thresholds, runtime-tunable.
-        offPriceMinVolumeShare: { type: "number", minimum: 0, maximum: 1 },
-        offPriceMinOffPriceDistance: { type: "number", minimum: 0, maximum: 1 },
-      },
-      additionalProperties: false,
-    },
+    detectorDefaults: detectorDefaultsResponseSchema,
   },
-} as const;
-
-const detectorDefaultsResponseSchema = {
-  type: "object",
-  required: [
-    "kMadLive",
-    "baselineMode",
-    "bucketSeconds",
-    "openingBaselineBuckets",
-    "openingRampCompleteBuckets",
-    "trailingBuckets",
-    "warmupBuckets",
-    "freshCapSeconds",
-    "historicalLastGames",
-    "historicalAwayWeight",
-    "historicalPriorWeight",
-    "historicalRampCompleteGameMinutes",
-    "trailingGameMinutes",
-    "recentWallMinutes",
-    "recentWallWeight",
-    "pbpPreBufferMs",
-    "pbpPostBufferMs",
-    "offPriceMinVolumeShare",
-    "offPriceMinOffPriceDistance",
-  ],
-  properties: {
-    kMadLive: {
-      type: "number",
-      minimum: BOARD_MAD_K_MAD_MIN,
-      maximum: BOARD_MAD_K_MAD_MAX,
-    },
-    baselineMode: {
-      type: "string",
-      enum: [
-        BOARD_MAD_BASELINE_MODE_TRAILING,
-        BOARD_MAD_BASELINE_MODE_OPENING_RAMP,
-        BOARD_MAD_BASELINE_MODE_HISTORICAL_BLEND,
-      ],
-    },
-    bucketSeconds: {
-      type: "integer",
-      minimum: BOARD_MAD_BUCKET_SECONDS_MIN,
-      maximum: BOARD_MAD_BUCKET_SECONDS_MAX,
-    },
-    openingBaselineBuckets: {
-      type: "integer",
-      minimum: BOARD_MAD_OPENING_BASELINE_BUCKETS_MIN,
-      maximum: BOARD_MAD_OPENING_BASELINE_BUCKETS_MAX,
-    },
-    openingRampCompleteBuckets: {
-      type: "integer",
-      minimum: BOARD_MAD_OPENING_RAMP_COMPLETE_BUCKETS_MIN,
-      maximum: BOARD_MAD_OPENING_RAMP_COMPLETE_BUCKETS_MAX,
-    },
-    trailingBuckets: {
-      type: "integer",
-      minimum: BOARD_MAD_TRAILING_BUCKETS_MIN,
-      maximum: BOARD_MAD_TRAILING_BUCKETS_MAX,
-    },
-    warmupBuckets: {
-      type: "integer",
-      minimum: BOARD_MAD_WARMUP_BUCKETS_MIN,
-      maximum: BOARD_MAD_WARMUP_BUCKETS_MAX,
-    },
-    freshCapSeconds: {
-      type: "integer",
-      minimum: BOARD_MAD_FRESH_CAP_SECONDS_MIN,
-      maximum: BOARD_MAD_FRESH_CAP_SECONDS_MAX,
-    },
-    historicalLastGames: {
-      type: "integer",
-      minimum: BOARD_MAD_HISTORICAL_LAST_GAMES_MIN,
-      maximum: BOARD_MAD_HISTORICAL_LAST_GAMES_MAX,
-    },
-    historicalAwayWeight: {
-      type: "number",
-      minimum: BOARD_MAD_HISTORICAL_AWAY_WEIGHT_MIN,
-      maximum: BOARD_MAD_HISTORICAL_AWAY_WEIGHT_MAX,
-    },
-    historicalPriorWeight: {
-      type: "number",
-      minimum: BOARD_MAD_HISTORICAL_PRIOR_WEIGHT_MIN,
-      maximum: BOARD_MAD_HISTORICAL_PRIOR_WEIGHT_MAX,
-    },
-    historicalRampCompleteGameMinutes: {
-      type: "number",
-      minimum: BOARD_MAD_HISTORICAL_RAMP_COMPLETE_GAME_MINUTES_MIN,
-      maximum: BOARD_MAD_HISTORICAL_RAMP_COMPLETE_GAME_MINUTES_MAX,
-    },
-    trailingGameMinutes: {
-      type: "number",
-      minimum: BOARD_MAD_TRAILING_GAME_MINUTES_MIN,
-      maximum: BOARD_MAD_TRAILING_GAME_MINUTES_MAX,
-    },
-    recentWallMinutes: {
-      type: "number",
-      minimum: BOARD_MAD_RECENT_WALL_MINUTES_MIN,
-      maximum: BOARD_MAD_RECENT_WALL_MINUTES_MAX,
-    },
-    recentWallWeight: {
-      type: "number",
-      minimum: BOARD_MAD_RECENT_WALL_WEIGHT_MIN,
-      maximum: BOARD_MAD_RECENT_WALL_WEIGHT_MAX,
-    },
-    pbpPreBufferMs: { type: "integer" },
-    pbpPostBufferMs: { type: "integer" },
-    // Phase B3: off-price-print thresholds, runtime-tunable.
-    offPriceMinVolumeShare: { type: "number", minimum: 0, maximum: 1 },
-    offPriceMinOffPriceDistance: { type: "number", minimum: 0, maximum: 1 },
-  },
-  additionalProperties: false,
-} as const;
-
-const scheduledDetectorDefaultsResponseSchema = {
-  type: "object",
-  required: ["effectiveAt", "defaults"],
-  properties: {
-    effectiveAt: { type: "string" },
-    defaults: detectorDefaultsResponseSchema,
-  },
-  additionalProperties: false,
 } as const;
 
 const settingsRoutes: FastifyPluginAsync<SettingsRoutesOptions> = (app, opts) => {

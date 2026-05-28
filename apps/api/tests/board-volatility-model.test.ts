@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { Tick } from "@signal-console/detectors";
+import { BOARD_STATE_SPACE_CONFIG_DEFAULTS } from "@signal-console/detectors/board-mad/state-space-config";
 
 import { buildBoardVolatilityModelRequest } from "../src/services/board-volatility-model";
 
@@ -40,6 +41,7 @@ describe("buildBoardVolatilityModelRequest", () => {
         historicalPriorWeight: 1,
         historicalRampCompleteGameMinutes: 12,
         kMad: 5,
+        stateSpace: BOARD_STATE_SPACE_CONFIG_DEFAULTS,
         trailingBuckets: 20,
         warmupBuckets: 8,
       },
@@ -101,6 +103,7 @@ describe("buildBoardVolatilityModelRequest", () => {
         baselineMode: "trailing",
         bucketSeconds: 60,
         kMad: 3,
+        stateSpace: BOARD_STATE_SPACE_CONFIG_DEFAULTS,
         trailingBuckets: 20,
         warmupBuckets: 8,
       },
@@ -139,6 +142,7 @@ describe("buildBoardVolatilityModelRequest", () => {
         kMad: 3,
         openingBaselineBuckets: 4,
         openingRampCompleteBuckets: 12,
+        stateSpace: BOARD_STATE_SPACE_CONFIG_DEFAULTS,
         trailingBuckets: 20,
         warmupBuckets: 8,
       },

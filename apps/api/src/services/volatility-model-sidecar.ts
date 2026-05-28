@@ -1,3 +1,5 @@
+import type { BoardStateSpaceConfig } from "@signal-console/detectors/board-mad/state-space-config";
+
 export interface VolatilityHistoricalPrior {
   readonly mad: number;
   readonly median: number;
@@ -25,6 +27,7 @@ export interface VolatilityStateSpaceParams {
   readonly openingRampCompleteBuckets?: number;
   readonly recentWallMinutes?: number;
   readonly recentWallWeight?: number;
+  readonly stateSpace: BoardStateSpaceConfig;
   readonly trailingBuckets: number;
   readonly trailingGameMinutes?: number;
   readonly warmupBuckets: number;
