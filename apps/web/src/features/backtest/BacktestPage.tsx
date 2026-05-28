@@ -45,6 +45,12 @@ import { MemoryDial } from "./MemoryDial";
 import { PbpAnchoredIncidents } from "./PbpAnchoredIncidents";
 import { WarmupDial } from "./WarmupDial";
 import {
+  STATE_SPACE_GUIDED_FIELDS,
+  STATE_SPACE_GUIDED_GROUPS,
+  readStateSpaceFieldValue,
+  writeStateSpaceFieldValue,
+} from "../state-space-guided-fields";
+import {
   BOARD_MAD_BASELINE_MODE_HISTORICAL_BLEND,
   BOARD_MAD_BASELINE_MODE_DEFAULT,
   BOARD_MAD_BASELINE_MODE_OPENING_RAMP,
@@ -875,6 +881,21 @@ export function BacktestPage(): JSX.Element {
     }
   }
 
+  function updateBoardStateSpaceConfig(nextStateSpace: BoardStateSpaceConfig): void {
+    setStateSpaceText(stableJson(nextStateSpace));
+    setStateSpaceError(null);
+    updateBoardParam(STATE_SPACE_PARAM_NAME, nextStateSpace);
+  }
+
+  function updateBoardStateSpaceField(fieldId: string, raw: string): void {
+    if (raw === "") return;
+    const field = STATE_SPACE_GUIDED_FIELDS.find((candidate) => candidate.id === fieldId);
+    if (field === undefined) return;
+    const parsed = Number.parseFloat(raw);
+    if (!Number.isFinite(parsed)) return;
+    updateBoardStateSpaceConfig(writeStateSpaceFieldValue(currentStateSpace, field, parsed));
+  }
+
   function applyBoardProfile(profileId: BoardProfileId): void {
     if (profileId === "custom") return;
     const preset = BOARD_PROFILE_PRESETS.find((profile) => profile.id === profileId);
@@ -1445,6 +1466,47 @@ export function BacktestPage(): JSX.Element {
                 <p className="mt-2 max-w-[64ch] text-xs text-text-md">
                   Advanced JSON object for trigger shape, breadth normalization, process noise,
                   anchors, and variance adaptation. Any change here requires a rerun.
+                </p>
+                <div className="mt-3 grid gap-4 border border-surface-2 bg-surface-1/40 p-3 sm:grid-cols-2">
+                  {STATE_SPACE_GUIDED_GROUPS.map((group) => (
+                    <div key={group.id} className="space-y-3">
+                      <div>
+                        <div className="text-text-hi text-xs font-semibold uppercase tracking-[0.08em]">
+                          {group.label}
+                        </div>
+                        <p className="mt-1 text-xs text-text-lo">{group.help}</p>
+                      </div>
+                      {STATE_SPACE_GUIDED_FIELDS.filter((field) => field.groupId === group.id).map(
+                        (field) => (
+                          <label key={field.id} className="flex flex-col gap-1">
+                            <span className="text-text-md text-xs font-medium">
+                              <ExplainerCard id={field.explainerId}>
+                                <span>{field.label}</span>
+                              </ExplainerCard>
+                            </span>
+                            <input
+                              type="number"
+                              value={String(readStateSpaceFieldValue(currentStateSpace, field))}
+                              min={field.min}
+                              max={field.max}
+                              step={field.step}
+                              onChange={(e: ChangeEvent<HTMLInputElement>) => {
+                                updateBoardStateSpaceField(field.id, e.target.value);
+                              }}
+                              data-testid={`backtest-state-space-input-${field.id}`}
+                              aria-label={field.label}
+                              className="w-full border border-surface-2 bg-surface-0-from px-2 py-1 text-sm font-mono text-text-hi focus:border-accent-green focus:outline-none"
+                            />
+                            <span className="text-xs text-text-lo">{field.help}</span>
+                          </label>
+                        ),
+                      )}
+                    </div>
+                  ))}
+                </div>
+                <p className="mt-3 text-xs text-text-lo">
+                  Guided controls cover the main tuning levers. The raw JSON stays below for the
+                  rest of the object.
                 </p>
                 <textarea
                   value={stateSpaceText}

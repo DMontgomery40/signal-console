@@ -46,6 +46,13 @@ function parsePostBody(body: BodyInit | null | undefined): z.infer<typeof postBo
   return postBodySchema.parse(json);
 }
 
+function asRecord(value: unknown, label: string): Record<string, unknown> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error(`${label} is not a record`);
+  }
+  return Object.fromEntries(Object.entries(value));
+}
+
 function makeWrapper(): (props: { children: ReactNode }) => JSX.Element {
   const client = new QueryClient({
     defaultOptions: {
@@ -656,6 +663,36 @@ describe("BacktestPage", () => {
     expect(body.params["stateSpace"]).toEqual(BOARD_STATE_SPACE_CONFIG_DEFAULTS);
     expect(body.window.start.startsWith("20")).toBe(true);
     expect(body.window.end.startsWith("20")).toBe(true);
+  });
+
+  it("includes guided state-space control edits in the backtest request payload", async () => {
+    const backtest = buildSyntheticBacktest();
+    mockDetectorsAndBacktest(backtest);
+    render(<BacktestPage />, { wrapper: makeWrapper() });
+    await waitFor(() => {
+      expect(screen.getByTestId("backtest-detector-select")).not.toBeNull();
+    });
+
+    const input = screen.getByTestId("backtest-state-space-input-trigger-enterOffset");
+    if (!(input instanceof HTMLInputElement)) throw new Error("not input");
+    fireEvent.change(input, { target: { value: "1.4" } });
+
+    fireEvent.click(screen.getByTestId("backtest-run-button"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("backtest-run-id").textContent).toBe("42");
+    });
+
+    const postCalls = fetchMock.mock.calls.filter(([inputValue, init]) => {
+      const url = urlOf(inputValue);
+      return url.startsWith("/v1/backtest") && init?.method === "POST";
+    });
+    expect(postCalls.length).toBe(1);
+    const [, init] = postCalls[0]!;
+    const body = parsePostBody(init?.body);
+    const stateSpace = asRecord(body.params["stateSpace"], "stateSpace");
+    const trigger = asRecord(stateSpace["trigger"], "trigger");
+    expect(trigger["enterOffset"]).toBe(1.4);
   });
 
   it("round-trip stability: editing trailingBuckets re-derives fires/game without an API call", async () => {

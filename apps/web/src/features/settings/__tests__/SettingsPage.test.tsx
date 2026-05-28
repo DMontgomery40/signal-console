@@ -581,6 +581,54 @@ describe("SettingsPage > Detector defaults (US-053)", () => {
     expect(obj["stateSpace"]).toEqual(BOARD_STATE_SPACE_CONFIG_DEFAULTS);
   });
 
+  it("POSTs the nested stateSpace object when a guided model control changes", async () => {
+    fetchMock.mockImplementation(async (input, init) => {
+      const url = urlOf(input);
+      await Promise.resolve();
+      if (url.startsWith("/v1/settings/detector-defaults") && init?.method === "POST") {
+        return jsonResponse({
+          ...DEFAULT_DETECTOR_DEFAULTS,
+          stateSpace: {
+            ...BOARD_STATE_SPACE_CONFIG_DEFAULTS,
+            trigger: {
+              ...BOARD_STATE_SPACE_CONFIG_DEFAULTS.trigger,
+              enterOffset: 1.4,
+            },
+          },
+        });
+      }
+      return jsonResponse(makeSettings());
+    });
+
+    render(<SettingsPage />, { wrapper: makeWrapper() });
+
+    const input = await waitFor(() =>
+      screen.getByTestId("detector-default-input-stateSpace-trigger-enterOffset"),
+    );
+    if (!(input instanceof HTMLInputElement)) throw new Error("not input");
+    fireEvent.change(input, { target: { value: "1.4" } });
+    fireEvent.blur(input);
+
+    await waitFor(() => {
+      const posts = fetchMock.mock.calls.filter((c) => {
+        const url = urlOf(c[0]);
+        return url.startsWith("/v1/settings/detector-defaults") && c[1]?.method === "POST";
+      });
+      expect(posts.length).toBe(1);
+    });
+    const post = fetchMock.mock.calls.find((c) => {
+      const url = urlOf(c[0]);
+      return url.startsWith("/v1/settings/detector-defaults") && c[1]?.method === "POST";
+    });
+    if (post === undefined) throw new Error("missing POST");
+    const body = post[1]?.body;
+    if (typeof body !== "string") throw new Error("body not string");
+    const obj = asRecord(parseJsonUnknown(body), "body");
+    const stateSpace = asRecord(obj["stateSpace"], "stateSpace");
+    const trigger = asRecord(stateSpace["trigger"], "trigger");
+    expect(trigger["enterOffset"]).toBe(1.4);
+  });
+
   it("profile promotion opens a confirmation and schedules the historical defaults", async () => {
     fetchMock.mockImplementation(async (input, init) => {
       const url = urlOf(input);

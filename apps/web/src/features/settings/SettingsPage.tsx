@@ -87,6 +87,14 @@ import {
   type DetectorDefaults,
   type Settings,
 } from "../../data/queries";
+import {
+  STATE_SPACE_GUIDED_FIELDS,
+  STATE_SPACE_GUIDED_GROUPS,
+  defaultStateSpaceFieldValue,
+  readStateSpaceFieldValue,
+  writeStateSpaceFieldValue,
+  type StateSpaceGuidedFieldDef,
+} from "../state-space-guided-fields";
 
 type Sources = Settings["sources"];
 type SourceRowMap = Readonly<
@@ -562,6 +570,28 @@ function DetectorDefaultsSection({
     }
   }
 
+  function applyStateSpaceConfig(nextStateSpace: DetectorDefaults["stateSpace"]): DetectorDefaults {
+    const next: DetectorDefaults = { ...draft, stateSpace: nextStateSpace };
+    setDraft(next);
+    setStateSpaceText(stableJson(nextStateSpace));
+    setStateSpaceError(null);
+    return next;
+  }
+
+  function updateStateSpaceField(field: StateSpaceGuidedFieldDef, raw: string): void {
+    if (raw === "") return;
+    const parsed = Number.parseFloat(raw);
+    if (!Number.isFinite(parsed)) return;
+    applyStateSpaceConfig(writeStateSpaceFieldValue(draft.stateSpace, field, parsed));
+  }
+
+  function resetStateSpaceField(field: StateSpaceGuidedFieldDef): void {
+    const next = applyStateSpaceConfig(
+      writeStateSpaceFieldValue(draft.stateSpace, field, defaultStateSpaceFieldValue(field)),
+    );
+    commitNext("stateSpace", next);
+  }
+
   function chooseProfile(profileId: DetectorProfileId): void {
     if (profileId === "custom") return;
     const preset = DETECTOR_PROFILE_PRESETS.find((profile) => profile.id === profileId);
@@ -824,6 +854,76 @@ function DetectorDefaultsSection({
             }
           >
             <div className="flex max-w-3xl flex-col gap-2">
+              <div className="grid gap-4 border border-surface-2 bg-surface-1/40 p-3 sm:grid-cols-2">
+                {STATE_SPACE_GUIDED_GROUPS.map((group) => (
+                  <div key={group.id} className="space-y-3">
+                    <div>
+                      <div className="text-text-hi text-xs font-semibold uppercase tracking-[0.08em]">
+                        {group.label}
+                      </div>
+                      <p className="mt-1 text-xs text-text-lo">{group.help}</p>
+                    </div>
+                    {STATE_SPACE_GUIDED_FIELDS.filter((field) => field.groupId === group.id).map(
+                      (field) => {
+                        const value = readStateSpaceFieldValue(draft.stateSpace, field);
+                        const serverValue = readStateSpaceFieldValue(defaults.stateSpace, field);
+                        const baselineValue = defaultStateSpaceFieldValue(field);
+                        const isBaseline = detectorDefaultValueEquals(serverValue, baselineValue);
+                        return (
+                          <label key={field.id} className="flex flex-col gap-1">
+                            <span className="text-text-md text-xs font-medium">
+                              <ExplainerCard id={field.explainerId}>
+                                <span>{field.label}</span>
+                              </ExplainerCard>
+                            </span>
+                            <input
+                              type="number"
+                              value={String(value)}
+                              min={field.min}
+                              max={field.max}
+                              step={field.step}
+                              onChange={(e: ChangeEvent<HTMLInputElement>) => {
+                                updateStateSpaceField(field, e.target.value);
+                              }}
+                              onBlur={() => {
+                                commit("stateSpace");
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  e.preventDefault();
+                                  commit("stateSpace");
+                                }
+                              }}
+                              data-testid={`detector-default-input-stateSpace-${field.id}`}
+                              aria-label={field.label}
+                              className="w-full border border-surface-2 bg-surface-0-from px-2 py-1 text-sm font-mono text-text-hi focus:border-accent-green focus:outline-none"
+                            />
+                            <div className="flex items-start justify-between gap-3">
+                              <span className="text-xs text-text-lo">{field.help}</span>
+                              {isBaseline ? null : (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    resetStateSpaceField(field);
+                                  }}
+                                  data-testid={`detector-default-reset-stateSpace-${field.id}`}
+                                  className="shrink-0 font-mono text-[10px] uppercase tracking-wider text-accent-green hover:text-text-hi"
+                                >
+                                  Reset
+                                </button>
+                              )}
+                            </div>
+                          </label>
+                        );
+                      },
+                    )}
+                  </div>
+                ))}
+              </div>
+              <p className="text-xs text-text-lo">
+                Guided controls cover the main tuning levers. The raw JSON stays available below for
+                the rest of the object.
+              </p>
               <textarea
                 value={stateSpaceText}
                 onChange={(e: ChangeEvent<HTMLTextAreaElement>) => {

@@ -457,6 +457,60 @@ The point of exposing it as one structured JSON object is honesty and portabilit
     formal: String.raw`Nested runtime config for the Python board state-space model. The object is validated end-to-end by \`BoardStateSpaceConfigSchema\` in \`packages/detectors/src/board-mad/state-space-config.ts\`, serialized through detector defaults and backtest params, and consumed by \`apps/nba-sidecar/src/nba_sidecar/volatility.py\`. This is the canonical home for advanced tunables such as trigger coefficients, breadth exponent, process-noise terms, observation-noise weights, anchor floors, and variance-adaptation limits.`,
   },
 
+  "settings-state-space-trigger-floor": {
+    title: "Trigger floor",
+    eli5: String.raw`The base amount of surprise the model wants before an alert can even start. Lower it and the detector wakes up faster; raise it and the model demands more proof before it cares.`,
+    formal: String.raw`This is \`stateSpace.trigger.enterOffset\`. The live enter gate is \`enterOffset + kMad * enterKScale\`, so this term is the additive floor beneath the K-shaped sensitivity control.`,
+  },
+
+  "settings-state-space-sensitivity-slope": {
+    title: "Sensitivity slope",
+    eli5: String.raw`How strongly the K dial changes the alert threshold. If this is bigger, moving from K=3 to K=5 matters a lot more. If it is smaller, the K dial still works, but more gently.`,
+    formal: String.raw`This is \`stateSpace.trigger.enterKScale\`, the multiplier on the live \`kMad\` control inside the sidecar enter threshold \`enterOffset + kMad * enterKScale\`.`,
+  },
+
+  "settings-state-space-release-ratio": {
+    title: "Release ratio",
+    eli5: String.raw`How quickly the detector is allowed to calm back down after it has already fired. Lower values keep the alert active longer so one regime shift does not page every bucket; higher values let the alert reset faster.`,
+    formal: String.raw`This is \`stateSpace.trigger.exitRatio\`. The live exit threshold is \`max(exitFloor, enterThreshold * exitRatio)\`, so smaller ratios create stronger hysteresis.`,
+  },
+
+  "settings-state-space-breadth-damping": {
+    title: "Breadth damping",
+    eli5: String.raw`How much the model discounts raw intensity just because lots of markets are moving at once. Higher values make broad-board activity feel more normal; lower values let raw multi-market bursts stay loud.`,
+    formal: String.raw`This is \`stateSpace.breadth.marketCountExponent\`. The sidecar transforms intensity as \`log(1 + intensity / marketCount^exponent)\`, so the exponent controls how strongly market breadth normalizes the observation.`,
+  },
+
+  "settings-state-space-baseline-agility": {
+    title: "Baseline agility",
+    eli5: String.raw`How fast the hidden baseline level is allowed to move when the whole game changes personality. Higher values make the baseline adapt faster; lower values keep it steadier and more stubborn.`,
+    formal: String.raw`This is \`stateSpace.dynamics.levelProcessNoiseBase\`, the base process-noise term for the latent level state. Larger values let the state filter move the baseline more freely from one bucket to the next.`,
+  },
+
+  "settings-state-space-regime-lift-threshold": {
+    title: "Regime lift threshold",
+    eli5: String.raw`How large a surprise needs to be before the model says "this whole game may now be in a hotter volatility regime." Lower values let the regime rise sooner; higher values make it wait for bigger shocks.`,
+    formal: String.raw`This is \`stateSpace.variance.bumpCenter\`, the center of the variance-bump calculation that decides when positive standardized innovation starts lifting the latent volatility regime.`,
+  },
+
+  "settings-state-space-regime-persistence": {
+    title: "Regime persistence",
+    eli5: String.raw`How slowly an elevated regime decays after a wild stretch. Push it up and the model stays suspicious longer; pull it down and the regime cools faster after the burst passes.`,
+    formal: String.raw`This is \`stateSpace.variance.decay\`, the carry-over term on the latent log-variance state. Values closer to 1 preserve elevated volatility longer across future buckets.`,
+  },
+
+  "settings-state-space-single-source-penalty": {
+    title: "Single-source penalty",
+    eli5: String.raw`How much extra doubt to assign when one source is carrying most of the move by itself. Higher values make one-source bursts less trusted; lower values let them count more easily.`,
+    formal: String.raw`This is \`stateSpace.observationNoise.sourceDominancePenalty\`. It inflates measurement noise when source dominance is high, making one-source-heavy buckets less likely to produce strong innovations.`,
+  },
+
+  "settings-state-space-cross-source-bonus": {
+    title: "Cross-source bonus",
+    eli5: String.raw`How much the model rewards different sources moving together. Higher values make cross-source agreement feel more believable and easier to alert on.`,
+    formal: String.raw`This is \`stateSpace.observationNoise.sourceAgreementBonus\`. It reduces effective measurement noise when source agreement is strong, so multi-source confirmation produces larger standardized innovations.`,
+  },
+
   "settings-pbp-pre-buffer-ms": {
     title: "PBP pre-buffer (ms)",
     eli5: String.raw`How far before the first play-by-play timestamp to start reading quote ticks. 5 minutes by default — long enough to seed the trailing baseline without dragging in pre-game noise.`,
