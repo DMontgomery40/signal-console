@@ -1,6 +1,6 @@
 # NBA Detector Bake-Off
 
-Generated: 2026-05-28T12:13:05.659Z
+Generated: 2026-05-28T12:48:15.867Z
 
 This is an offline research artifact, not an official NBA source of truth. It scores every locally surfaced incident candidate we could ground from the previous report and archive trail, then labels anchor/data gaps instead of pretending they are misses. Positive lead seconds mean the first matching fire happened after the disputed play; negative lead seconds mean a pre-play warning.
 

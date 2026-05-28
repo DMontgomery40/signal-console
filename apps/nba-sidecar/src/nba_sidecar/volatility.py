@@ -266,7 +266,8 @@ def _measurement_noise(
     ) / (
         1.0
         + source_agreement * config.observationNoise.sourceAgreementBonus
-        + sqrt(source_count) * config.observationNoise.sourceCountBonus
+        + (source_count**config.observationNoise.sourceCountExponent)
+        * config.observationNoise.sourceCountBonus
     )
     return max(config.observationNoise.minimum, noise)
 
@@ -429,7 +430,7 @@ def _run_state_filter(request: VolatilityStateSpaceRequest) -> list[_FilterStep]
             variance_adaptation
             * (
                 _clamp(
-                    positive_innovation * positive_innovation,
+                    positive_innovation**config.variance.innovationPower,
                     0.0,
                     config.variance.bumpCap,
                 )

@@ -32,6 +32,7 @@ import {
 import { BOARD_STATE_SPACE_CONFIG_DEFAULTS } from "@signal-console/detectors/board-mad/state-space-config";
 
 import { BacktestPage } from "../BacktestPage";
+import { STATE_SPACE_GUIDED_FIELDS } from "../../state-space-guided-fields";
 
 const postBodySchema = z.object({
   detector_id: z.string(),
@@ -394,6 +395,9 @@ describe("BacktestPage", () => {
       await Promise.resolve();
       const url = urlOf(input);
       if (url.startsWith("/v1/detectors")) return jsonResponse(body);
+      if (url.startsWith("/v1/settings")) {
+        return jsonResponse(makeSettingsBody({ offPriceMinOffPriceDistance: 0.4 }));
+      }
       return new Response("not found", { status: 404 });
     });
   }
@@ -426,6 +430,9 @@ describe("BacktestPage", () => {
       await Promise.resolve();
       const url = urlOf(input);
       if (url.startsWith("/v1/detectors")) return jsonResponse(detectorsBody);
+      if (url.startsWith("/v1/settings")) {
+        return jsonResponse(makeSettingsBody({ offPriceMinOffPriceDistance: 0.4 }));
+      }
       if (url.startsWith("/v1/backtest") && init?.method === "POST") {
         return jsonResponse(backtestBody);
       }
@@ -693,6 +700,25 @@ describe("BacktestPage", () => {
     const stateSpace = asRecord(body.params["stateSpace"], "stateSpace");
     const trigger = asRecord(stateSpace["trigger"], "trigger");
     expect(trigger["enterOffset"]).toBe(1.4);
+  });
+
+  it("renders a direct numeric control for every state-space field", async () => {
+    mockEnsembleSettingsAndBacktest({
+      settings: makeSettingsBody({ offPriceMinOffPriceDistance: 0.4 }),
+    });
+
+    render(<BacktestPage />, { wrapper: makeWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("backtest-state-space-config")).toBeDefined();
+    });
+    expect(screen.getAllByTestId(/^backtest-state-space-input-/)).toHaveLength(
+      STATE_SPACE_GUIDED_FIELDS.length,
+    );
+    expect(
+      screen.getByTestId("backtest-state-space-input-observationNoise-sourceCountExponent"),
+    ).toBeDefined();
+    expect(screen.getByTestId("backtest-state-space-input-variance-innovationPower")).toBeDefined();
   });
 
   it("round-trip stability: editing trailingBuckets re-derives fires/game without an API call", async () => {

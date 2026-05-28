@@ -53,7 +53,8 @@
       "multiSourceDominanceFallback": 0.5,
       "sourceDominancePenalty": 1.2,
       "sourceAgreementBonus": 0.45,
-      "sourceCountBonus": 0.15
+      "sourceCountBonus": 0.15,
+      "sourceCountExponent": 0.5
     },
     "variance": {
       "madScale": 1.4826,
@@ -62,6 +63,7 @@
       "decay": 0.98,
       "bumpCap": 9,
       "bumpCenter": 1,
+      "innovationPower": 2,
       "agreementBase": 0.8,
       "agreementScale": 0.4,
       "baselineMadFloor": 0.000000001

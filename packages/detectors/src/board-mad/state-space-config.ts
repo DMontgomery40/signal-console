@@ -38,6 +38,7 @@ export const BOARD_STATE_SPACE_CONFIG_DEFAULTS = {
     sourceDominancePenalty: 1.2,
     sourceAgreementBonus: 0.45,
     sourceCountBonus: 0.15,
+    sourceCountExponent: 0.5,
   },
   variance: {
     madScale: 1.4826,
@@ -46,6 +47,7 @@ export const BOARD_STATE_SPACE_CONFIG_DEFAULTS = {
     decay: 0.98,
     bumpCap: 9,
     bumpCenter: 1,
+    innovationPower: 2,
     agreementBase: 0.8,
     agreementScale: 0.4,
     baselineMadFloor: 1e-9,
@@ -214,6 +216,11 @@ export const BoardStateSpaceConfigSchema = z
           .min(0)
           .max(5)
           .default(BOARD_STATE_SPACE_CONFIG_DEFAULTS.observationNoise.sourceCountBonus),
+        sourceCountExponent: z
+          .number()
+          .min(0)
+          .max(2)
+          .default(BOARD_STATE_SPACE_CONFIG_DEFAULTS.observationNoise.sourceCountExponent),
       })
       .default(BOARD_STATE_SPACE_CONFIG_DEFAULTS.observationNoise),
     variance: z
@@ -244,6 +251,11 @@ export const BoardStateSpaceConfigSchema = z
           .min(0)
           .max(20)
           .default(BOARD_STATE_SPACE_CONFIG_DEFAULTS.variance.bumpCenter),
+        innovationPower: z
+          .number()
+          .min(0.25)
+          .max(4)
+          .default(BOARD_STATE_SPACE_CONFIG_DEFAULTS.variance.innovationPower),
         agreementBase: z
           .number()
           .min(0)

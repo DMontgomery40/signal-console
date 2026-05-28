@@ -105,7 +105,7 @@ const OPENING_RAMP_COMPLETE_MAX = BOARD_MAD_OPENING_RAMP_COMPLETE_BUCKETS_MAX;
 const TRAILING_DEFAULT = BOARD_MAD_TRAILING_BUCKETS_DEFAULT;
 const WARMUP_DEFAULT = BOARD_MAD_WARMUP_BUCKETS_DEFAULT;
 
-type BoardProfileId = "opening-ramp-live" | "historical-blend" | "legacy-trailing" | "custom";
+type BoardProfileId = "opening-ramp-live" | "historical-blend" | "trailing" | "custom";
 
 const BOARD_PROFILE_PRESETS: ReadonlyArray<{
   readonly id: Exclude<BoardProfileId, "custom">;
@@ -145,7 +145,7 @@ const BOARD_PROFILE_PRESETS: ReadonlyArray<{
     },
   },
   {
-    id: "legacy-trailing",
+    id: "trailing",
     label: "Pure trailing state",
     patch: {
       [BASELINE_MODE_PARAM_NAME]: BOARD_MAD_BASELINE_MODE_TRAILING,
@@ -260,7 +260,7 @@ function readBoardStateSpaceConfig(
 
 function inferBoardProfile(baselineMode: string, bucketSeconds: number): BoardProfileId {
   if (baselineMode === BOARD_MAD_BASELINE_MODE_HISTORICAL_BLEND) return "historical-blend";
-  if (baselineMode === BOARD_MAD_BASELINE_MODE_TRAILING) return "legacy-trailing";
+  if (baselineMode === BOARD_MAD_BASELINE_MODE_TRAILING) return "trailing";
   if (baselineMode === BOARD_MAD_BASELINE_MODE_OPENING_RAMP && bucketSeconds === 60) {
     return "opening-ramp-live";
   }
@@ -1200,6 +1200,7 @@ export function BacktestPage(): JSX.Element {
 
       <form
         className="mt-8 space-y-8"
+        noValidate
         onSubmit={(e) => {
           e.preventDefault();
           handleRun();
@@ -1464,10 +1465,10 @@ export function BacktestPage(): JSX.Element {
                   </ExplainerCard>
                 </div>
                 <p className="mt-2 max-w-[64ch] text-xs text-text-md">
-                  Advanced JSON object for trigger shape, breadth normalization, process noise,
-                  anchors, and variance adaptation. Any change here requires a rerun.
+                  Direct controls for every current state-space coefficient, plus the mirrored JSON
+                  object for copy-paste and handoff. Any change here requires a rerun.
                 </p>
-                <div className="mt-3 grid gap-4 border border-surface-2 bg-surface-1/40 p-3 sm:grid-cols-2">
+                <div className="mt-3 grid gap-4 border border-surface-2 bg-surface-1/40 p-3 lg:grid-cols-2 xl:grid-cols-3">
                   {STATE_SPACE_GUIDED_GROUPS.map((group) => (
                     <div key={group.id} className="space-y-3">
                       <div>
@@ -1480,9 +1481,13 @@ export function BacktestPage(): JSX.Element {
                         (field) => (
                           <label key={field.id} className="flex flex-col gap-1">
                             <span className="text-text-md text-xs font-medium">
-                              <ExplainerCard id={field.explainerId}>
+                              {field.explainerId === undefined ? (
                                 <span>{field.label}</span>
-                              </ExplainerCard>
+                              ) : (
+                                <ExplainerCard id={field.explainerId}>
+                                  <span>{field.label}</span>
+                                </ExplainerCard>
+                              )}
                             </span>
                             <input
                               type="number"
@@ -1505,8 +1510,7 @@ export function BacktestPage(): JSX.Element {
                   ))}
                 </div>
                 <p className="mt-3 text-xs text-text-lo">
-                  Guided controls cover the main tuning levers. The raw JSON stays below for the
-                  rest of the object.
+                  The JSON box stays below as the same canonical object, not a second math path.
                 </p>
                 <textarea
                   value={stateSpaceText}

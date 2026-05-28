@@ -136,6 +136,7 @@ class VolatilityStateSpaceObservationNoiseConfig(BaseModel):
     sourceDominancePenalty: float
     sourceAgreementBonus: float
     sourceCountBonus: float
+    sourceCountExponent: float
 
 
 class VolatilityStateSpaceVarianceConfig(BaseModel):
@@ -145,6 +146,7 @@ class VolatilityStateSpaceVarianceConfig(BaseModel):
     decay: float
     bumpCap: float
     bumpCenter: float
+    innovationPower: float
     agreementBase: float
     agreementScale: float
     baselineMadFloor: float

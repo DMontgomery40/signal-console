@@ -29,6 +29,7 @@ import {
 import { BOARD_STATE_SPACE_CONFIG_DEFAULTS } from "@signal-console/detectors/board-mad/state-space-config";
 
 import { SettingsPage } from "../SettingsPage";
+import { STATE_SPACE_GUIDED_FIELDS } from "../../state-space-guided-fields";
 
 function makeWrapper(): (props: { children: ReactNode }) => JSX.Element {
   const client = new QueryClient({
@@ -627,6 +628,27 @@ describe("SettingsPage > Detector defaults (US-053)", () => {
     const stateSpace = asRecord(obj["stateSpace"], "stateSpace");
     const trigger = asRecord(stateSpace["trigger"], "trigger");
     expect(trigger["enterOffset"]).toBe(1.4);
+  });
+
+  it("renders a direct numeric control for every state-space field", async () => {
+    fetchMock.mockImplementation(async () => {
+      await Promise.resolve();
+      return jsonResponse(makeSettings());
+    });
+
+    render(<SettingsPage />, { wrapper: makeWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId(/^detector-default-input-stateSpace-/)).toHaveLength(
+        STATE_SPACE_GUIDED_FIELDS.length,
+      );
+    });
+    expect(
+      screen.getByTestId("detector-default-input-stateSpace-observationNoise-sourceCountExponent"),
+    ).toBeDefined();
+    expect(
+      screen.getByTestId("detector-default-input-stateSpace-variance-innovationPower"),
+    ).toBeDefined();
   });
 
   it("profile promotion opens a confirmation and schedules the historical defaults", async () => {

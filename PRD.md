@@ -848,7 +848,7 @@ Three sections, no buttons that mutate (except "clear cache"):
 **Description:** As an operator, I need a `/settings` page showing detector defaults plus the diagnostic sections in §20 with no mutating buttons except detector-default edits and "clear cache".
 
 **Acceptance Criteria:**
-- [ ] Renders Detector defaults section: live trigger, prior anchor, opening anchor sample/fade-out, filter-memory/alert-holdoff timing, freshness cap, a structured advanced `stateSpace` config object, and PBP buffers.
+- [ ] Renders Detector defaults section: live trigger, prior anchor, opening anchor sample/fade-out, filter-memory/alert-holdoff timing, freshness cap, the full structured `stateSpace` config object as grouped controls plus mirrored JSON, and PBP buffers.
 - [ ] Renders Database section: path, size (bytes + human), WAL bytes, page count, page size, last-modified, mode (red banner if not `read-only`).
 - [ ] Renders Sources section: heartbeat file path; per-source last sync, last error, rate-limit cooldown. If no heartbeat, shows "ingest paused" with last-known values.
 - [ ] Renders Errors section: tail of last 200 log entries with level filter.
@@ -1015,7 +1015,7 @@ Three sections, no buttons that mutate (except "clear cache"):
 - [ ] Sensitivity dial: continuous rotary control over `kMad` = 2.0–8.0, step 0.25, **default 3.0**.
 - [ ] Volatility-lookback slider: integer `trailingBuckets` = 5–60, step 1, **default 20**, with a visible duration readout computed from `trailingBuckets × bucketSeconds` (for example, 20 buckets × 60 s = 20 min).
 - [ ] Opening-holdoff slider: integer `warmupBuckets` = 2–20, step 1, **default 8**, with a visible elapsed duration readout computed from `warmupBuckets × bucketSeconds`.
-- [ ] Profile + prior sample controls: live defaults start at `"opening-ramp"`; Backtest and Settings can switch to `"historical-blend"` or legacy `"trailing"`. Historical mode uses last-five same-side priors, 50/50 away/home by default, ramps to current-game-only by 12 game minutes, measures 30 s wall-clock buckets, keeps 12 game minutes of current memory, and can blend in the last 4 wall minutes at 1.5× weight.
+- [ ] Profile + prior sample controls: live defaults start at `"opening-ramp"`; Backtest and Settings can switch to `"historical-blend"` or `"trailing"`. Historical mode uses last-five same-side priors, 50/50 away/home by default, ramps to current-game-only by 12 game minutes, measures 30 s wall-clock buckets, keeps 12 game minutes of current memory, and can blend in the last 4 wall minutes at 1.5× weight.
 - [ ] Two labelled snap points: "Sensitive — live default" at K=3.0; "Calm — comparison preset" at K=6.0.
 - [ ] After a run, changing detector params marks the snapshot stale and requires a fresh server-side `/v1/backtest` run; the browser does not re-run detector math locally.
 - [ ] Per-game small timeline shows fire markers at the chosen K.

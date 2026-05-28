@@ -53,5 +53,5 @@ export const BOARD_MAD_RECENT_WALL_WEIGHT_MAX = 5;
 export const BOARD_MAD_RECENT_WALL_WEIGHT_DEFAULT = 1.5;
 export const BOARD_MAD_PROFILE_OPENING_RAMP = "opening-ramp-live";
 export const BOARD_MAD_PROFILE_HISTORICAL_BLEND = "historical-blend";
-export const BOARD_MAD_PROFILE_LEGACY_TRAILING = "legacy-trailing";
+export const BOARD_MAD_PROFILE_TRAILING = "trailing";
 export const BOARD_MAD_PROFILE_DEFAULT = BOARD_MAD_PROFILE_OPENING_RAMP;

@@ -32,6 +32,56 @@ All hidden-state coefficients that used to live as Python literals now live in o
 
 If a board-model coefficient matters to runtime behavior, it belongs here or in the top-level operator settings object. Do not hide new model coefficients inside Python code without adding them to this contract.
 
+Settings and Backtest now expose every current `stateSpace` field directly in grouped numeric controls. The JSON editor below those controls is the same object for copy/paste and handoff, not a second implementation path.
+
+### Field inventory
+
+- `trigger`
+  - `enterOffset`
+  - `enterKScale`
+  - `exitFloor`
+  - `exitRatio`
+- `breadth`
+  - `marketCountFloor`
+  - `marketCountExponent`
+- `anchors`
+  - `priorScaleFallback`
+  - `priorScaleFloor`
+  - `anchorScaleFloor`
+  - `precisionVarianceFloor`
+- `dynamics`
+  - `minMemoryBuckets`
+  - `trendDecayNumerator`
+  - `levelProcessNoiseBase`
+  - `levelProcessNoiseScale`
+  - `trendProcessNoiseRatio`
+  - `varianceAdaptationBase`
+  - `varianceAdaptationScale`
+  - `varianceAdaptationOffset`
+  - `initialLevelVariance`
+  - `initialTrendVariance`
+  - `initialVarianceFloor`
+- `observationNoise`
+  - `floor`
+  - `minimum`
+  - `singleSourceDominance`
+  - `multiSourceDominanceFallback`
+  - `sourceDominancePenalty`
+  - `sourceAgreementBonus`
+  - `sourceCountBonus`
+  - `sourceCountExponent`
+- `variance`
+  - `madScale`
+  - `floor`
+  - `ceiling`
+  - `decay`
+  - `bumpCap`
+  - `bumpCenter`
+  - `innovationPower`
+  - `agreementBase`
+  - `agreementScale`
+  - `baselineMadFloor`
+
 ## Current operator knobs outside `stateSpace`
 
 These stay top-level because traders already reason about them directly:

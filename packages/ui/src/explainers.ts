@@ -48,7 +48,7 @@ The alert rule is innovation-based: a bucket fires when the positive standardize
     eli5: String.raw`This is the main fire threshold for the live board model. Lower values make it easier for a bucket to count as a surprise; higher values make the model calmer.
 
 The important change is what it means now. In the current runtime it is not "how many MADs above the median" anymore. It scales the innovation gate used by the state-space filter. The filter estimates what the board should look like right now, measures the gap between that estimate and the actual bucket, standardizes the gap by its uncertainty, and fires when that standardized surprise is big enough.`,
-    formal: String.raw`The live runtime maps this dial into the state-space model's innovation gate, not a direct $K \cdot \mathrm{MAD}$ term. In the current implementation, the positive standardized innovation $z_t^+$ fires when it exceeds the configured enter threshold after warmup, with a lower exit threshold to prevent chatter. The dial still uses the legacy \`kMad\` field name in requests for compatibility, but the semantic meaning is "innovation trigger strength" in the Python sidecar.`,
+    formal: String.raw`The live runtime maps this dial into the state-space model's innovation gate, not a direct $K \cdot \mathrm{MAD}$ term. In the current implementation, the positive standardized innovation $z_t^+$ fires when it exceeds the configured enter threshold after warmup, with a lower exit threshold to prevent chatter. The request field is still named \`kMad\`, but in the live Python sidecar its semantic meaning is "innovation trigger strength".`,
   },
 
   "k-mad-sensitive": {
@@ -58,7 +58,7 @@ The important change is what it means now. In the current runtime it is not "how
 What you get at sensitivity 3: the live board lane takes the higher-recall posture. You'll see more fires than you'd manually act on, and that's intentional. The expected use case is a desk operator scanning Recent's per-game fire counts, opening anything that looks elevated, and confirming or ignoring at a glance.
 
 If the volume feels like too many false alarms in practice, the right answer isn't to nudge sensitivity up — it's to add a second filter downstream (a confidence score, a phase-of-game gate, anything you can validate). sensitivity is locked at 3 for the live path because the empirical recall curve is steepest right around this value.`,
-    formal: String.raw`Sensitivity 3.0 with volume weighting is the canonical live operating point, declared in \`packages/detectors/src/board-mad/config.ts\` and matching the legacy \`nba-predict\` TypeScript runtime at \`game-state-volatility.ts:24-340\`.
+    formal: String.raw`Sensitivity 3.0 with volume weighting is the canonical live operating point, declared in \`packages/detectors/src/board-mad/config.ts\` and executed by the Python state-space runtime in \`apps/nba-sidecar/src/nba_sidecar/volatility.py\`.
 
 The generated bakeoff report carries the current empirical characterization for the active incident corpus. The contract test \`packages/detectors/src/board-mad/__tests__/canonical.test.ts\` pins the sensitivity=3 outcomes against committed JSON fixtures to prevent silent drift.`,
   },
@@ -358,7 +358,7 @@ Cache invalidation: the runtime \`board-mad\` detector version is derived as \`d
     eli5: String.raw`This is the innovation trigger the Recent list and the Live page use by default. Lower values make it easier for a bucket to count as surprising; higher values make the board model calmer.
 
 If you're calibrating against real market behavior, this is still the knob you'll move most. Move it up and the Live page reports fewer board fires; move it down and it reports more — both within seconds, no restart.`,
-    formal: String.raw`Runtime override for the state-space model's innovation trigger strength. The request field still uses the legacy \`kMadLive\` name for compatibility, but the live Python sidecar interprets it as the trigger parameter that sets the standardized-innovation gate for whole-board alerts.`,
+    formal: String.raw`Runtime override for the state-space model's innovation trigger strength. The request field is named \`kMadLive\`, and the live Python sidecar interprets it as the trigger parameter that sets the standardized-innovation gate for whole-board alerts.`,
   },
 
   "settings-bucket-seconds": {
@@ -454,7 +454,7 @@ This is the switch that makes Backtest and live behavior match. If you promote h
     eli5: String.raw`This is the full advanced model object, not just a loose bag of extra numbers. It contains the internal choices that shape how the board model behaves: trigger math, breadth normalization, process noise, measurement noise, anchor handling, and variance adaptation.
 
 The point of exposing it as one structured JSON object is honesty and portability. Data-engineering or stats people can tune the actual model without spelunking Python literals, and the exact same object can travel through Settings, Backtest, saved defaults, and bakeoff runs.`,
-    formal: String.raw`Nested runtime config for the Python board state-space model. The object is validated end-to-end by \`BoardStateSpaceConfigSchema\` in \`packages/detectors/src/board-mad/state-space-config.ts\`, serialized through detector defaults and backtest params, and consumed by \`apps/nba-sidecar/src/nba_sidecar/volatility.py\`. This is the canonical home for advanced tunables such as trigger coefficients, breadth exponent, process-noise terms, observation-noise weights, anchor floors, and variance-adaptation limits.`,
+    formal: String.raw`Nested runtime config for the Python board state-space model. The object is validated end-to-end by \`BoardStateSpaceConfigSchema\` in \`packages/detectors/src/board-mad/state-space-config.ts\`, serialized through detector defaults and backtest params, and consumed by \`apps/nba-sidecar/src/nba_sidecar/volatility.py\`. Settings and Backtest expose the same object in grouped numeric controls plus a mirrored JSON editor, so there is one runtime contract rather than a second math path. This is the canonical home for trigger coefficients, breadth terms, anchor floors, state-dynamics constants, observation-noise weights, and variance-regime shape controls.`,
   },
 
   "settings-state-space-trigger-floor": {

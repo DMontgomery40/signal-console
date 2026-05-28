@@ -47,6 +47,7 @@ DEFAULT_STATE_SPACE = {
         "sourceDominancePenalty": 1.2,
         "sourceAgreementBonus": 0.45,
         "sourceCountBonus": 0.15,
+        "sourceCountExponent": 0.5,
     },
     "variance": {
         "madScale": 1.4826,
@@ -55,6 +56,7 @@ DEFAULT_STATE_SPACE = {
         "decay": 0.98,
         "bumpCap": 9,
         "bumpCenter": 1,
+        "innovationPower": 2,
         "agreementBase": 0.8,
         "agreementScale": 0.4,
         "baselineMadFloor": 1e-9,
@@ -225,6 +227,102 @@ def test_state_space_uses_game_and_wall_memory_in_historical_blend_mode() -> Non
     result = score_volatility_state_space(request)
 
     assert result.observations[5].baselineMedian > result.observations[2].baselineMedian
+
+
+def test_state_space_source_count_exponent_is_operator_tunable() -> None:
+    observations = [
+        *[observation(8 + (i % 2), i) for i in range(10)],
+        VolatilityStateSpaceObservation(
+            bucketStart="2026-05-25T00:10:00.000Z",
+            bucketEnd="2026-05-25T00:11:00.000Z",
+            intensity=50,
+            gameElapsedSeconds=10 * 60,
+            activeMarketCount=25,
+            sourceCount=9,
+            sourceDominance=0.2,
+        ),
+    ]
+    flatter_state_space = default_state_space()
+    flatter_state_space["observationNoise"]["sourceCountExponent"] = 0.0
+    steeper_state_space = default_state_space()
+    steeper_state_space["observationNoise"]["sourceCountExponent"] = 1.0
+
+    flatter_result = score_volatility_state_space(
+        VolatilityStateSpaceRequest(
+            gameId="nba-synth-source-count-flat",
+            params=VolatilityStateSpaceParams(
+                baselineMode="trailing",
+                bucketSeconds=60,
+                kMad=3,
+                stateSpace=flatter_state_space,
+                trailingBuckets=20,
+                warmupBuckets=8,
+            ),
+            observations=observations,
+        )
+    )
+    steeper_result = score_volatility_state_space(
+        VolatilityStateSpaceRequest(
+            gameId="nba-synth-source-count-steep",
+            params=VolatilityStateSpaceParams(
+                baselineMode="trailing",
+                bucketSeconds=60,
+                kMad=3,
+                stateSpace=steeper_state_space,
+                trailingBuckets=20,
+                warmupBuckets=8,
+            ),
+            observations=observations,
+        )
+    )
+
+    assert (
+        steeper_result.observations[-1].standardizedInnovation
+        > flatter_result.observations[-1].standardizedInnovation
+    )
+
+
+def test_state_space_innovation_power_is_operator_tunable() -> None:
+    observations = [
+        *[observation(8 + (i % 2), i) for i in range(10)],
+        observation(80, 10),
+        observation(42, 11),
+    ]
+    softer_state_space = default_state_space()
+    softer_state_space["variance"]["innovationPower"] = 1.0
+    sharper_state_space = default_state_space()
+    sharper_state_space["variance"]["innovationPower"] = 3.0
+
+    softer_result = score_volatility_state_space(
+        VolatilityStateSpaceRequest(
+            gameId="nba-synth-innovation-soft",
+            params=VolatilityStateSpaceParams(
+                baselineMode="trailing",
+                bucketSeconds=60,
+                kMad=3,
+                stateSpace=softer_state_space,
+                trailingBuckets=20,
+                warmupBuckets=8,
+            ),
+            observations=observations,
+        )
+    )
+    sharper_result = score_volatility_state_space(
+        VolatilityStateSpaceRequest(
+            gameId="nba-synth-innovation-sharp",
+            params=VolatilityStateSpaceParams(
+                baselineMode="trailing",
+                bucketSeconds=60,
+                kMad=3,
+                stateSpace=sharper_state_space,
+                trailingBuckets=20,
+                warmupBuckets=8,
+            ),
+            observations=observations,
+        )
+    )
+
+    assert sharper_result.observations[-1].standardizedInnovation < softer_result.observations[-1].standardizedInnovation
 
 
 def test_state_space_endpoint_returns_observable_contract() -> None:

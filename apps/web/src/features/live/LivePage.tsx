@@ -113,19 +113,18 @@ function xAxisDomain(domain: ChartDomain | null): [number | "dataMin", number | 
   return domain === null ? ["dataMin", "dataMax"] : [domain.minMs, domain.maxMs];
 }
 
-// AMENDED 2026-05-25 (Codex review P1): marker id widened to string so the
-// chart can render off-price prints from either the legacy /v1/microstructure
-// shape (numeric DB id) or the new /v1/ensemble-or fire shape (composite key
-// of bucketStart + sourceMarketId). React keys accept either; per-timestamp
-// dedup is preserved.
+// Marker id is a string so the chart can render any off-price fire shape
+// that provides a stable id plus event timestamp. React keys accept either a
+// simple source id or a composite bucket/source key; per-timestamp dedup is
+// preserved.
 export interface OffPriceMarker {
   readonly id: string;
   readonly timeMs: number;
 }
 
-// Minimal shape the chart needs to render off-price markers. Both the legacy
-// MicrostructureEvent and the new EnsembleOrFire (offprice lane) can satisfy
-// it via a small mapping in LivePage. Decouples the chart from either source.
+// Minimal shape the chart needs to render off-price markers. LivePage maps the
+// active off-price lane into this tiny chart contract so the visualization
+// stays decoupled from any richer transport type.
 export interface OffPriceMarkerSource {
   readonly id: string;
   readonly eventTimestamp: string;
@@ -293,8 +292,8 @@ export function LivePage({ gameId }: LivePageProps): JSX.Element {
     <QueryErrorBanner query={ensemble} label="Failed to load ensemble-or observations" />
   ) : null;
 
-  // Adapter: ensemble-or board lane observations have the same field shape
-  // as the legacy /v1/board observations — pass through unchanged.
+  // ensemble-or board lane observations already match the chart's
+  // BoardObservation shape, so the adapter only narrows the type.
   const observations: readonly BoardObservation[] = (ensemble.data?.boardObservations ?? []).map(
     (b: EnsembleOrBoardObservation) => ({
       bucketStart: b.bucketStart,

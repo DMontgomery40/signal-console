@@ -19,7 +19,7 @@
 // dialog (window.confirm), then refresh the settings query. The gold DB's size
 // must not change as a side-effect (asserted in the test).
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent, JSX, ReactNode } from "react";
 
 import {
@@ -401,7 +401,7 @@ const BASELINE_DEFAULTS: DetectorDefaults = {
 
 const YELLOW_FLASH_MS = 200;
 
-type DetectorProfileId = "opening-ramp-live" | "historical-blend" | "legacy-trailing" | "custom";
+type DetectorProfileId = "opening-ramp-live" | "historical-blend" | "trailing" | "custom";
 
 const DETECTOR_PROFILE_PRESETS: ReadonlyArray<{
   readonly id: Exclude<DetectorProfileId, "custom">;
@@ -440,7 +440,7 @@ const DETECTOR_PROFILE_PRESETS: ReadonlyArray<{
     },
   },
   {
-    id: "legacy-trailing",
+    id: "trailing",
     label: "Pure trailing state",
     patch: {
       baselineMode: BOARD_MAD_BASELINE_MODE_TRAILING,
@@ -453,7 +453,7 @@ const DETECTOR_PROFILE_PRESETS: ReadonlyArray<{
 
 function inferDetectorProfile(defaults: DetectorDefaults): DetectorProfileId {
   if (defaults.baselineMode === BOARD_MAD_BASELINE_MODE_HISTORICAL_BLEND) return "historical-blend";
-  if (defaults.baselineMode === BOARD_MAD_BASELINE_MODE_TRAILING) return "legacy-trailing";
+  if (defaults.baselineMode === BOARD_MAD_BASELINE_MODE_TRAILING) return "trailing";
   if (defaults.bucketSeconds === 60) return "opening-ramp-live";
   return "custom";
 }
@@ -490,6 +490,7 @@ function DetectorDefaultsSection({
   // Per-field "flash" set — populated immediately after a successful POST so
   // the changed field briefly highlights yellow per AC #3.
   const [flashing, setFlashing] = useState<ReadonlySet<keyof DetectorDefaults>>(new Set());
+  const flashTimeoutsRef = useRef<Set<number>>(new Set());
 
   // Sync local draft with server-reported defaults on first load + after a
   // successful write (server normalizes values through its Zod schema).
@@ -498,6 +499,16 @@ function DetectorDefaultsSection({
     setStateSpaceText(stableJson(defaults.stateSpace));
     setStateSpaceError(null);
   }, [defaults]);
+
+  useEffect(() => {
+    const timeoutIds = flashTimeoutsRef.current;
+    return () => {
+      for (const timeoutId of timeoutIds) {
+        window.clearTimeout(timeoutId);
+      }
+      timeoutIds.clear();
+    };
+  }, []);
 
   function updateField(key: NumericDetectorDefaultKey, raw: string): void {
     if (raw === "") return;
@@ -513,13 +524,15 @@ function DetectorDefaultsSection({
     next.add(changedKey);
     setFlashing(next);
     // Clear the flash after 200 ms per AC #3.
-    setTimeout(() => {
+    const timeoutId = window.setTimeout(() => {
+      flashTimeoutsRef.current.delete(timeoutId);
       setFlashing((prev) => {
         const without = new Set(prev);
         without.delete(changedKey);
         return without;
       });
     }, YELLOW_FLASH_MS);
+    flashTimeoutsRef.current.add(timeoutId);
   }
 
   function commitNext(changedKey: keyof DetectorDefaults, next: DetectorDefaults): void {
@@ -854,7 +867,7 @@ function DetectorDefaultsSection({
             }
           >
             <div className="flex max-w-3xl flex-col gap-2">
-              <div className="grid gap-4 border border-surface-2 bg-surface-1/40 p-3 sm:grid-cols-2">
+              <div className="grid gap-4 border border-surface-2 bg-surface-1/40 p-3 lg:grid-cols-2 xl:grid-cols-3">
                 {STATE_SPACE_GUIDED_GROUPS.map((group) => (
                   <div key={group.id} className="space-y-3">
                     <div>
@@ -872,9 +885,13 @@ function DetectorDefaultsSection({
                         return (
                           <label key={field.id} className="flex flex-col gap-1">
                             <span className="text-text-md text-xs font-medium">
-                              <ExplainerCard id={field.explainerId}>
+                              {field.explainerId === undefined ? (
                                 <span>{field.label}</span>
-                              </ExplainerCard>
+                              ) : (
+                                <ExplainerCard id={field.explainerId}>
+                                  <span>{field.label}</span>
+                                </ExplainerCard>
+                              )}
                             </span>
                             <input
                               type="number"
@@ -921,8 +938,8 @@ function DetectorDefaultsSection({
                 ))}
               </div>
               <p className="text-xs text-text-lo">
-                Guided controls cover the main tuning levers. The raw JSON stays available below for
-                the rest of the object.
+                Every current state-space coefficient is editable above. The raw JSON below mirrors
+                the same object for copy-paste, diffs, and handoff.
               </p>
               <textarea
                 value={stateSpaceText}
@@ -939,8 +956,8 @@ function DetectorDefaultsSection({
               <div className="flex items-center gap-3">
                 {stateSpaceError === null ? (
                   <span className="text-text-lo font-mono text-xs">
-                    Structured advanced model config for trigger shape, breadth normalization,
-                    process noise, anchors, and variance adaptation.
+                    One runtime object for trigger, breadth, anchors, state dynamics, observation
+                    noise, and variance-regime tuning.
                   </span>
                 ) : (
                   <span
