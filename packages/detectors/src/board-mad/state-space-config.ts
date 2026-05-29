@@ -26,16 +26,12 @@ export const BOARD_STATE_SPACE_CONFIG_DEFAULTS = {
     levelProcessNoiseBase: 0.015,
     levelProcessNoiseScale: 0.18,
     trendProcessNoiseRatio: 0.2,
-    varianceAdaptationBase: 0.06,
-    varianceAdaptationScale: 0.9,
-    varianceAdaptationOffset: 10,
     initialLevelVariance: 1,
     initialTrendVariance: 1,
-    initialVarianceFloor: 0.04,
   },
-  observationNoise: {
-    floor: 0.05,
-    minimum: 1e-4,
+  sourceTrust: {
+    minMultiplier: 0.5,
+    maxMultiplier: 2,
     singleSourceDominance: 1,
     multiSourceDominanceFallback: 0.5,
     sourceDominancePenalty: 1.2,
@@ -43,17 +39,11 @@ export const BOARD_STATE_SPACE_CONFIG_DEFAULTS = {
     sourceCountBonus: 0.15,
     sourceCountExponent: 0.5,
   },
-  variance: {
+  scale: {
     madScale: 1.4826,
-    floor: 1e-4,
-    ceiling: 4,
-    decay: 0.98,
-    bumpCap: 9,
-    bumpCenter: 1,
-    innovationPower: 2,
-    agreementBase: 0.8,
-    agreementScale: 0.4,
-    baselineMadFloor: 1e-9,
+    scaleFloor: 0.05,
+    scaleCeiling: 4,
+    baselineSpreadFloor: 1e-9,
   },
 } as const;
 
@@ -159,21 +149,6 @@ export const BoardStateSpaceConfigSchema = z
           .min(0)
           .max(5)
           .default(BOARD_STATE_SPACE_CONFIG_DEFAULTS.dynamics.trendProcessNoiseRatio),
-        varianceAdaptationBase: z
-          .number()
-          .min(0)
-          .max(5)
-          .default(BOARD_STATE_SPACE_CONFIG_DEFAULTS.dynamics.varianceAdaptationBase),
-        varianceAdaptationScale: z
-          .number()
-          .min(0)
-          .max(10)
-          .default(BOARD_STATE_SPACE_CONFIG_DEFAULTS.dynamics.varianceAdaptationScale),
-        varianceAdaptationOffset: z
-          .number()
-          .min(0)
-          .max(200)
-          .default(BOARD_STATE_SPACE_CONFIG_DEFAULTS.dynamics.varianceAdaptationOffset),
         initialLevelVariance: z
           .number()
           .min(1e-9)
@@ -184,108 +159,91 @@ export const BoardStateSpaceConfigSchema = z
           .min(1e-9)
           .max(100)
           .default(BOARD_STATE_SPACE_CONFIG_DEFAULTS.dynamics.initialTrendVariance),
-        initialVarianceFloor: z
-          .number()
-          .min(1e-9)
-          .max(10)
-          .default(BOARD_STATE_SPACE_CONFIG_DEFAULTS.dynamics.initialVarianceFloor),
       })
       .default(BOARD_STATE_SPACE_CONFIG_DEFAULTS.dynamics),
-    observationNoise: z
+    sourceTrust: z
       .object({
-        floor: z
+        minMultiplier: z
           .number()
-          .min(1e-9)
-          .max(5)
-          .default(BOARD_STATE_SPACE_CONFIG_DEFAULTS.observationNoise.floor),
-        minimum: z
-          .number()
-          .min(1e-12)
+          .min(0.05)
           .max(1)
-          .default(BOARD_STATE_SPACE_CONFIG_DEFAULTS.observationNoise.minimum),
+          .default(BOARD_STATE_SPACE_CONFIG_DEFAULTS.sourceTrust.minMultiplier),
+        maxMultiplier: z
+          .number()
+          .min(1)
+          .max(10)
+          .default(BOARD_STATE_SPACE_CONFIG_DEFAULTS.sourceTrust.maxMultiplier),
         singleSourceDominance: z
           .number()
           .min(0)
           .max(1)
-          .default(BOARD_STATE_SPACE_CONFIG_DEFAULTS.observationNoise.singleSourceDominance),
+          .default(BOARD_STATE_SPACE_CONFIG_DEFAULTS.sourceTrust.singleSourceDominance),
         multiSourceDominanceFallback: z
           .number()
           .min(0)
           .max(1)
-          .default(BOARD_STATE_SPACE_CONFIG_DEFAULTS.observationNoise.multiSourceDominanceFallback),
+          .default(BOARD_STATE_SPACE_CONFIG_DEFAULTS.sourceTrust.multiSourceDominanceFallback),
         sourceDominancePenalty: z
           .number()
           .min(0)
           .max(10)
-          .default(BOARD_STATE_SPACE_CONFIG_DEFAULTS.observationNoise.sourceDominancePenalty),
+          .default(BOARD_STATE_SPACE_CONFIG_DEFAULTS.sourceTrust.sourceDominancePenalty),
         sourceAgreementBonus: z
           .number()
           .min(0)
           .max(10)
-          .default(BOARD_STATE_SPACE_CONFIG_DEFAULTS.observationNoise.sourceAgreementBonus),
+          .default(BOARD_STATE_SPACE_CONFIG_DEFAULTS.sourceTrust.sourceAgreementBonus),
         sourceCountBonus: z
           .number()
           .min(0)
           .max(5)
-          .default(BOARD_STATE_SPACE_CONFIG_DEFAULTS.observationNoise.sourceCountBonus),
+          .default(BOARD_STATE_SPACE_CONFIG_DEFAULTS.sourceTrust.sourceCountBonus),
         sourceCountExponent: z
           .number()
           .min(0)
           .max(2)
-          .default(BOARD_STATE_SPACE_CONFIG_DEFAULTS.observationNoise.sourceCountExponent),
+          .default(BOARD_STATE_SPACE_CONFIG_DEFAULTS.sourceTrust.sourceCountExponent),
       })
-      .default(BOARD_STATE_SPACE_CONFIG_DEFAULTS.observationNoise),
-    variance: z
+      .default(BOARD_STATE_SPACE_CONFIG_DEFAULTS.sourceTrust),
+    scale: z
       .object({
         madScale: z
           .number()
           .min(0.001)
           .max(10)
-          .default(BOARD_STATE_SPACE_CONFIG_DEFAULTS.variance.madScale),
-        floor: z
+          .default(BOARD_STATE_SPACE_CONFIG_DEFAULTS.scale.madScale),
+        scaleFloor: z
           .number()
-          .min(1e-12)
-          .max(10)
-          .default(BOARD_STATE_SPACE_CONFIG_DEFAULTS.variance.floor),
-        ceiling: z
+          .min(1e-6)
+          .max(5)
+          .default(BOARD_STATE_SPACE_CONFIG_DEFAULTS.scale.scaleFloor),
+        scaleCeiling: z
           .number()
-          .min(1e-9)
+          .min(1e-3)
           .max(100)
-          .default(BOARD_STATE_SPACE_CONFIG_DEFAULTS.variance.ceiling),
-        decay: z.number().min(0).max(1).default(BOARD_STATE_SPACE_CONFIG_DEFAULTS.variance.decay),
-        bumpCap: z
-          .number()
-          .min(0.001)
-          .max(100)
-          .default(BOARD_STATE_SPACE_CONFIG_DEFAULTS.variance.bumpCap),
-        bumpCenter: z
-          .number()
-          .min(0)
-          .max(20)
-          .default(BOARD_STATE_SPACE_CONFIG_DEFAULTS.variance.bumpCenter),
-        innovationPower: z
-          .number()
-          .min(0.25)
-          .max(4)
-          .default(BOARD_STATE_SPACE_CONFIG_DEFAULTS.variance.innovationPower),
-        agreementBase: z
-          .number()
-          .min(0)
-          .max(10)
-          .default(BOARD_STATE_SPACE_CONFIG_DEFAULTS.variance.agreementBase),
-        agreementScale: z
-          .number()
-          .min(0)
-          .max(10)
-          .default(BOARD_STATE_SPACE_CONFIG_DEFAULTS.variance.agreementScale),
-        baselineMadFloor: z
+          .default(BOARD_STATE_SPACE_CONFIG_DEFAULTS.scale.scaleCeiling),
+        baselineSpreadFloor: z
           .number()
           .min(1e-12)
           .max(1)
-          .default(BOARD_STATE_SPACE_CONFIG_DEFAULTS.variance.baselineMadFloor),
+          .default(BOARD_STATE_SPACE_CONFIG_DEFAULTS.scale.baselineSpreadFloor),
       })
-      .default(BOARD_STATE_SPACE_CONFIG_DEFAULTS.variance),
+      .default(BOARD_STATE_SPACE_CONFIG_DEFAULTS.scale),
   })
-  .default(BOARD_STATE_SPACE_CONFIG_DEFAULTS);
+  .default(BOARD_STATE_SPACE_CONFIG_DEFAULTS)
+  .superRefine((value, ctx) => {
+    // The robust-MAD surprise scale is clamped to [scaleFloor, scaleCeiling] in
+    // volatility.py via _clamp(base_scale, floor, ceiling). If floor > ceiling,
+    // _clamp returns the ceiling — silently violating the requested floor and
+    // making surprises easier to fire than the operator asked for. Reject the
+    // inverted ordering at the schema boundary instead of letting it through.
+    if (value.scale.scaleFloor > value.scale.scaleCeiling) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["scale", "scaleFloor"],
+        message: "scaleFloor must be less than or equal to scaleCeiling",
+      });
+    }
+  });
 
 export type BoardStateSpaceConfig = z.infer<typeof BoardStateSpaceConfigSchema>;

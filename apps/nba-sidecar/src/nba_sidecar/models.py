@@ -110,65 +110,82 @@ class VolatilityStateSpaceObservation(BaseModel):
         return self
 
 
+# Each config field mirrors the inclusive [min, max] bounds enforced by the TS
+# BoardStateSpaceConfigSchema (packages/detectors/src/board-mad/state-space-config.ts).
+# TypeScript owns the tuning contract, but this sidecar is the runtime that does
+# the math and accepts direct POSTs (UI, backtest, bakeoff, and any quant hitting
+# the tunable API), so it must reject the same out-of-range values rather than
+# silently producing garbage. Keep these bounds in lockstep with the Zod schema.
 class VolatilityStateSpaceTriggerConfig(BaseModel):
-    enterOffset: float
-    enterKScale: float
-    exitFloor: float
-    exitRatio: float
+    enterOffset: float = Field(ge=0, le=5)
+    enterKScale: float = Field(ge=0, le=2)
+    exitFloor: float = Field(ge=0, le=5)
+    exitRatio: float = Field(ge=0, le=1)
 
 
 class VolatilityStateSpaceBreadthConfig(BaseModel):
-    marketCountFloor: int
-    marketCountExponent: float
+    marketCountFloor: int = Field(ge=1, le=100)
+    marketCountExponent: float = Field(ge=0, le=1)
 
 
 class VolatilityStateSpaceObservationModelConfig(BaseModel):
-    disagreementWeight: float
+    disagreementWeight: float = Field(ge=0, le=2)
 
 
 class VolatilityStateSpaceAnchorConfig(BaseModel):
-    priorScaleFallback: float
-    priorScaleFloor: float
-    anchorScaleFloor: float
-    precisionVarianceFloor: float
+    priorScaleFallback: float = Field(ge=0.001, le=5)
+    priorScaleFloor: float = Field(ge=1e-9, le=5)
+    anchorScaleFloor: float = Field(ge=1e-9, le=5)
+    precisionVarianceFloor: float = Field(ge=1e-12, le=1)
 
 
 class VolatilityStateSpaceDynamicsConfig(BaseModel):
-    minMemoryBuckets: int
-    trendDecayNumerator: float
-    levelProcessNoiseBase: float
-    levelProcessNoiseScale: float
-    trendProcessNoiseRatio: float
-    varianceAdaptationBase: float
-    varianceAdaptationScale: float
-    varianceAdaptationOffset: float
-    initialLevelVariance: float
-    initialTrendVariance: float
-    initialVarianceFloor: float
+    minMemoryBuckets: int = Field(ge=1, le=20)
+    trendDecayNumerator: float = Field(ge=0.01, le=10)
+    levelProcessNoiseBase: float = Field(ge=0, le=1)
+    levelProcessNoiseScale: float = Field(ge=0, le=10)
+    trendProcessNoiseRatio: float = Field(ge=0, le=5)
+    initialLevelVariance: float = Field(ge=1e-9, le=100)
+    initialTrendVariance: float = Field(ge=1e-9, le=100)
 
 
-class VolatilityStateSpaceObservationNoiseConfig(BaseModel):
-    floor: float
-    minimum: float
-    singleSourceDominance: float
-    multiSourceDominanceFallback: float
-    sourceDominancePenalty: float
-    sourceAgreementBonus: float
-    sourceCountBonus: float
-    sourceCountExponent: float
+class VolatilityStateSpaceSourceTrustConfig(BaseModel):
+    # Source trust modulates the surprise scale: a bucket dominated by one book
+    # is trusted less (scale inflated -> harder to fire), buckets where many
+    # independent sources move together are trusted more (scale deflated ->
+    # easier to fire). minMultiplier/maxMultiplier clamp the trust factor.
+    minMultiplier: float = Field(ge=0.05, le=1)
+    maxMultiplier: float = Field(ge=1, le=10)
+    singleSourceDominance: float = Field(ge=0, le=1)
+    multiSourceDominanceFallback: float = Field(ge=0, le=1)
+    sourceDominancePenalty: float = Field(ge=0, le=10)
+    sourceAgreementBonus: float = Field(ge=0, le=10)
+    sourceCountBonus: float = Field(ge=0, le=5)
+    sourceCountExponent: float = Field(ge=0, le=2)
 
 
-class VolatilityStateSpaceVarianceConfig(BaseModel):
-    madScale: float
-    floor: float
-    ceiling: float
-    decay: float
-    bumpCap: float
-    bumpCenter: float
-    innovationPower: float
-    agreementBase: float
-    agreementScale: float
-    baselineMadFloor: float
+class VolatilityStateSpaceScaleConfig(BaseModel):
+    # The surprise scale is a robust trailing dispersion of the innovations:
+    # scale = madScale * MAD(recent innovations), clamped to [scaleFloor,
+    # scaleCeiling]. It is the denominator of the standardized innovation, so a
+    # fire means "this bucket is enter_z robust-SDs above the game's own
+    # recent baseline volatility". baselineSpreadFloor floors the displayed
+    # intensity-space spread.
+    madScale: float = Field(ge=0.001, le=10)
+    scaleFloor: float = Field(ge=1e-6, le=5)
+    scaleCeiling: float = Field(ge=1e-3, le=100)
+    baselineSpreadFloor: float = Field(ge=1e-12, le=1)
+
+    @model_validator(mode="after")
+    def _floor_not_above_ceiling(self) -> "VolatilityStateSpaceScaleConfig":
+        # _clamp(base_scale, scaleFloor, scaleCeiling) in volatility.py returns
+        # the ceiling when floor > ceiling, silently violating the requested
+        # floor and making surprises easier to fire than asked. Reject the
+        # inverted ordering here so the runtime never sees it (mirrors the TS
+        # Zod refine on BoardStateSpaceConfigSchema).
+        if self.scaleFloor > self.scaleCeiling:
+            raise ValueError("scaleFloor must be less than or equal to scaleCeiling")
+        return self
 
 
 class VolatilityStateSpaceConfig(BaseModel):
@@ -177,8 +194,8 @@ class VolatilityStateSpaceConfig(BaseModel):
     observationModel: VolatilityStateSpaceObservationModelConfig
     anchors: VolatilityStateSpaceAnchorConfig
     dynamics: VolatilityStateSpaceDynamicsConfig
-    observationNoise: VolatilityStateSpaceObservationNoiseConfig
-    variance: VolatilityStateSpaceVarianceConfig
+    sourceTrust: VolatilityStateSpaceSourceTrustConfig
+    scale: VolatilityStateSpaceScaleConfig
 
 
 class VolatilityStateSpaceParams(BaseModel):

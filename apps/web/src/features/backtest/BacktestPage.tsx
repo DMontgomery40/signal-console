@@ -893,7 +893,17 @@ export function BacktestPage(): JSX.Element {
     if (field === undefined) return;
     const parsed = Number.parseFloat(raw);
     if (!Number.isFinite(parsed)) return;
-    updateBoardStateSpaceConfig(writeStateSpaceFieldValue(currentStateSpace, field, parsed));
+    // writeStateSpaceFieldValue re-parses the whole config (cross-field rules
+    // such as scaleFloor <= scaleCeiling). A mid-edit value that inverts that
+    // ordering throws; surface it and keep the prior valid config rather than
+    // crashing the page.
+    try {
+      updateBoardStateSpaceConfig(writeStateSpaceFieldValue(currentStateSpace, field, parsed));
+    } catch {
+      setStateSpaceError(
+        "That value is invalid for the model schema (for example, scaleFloor must stay below or equal to scaleCeiling).",
+      );
+    }
   }
 
   function applyBoardProfile(profileId: BoardProfileId): void {

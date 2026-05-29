@@ -126,7 +126,8 @@ const DETECTORS_RESPONSE = {
             default: {
               trigger: { enterOffset: 0.9 },
               breadth: { marketCountFloor: 1 },
-              observationNoise: { floor: 0.05 },
+              sourceTrust: { sourceDominancePenalty: 1.2 },
+              scale: { madScale: 1.4826, scaleFloor: 0.05 },
             },
           },
         },
@@ -303,7 +304,7 @@ describe("DetectorsPage", () => {
     const field = within(card).getByTestId("param-input-stateSpace");
     expect(field.textContent).toContain("trigger");
     expect(field.textContent).toContain("breadth");
-    expect(field.textContent).toContain("observationNoise");
+    expect(field.textContent).toContain("sourceTrust");
     expect(field.textContent).toContain(
       "Inspect and tune these coefficients on Settings and Backtest.",
     );

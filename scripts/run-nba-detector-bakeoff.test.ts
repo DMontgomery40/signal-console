@@ -323,3 +323,73 @@ void test("state-space bakeoff path forwards the structured request and maps fir
   assert.equal(firstFire.gameId, game.gameId);
   assert.ok(firstFire.sourceCount > 1);
 });
+
+void test("state-space bakeoff maps fired buckets when the sidecar drops zero-millisecond fractions", async () => {
+  // Regression: the request emits bucketStart via Date.toISOString() ("...:00.000Z"),
+  // but the Python sidecar parses bucketStart into a datetime and re-serializes it
+  // without the zero millisecond fraction ("...:00Z"). The fired-bucket join must
+  // survive that ISO-8601 fractional-second difference; previously every fire was
+  // silently dropped, zeroing the runtime state-space bakeoff row.
+  const game = makeGameWithTapeBurst();
+  const defaults = {
+    ...BASELINE_DEFAULTS,
+    bucketSeconds: 30,
+  };
+  const [algo] = buildRuntimeStateSpaceAlgorithms(defaults);
+  assert.ok(algo);
+  const games = new Map([[game.gameId, game]]);
+  const request = buildStateSpaceRequestForGame(game, algo, games);
+  const broadIndex = request.observations.findIndex(
+    (observation) => (observation.activeMarketCount ?? 0) > 1,
+  );
+  assert.ok(broadIndex >= 0);
+  // Confirm the precondition that exposes the bug: the request bucketStart carries
+  // a millisecond fraction that the sidecar echo below intentionally strips.
+  const firedObservation = request.observations[broadIndex];
+  assert.ok(firedObservation);
+  assert.ok(firedObservation.bucketStart.includes(".000Z"));
+  const fires = await detectWithPythonStateSpace(game, algo, games, {
+    baseUrl: "http://sidecar.test",
+    fetchImpl: () =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({
+            data: {
+              generatedAt: "2026-05-28T00:00:00Z",
+              gameId: game.gameId,
+              observations: request.observations.map((observation, index) => {
+                // Re-serialize through a Date with truncated microseconds, exactly
+                // as the Pydantic datetime round-trip in the sidecar does.
+                const sidecarBucketStart = new Date(observation.bucketStart)
+                  .toISOString()
+                  .replace(".000Z", "Z");
+                const sidecarBucketEnd = new Date(observation.bucketEnd)
+                  .toISOString()
+                  .replace(".000Z", "Z");
+                return {
+                  bucketStart: sidecarBucketStart,
+                  bucketEnd: sidecarBucketEnd,
+                  baselineMedian: observation.intensity / 2,
+                  baselineMad: 0.5,
+                  threshold: observation.intensity * 0.75,
+                  standardizedInnovation: index === broadIndex ? 4.2 : 0.2,
+                  regimeScore: index === broadIndex ? 1 : 0.05,
+                  warmedUp: true,
+                  fired: index === broadIndex,
+                };
+              }),
+            },
+            meta: { source: "python-sidecar" },
+          }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          },
+        ),
+      ),
+  });
+  assert.equal(fires.length, 1);
+  const [firstFire] = fires;
+  assert.ok(firstFire);
+  assert.equal(firstFire.gameId, game.gameId);
+});

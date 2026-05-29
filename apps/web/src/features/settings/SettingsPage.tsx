@@ -595,7 +595,17 @@ function DetectorDefaultsSection({
     if (raw === "") return;
     const parsed = Number.parseFloat(raw);
     if (!Number.isFinite(parsed)) return;
-    applyStateSpaceConfig(writeStateSpaceFieldValue(draft.stateSpace, field, parsed));
+    // writeStateSpaceFieldValue re-parses the whole config (cross-field rules
+    // such as scaleFloor <= scaleCeiling). A mid-edit value that inverts that
+    // ordering throws; surface it and keep the prior valid config rather than
+    // crashing the page.
+    try {
+      applyStateSpaceConfig(writeStateSpaceFieldValue(draft.stateSpace, field, parsed));
+    } catch {
+      setStateSpaceError(
+        "That value is invalid for the model schema (for example, scaleFloor must stay below or equal to scaleCeiling).",
+      );
+    }
   }
 
   function resetStateSpaceField(field: StateSpaceGuidedFieldDef): void {
