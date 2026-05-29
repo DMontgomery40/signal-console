@@ -780,3 +780,151 @@ export function useScheduleDetectorDefaults(): UseMutationResult<
     },
   });
 }
+
+// ── Research artifact surface (read-only) ────────────────────────────────────
+//
+// Mirrors apps/api/src/routes/research.ts. Every GET is read-mostly over the
+// quant-lab artifact tree and resilient (absent/empty/malformed -> clean empty
+// payload). The single writer is POST /v1/research/pull, which validates via
+// the shared @signal-console/research-pull planner and ENQUEUES a job, never
+// running a backfill inline. The artifact bodies (snapshot manifest, pull
+// job.json, leaderboard rows) are free-form JSON on the server side
+// (additionalProperties:true), so the schemas below stay permissive
+// (passthrough) and the UI reads the fields it understands defensively.
+
+// /v1/research/sources — shared capability matrix (snapshot-eligible /
+// artifact-only / pending) with supported capture modes + limitations.
+const researchSourceSchema = z.object({
+  id: z.string(),
+  class: z.enum(["snapshot-eligible", "artifact-only", "pending"]),
+  supportedModes: z.array(z.string()),
+  limitations: z.array(z.string()),
+});
+const researchSourcesSchema = z.object({
+  sources: z.array(researchSourceSchema),
+});
+
+// /v1/research/snapshot/latest — { snapshot: object | null }. The manifest body
+// is free-form; we read named fields defensively in the component.
+const researchSnapshotSchema = z.object({
+  snapshot: z.record(z.unknown()).nullable(),
+});
+
+// /v1/research/leaderboard/latest — { runId, rows[] } where each row is a
+// free-form record (model/recall/firesPerGame/etc.).
+const researchLeaderboardSchema = z.object({
+  runId: z.string().nullable(),
+  rows: z.array(z.record(z.unknown())),
+});
+
+// /v1/research/models — registry- or static-backed model list.
+const researchModelSchema = z.object({
+  id: z.string(),
+  label: z.string(),
+  description: z.string(),
+  source: z.enum(["registry", "static"]),
+});
+const researchModelsSchema = z.object({
+  models: z.array(researchModelSchema),
+});
+
+// /v1/research/pulls — newest-first list of pull job.json records (free-form).
+const researchPullsSchema = z.object({
+  pulls: z.array(z.record(z.unknown())),
+});
+
+export type ResearchSource = z.infer<typeof researchSourceSchema>;
+export type ResearchSources = z.infer<typeof researchSourcesSchema>;
+export type ResearchSnapshot = z.infer<typeof researchSnapshotSchema>;
+export type ResearchLeaderboard = z.infer<typeof researchLeaderboardSchema>;
+export type ResearchModel = z.infer<typeof researchModelSchema>;
+export type ResearchModels = z.infer<typeof researchModelsSchema>;
+export type ResearchPulls = z.infer<typeof researchPullsSchema>;
+
+export function useResearchSources(): UseQueryResult<ResearchSources, Error> {
+  return useQuery({
+    queryKey: ["research-sources"],
+    queryFn: ({ signal }) => fetchJson(`/v1/research/sources`, researchSourcesSchema, signal),
+  });
+}
+
+export function useResearchSnapshot(): UseQueryResult<ResearchSnapshot, Error> {
+  return useQuery({
+    queryKey: ["research-snapshot"],
+    queryFn: ({ signal }) =>
+      fetchJson(`/v1/research/snapshot/latest`, researchSnapshotSchema, signal),
+  });
+}
+
+export function useResearchLeaderboard(): UseQueryResult<ResearchLeaderboard, Error> {
+  return useQuery({
+    queryKey: ["research-leaderboard"],
+    queryFn: ({ signal }) =>
+      fetchJson(`/v1/research/leaderboard/latest`, researchLeaderboardSchema, signal),
+  });
+}
+
+export function useResearchModels(): UseQueryResult<ResearchModels, Error> {
+  return useQuery({
+    queryKey: ["research-models"],
+    queryFn: ({ signal }) => fetchJson(`/v1/research/models`, researchModelsSchema, signal),
+  });
+}
+
+export function useResearchPulls(): UseQueryResult<ResearchPulls, Error> {
+  return useQuery({
+    queryKey: ["research-pulls"],
+    queryFn: ({ signal }) => fetchJson(`/v1/research/pulls`, researchPullsSchema, signal),
+  });
+}
+
+// POST /v1/research/pull — the only writer. Validates server-side via the same
+// shared planner the UI dry-runs with, then returns { job_id } (HTTP 202). On
+// success we invalidate ['research-pulls'] so the jobs table refreshes.
+const submitPullResponseSchema = z.object({ job_id: z.string() });
+const submitPullErrorSchema = z.object({
+  error: z.string(),
+  code: z.string().optional(),
+  details: z
+    .array(z.object({ code: z.string().optional(), message: z.string().optional() }).passthrough())
+    .optional(),
+});
+export type SubmitPullResponse = z.infer<typeof submitPullResponseSchema>;
+
+async function submitPullRequest(body: unknown): Promise<SubmitPullResponse> {
+  const res = await fetch(`${API_BASE_URL}/v1/research/pull`, {
+    method: "POST",
+    headers: { "X-Signal-Token": SIGNAL_TOKEN, "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const text = await res.text();
+  if (!res.ok) {
+    const parsed = (() => {
+      try {
+        return submitPullErrorSchema.safeParse(JSON.parse(text));
+      } catch {
+        return { success: false } as const;
+      }
+    })();
+    const detail = parsed.success
+      ? `${parsed.data.error}${
+          parsed.data.details && parsed.data.details.length > 0
+            ? `: ${parsed.data.details.map((d) => d.message ?? d.code ?? "").join("; ")}`
+            : ""
+        }`
+      : text || res.statusText;
+    throw new Error(`HTTP ${String(res.status)}: ${detail}`);
+  }
+  const json: unknown = JSON.parse(text);
+  return submitPullResponseSchema.parse(json);
+}
+
+export function useSubmitPull(): UseMutationResult<SubmitPullResponse, Error, unknown> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: submitPullRequest,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["research-pulls"] });
+    },
+  });
+}

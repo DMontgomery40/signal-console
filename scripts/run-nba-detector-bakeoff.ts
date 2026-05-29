@@ -3,7 +3,7 @@
 // Offline NBA incident bake-off. This script is intentionally read-only against
 // the gold DB and writes a standalone HTML report plus machine-readable JSON.
 
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import process from "node:process";
 
@@ -15,6 +15,43 @@ import {
   type DetectorDefaults,
 } from "../apps/api/src/services/detector-defaults";
 import { GOLD_DB_PATH, openGoldDb } from "../packages/db/src/open";
+import {
+  ALERT_EPISODE_MERGE_SECONDS,
+  type AlgoSpec,
+  ARCHIVE_ONLY_INCIDENTS,
+  type BakeoffStateSpaceRequest,
+  type Bucket,
+  bucketize,
+  bucketScore,
+  buildGameData,
+  buildMarketOutlierEpisodes,
+  buildStateSpaceRequestForGame,
+  type Fire,
+  findIncidentFire,
+  type GameData,
+  type HistoricalPrior,
+  historicalPriorForGame,
+  type IncidentAlgoResult,
+  isoFromSeconds,
+  loadGameWindows,
+  LOW_SIGNAL_FLOOR,
+  mad,
+  MAD_SCALE,
+  type MarketOutlierEpisode,
+  matchupLabel,
+  mean,
+  median,
+  parseIsoSeconds,
+  type RawIncident,
+  readIncidents,
+  robustStats,
+  rounded,
+  SCALE_FLOOR,
+  SECONDS_PER_MINUTE,
+  type StateSpaceAlgoSpec,
+} from "../packages/research-truth/src/index";
+
+export { buildMarketOutlierEpisodes, buildStateSpaceRequestForGame };
 
 const SOURCE_REGISTRY_PATH = resolve(
   "..",
@@ -27,27 +64,13 @@ const SOURCE_REGISTRY_PATH = resolve(
 const OUT_DIR = resolve("outputs", "nba-detector-bakeoff");
 const RESEARCH_DIR = resolve(OUT_DIR, "research");
 const PRETTIER_CONFIG_PATH = resolve(".prettierrc.json");
-const MILLISECONDS_PER_SECOND = 1000;
-const SECONDS_PER_MINUTE = 60;
-const REGULATION_PERIOD_SECONDS = 12 * SECONDS_PER_MINUTE;
-const OVERTIME_PERIOD_SECONDS = 5 * SECONDS_PER_MINUTE;
-const STALE_PAIR_GAP_SECONDS = 300;
-const DEFAULT_PRE_BUFFER_SECONDS = 10 * SECONDS_PER_MINUTE;
-const DEFAULT_POST_BUFFER_SECONDS = 5 * SECONDS_PER_MINUTE;
-const CATCH_WINDOW_BEFORE_SECONDS = -60;
-const CATCH_WINDOW_AFTER_SECONDS = 300;
 const CLUTCH_SECONDS_REMAINING = 5 * SECONDS_PER_MINUTE;
 const CLOSE_GAME_MARGIN = 5;
 const FOUL_MODE_SECONDS_REMAINING = 60;
 const FOUL_MODE_MARGIN = 3;
-const PROB_EPSILON = 0.001;
-const MAD_SCALE = 1.4826;
-const SCALE_FLOOR = 1e-9;
-const LOW_SIGNAL_FLOOR = 1e-12;
 const EWMA_TAU_SECONDS = 6 * SECONDS_PER_MINUTE;
 const CUSUM_DRIFT = 0.35;
 const RV_JUMP_RATIO = 2.25;
-const COVERAGE_NORMALIZATION_MARKET_FLOOR = 1;
 const NO_FIRE_COOLDOWN_BUCKETS = 0;
 const SHORT_REGIME_COOLDOWN_BUCKETS = 4;
 const HIGH_MARKET_BREADTH_COUNT = 120;
@@ -55,250 +78,14 @@ const HIGH_QUOTE_PAIR_COUNT = 5_000;
 const HIGH_LATE_GAME_FIRE_SHARE = 0.35;
 const OUTLIER_MIN_FIRE_COUNT = 20;
 const OUTLIER_MEDIAN_MULTIPLIER = 2.5;
-const ALERT_EPISODE_MERGE_SECONDS = 90;
-const MARKET_OUTLIER_BUCKET_SECONDS = 30;
-const MARKET_OUTLIER_MIN_BUCKETS = 8;
-const MARKET_OUTLIER_PRICE_MOVE_Z = 3;
-const MARKET_OUTLIER_CONFIRMATION_Z = 1.5;
-const MARKET_OUTLIER_EXTREME_PRICE_MOVE_Z = 5;
-const MARKET_OUTLIER_MIN_ACTIVE_MARKETS = 4;
-const MARKET_OUTLIER_MIN_SOURCES = 2;
 const MARKET_OUTLIER_EPISODE_BUFFER_SECONDS = 30;
 const REPORT_GENERATED_AT = new Date().toISOString();
-
-type ScoreKind =
-  | "board-eq"
-  | "board-vw"
-  | "coverage-normalized-vw"
-  | "logit-vw"
-  | "volume-heavy"
-  | "offprice"
-  | "hybrid";
-
-type BaselineKind =
-  | "mad-wall"
-  | "mad-game"
-  | "mad-blend"
-  | "mad-historical"
-  | "ewma"
-  | "cusum"
-  | "rv-bv";
-
-type DetectorEngine = "research-ts" | "python-state-space";
-
-type RuntimeBaselineMode = "trailing" | "opening-ramp" | "historical-blend";
-
-interface IncidentRegistryPayload {
-  readonly incidents?: readonly unknown[];
-  readonly summary?: unknown;
-}
-
-interface RawIncident {
-  readonly id: string;
-  readonly confidence: string;
-  readonly anchorType: string;
-  readonly gameDate: string;
-  readonly teams: string;
-  readonly gameId: string;
-  readonly period: string;
-  readonly clock: string;
-  readonly utcTime: string;
-  readonly stat: string;
-  readonly creditedPlayer: string;
-  readonly rightfulPlayer: string;
-  readonly sourceOrigin: string;
-  readonly sourceReference: string;
-  readonly sourceTextSummary: string;
-  readonly notes: string;
-  readonly officialCorrection: boolean;
-  readonly localBoardGameIds: readonly string[];
-}
-
-interface PbpPoint {
-  readonly timeSec: number;
-  readonly iso: string;
-  readonly period: number | null;
-  readonly clock: string | null;
-  readonly secondsRemaining: number | null;
-  readonly gameElapsedSec: number | null;
-  readonly scoreMarginAbs: number | null;
-  readonly description: string;
-}
-
-interface GameWindow {
-  readonly gameId: string;
-  readonly scheduledStart: string;
-  readonly homeKey: string | null;
-  readonly awayKey: string | null;
-  readonly startIso: string;
-  readonly endIso: string;
-  readonly startSec: number;
-  readonly endSec: number;
-  readonly points: readonly PbpPoint[];
-}
-
-interface PairContribution {
-  readonly timeSec: number;
-  readonly sourceMarketId: string;
-  readonly source: string;
-  readonly family: string;
-  readonly deltaP: number;
-  readonly deltaLogit: number;
-  readonly volume: number;
-}
-
-interface MicroEvent {
-  readonly timeSec: number;
-  readonly source: string;
-  readonly sourceMarketId: string;
-  readonly instrumentId: string;
-  readonly severity: number;
-}
-
-interface Bucket {
-  readonly startSec: number;
-  readonly endSec: number;
-  readonly gameElapsedSec: number | null;
-  readonly period: number | null;
-  readonly secondsRemaining: number | null;
-  readonly scoreMarginAbs: number | null;
-  readonly eqIntensity: number;
-  readonly vwIntensity: number;
-  readonly logitVwIntensity: number;
-  readonly volumeHeavyIntensity: number;
-  readonly activeMarketCount: number;
-  readonly sourceCount: number;
-  readonly sourceDominance: number | null;
-  readonly familyCount: number;
-  readonly offpriceSeverity: number;
-  readonly offpriceFanout: number;
-  readonly offpriceSourceCount: number;
-}
-
-interface GameData {
-  readonly gameId: string;
-  readonly window: GameWindow;
-  readonly pairs: readonly PairContribution[];
-  readonly micro: readonly MicroEvent[];
-  readonly bucketCache: Map<number, readonly Bucket[]>;
-}
-
-interface AlgoSpec {
-  readonly id: string;
-  readonly name: string;
-  readonly family: string;
-  readonly engine?: DetectorEngine;
-  readonly bucketSeconds: number;
-  readonly scoreKind: ScoreKind;
-  readonly baselineKind: BaselineKind;
-  readonly k: number;
-  readonly warmupBuckets: number;
-  readonly minPrior: number;
-  readonly trailingBuckets?: number;
-  readonly wallMemorySeconds?: number;
-  readonly gameMemorySeconds?: number;
-  readonly recentWallSeconds?: number;
-  readonly recentWallWeight?: number;
-  readonly finalFiveCloseMultiplier?: number;
-  readonly finalFoulModeMultiplier?: number;
-  readonly requiredMarkets?: number;
-  readonly requiredFamilies?: number;
-  readonly requiredSources?: number;
-  readonly requiredOffpriceFanout?: number;
-  readonly cooldownBuckets?: number;
-  readonly openingBaselineBuckets?: number;
-  readonly openingRampCompleteBuckets?: number;
-  readonly historicalLastGames?: number;
-  readonly historicalAwayWeight?: number;
-  readonly historicalPriorWeight?: number;
-  readonly historicalRampCompleteGameSeconds?: number;
-  readonly runtimeBaselineMode?: RuntimeBaselineMode;
-  readonly stateSpace?: Record<string, unknown>;
-  readonly configSource?: "baseline-defaults" | "live-defaults";
-  readonly formula: string;
-  readonly rationale: string;
-  readonly citations: readonly string[];
-}
-
-interface StateSpaceAlgoSpec extends AlgoSpec {
-  readonly engine: "python-state-space";
-  readonly stateSpace: Record<string, unknown>;
-}
-
-interface BakeoffStateSpaceHistoricalPrior {
-  readonly mad: number;
-  readonly median: number;
-  readonly sampleSize: number;
-}
-
-interface BakeoffStateSpaceObservation {
-  readonly activeMarketCount?: number;
-  readonly bucketEnd: string;
-  readonly bucketStart: string;
-  readonly gameElapsedSeconds?: number | null;
-  readonly intensity: number;
-  readonly sourceCount?: number;
-  readonly sourceDominance?: number;
-}
-
-interface BakeoffStateSpaceRequest {
-  readonly gameId: string;
-  readonly observations: readonly BakeoffStateSpaceObservation[];
-  readonly params: {
-    readonly baselineMode: RuntimeBaselineMode;
-    readonly bucketSeconds: number;
-    readonly historicalPrior?: BakeoffStateSpaceHistoricalPrior;
-    readonly historicalPriorWeight?: number;
-    readonly historicalRampCompleteGameMinutes?: number;
-    readonly kMad: number;
-    readonly openingBaselineBuckets: number;
-    readonly openingRampCompleteBuckets: number;
-    readonly recentWallMinutes?: number;
-    readonly recentWallWeight?: number;
-    readonly stateSpace: Record<string, unknown>;
-    readonly trailingBuckets: number;
-    readonly trailingGameMinutes: number;
-    readonly warmupBuckets: number;
-  };
-}
 
 interface BakeoffStateSpaceResponseObservation {
   readonly bucketEnd: string;
   readonly bucketStart: string;
   readonly fired: boolean;
   readonly threshold: number;
-}
-
-interface HistoricalPrior {
-  readonly median: number;
-  readonly mad: number;
-  readonly sampleSize: number;
-}
-
-interface Fire {
-  readonly gameId: string;
-  readonly bucketStartIso: string;
-  readonly observedAtIso: string;
-  readonly observedAtSec: number;
-  readonly score: number;
-  readonly threshold: number;
-  readonly period: number | null;
-  readonly secondsRemaining: number | null;
-  readonly scoreMarginAbs: number | null;
-  readonly activeMarketCount: number;
-  readonly sourceCount: number;
-  readonly familyCount: number;
-  readonly offpriceFanout: number;
-}
-
-interface IncidentAlgoResult {
-  readonly incidentId: string;
-  readonly algoId: string;
-  readonly scoreable: boolean;
-  readonly caught: boolean;
-  readonly leadSeconds: number | null;
-  readonly fireIso: string | null;
-  readonly skipReason: string | null;
 }
 
 interface AlgorithmSummary {
@@ -405,27 +192,6 @@ interface FireOutlier {
   readonly diagnosis: string;
 }
 
-interface MarketOutlierEpisode {
-  readonly gameId: string;
-  readonly scheduledStart: string;
-  readonly matchup: string;
-  readonly startSec: number;
-  readonly endSec: number;
-  readonly startIso: string;
-  readonly endIso: string;
-  readonly bucketSeconds: number;
-  readonly bucketCount: number;
-  readonly peakSeverity: number;
-  readonly meanSeverity: number;
-  readonly peakPriceMoveZ: number;
-  readonly peakBreadthZ: number;
-  readonly peakOffpriceZ: number;
-  readonly peakActiveMarkets: number;
-  readonly peakSources: number;
-  readonly peakFamilies: number;
-  readonly diagnosis: string;
-}
-
 interface MarketOutlierAlgoResult {
   readonly algoId: string;
   readonly gameId: string;
@@ -455,74 +221,6 @@ interface MethodAdjustment {
   readonly formula: string;
   readonly reason: string;
 }
-
-const ARCHIVE_ONLY_INCIDENTS: readonly RawIncident[] = [
-  {
-    id: "archive_sasser_rebound",
-    confidence: "medium",
-    anchorType: "archive-only",
-    gameDate: "2026-05-07/14",
-    teams: "",
-    gameId: "",
-    period: "Q2",
-    clock: "07:32",
-    utcTime: "",
-    stat: "rebound",
-    creditedPlayer: "Marcus Sasser",
-    rightfulPlayer: "",
-    sourceOrigin: "archive_only",
-    sourceReference:
-      "nba-predict/.docs-archive/2026-05-repo-audit/outputs/innovation-team-suspend-signal-report/research/03b-external-research-verified.md",
-    sourceTextSummary:
-      "Archive-only rebound misattribution candidate not carried into current registry.",
-    notes: "No exact UTC anchor recovered in current generated registry.",
-    officialCorrection: false,
-    localBoardGameIds: [],
-  },
-  {
-    id: "archive_levert_jenkins_assist",
-    confidence: "medium",
-    anchorType: "archive-only",
-    gameDate: "2026-05-07/14",
-    teams: "",
-    gameId: "",
-    period: "Q3",
-    clock: "04:13",
-    utcTime: "",
-    stat: "assist",
-    creditedPlayer: "Cade LeVert / Daniss Jenkins",
-    rightfulPlayer: "",
-    sourceOrigin: "archive_only",
-    sourceReference:
-      "nba-predict/.docs-archive/2026-05-repo-audit/outputs/innovation-team-suspend-signal-report/research/03b-external-research-verified.md",
-    sourceTextSummary: "Archive-only missing-assist candidate not carried into current registry.",
-    notes: "No exact UTC anchor recovered in current generated registry.",
-    officialCorrection: false,
-    localBoardGameIds: [],
-  },
-  {
-    id: "archive_sarr_trae_rebound",
-    confidence: "medium",
-    anchorType: "archive-only",
-    gameDate: "2026-03-09",
-    teams: "",
-    gameId: "",
-    period: "",
-    clock: "",
-    utcTime: "",
-    stat: "rebound",
-    creditedPlayer: "Alexandre Sarr",
-    rightfulPlayer: "Trae Young",
-    sourceOrigin: "archive_only",
-    sourceReference:
-      "nba-predict/.docs-archive/2026-05-repo-audit/outputs/innovation-team-suspend-signal-report/research/03b-external-research-verified.md",
-    sourceTextSummary:
-      "Archive-only regular-season rebound candidate outside the local playoff window.",
-    notes: "Outside current local quote/PBP coverage.",
-    officialCorrection: false,
-    localBoardGameIds: [],
-  },
-];
 
 const RESEARCH_SOURCES: readonly ResearchSource[] = [
   {
@@ -767,7 +465,7 @@ const REPORT_NOTES: readonly ReportNote[] = [
   },
 ];
 
-const RESEARCH_ALGORITHMS: readonly AlgoSpec[] = [
+export const RESEARCH_ALGORITHMS: readonly AlgoSpec[] = [
   {
     id: "A01_legacy_60_vw_k3",
     name: "Legacy 60s VW K=3",
@@ -1257,99 +955,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
-function readJsonRecord(path: string): Record<string, unknown> {
-  const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
-  return isRecord(parsed) ? parsed : {};
-}
-
-function unknownRows(rows: unknown[]): readonly unknown[] {
-  return rows;
-}
-
-function stringField(row: Record<string, unknown>, key: string): string {
-  const value = row[key];
-  return typeof value === "string" ? value : "";
-}
-
-function boolField(row: Record<string, unknown>, key: string): boolean {
-  return row[key] === true;
-}
-
-function stringArrayField(row: Record<string, unknown>, key: string): readonly string[] {
-  const value = row[key];
-  return Array.isArray(value)
-    ? value.filter((item): item is string => typeof item === "string")
-    : [];
-}
-
-function normalizeIncident(raw: unknown): RawIncident | null {
-  if (!isRecord(raw)) return null;
-  const id = stringField(raw, "id");
-  if (id === "") return null;
-  return {
-    id,
-    confidence: stringField(raw, "confidence"),
-    anchorType: stringField(raw, "anchor_type"),
-    gameDate: stringField(raw, "game_date"),
-    teams: stringField(raw, "teams"),
-    gameId: stringField(raw, "game_id"),
-    period: stringField(raw, "period"),
-    clock: stringField(raw, "clock"),
-    utcTime: stringField(raw, "utc_time"),
-    stat: stringField(raw, "stat"),
-    creditedPlayer: stringField(raw, "credited_player"),
-    rightfulPlayer: stringField(raw, "rightful_player"),
-    sourceOrigin: stringField(raw, "source_origin"),
-    sourceReference: stringField(raw, "source_reference"),
-    sourceTextSummary: stringField(raw, "source_text_summary"),
-    notes: stringField(raw, "notes"),
-    officialCorrection: boolField(raw, "official_correction"),
-    localBoardGameIds: stringArrayField(raw, "local_board_game_ids"),
-  };
-}
-
-function readIncidents(): readonly RawIncident[] {
-  const payload: IncidentRegistryPayload = readJsonRecord(SOURCE_REGISTRY_PATH);
-  const incidents = (payload.incidents ?? []).flatMap((item): readonly RawIncident[] => {
-    const incident = normalizeIncident(item);
-    return incident === null ? [] : [incident];
-  });
-  const seen = new Set(incidents.map((incident) => incident.id));
-  const extras = ARCHIVE_ONLY_INCIDENTS.filter((incident) => !seen.has(incident.id));
-  return [...incidents, ...extras];
-}
-
-function parseIsoSeconds(value: string): number | null {
-  const ms = Date.parse(value);
-  return Number.isFinite(ms) ? ms / MILLISECONDS_PER_SECOND : null;
-}
-
-function isoFromSeconds(value: number): string {
-  return new Date(value * MILLISECONDS_PER_SECOND).toISOString();
-}
-
-function median(values: readonly number[]): number {
-  if (values.length === 0) return 0;
-  const ordered = [...values].sort((a, b) => a - b);
-  const middle = Math.floor(ordered.length / 2);
-  const middleValue = ordered[middle];
-  if (middleValue === undefined) return 0;
-  if (ordered.length % 2 === 1) return middleValue;
-  const previous = ordered[middle - 1] ?? middleValue;
-  return (previous + middleValue) / 2;
-}
-
-function mad(values: readonly number[]): number {
-  if (values.length === 0) return 0;
-  const center = median(values);
-  return median(values.map((value) => Math.abs(value - center)));
-}
-
-function mean(values: readonly number[]): number | null {
-  if (values.length === 0) return null;
-  return values.reduce((sum, value) => sum + value, 0) / values.length;
-}
-
 function percentile(values: readonly number[], p: number): number | null {
   if (values.length === 0) return null;
   const ordered = [...values].sort((a, b) => a - b);
@@ -1361,427 +966,6 @@ function percentile(values: readonly number[], p: number): number | null {
   if (lowerValue === undefined) return null;
   if (upperValue === undefined || lower === upper) return lowerValue;
   return lowerValue + (upperValue - lowerValue) * (position - lower);
-}
-
-function rounded(value: number | null, digits = 2): number | null {
-  if (value === null || !Number.isFinite(value)) return null;
-  const factor = 10 ** digits;
-  return Math.round(value * factor) / factor;
-}
-
-function clampProbability(value: number): number {
-  return Math.min(1 - PROB_EPSILON, Math.max(PROB_EPSILON, value));
-}
-
-function logit(value: number): number {
-  const p = clampProbability(value);
-  return Math.log(p / (1 - p));
-}
-
-function parseClockSecondsRemaining(clock: string | null): number | null {
-  if (clock === null || clock.trim() === "") return null;
-  const iso = /^PT(?:(\d+(?:\.\d+)?)M)?(?:(\d+(?:\.\d+)?)S)?$/i.exec(clock.trim());
-  if (iso !== null) {
-    const minutes = Number.parseFloat(iso[1] ?? "0");
-    const seconds = Number.parseFloat(iso[2] ?? "0");
-    const total = minutes * SECONDS_PER_MINUTE + seconds;
-    return Number.isFinite(total) ? total : null;
-  }
-  const mmss = /^(\d{1,2}):(\d{2})(?:\.\d+)?$/.exec(clock.trim());
-  if (mmss !== null) {
-    const minutes = Number.parseInt(mmss[1] ?? "0", 10);
-    const seconds = Number.parseInt(mmss[2] ?? "0", 10);
-    return minutes * SECONDS_PER_MINUTE + seconds;
-  }
-  return null;
-}
-
-function gameElapsedSeconds(period: number | null, secondsRemaining: number | null): number | null {
-  if (period === null || secondsRemaining === null || period < 1) return null;
-  const completedRegulationPeriods = Math.min(period - 1, 4);
-  const completedOvertimePeriods = Math.max(0, period - 5);
-  const currentPeriodLength = period <= 4 ? REGULATION_PERIOD_SECONDS : OVERTIME_PERIOD_SECONDS;
-  return (
-    completedRegulationPeriods * REGULATION_PERIOD_SECONDS +
-    completedOvertimePeriods * OVERTIME_PERIOD_SECONDS +
-    Math.max(0, currentPeriodLength - secondsRemaining)
-  );
-}
-
-function numberOrNull(value: unknown): number | null {
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
-}
-
-function stringOrNull(value: unknown): string | null {
-  return typeof value === "string" && value !== "" ? value : null;
-}
-
-function rowString(row: Record<string, unknown>, key: string): string {
-  const value = row[key];
-  if (typeof value !== "string") throw new Error(`expected ${key} string`);
-  return value;
-}
-
-function normalizeGameId(gameId: string): string {
-  if (gameId === "") return "";
-  if (gameId.startsWith("nba-")) return gameId;
-  if (/^\d{10}$/.test(gameId)) return `nba-${gameId}`;
-  return gameId;
-}
-
-function participantKey(raw: unknown): string | null {
-  if (typeof raw !== "string" || raw.trim() === "") return null;
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    if (!isRecord(parsed)) return null;
-    for (const key of ["key", "abbreviation", "name", "shortName"]) {
-      const value = parsed[key];
-      if (typeof value === "string" && value.trim() !== "") {
-        return value.trim().toLowerCase();
-      }
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-function loadGameWindows(db: ReturnType<typeof openGoldDb>): readonly GameWindow[] {
-  const gameRows = unknownRows(
-    db
-      .prepare(
-        `SELECT pbp.game_id AS gameId,
-              COALESCE(g.scheduled_start, MIN(pbp.time_actual)) AS scheduledStart,
-              g.home_participant_json AS homeParticipantJson,
-              g.away_participant_json AS awayParticipantJson,
-              MIN(pbp.time_actual) AS startIso,
-              MAX(pbp.time_actual) AS endIso
-       FROM nba_play_by_play_actions pbp
-       LEFT JOIN games g ON g.id = pbp.game_id
-       WHERE pbp.time_actual IS NOT NULL
-       GROUP BY pbp.game_id
-       ORDER BY pbp.game_id`,
-      )
-      .all(),
-  );
-  const pointStmt = db.prepare(
-    `SELECT period, clock, score_home, score_away, time_actual, description
-     FROM nba_play_by_play_actions
-     WHERE game_id = ?
-       AND time_actual IS NOT NULL
-     ORDER BY time_actual ASC, action_number ASC`,
-  );
-  return gameRows.flatMap((row): readonly GameWindow[] => {
-    if (!isRecord(row)) return [];
-    const gameId = rowString(row, "gameId");
-    const startIso = rowString(row, "startIso");
-    const endIso = rowString(row, "endIso");
-    const scheduledStart = stringField(row, "scheduledStart") || startIso;
-    const startRaw = parseIsoSeconds(startIso);
-    const endRaw = parseIsoSeconds(endIso);
-    if (startRaw === null || endRaw === null) return [];
-    const points = unknownRows(pointStmt.all(gameId)).flatMap((pointRow): readonly PbpPoint[] => {
-      if (!isRecord(pointRow)) return [];
-      const iso = stringOrNull(pointRow["time_actual"]);
-      const timeSec = iso === null ? null : parseIsoSeconds(iso);
-      if (iso === null || timeSec === null) return [];
-      const period = numberOrNull(pointRow["period"]);
-      const clock = stringOrNull(pointRow["clock"]);
-      const secondsRemaining = parseClockSecondsRemaining(clock);
-      const elapsed = gameElapsedSeconds(period, secondsRemaining);
-      const home = numberOrNull(pointRow["score_home"]);
-      const away = numberOrNull(pointRow["score_away"]);
-      return [
-        {
-          timeSec,
-          iso,
-          period,
-          clock,
-          secondsRemaining,
-          gameElapsedSec: elapsed,
-          scoreMarginAbs: home === null || away === null ? null : Math.abs(home - away),
-          description: stringField(pointRow, "description"),
-        },
-      ];
-    });
-    return [
-      {
-        gameId,
-        scheduledStart,
-        homeKey: participantKey(row["homeParticipantJson"]),
-        awayKey: participantKey(row["awayParticipantJson"]),
-        startIso: isoFromSeconds(startRaw - DEFAULT_PRE_BUFFER_SECONDS),
-        endIso: isoFromSeconds(endRaw + DEFAULT_POST_BUFFER_SECONDS),
-        startSec: startRaw - DEFAULT_PRE_BUFFER_SECONDS,
-        endSec: endRaw + DEFAULT_POST_BUFFER_SECONDS,
-        points,
-      },
-    ];
-  });
-}
-
-function contextAt(window: GameWindow, timeSec: number): PbpPoint | null {
-  let lo = 0;
-  let hi = window.points.length - 1;
-  let best: PbpPoint | null = null;
-  while (lo <= hi) {
-    const mid = Math.floor((lo + hi) / 2);
-    const point = window.points[mid];
-    if (point === undefined) break;
-    if (point.timeSec <= timeSec) {
-      best = point;
-      lo = mid + 1;
-    } else {
-      hi = mid - 1;
-    }
-  }
-  return best;
-}
-
-function loadPairs(
-  db: ReturnType<typeof openGoldDb>,
-  window: GameWindow,
-): readonly PairContribution[] {
-  const rows = unknownRows(
-    db
-      .prepare(
-        `SELECT sm.source AS source,
-              COALESCE(sm.raw_family, '') AS family,
-              qt.source_market_id AS sourceMarketId,
-              qt.captured_at AS capturedAt,
-              qt.implied_probability AS impliedProbability,
-              COALESCE(qt.volume, 0) AS volume
-       FROM quote_ticks qt
-       JOIN source_markets sm ON sm.id = qt.source_market_id
-       WHERE sm.game_id = ?
-         AND qt.is_heartbeat = 0
-         AND qt.implied_probability IS NOT NULL
-         AND qt.captured_at >= ?
-         AND qt.captured_at <= ?
-       ORDER BY qt.source_market_id ASC, qt.captured_at ASC`,
-      )
-      .all(window.gameId, window.startIso, window.endIso),
-  );
-
-  const pairs: PairContribution[] = [];
-  let previousMarket = "";
-  let previousTs: number | null = null;
-  let previousP: number | null = null;
-  for (const row of rows) {
-    if (!isRecord(row)) continue;
-    const sourceMarketId = rowString(row, "sourceMarketId");
-    const capturedAt = rowString(row, "capturedAt");
-    const ts = parseIsoSeconds(capturedAt);
-    const p = numberOrNull(row["impliedProbability"]);
-    if (ts === null || p === null || p === 0.5) {
-      previousMarket = sourceMarketId;
-      previousTs = ts;
-      previousP = p;
-      continue;
-    }
-    if (previousMarket === sourceMarketId && previousTs !== null && previousP !== null) {
-      const gap = ts - previousTs;
-      const deltaP = Math.abs(p - previousP);
-      if (gap > 0 && gap <= STALE_PAIR_GAP_SECONDS && deltaP > 0) {
-        pairs.push({
-          timeSec: ts,
-          sourceMarketId,
-          source: rowString(row, "source"),
-          family: rowString(row, "family") || "unknown",
-          deltaP,
-          deltaLogit: Math.abs(logit(p) - logit(previousP)),
-          volume: Math.max(0, numberOrNull(row["volume"]) ?? 0),
-        });
-      }
-    }
-    previousMarket = sourceMarketId;
-    previousTs = ts;
-    previousP = p;
-  }
-  return pairs;
-}
-
-function loadMicro(db: ReturnType<typeof openGoldDb>, window: GameWindow): readonly MicroEvent[] {
-  const rows = unknownRows(
-    db
-      .prepare(
-        `SELECT source,
-              source_market_id AS sourceMarketId,
-              COALESCE(instrument_id, source_market_id) AS instrumentId,
-              event_timestamp AS eventTimestamp,
-              trade_price AS tradePrice,
-              previous_price AS previousPrice,
-              volume_share AS volumeShare,
-              spread,
-              depth_score AS depthScore,
-              COALESCE(notional, volume, 0) AS sizeProxy
-       FROM market_microstructure_events
-       WHERE game_id = ?
-         AND event_timestamp >= ?
-         AND event_timestamp <= ?
-         AND trade_price IS NOT NULL
-         AND previous_price IS NOT NULL`,
-      )
-      .all(window.gameId, window.startIso, window.endIso),
-  );
-  return rows.flatMap((row): readonly MicroEvent[] => {
-    if (!isRecord(row)) return [];
-    const eventTimestamp = rowString(row, "eventTimestamp");
-    const timeSec = parseIsoSeconds(eventTimestamp);
-    const tradePrice = numberOrNull(row["tradePrice"]);
-    const previousPrice = numberOrNull(row["previousPrice"]);
-    if (timeSec === null || tradePrice === null || previousPrice === null) return [];
-    const distance = Math.abs(tradePrice - previousPrice);
-    if (distance <= 0) return [];
-    const volumeShare = Math.max(0, numberOrNull(row["volumeShare"]) ?? 0);
-    const spread = Math.max(0, numberOrNull(row["spread"]) ?? 0);
-    const depthScore = numberOrNull(row["depthScore"]);
-    const depthPenalty = depthScore === null ? 1 : 1 + Math.max(0, 1 - depthScore / 100);
-    const sizeProxy = Math.max(0, numberOrNull(row["sizeProxy"]) ?? 0);
-    const severity =
-      distance * (1 + volumeShare * 8) * (1 + spread) * depthPenalty * Math.log1p(sizeProxy);
-    return [
-      {
-        timeSec,
-        source: rowString(row, "source"),
-        sourceMarketId: rowString(row, "sourceMarketId"),
-        instrumentId: rowString(row, "instrumentId"),
-        severity,
-      },
-    ];
-  });
-}
-
-function buildGameData(db: ReturnType<typeof openGoldDb>, window: GameWindow): GameData {
-  return {
-    gameId: window.gameId,
-    window,
-    pairs: loadPairs(db, window),
-    micro: loadMicro(db, window),
-    bucketCache: new Map<number, readonly Bucket[]>(),
-  };
-}
-
-function bucketize(game: GameData, bucketSeconds: number): readonly Bucket[] {
-  const cached = game.bucketCache.get(bucketSeconds);
-  if (cached !== undefined) return cached;
-
-  const buckets = new Map<number, MutableBucket>();
-  const getBucket = (timeSec: number): MutableBucket => {
-    const startSec = Math.floor(timeSec / bucketSeconds) * bucketSeconds;
-    const existing = buckets.get(startSec);
-    if (existing !== undefined) return existing;
-    const context = contextAt(game.window, startSec + bucketSeconds);
-    const created: MutableBucket = {
-      startSec,
-      endSec: startSec + bucketSeconds,
-      gameElapsedSec: context?.gameElapsedSec ?? null,
-      period: context?.period ?? null,
-      secondsRemaining: context?.secondsRemaining ?? null,
-      scoreMarginAbs: context?.scoreMarginAbs ?? null,
-      eqIntensity: 0,
-      vwIntensity: 0,
-      logitVwIntensity: 0,
-      volumeHeavyIntensity: 0,
-      activeMarkets: new Set<string>(),
-      sourceContribution: new Map<string, number>(),
-      sources: new Set<string>(),
-      families: new Set<string>(),
-      offpriceSeverity: 0,
-      offpriceMarkets: new Set<string>(),
-      offpriceSources: new Set<string>(),
-    };
-    buckets.set(startSec, created);
-    return created;
-  };
-
-  for (const pair of game.pairs) {
-    const bucket = getBucket(pair.timeSec);
-    const volumeWeight = Math.log1p(pair.volume);
-    const weightedDelta = pair.deltaP * volumeWeight;
-    bucket.eqIntensity += pair.deltaP;
-    bucket.vwIntensity += weightedDelta;
-    bucket.logitVwIntensity += pair.deltaLogit * volumeWeight;
-    bucket.volumeHeavyIntensity += pair.deltaLogit * volumeWeight ** 1.5;
-    bucket.activeMarkets.add(pair.sourceMarketId);
-    bucket.sources.add(pair.source);
-    bucket.families.add(pair.family);
-    bucket.sourceContribution.set(
-      pair.source,
-      (bucket.sourceContribution.get(pair.source) ?? 0) + weightedDelta,
-    );
-  }
-
-  for (const event of game.micro) {
-    const bucket = getBucket(event.timeSec);
-    bucket.offpriceSeverity += event.severity;
-    bucket.offpriceMarkets.add(event.sourceMarketId);
-    bucket.offpriceSources.add(event.source);
-  }
-
-  const result = [...buckets.values()]
-    .sort((a, b) => a.startSec - b.startSec)
-    .map((bucket): Bucket => {
-      const topSourceContribution = Math.max(0, ...bucket.sourceContribution.values());
-      const sourceDominance =
-        bucket.vwIntensity <= 0 || bucket.sourceContribution.size === 0
-          ? null
-          : topSourceContribution / bucket.vwIntensity;
-      return {
-        startSec: bucket.startSec,
-        endSec: bucket.endSec,
-        gameElapsedSec: bucket.gameElapsedSec,
-        period: bucket.period,
-        secondsRemaining: bucket.secondsRemaining,
-        scoreMarginAbs: bucket.scoreMarginAbs,
-        eqIntensity: bucket.eqIntensity,
-        vwIntensity: bucket.vwIntensity,
-        logitVwIntensity: bucket.logitVwIntensity,
-        volumeHeavyIntensity: bucket.volumeHeavyIntensity,
-        activeMarketCount: bucket.activeMarkets.size,
-        sourceCount: bucket.sources.size,
-        sourceDominance,
-        familyCount: bucket.families.size,
-        offpriceSeverity: bucket.offpriceSeverity,
-        offpriceFanout: bucket.offpriceMarkets.size,
-        offpriceSourceCount: bucket.offpriceSources.size,
-      };
-    });
-  game.bucketCache.set(bucketSeconds, result);
-  return result;
-}
-
-interface MutableBucket {
-  startSec: number;
-  endSec: number;
-  gameElapsedSec: number | null;
-  period: number | null;
-  secondsRemaining: number | null;
-  scoreMarginAbs: number | null;
-  eqIntensity: number;
-  vwIntensity: number;
-  logitVwIntensity: number;
-  volumeHeavyIntensity: number;
-  activeMarkets: Set<string>;
-  sourceContribution: Map<string, number>;
-  sources: Set<string>;
-  families: Set<string>;
-  offpriceSeverity: number;
-  offpriceMarkets: Set<string>;
-  offpriceSources: Set<string>;
-}
-
-function bucketScore(bucket: Bucket, algo: AlgoSpec): number {
-  if (algo.scoreKind === "board-eq") return bucket.eqIntensity;
-  if (algo.scoreKind === "board-vw") return bucket.vwIntensity;
-  if (algo.scoreKind === "coverage-normalized-vw") {
-    const marketBreadth = Math.max(COVERAGE_NORMALIZATION_MARKET_FLOOR, bucket.activeMarketCount);
-    return bucket.vwIntensity / Math.sqrt(marketBreadth);
-  }
-  if (algo.scoreKind === "logit-vw") return bucket.logitVwIntensity;
-  if (algo.scoreKind === "volume-heavy") return bucket.volumeHeavyIntensity;
-  if (algo.scoreKind === "offprice") return bucket.offpriceSeverity;
-  return bucket.vwIntensity + bucket.offpriceSeverity * 0.25;
 }
 
 function passesFanout(bucket: Bucket, algo: AlgoSpec): boolean {
@@ -1887,11 +1071,6 @@ function robustThreshold(scores: readonly number[], k: number): number | null {
   return stats === null ? null : thresholdFromStats(stats, k);
 }
 
-function robustStats(scores: readonly number[]): HistoricalPrior | null {
-  if (scores.length === 0) return null;
-  return { median: median(scores), mad: mad(scores), sampleSize: scores.length };
-}
-
 function thresholdFromStats(stats: HistoricalPrior, k: number): number {
   const scale = Math.max(MAD_SCALE * stats.mad, SCALE_FLOOR);
   return stats.median + k * scale;
@@ -1945,60 +1124,6 @@ function blendedThreshold(
   return stats === null ? null : thresholdFromStats(stats, algo.k);
 }
 
-function combineHistoricalPriors(
-  away: HistoricalPrior | null,
-  home: HistoricalPrior | null,
-  awayWeightRaw: number,
-): HistoricalPrior | null {
-  if (away === null && home === null) return null;
-  if (away === null) return home;
-  if (home === null) return away;
-  const awayWeight = Math.min(1, Math.max(0, awayWeightRaw));
-  const homeWeight = 1 - awayWeight;
-  return {
-    median: away.median * awayWeight + home.median * homeWeight,
-    mad: away.mad * awayWeight + home.mad * homeWeight,
-    sampleSize: away.sampleSize + home.sampleSize,
-  };
-}
-
-function sideHistoricalPrior(
-  target: GameData,
-  allGames: ReadonlyMap<string, GameData>,
-  algo: AlgoSpec,
-  side: "away" | "home",
-): HistoricalPrior | null {
-  const targetKey = side === "away" ? target.window.awayKey : target.window.homeKey;
-  if (targetKey === null) return null;
-  const lastGames = Math.max(1, Math.round(algo.historicalLastGames ?? 5));
-  const openingBuckets = Math.max(1, Math.round(algo.openingBaselineBuckets ?? algo.minPrior));
-  const values = [...allGames.values()]
-    .filter((candidate) => {
-      if (candidate.gameId === target.gameId) return false;
-      if (candidate.window.scheduledStart >= target.window.scheduledStart) return false;
-      const candidateKey = side === "away" ? candidate.window.awayKey : candidate.window.homeKey;
-      return candidateKey === targetKey;
-    })
-    .toSorted((a, b) => (a.window.scheduledStart > b.window.scheduledStart ? -1 : 1))
-    .slice(0, lastGames)
-    .flatMap((candidate) =>
-      bucketize(candidate, algo.bucketSeconds)
-        .slice(0, openingBuckets)
-        .map((bucket) => bucketScore(bucket, algo)),
-    );
-  return robustStats(values);
-}
-
-function historicalPriorForGame(
-  game: GameData,
-  allGames: ReadonlyMap<string, GameData>,
-  algo: AlgoSpec,
-): HistoricalPrior | null {
-  const away = sideHistoricalPrior(game, allGames, algo, "away");
-  const home = sideHistoricalPrior(game, allGames, algo, "home");
-  return combineHistoricalPriors(away, home, algo.historicalAwayWeight ?? 0.5);
-}
-
 function historicalShareForBucket(game: GameData, bucket: Bucket, algo: AlgoSpec): number {
   const priorWeight = Math.min(1, Math.max(0, algo.historicalPriorWeight ?? 1));
   const rampSeconds = Math.max(
@@ -2037,95 +1162,6 @@ function historicalThreshold(
     },
     algo.k,
   );
-}
-
-function runtimeBaselineModeForAlgo(algo: AlgoSpec): RuntimeBaselineMode {
-  if (algo.runtimeBaselineMode !== undefined) return algo.runtimeBaselineMode;
-  if (algo.baselineKind === "mad-historical") return "historical-blend";
-  return algo.openingBaselineBuckets !== undefined ? "opening-ramp" : "trailing";
-}
-
-function trailingGameMinutesForAlgo(algo: AlgoSpec): number {
-  if (algo.gameMemorySeconds !== undefined) {
-    return Math.max(
-      algo.bucketSeconds / SECONDS_PER_MINUTE,
-      algo.gameMemorySeconds / SECONDS_PER_MINUTE,
-    );
-  }
-  return Math.max(
-    algo.bucketSeconds / SECONDS_PER_MINUTE,
-    (algo.trailingBuckets ?? algo.minPrior) * (algo.bucketSeconds / SECONDS_PER_MINUTE),
-  );
-}
-
-export function buildStateSpaceRequestForGame(
-  game: GameData,
-  algo: StateSpaceAlgoSpec,
-  allGames: ReadonlyMap<string, GameData>,
-): BakeoffStateSpaceRequest {
-  const stateSpace = algo.stateSpace;
-  const buckets = bucketize(game, algo.bucketSeconds);
-  const observations = buckets
-    .map((bucket) => ({
-      bucket,
-      intensity: bucketScore(bucket, algo),
-    }))
-    .filter((entry) => entry.intensity > LOW_SIGNAL_FLOOR)
-    .map(
-      ({ bucket, intensity }): BakeoffStateSpaceObservation => ({
-        bucketStart: isoFromSeconds(bucket.startSec),
-        bucketEnd: isoFromSeconds(bucket.endSec),
-        intensity,
-        gameElapsedSeconds: bucket.gameElapsedSec,
-        activeMarketCount: bucket.activeMarketCount,
-        sourceCount: bucket.sourceCount,
-        ...(bucket.sourceDominance === null ? {} : { sourceDominance: bucket.sourceDominance }),
-      }),
-    );
-  const baselineMode = runtimeBaselineModeForAlgo(algo);
-  const historicalPrior =
-    baselineMode === "historical-blend" ? historicalPriorForGame(game, allGames, algo) : null;
-  const openingBaselineBuckets = algo.openingBaselineBuckets ?? algo.minPrior;
-  const openingRampCompleteBuckets = Number(
-    algo.openingRampCompleteBuckets ?? algo.trailingBuckets ?? algo.minPrior,
-  );
-  const recentWallMinutes =
-    algo.recentWallSeconds === undefined ? undefined : algo.recentWallSeconds / SECONDS_PER_MINUTE;
-  return {
-    gameId: game.gameId,
-    observations,
-    params: {
-      baselineMode,
-      bucketSeconds: algo.bucketSeconds,
-      kMad: algo.k,
-      trailingBuckets: algo.trailingBuckets ?? Math.max(algo.minPrior, 1),
-      trailingGameMinutes: trailingGameMinutesForAlgo(algo),
-      warmupBuckets: algo.warmupBuckets,
-      openingBaselineBuckets,
-      openingRampCompleteBuckets,
-      ...(historicalPrior === null
-        ? {}
-        : {
-            historicalPrior: {
-              mad: historicalPrior.mad,
-              median: historicalPrior.median,
-              sampleSize: historicalPrior.sampleSize,
-            } satisfies BakeoffStateSpaceHistoricalPrior,
-          }),
-      ...(algo.historicalPriorWeight === undefined
-        ? {}
-        : { historicalPriorWeight: algo.historicalPriorWeight }),
-      ...(algo.historicalRampCompleteGameSeconds === undefined
-        ? {}
-        : {
-            historicalRampCompleteGameMinutes:
-              algo.historicalRampCompleteGameSeconds / SECONDS_PER_MINUTE,
-          }),
-      ...(recentWallMinutes === undefined ? {} : { recentWallMinutes }),
-      ...(algo.recentWallWeight === undefined ? {} : { recentWallWeight: algo.recentWallWeight }),
-      stateSpace,
-    },
-  };
 }
 
 interface StateSpaceClientOptions {
@@ -2243,7 +1279,7 @@ function isFinalFiveClose(fire: Fire): boolean {
   );
 }
 
-function detectWithRobustBaseline(
+export function detectWithRobustBaseline(
   game: GameData,
   algo: AlgoSpec,
   allGames: ReadonlyMap<string, GameData>,
@@ -2420,106 +1456,6 @@ async function detectGame(
   return detectWithRobustBaseline(game, algo, allGames);
 }
 
-function incidentGameIds(incident: RawIncident): readonly string[] {
-  const local = incident.localBoardGameIds.map(normalizeGameId).filter((value) => value !== "");
-  if (local.length > 0) return local;
-  const normalized = normalizeGameId(incident.gameId);
-  return normalized === "" ? [] : [normalized];
-}
-
-function hasCoverageForAlgo(game: GameData, algo: AlgoSpec): boolean {
-  if (algo.scoreKind === "offprice") return game.micro.length > 0;
-  if (algo.scoreKind === "hybrid") return game.pairs.length > 0 || game.micro.length > 0;
-  return game.pairs.length > 0;
-}
-
-function findIncidentFire(
-  incident: RawIncident,
-  algorithms: readonly AlgoSpec[],
-  firesByAlgoGame: ReadonlyMap<string, readonly Fire[]>,
-  games: ReadonlyMap<string, GameData>,
-): IncidentAlgoResult[] {
-  const eventSec = parseIsoSeconds(incident.utcTime);
-  return algorithms.map((algo): IncidentAlgoResult => {
-    if (eventSec === null) {
-      return skippedResult(incident.id, algo.id, "No exact UTC/PBP anchor.");
-    }
-    const gameIds = incidentGameIds(incident);
-    if (gameIds.length === 0) {
-      return skippedResult(incident.id, algo.id, "No local or normalized game id.");
-    }
-    const localGames = gameIds.flatMap((gameId): readonly GameData[] => {
-      const game = games.get(gameId);
-      return game === undefined ? [] : [game];
-    });
-    if (localGames.length === 0) {
-      return skippedResult(incident.id, algo.id, "No local PBP window for this game id.");
-    }
-    const coveredGames = localGames.filter((game) => hasCoverageForAlgo(game, algo));
-    if (coveredGames.length === 0) {
-      return skippedResult(
-        incident.id,
-        algo.id,
-        "No local quote or microstructure coverage for this algorithm.",
-      );
-    }
-    const candidates = coveredGames.flatMap((game): readonly Fire[] => {
-      const gameId = game.gameId;
-      const fires = firesByAlgoGame.get(`${algo.id}:${gameId}`);
-      return fires === undefined ? [] : fires;
-    });
-    if (candidates.length === 0) {
-      return missedResult(incident.id, algo.id);
-    }
-    const inWindow = candidates
-      .map((fire) => ({ fire, lead: fire.observedAtSec - eventSec }))
-      .filter(
-        ({ lead }) => lead >= CATCH_WINDOW_BEFORE_SECONDS && lead <= CATCH_WINDOW_AFTER_SECONDS,
-      )
-      .sort((a, b) => a.lead - b.lead);
-    const first = inWindow[0];
-    return {
-      incidentId: incident.id,
-      algoId: algo.id,
-      scoreable: true,
-      caught: first !== undefined,
-      leadSeconds: first === undefined ? null : rounded(first.lead, 1),
-      fireIso: first?.fire.observedAtIso ?? null,
-      skipReason: null,
-    };
-  });
-}
-
-function missedResult(incidentId: string, algoId: string): IncidentAlgoResult {
-  return {
-    incidentId,
-    algoId,
-    scoreable: true,
-    caught: false,
-    leadSeconds: null,
-    fireIso: null,
-    skipReason: null,
-  };
-}
-
-function skippedResult(incidentId: string, algoId: string, reason: string): IncidentAlgoResult {
-  return {
-    incidentId,
-    algoId,
-    scoreable: false,
-    caught: false,
-    leadSeconds: null,
-    fireIso: null,
-    skipReason: reason,
-  };
-}
-
-function matchupLabel(window: GameWindow): string {
-  const away = window.awayKey ?? "away";
-  const home = window.homeKey ?? "home";
-  return `${away.toUpperCase()} @ ${home.toUpperCase()}`;
-}
-
 function uniqueCount(values: readonly string[]): number {
   return new Set(values.filter((value) => value !== "")).size;
 }
@@ -2542,153 +1478,6 @@ function countAlertEpisodes(fires: readonly Fire[]): number {
     previousSec = fire.observedAtSec;
   }
   return episodes;
-}
-
-function coverageNormalizedIntensity(bucket: Bucket): number {
-  const marketBreadth = Math.max(COVERAGE_NORMALIZATION_MARKET_FLOOR, bucket.activeMarketCount);
-  return bucket.vwIntensity / Math.sqrt(marketBreadth);
-}
-
-function positiveRobustZ(value: number, stats: HistoricalPrior | null): number {
-  if (stats === null) return 0;
-  const scale = Math.max(MAD_SCALE * stats.mad, SCALE_FLOOR);
-  return Math.max(0, (value - stats.median) / scale);
-}
-
-interface MarketOutlierBucketCandidate {
-  readonly bucket: Bucket;
-  readonly severity: number;
-  readonly priceMoveZ: number;
-  readonly breadthZ: number;
-  readonly offpriceZ: number;
-}
-
-function diagnoseMarketOutlierEpisode(
-  peakPriceMoveZ: number,
-  peakBreadthZ: number,
-  peakOffpriceZ: number,
-  peakActiveMarkets: number,
-  peakSources: number,
-): string {
-  const notes: string[] = [];
-  if (peakPriceMoveZ >= MARKET_OUTLIER_EXTREME_PRICE_MOVE_Z) {
-    notes.push("extreme price move");
-  } else {
-    notes.push("price move outlier");
-  }
-  if (
-    peakBreadthZ >= MARKET_OUTLIER_CONFIRMATION_Z ||
-    peakActiveMarkets >= MARKET_OUTLIER_MIN_ACTIVE_MARKETS ||
-    peakSources >= MARKET_OUTLIER_MIN_SOURCES
-  ) {
-    notes.push("broad market participation");
-  }
-  if (peakOffpriceZ >= MARKET_OUTLIER_CONFIRMATION_Z) {
-    notes.push("microstructure confirmation");
-  }
-  if (notes.length === 1) {
-    notes.push("thin confirmation; review for coverage artifact");
-  }
-  return notes.join("; ");
-}
-
-export function buildMarketOutlierEpisodes(game: GameData): readonly MarketOutlierEpisode[] {
-  const buckets = bucketize(game, MARKET_OUTLIER_BUCKET_SECONDS);
-  if (buckets.length < MARKET_OUTLIER_MIN_BUCKETS) return [];
-
-  const priceMoveSeries = buckets.map((bucket) => Math.log1p(coverageNormalizedIntensity(bucket)));
-  const breadthSeries = buckets.map((bucket) => Math.log1p(bucket.activeMarketCount));
-  const offpriceSeries = buckets.map((bucket) => Math.log1p(bucket.offpriceSeverity));
-  const priceMoveStats = robustStats(priceMoveSeries);
-  const breadthStats = robustStats(breadthSeries);
-  const offpriceStats = robustStats(offpriceSeries);
-
-  const candidates = buckets.flatMap((bucket, index): readonly MarketOutlierBucketCandidate[] => {
-    const priceMoveZ = positiveRobustZ(priceMoveSeries[index] ?? 0, priceMoveStats);
-    const breadthZ = positiveRobustZ(breadthSeries[index] ?? 0, breadthStats);
-    const offpriceZ = positiveRobustZ(offpriceSeries[index] ?? 0, offpriceStats);
-    const hasConfirmation =
-      breadthZ >= MARKET_OUTLIER_CONFIRMATION_Z ||
-      offpriceZ >= MARKET_OUTLIER_CONFIRMATION_Z ||
-      bucket.activeMarketCount >= MARKET_OUTLIER_MIN_ACTIVE_MARKETS ||
-      bucket.sourceCount >= MARKET_OUTLIER_MIN_SOURCES;
-    const confirmed = priceMoveZ >= MARKET_OUTLIER_PRICE_MOVE_Z && hasConfirmation;
-    if (!confirmed) return [];
-    return [
-      {
-        bucket,
-        severity: priceMoveZ + breadthZ * 0.5 + offpriceZ * 0.35,
-        priceMoveZ,
-        breadthZ,
-        offpriceZ,
-      },
-    ];
-  });
-
-  if (candidates.length === 0) return [];
-
-  const episodes: MarketOutlierEpisode[] = [];
-  let current: MarketOutlierBucketCandidate[] = [];
-  for (const candidate of candidates) {
-    const previous = current.at(-1);
-    if (
-      previous !== undefined &&
-      candidate.bucket.startSec - previous.bucket.startSec > ALERT_EPISODE_MERGE_SECONDS
-    ) {
-      const episode = marketOutlierEpisodeFromCandidates(game, current);
-      if (episode !== null) episodes.push(episode);
-      current = [];
-    }
-    current.push(candidate);
-  }
-  const finalEpisode = marketOutlierEpisodeFromCandidates(game, current);
-  if (finalEpisode !== null) episodes.push(finalEpisode);
-  return episodes;
-}
-
-function marketOutlierEpisodeFromCandidates(
-  game: GameData,
-  candidates: readonly MarketOutlierBucketCandidate[],
-): MarketOutlierEpisode | null {
-  if (candidates.length === 0) return null;
-  const first = candidates[0];
-  const last = candidates.at(-1);
-  if (first === undefined || last === undefined) return null;
-  const severities = candidates.map((candidate) => candidate.severity);
-  const peakPriceMoveZ = Math.max(...candidates.map((candidate) => candidate.priceMoveZ));
-  const peakBreadthZ = Math.max(...candidates.map((candidate) => candidate.breadthZ));
-  const peakOffpriceZ = Math.max(...candidates.map((candidate) => candidate.offpriceZ));
-  const peakActiveMarkets = Math.max(
-    ...candidates.map((candidate) => candidate.bucket.activeMarketCount),
-  );
-  const peakSources = Math.max(...candidates.map((candidate) => candidate.bucket.sourceCount));
-  const peakFamilies = Math.max(...candidates.map((candidate) => candidate.bucket.familyCount));
-  return {
-    gameId: game.gameId,
-    scheduledStart: game.window.scheduledStart,
-    matchup: matchupLabel(game.window),
-    startSec: first.bucket.startSec,
-    endSec: last.bucket.endSec,
-    startIso: isoFromSeconds(first.bucket.startSec),
-    endIso: isoFromSeconds(last.bucket.endSec),
-    bucketSeconds: MARKET_OUTLIER_BUCKET_SECONDS,
-    bucketCount: candidates.length,
-    peakSeverity: rounded(Math.max(...severities), 3) ?? 0,
-    meanSeverity: rounded(mean(severities) ?? 0, 3) ?? 0,
-    peakPriceMoveZ: rounded(peakPriceMoveZ, 3) ?? 0,
-    peakBreadthZ: rounded(peakBreadthZ, 3) ?? 0,
-    peakOffpriceZ: rounded(peakOffpriceZ, 3) ?? 0,
-    peakActiveMarkets,
-    peakSources,
-    peakFamilies,
-    diagnosis: diagnoseMarketOutlierEpisode(
-      peakPriceMoveZ,
-      peakBreadthZ,
-      peakOffpriceZ,
-      peakActiveMarkets,
-      peakSources,
-    ),
-  };
 }
 
 function episodeWindowBounds(episode: MarketOutlierEpisode): { startSec: number; endSec: number } {
@@ -3291,7 +2080,7 @@ async function run(): Promise<number> {
   const dbPath = process.env.GOLD_DB_PATH ?? GOLD_DB_PATH;
   const db = openGoldDb(dbPath);
   try {
-    const incidents = readIncidents();
+    const incidents = readIncidents(SOURCE_REGISTRY_PATH);
     const detectorDefaults = readDetectorDefaults();
     const algorithms = buildAlgorithms(detectorDefaults);
     const windows = loadGameWindows(db);

@@ -1,0 +1,25 @@
+{
+  "name": "@signal-console/research-pull",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./contract": "./src/contract.ts",
+    "./capability-matrix": "./src/capability-matrix.ts",
+    "./validator": "./src/validator.ts",
+    "./planner": "./src/planner.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "verify": "vitest run"
+  },
+  "dependencies": {
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "vitest": "^3.2.0"
+  }
+}

@@ -93,6 +93,9 @@ module.exports = tseslint.config(
       "packages/adapters/**/*.{ts,tsx}",
       "packages/domain/**/*.{ts,tsx}",
       "packages/shared/**/*.{ts,tsx}",
+      // research-pull is orchestration infra (like adapters/shared); held to the
+      // same relaxed type-aware bar, not the detectors strict/functional bar.
+      "packages/research-pull/**/*.{ts,tsx}",
     ],
     rules: relaxedTypeAwareRuleOverrides,
   },
@@ -101,6 +104,11 @@ module.exports = tseslint.config(
       "apps/worker/src/**/__tests__/**/*.{ts,tsx}",
       "packages/adapters/src/**/__tests__/**/*.{ts,tsx}",
       "packages/shared/src/**/__tests__/**/*.{ts,tsx}",
+      // research-truth tests are clean under strict; the vitest configs live at
+      // package root (outside the type-aware project), so lint them without the
+      // project service (matches the repo's config-file handling).
+      "packages/research-truth/vitest.config.ts",
+      "packages/research-pull/vitest.config.ts",
     ],
     extends: [tseslint.configs.disableTypeChecked],
     languageOptions: {

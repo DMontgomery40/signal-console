@@ -3342,6 +3342,10 @@ export function enqueueBoardVolatilityBaselineRebuild(payload: AdminActionPayloa
   return enqueueAdminAction("board-volatility-baseline-rebuild", payload);
 }
 
+export function enqueueResearchPull(payload: AdminActionPayload) {
+  return enqueueAdminAction("research-pull", payload);
+}
+
 export function claimNextQueuedAdminAction() {
   return executeDatabaseOperation("adminActions.claimNext", () => {
     const db = getDatabase();

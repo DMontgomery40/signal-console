@@ -1,0 +1,1300 @@
+// ResearchPage — read-only research-lab artifact surface.
+//
+// Reads the quant-lab artifact tree via the read-only /v1/research/* API
+// (queries.ts hooks: useResearchSnapshot / Leaderboard / Models / Pulls /
+// Sources). The ONLY writer is the Pull-data dialog, which validates the
+// request CLIENT-SIDE with the SAME shared planner the server runs
+// (@signal-console/research-pull), shows a dry-run preview of where each
+// source would land (canonical / artifact-only / pending), and only then
+// enables "Submit job" (POST /v1/research/pull -> { job_id }).
+//
+// Design-language rules honored here: no bordered cards / no drop shadows
+// (sections are whitespace-stacked over surface-1 fills + type hierarchy);
+// no icons (readiness is the dot+label status pattern); every numeric is
+// font-mono tabular-nums; colors only from packages/ui tokens. Yellow is the
+// page's CTA/attention color (Pull data / Export / Open report, artifact-only
+// readiness dot); green is structural (snapshot-eligible readiness, nav). The
+// dialog reuses the canonical floating-surface treatment (surface-elevated +
+// three-edge hairline + yellow left stripe, NO shadow) from ExplainerCard.
+//
+// Honest framing is a hard requirement: empty states render a one-line text-lo
+// mono message + the relevant CTA and NEVER fabricate numbers; the leaderboard
+// carries a "Research snapshot result, not live production behavior" header and
+// the Odds-API.io source row says it is an event-snapshot/live artifact lane,
+// not a historical warehouse.
+
+import { useMemo, useState, type JSX } from "react";
+
+import { ExplainerCard, explainers } from "@signal-console/ui";
+import type { ExplainerId } from "@signal-console/ui";
+// Import from SUBPATHS, never the package root: the root index re-exports
+// executor.ts, which pulls node:fs/node:zlib and breaks the browser bundle
+// (`vite build`). The planner / capability-matrix / validator subpaths are
+// pure, browser-safe leaves (this mirrors queries.ts importing
+// @signal-console/detectors/board-mad/config the same way).
+import {
+  SOURCE_CAPABILITY_MATRIX,
+  classToArtifactClass,
+  getSourceCapability,
+  type ArtifactClass,
+} from "@signal-console/research-pull/capability-matrix";
+import { ODDS_API_IO_MARKETS, ODDS_API_IO_SPINE } from "@signal-console/research-pull/validator";
+import { planPullJob, type PullPlan } from "@signal-console/research-pull/planner";
+
+import { ApiUnreachableBanner, isNetworkError } from "../../components/ApiUnreachableBanner";
+import { QueryErrorBanner } from "../../components/QueryErrorBanner";
+import {
+  useResearchLeaderboard,
+  useResearchModels,
+  useResearchPulls,
+  useResearchSnapshot,
+  useResearchSources,
+  useSubmitPull,
+  type ResearchSource,
+} from "../../data/queries";
+
+const isExplainerId = (id: string): id is ExplainerId =>
+  Object.prototype.hasOwnProperty.call(explainers, id);
+
+function Explain({ id, children }: { id: string; children: JSX.Element }): JSX.Element {
+  if (isExplainerId(id)) {
+    return <ExplainerCard id={id}>{children}</ExplainerCard>;
+  }
+  return children;
+}
+
+// ── helpers ──────────────────────────────────────────────────────────────────
+
+function str(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+function num(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+function pick(record: Record<string, unknown>, ...keys: readonly string[]): unknown {
+  for (const key of keys) {
+    if (Object.prototype.hasOwnProperty.call(record, key)) return record[key];
+  }
+  return undefined;
+}
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function fmtNum(value: number | undefined, digits = 0): string {
+  if (value === undefined) return "—";
+  return value.toLocaleString(undefined, {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  });
+}
+
+// snapshot-eligible -> green (canonical), artifact-only -> yellow (the task's
+// sanctioned attention dot), pending -> text-lo. Readiness is dot+label, never
+// an icon.
+function sourceDotClass(klass: ResearchSource["class"]): string {
+  if (klass === "snapshot-eligible") return "bg-accent-green";
+  if (klass === "artifact-only") return "bg-accent-yellow";
+  return "bg-text-lo";
+}
+function sourceReadinessLabel(klass: ResearchSource["class"]): string {
+  if (klass === "snapshot-eligible") return "canonical / snapshot-eligible";
+  if (klass === "artifact-only") return "artifact-only";
+  return "pending";
+}
+function pullStatusDotClass(status: string | undefined): string {
+  if (status === undefined) return "bg-text-lo";
+  const s = status.toLowerCase();
+  if (s === "succeeded" || s === "complete" || s === "completed" || s === "ok") {
+    return "bg-accent-green";
+  }
+  if (s === "failed" || s === "error") return "bg-negative";
+  if (s === "running" || s === "queued" || s === "enqueued" || s === "pending") {
+    return "bg-accent-yellow";
+  }
+  return "bg-text-lo";
+}
+
+const ODDS_API_IO_SOURCE_ID = "odds-api-io";
+
+// Shared dot+label primitive. Numeric/id text uses font-mono tabular-nums; the
+// dot is a structural status mark, not an icon.
+function StatusDot({
+  dotClass,
+  label,
+  testid,
+}: {
+  readonly dotClass: string;
+  readonly label: string;
+  readonly testid?: string;
+}): JSX.Element {
+  return (
+    <span className="inline-flex items-center gap-2 font-mono text-xs" data-testid={testid}>
+      <span aria-hidden className={`inline-block h-2 w-2 rounded-full ${dotClass}`} />
+      <span className="text-text-md">{label}</span>
+    </span>
+  );
+}
+
+function YellowButton({
+  children,
+  onClick,
+  disabled,
+  testid,
+  type = "button",
+}: {
+  readonly children: JSX.Element | string;
+  readonly onClick?: () => void;
+  readonly disabled?: boolean;
+  readonly testid?: string;
+  readonly type?: "button" | "submit";
+}): JSX.Element {
+  return (
+    <button
+      type={type}
+      onClick={onClick}
+      disabled={disabled}
+      data-testid={testid}
+      className="border border-accent-yellow px-3 py-1.5 text-xs font-mono uppercase tracking-wider text-text-hi transition-colors duration-fast ease-out hover:bg-accent-yellow hover:text-surface-0-from disabled:cursor-not-allowed disabled:opacity-50"
+    >
+      {children}
+    </button>
+  );
+}
+
+function GreenButton({
+  children,
+  onClick,
+  disabled,
+  testid,
+}: {
+  readonly children: JSX.Element | string;
+  readonly onClick?: () => void;
+  readonly disabled?: boolean;
+  readonly testid?: string;
+}): JSX.Element {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      data-testid={testid}
+      className="border border-accent-green px-3 py-1.5 text-xs font-mono uppercase tracking-wider text-text-md transition-colors duration-fast ease-out hover:bg-accent-green hover:text-surface-0-from disabled:cursor-not-allowed disabled:opacity-50"
+    >
+      {children}
+    </button>
+  );
+}
+
+function SectionHeading({
+  children,
+  explainerId,
+}: {
+  readonly children: string;
+  readonly explainerId?: string;
+}): JSX.Element {
+  const heading = <span>{children}</span>;
+  return (
+    <h3 className="text-sm font-semibold uppercase tracking-[0.08em] text-text-hi">
+      {explainerId !== undefined ? <Explain id={explainerId}>{heading}</Explain> : heading}
+    </h3>
+  );
+}
+
+function EmptyLine({
+  children,
+  testid,
+}: {
+  readonly children: string;
+  readonly testid?: string;
+}): JSX.Element {
+  return (
+    <p className="font-mono text-xs text-text-lo" data-testid={testid}>
+      {children}
+    </p>
+  );
+}
+
+// ── (1) Header strip ──────────────────────────────────────────────────────────
+
+function HeaderStrip({
+  snapshotId,
+  latestPullStatus,
+  leaderboardTimestamp,
+  hasArtifacts,
+  hasSnapshot,
+  onPull,
+}: {
+  readonly snapshotId: string | undefined;
+  readonly latestPullStatus: string | undefined;
+  readonly leaderboardTimestamp: string | undefined;
+  readonly hasArtifacts: boolean;
+  readonly hasSnapshot: boolean;
+  readonly onPull: () => void;
+}): JSX.Element {
+  return (
+    <section data-testid="research-header" className="bg-surface-1 px-5 py-5">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-3">
+        <div className="space-y-2">
+          <h2 className="text-lg font-semibold text-text-hi">Research</h2>
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+            <span className="font-mono text-xs text-text-lo">
+              latest snapshot{" "}
+              <span className="tabular-nums text-text-hi" data-testid="research-latest-snapshot-id">
+                {snapshotId ?? "none"}
+              </span>
+            </span>
+            <StatusDot
+              dotClass={pullStatusDotClass(latestPullStatus)}
+              label={`latest pull ${latestPullStatus ?? "none"}`}
+              testid="research-latest-pull-status"
+            />
+            <span className="font-mono text-xs text-text-lo">
+              latest leaderboard{" "}
+              <span
+                className="tabular-nums text-text-hi"
+                data-testid="research-latest-leaderboard-ts"
+              >
+                {leaderboardTimestamp ?? "none"}
+              </span>
+            </span>
+          </div>
+          {!hasArtifacts ? (
+            <p className="font-mono text-xs text-accent-yellow" data-testid="research-no-artifacts">
+              No research artifacts yet — sources and models below are the static capability
+              registry, not a completed run.
+            </p>
+          ) : null}
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <YellowButton onClick={onPull} testid="research-cta-pull">
+            Pull data
+          </YellowButton>
+          <YellowButton disabled={!hasSnapshot} testid="research-cta-export">
+            Export snapshot
+          </YellowButton>
+          <YellowButton disabled={!hasSnapshot} testid="research-cta-report">
+            Open latest report
+          </YellowButton>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// ── (2) Source coverage ────────────────────────────────────────────────────────
+
+function SourceCoverage({ sources }: { readonly sources: readonly ResearchSource[] }): JSX.Element {
+  return (
+    <section data-testid="research-source-coverage" className="space-y-3">
+      <SectionHeading explainerId="canonical-vs-artifact-only">Source coverage</SectionHeading>
+      <div role="table" aria-label="Source coverage" className="bg-surface-1 text-sm">
+        <div
+          role="row"
+          className="grid grid-cols-[1fr_1.1fr_1fr_1.6fr] gap-x-6 px-5 pb-2 pt-4 font-mono text-xs uppercase tracking-[0.06em] text-text-lo"
+        >
+          <span role="columnheader">Source</span>
+          <span role="columnheader">Readiness</span>
+          <span role="columnheader">Capture modes</span>
+          <span role="columnheader">Notes</span>
+        </div>
+        {sources.map((source) => {
+          const isOddsApiIo = source.id === ODDS_API_IO_SOURCE_ID;
+          const note = isOddsApiIo
+            ? "event snapshot/live artifact lane — not a historical warehouse"
+            : (source.limitations[0] ?? "—");
+          return (
+            <div
+              key={source.id}
+              role="row"
+              data-testid="research-source-row"
+              data-source-id={source.id}
+              className="grid grid-cols-[1fr_1.1fr_1fr_1.6fr] items-baseline gap-x-6 px-5 py-3 transition-colors duration-fast ease-out hover:bg-surface-2"
+            >
+              <span role="cell" className="font-mono text-text-hi">
+                {source.id}
+              </span>
+              <span role="cell">
+                <StatusDot
+                  dotClass={sourceDotClass(source.class)}
+                  label={sourceReadinessLabel(source.class)}
+                />
+              </span>
+              <span role="cell" className="font-mono text-xs tabular-nums text-text-md">
+                {source.supportedModes.length > 0 ? source.supportedModes.join(", ") : "none"}
+              </span>
+              <span
+                role="cell"
+                className="text-xs text-text-md"
+                data-testid={isOddsApiIo ? "research-odds-api-io-note" : undefined}
+              >
+                {note}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+// ── (3) Pull-data dialog ────────────────────────────────────────────────────────
+
+type CaptureMode = "historical" | "repair" | "live-capture";
+type MarketScope = "all" | "board" | "player-props";
+type OddsApiIoMode = "events-snapshot" | "updated-follow" | "live-ws";
+
+function toCaptureMode(value: string): CaptureMode | undefined {
+  return value === "historical" || value === "repair" || value === "live-capture"
+    ? value
+    : undefined;
+}
+function toMarketScope(value: string): MarketScope | undefined {
+  return value === "all" || value === "board" || value === "player-props" ? value : undefined;
+}
+
+interface PullFormState {
+  readonly sources: readonly string[];
+  readonly dateFrom: string;
+  readonly dateTo: string;
+  readonly gameIds: string;
+  readonly captureMode: CaptureMode;
+  readonly marketScope: MarketScope;
+  // odds-api.io block
+  readonly oddsMode: OddsApiIoMode;
+  readonly useSelectedBookmakers: boolean;
+  readonly bookmakers: readonly string[];
+  readonly markets: readonly string[];
+  readonly league: string;
+  readonly eventIds: string;
+  readonly sinceSecondsAgo: string;
+}
+
+const DEFAULT_PULL_FORM: PullFormState = {
+  sources: ["kalshi"],
+  dateFrom: "2026-05-01",
+  dateTo: "2026-05-01",
+  gameIds: "",
+  captureMode: "historical",
+  marketScope: "all",
+  oddsMode: "events-snapshot",
+  useSelectedBookmakers: false,
+  bookmakers: ["Kalshi"],
+  markets: [...ODDS_API_IO_MARKETS],
+  league: "NBA",
+  eventIds: "",
+  sinceSecondsAgo: "30",
+};
+
+function splitList(value: string): readonly string[] {
+  return value
+    .split(/[\s,]+/)
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+}
+
+// Build the exact request body BOTH the client dry-run and the server validate.
+// `nowSeconds` is injected so the updated-follow since-staleness rule is
+// deterministic in tests.
+function buildPullRequest(form: PullFormState, nowSeconds: number): Record<string, unknown> {
+  const includesOddsApiIo = form.sources.includes(ODDS_API_IO_SOURCE_ID);
+  const gameIds = splitList(form.gameIds);
+  const body: Record<string, unknown> = {
+    sources: [...form.sources],
+    date_from: form.dateFrom,
+    date_to: form.dateTo,
+    capture_mode: form.captureMode,
+    market_scope: form.marketScope,
+    ...(gameIds.length > 0 ? { game_ids: gameIds } : {}),
+  };
+  if (includesOddsApiIo) {
+    const eventIds = splitList(form.eventIds);
+    const sinceAgo = Number.parseInt(form.sinceSecondsAgo, 10);
+    const block: Record<string, unknown> = {
+      bookmakers: [...form.bookmakers],
+      markets: [...form.markets],
+      mode: form.oddsMode,
+      use_selected_bookmakers: form.useSelectedBookmakers,
+    };
+    // league ⊕ event_ids: send whatever the operator typed and let the shared
+    // validator enforce the XOR. Under live-ws, supplying BOTH a league and
+    // event_ids is rejected with code `live_ws_league_and_event_ids`, so the
+    // dry-run surfaces the conflict instead of the form silently masking it.
+    if (eventIds.length > 0) {
+      block["event_ids"] = eventIds;
+    }
+    if (form.league.trim().length > 0) {
+      block["league"] = form.league.trim();
+    }
+    if (form.oddsMode === "updated-follow" && Number.isFinite(sinceAgo)) {
+      block["since"] = nowSeconds - sinceAgo;
+    }
+    body["odds_api_io"] = block;
+  }
+  return body;
+}
+
+function artifactClassLabel(klass: ArtifactClass): string {
+  if (klass === "canonical") return "canonical";
+  if (klass === "artifact_only") return "artifact-only";
+  return "pending";
+}
+
+// Where each selected source WOULD land, computed directly from the shared
+// capability matrix. This is validity-independent (unlike the planner, which
+// only populates `sources` on a fully-valid request), so the preview can show
+// the canonical / artifact-only / PENDING split even when a pending source
+// (which supports no capture mode) makes the overall plan invalid.
+function previewSourceClasses(
+  sourceIds: readonly string[],
+): readonly { readonly id: string; readonly artifactClass: ArtifactClass }[] {
+  return sourceIds.map((id) => {
+    const capability = getSourceCapability(id);
+    return {
+      id,
+      // Unknown ids can't land anywhere; surface them as pending so the row is
+      // never silently dropped (the planner still rejects them via the error list).
+      artifactClass: capability === undefined ? "pending" : classToArtifactClass(capability.class),
+    };
+  });
+}
+
+function ChipToggle({
+  label,
+  active,
+  onClick,
+  testid,
+}: {
+  readonly label: string;
+  readonly active: boolean;
+  readonly onClick: () => void;
+  readonly testid?: string;
+}): JSX.Element {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      data-testid={testid}
+      data-active={active ? "true" : "false"}
+      className={
+        active
+          ? "border border-accent-green bg-accent-green px-2 py-1 font-mono text-xs text-surface-0-from"
+          : "border border-accent-green px-2 py-1 font-mono text-xs text-text-md transition-colors duration-fast ease-out hover:text-text-hi"
+      }
+    >
+      {label}
+    </button>
+  );
+}
+
+function DialogField({
+  label,
+  children,
+}: {
+  readonly label: string;
+  readonly children: JSX.Element;
+}): JSX.Element {
+  return (
+    <label className="flex flex-col gap-1 font-mono text-xs text-text-lo">
+      <span>{label}</span>
+      {children}
+    </label>
+  );
+}
+
+const INPUT_CLASS =
+  "border border-text-lo bg-surface-1 px-2 py-1.5 text-sm text-text-hi outline-none focus:border-accent-green";
+
+function PullDialog({
+  onClose,
+  nowSeconds,
+}: {
+  readonly onClose: () => void;
+  readonly nowSeconds: number;
+}): JSX.Element {
+  const [form, setForm] = useState<PullFormState>(DEFAULT_PULL_FORM);
+  // The dry-run plan from the LAST validated run; Submit is gated on a fresh
+  // OK plan for the CURRENT form, so editing after a dry-run re-locks Submit.
+  const [plan, setPlan] = useState<PullPlan | null>(null);
+  const [planForBody, setPlanForBody] = useState<string | null>(null);
+  const submit = useSubmitPull();
+
+  function update<K extends keyof PullFormState>(key: K, value: PullFormState[K]): void {
+    setForm((prev) => ({ ...prev, [key]: value }));
+  }
+
+  const includesOddsApiIo = form.sources.includes(ODDS_API_IO_SOURCE_ID);
+  const requestBody = useMemo(() => buildPullRequest(form, nowSeconds), [form, nowSeconds]);
+  const currentBodyKey = JSON.stringify(requestBody);
+  const dryRunFresh = planForBody === currentBodyKey && plan !== null;
+  const dryRunValid = dryRunFresh && plan.ok;
+
+  function toggleSource(id: string): void {
+    setForm((prev) => {
+      const has = prev.sources.includes(id);
+      const next = has ? prev.sources.filter((s) => s !== id) : [...prev.sources, id];
+      return { ...prev, sources: next };
+    });
+  }
+  function toggleMarket(market: string): void {
+    setForm((prev) => {
+      const has = prev.markets.includes(market);
+      const next = has ? prev.markets.filter((m) => m !== market) : [...prev.markets, market];
+      return { ...prev, markets: next };
+    });
+  }
+
+  function onDryRun(): void {
+    const result = planPullJob(requestBody, { now: nowSeconds });
+    setPlan(result);
+    setPlanForBody(currentBodyKey);
+  }
+
+  function onSubmit(): void {
+    if (!dryRunValid) return;
+    submit.mutate(requestBody, {
+      onSuccess: () => {
+        onClose();
+      },
+    });
+  }
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="research-pull-title"
+      data-testid="research-pull-dialog"
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-surface-0-from/80 px-4 py-10"
+    >
+      {/* Canonical floating-surface treatment: surface-elevated fill, 3px yellow
+          left stripe, 1px text-lo/30 hairline on the other three edges, NO shadow. */}
+      <div className="w-[min(680px,calc(100vw-32px))] border-l-[3px] border-l-accent-yellow border-t border-r border-b border-text-lo/30 bg-surface-elevated p-5">
+        <div className="flex items-baseline justify-between gap-4">
+          <h4 id="research-pull-title" className="text-base font-semibold text-text-hi">
+            Pull data
+          </h4>
+          <button
+            type="button"
+            onClick={onClose}
+            data-testid="research-pull-cancel"
+            className="px-2 py-1 font-mono text-xs uppercase tracking-wider text-text-lo hover:text-text-hi"
+          >
+            Cancel
+          </button>
+        </div>
+
+        <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className="sm:col-span-2">
+            <span className="font-mono text-xs text-text-lo">Sources</span>
+            <div className="mt-1 flex flex-wrap gap-2">
+              {SOURCE_CAPABILITY_MATRIX.map((source) => (
+                <ChipToggle
+                  key={source.id}
+                  label={source.id}
+                  active={form.sources.includes(source.id)}
+                  onClick={() => {
+                    toggleSource(source.id);
+                  }}
+                  testid={`research-pull-source-${source.id}`}
+                />
+              ))}
+            </div>
+          </div>
+
+          <DialogField label="Date from">
+            <input
+              type="date"
+              value={form.dateFrom}
+              data-testid="research-pull-date-from"
+              onChange={(e) => {
+                update("dateFrom", e.target.value);
+              }}
+              className={INPUT_CLASS}
+            />
+          </DialogField>
+          <DialogField label="Date to">
+            <input
+              type="date"
+              value={form.dateTo}
+              data-testid="research-pull-date-to"
+              onChange={(e) => {
+                update("dateTo", e.target.value);
+              }}
+              className={INPUT_CLASS}
+            />
+          </DialogField>
+
+          <DialogField label="Game IDs (optional, space/comma separated)">
+            <input
+              value={form.gameIds}
+              data-testid="research-pull-game-ids"
+              placeholder="nba-0042500222"
+              onChange={(e) => {
+                update("gameIds", e.target.value);
+              }}
+              className={INPUT_CLASS}
+            />
+          </DialogField>
+          <DialogField label="Capture mode">
+            <select
+              value={form.captureMode}
+              data-testid="research-pull-capture-mode"
+              onChange={(e) => {
+                const mode = toCaptureMode(e.target.value);
+                if (mode !== undefined) update("captureMode", mode);
+              }}
+              className={INPUT_CLASS}
+            >
+              <option value="historical">historical</option>
+              <option value="repair">repair</option>
+              <option value="live-capture">live-capture</option>
+            </select>
+          </DialogField>
+          <DialogField label="Market scope">
+            <select
+              value={form.marketScope}
+              data-testid="research-pull-market-scope"
+              onChange={(e) => {
+                const scope = toMarketScope(e.target.value);
+                if (scope !== undefined) update("marketScope", scope);
+              }}
+              className={INPUT_CLASS}
+            >
+              <option value="all">all</option>
+              <option value="board">board</option>
+              <option value="player-props">player-props</option>
+            </select>
+          </DialogField>
+        </div>
+
+        {includesOddsApiIo ? (
+          <div className="mt-4 space-y-3 bg-surface-1 p-4" data-testid="research-pull-odds-api-io">
+            <p className="font-mono text-xs uppercase tracking-[0.08em] text-text-lo">
+              Odds-API.io options
+            </p>
+            <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+              <StatusDot
+                dotClass="bg-accent-yellow"
+                label="artifact-only — not persisted to gold"
+                testid="research-pull-odds-bookmaker-status"
+              />
+              <label className="flex items-center gap-2 font-mono text-xs text-text-md">
+                <input
+                  type="checkbox"
+                  checked={form.useSelectedBookmakers}
+                  data-testid="research-pull-use-selected"
+                  onChange={(e) => {
+                    update("useSelectedBookmakers", e.target.checked);
+                  }}
+                />
+                use selected bookmaker spine ({ODDS_API_IO_SPINE.join(", ")})
+              </label>
+            </div>
+
+            {!form.useSelectedBookmakers ? (
+              <div>
+                <span className="font-mono text-xs text-text-lo">Bookmakers</span>
+                <div className="mt-1 flex flex-wrap gap-2">
+                  {ODDS_API_IO_SPINE.map((book) => (
+                    <ChipToggle
+                      key={book}
+                      label={book}
+                      active={form.bookmakers.includes(book)}
+                      onClick={() => {
+                        setForm((prev) => {
+                          const has = prev.bookmakers.includes(book);
+                          return {
+                            ...prev,
+                            bookmakers: has
+                              ? prev.bookmakers.filter((b) => b !== book)
+                              : [...prev.bookmakers, book],
+                          };
+                        });
+                      }}
+                      testid={`research-pull-book-${book}`}
+                    />
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            <div>
+              <span className="font-mono text-xs text-text-lo">Mode</span>
+              <div className="mt-1 flex flex-wrap gap-2">
+                {(["events-snapshot", "updated-follow", "live-ws"] as const).map((mode) => (
+                  <ChipToggle
+                    key={mode}
+                    label={mode}
+                    active={form.oddsMode === mode}
+                    onClick={() => {
+                      update("oddsMode", mode);
+                    }}
+                    testid={`research-pull-mode-${mode}`}
+                  />
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <span className="font-mono text-xs text-text-lo">Markets</span>
+              <div className="mt-1 flex flex-wrap gap-2">
+                {ODDS_API_IO_MARKETS.map((market) => (
+                  <ChipToggle
+                    key={market}
+                    label={market}
+                    active={form.markets.includes(market)}
+                    onClick={() => {
+                      toggleMarket(market);
+                    }}
+                    testid={`research-pull-market-${market}`}
+                  />
+                ))}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <DialogField label="League (⊕ event IDs)">
+                <input
+                  value={form.league}
+                  data-testid="research-pull-league"
+                  onChange={(e) => {
+                    update("league", e.target.value);
+                  }}
+                  className={INPUT_CLASS}
+                />
+              </DialogField>
+              <DialogField label="Event IDs (⊕ league)">
+                <input
+                  value={form.eventIds}
+                  data-testid="research-pull-event-ids"
+                  placeholder="evt-1 evt-2"
+                  onChange={(e) => {
+                    update("eventIds", e.target.value);
+                  }}
+                  className={INPUT_CLASS}
+                />
+              </DialogField>
+              <DialogField label="updated-follow since (secs ago, ≤60)">
+                <input
+                  type="number"
+                  value={form.sinceSecondsAgo}
+                  data-testid="research-pull-since"
+                  onChange={(e) => {
+                    update("sinceSecondsAgo", e.target.value);
+                  }}
+                  className={INPUT_CLASS}
+                />
+              </DialogField>
+            </div>
+          </div>
+        ) : null}
+
+        {/* Dry-run preview: expected canonical / artifact-only / pending for
+            every selected source, validity-independent so pending always shows.
+            Errors (below) gate Submit; the preview is purely informational. */}
+        {dryRunFresh ? (
+          <div className="mt-4 bg-surface-1 p-4" data-testid="research-pull-preview">
+            <p className="font-mono text-xs uppercase tracking-[0.08em] text-text-lo">
+              Dry-run plan — where each source lands
+            </p>
+            <ul className="mt-2 space-y-1">
+              {previewSourceClasses(form.sources).map((source) => (
+                <li
+                  key={source.id}
+                  className="flex items-center justify-between gap-4 font-mono text-xs"
+                  data-testid="research-pull-preview-row"
+                  data-source-id={source.id}
+                  data-artifact-class={source.artifactClass}
+                >
+                  <span className="text-text-hi">{source.id}</span>
+                  <span className="text-text-md">{artifactClassLabel(source.artifactClass)}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+
+        {dryRunFresh && !plan.ok ? (
+          <div className="mt-4 bg-surface-1 p-4" data-testid="research-pull-errors">
+            <p className="font-mono text-xs uppercase tracking-[0.08em] text-negative">
+              Dry-run rejected
+            </p>
+            <ul className="mt-2 space-y-1">
+              {plan.errors.map((err, i) => (
+                <li
+                  key={`${err.code}-${String(i)}`}
+                  className="font-mono text-xs text-text-md"
+                  data-testid="research-pull-error"
+                  data-error-code={err.code}
+                >
+                  {err.code}: {err.message}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+
+        {submit.isError ? (
+          <p
+            className="mt-3 font-mono text-xs text-negative"
+            data-testid="research-pull-submit-error"
+          >
+            {submit.error.message}
+          </p>
+        ) : null}
+
+        <div className="mt-5 flex flex-wrap items-center gap-3">
+          <GreenButton onClick={onDryRun} testid="research-pull-dry-run">
+            Dry-run first
+          </GreenButton>
+          <YellowButton
+            onClick={onSubmit}
+            disabled={!dryRunValid || submit.isPending}
+            testid="research-pull-submit"
+          >
+            Submit job
+          </YellowButton>
+          {!dryRunFresh ? (
+            <span className="font-mono text-xs text-text-lo">Run a dry-run to enable submit.</span>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── (4) Pull jobs table ─────────────────────────────────────────────────────────
+
+function PullJobsTable({
+  pulls,
+}: {
+  readonly pulls: readonly Record<string, unknown>[];
+}): JSX.Element {
+  return (
+    <section data-testid="research-pull-jobs" className="space-y-3">
+      <SectionHeading>Pull jobs</SectionHeading>
+      {pulls.length === 0 ? (
+        <EmptyLine testid="research-pull-jobs-empty">
+          No pull jobs yet — use Pull data above to enqueue one.
+        </EmptyLine>
+      ) : (
+        <div role="table" aria-label="Pull jobs" className="bg-surface-1 text-sm">
+          <div
+            role="row"
+            className="grid grid-cols-[1.4fr_0.8fr_1fr_1fr] gap-x-6 px-5 pb-2 pt-4 font-mono text-xs uppercase tracking-[0.06em] text-text-lo"
+          >
+            <span role="columnheader">Job</span>
+            <span role="columnheader">Status</span>
+            <span role="columnheader">Sources</span>
+            <span role="columnheader">Created</span>
+          </div>
+          {pulls.map((job, i) => {
+            const id = str(pick(job, "jobId", "job_id", "id")) ?? `job-${String(i)}`;
+            const status = str(pick(job, "state", "status"));
+            const sources = pick(job, "sources");
+            const sourcesLabel = Array.isArray(sources)
+              ? sources.filter((s): s is string => typeof s === "string").join(", ")
+              : "—";
+            const createdAt = str(pick(job, "createdAt", "created_utc", "created_at")) ?? "—";
+            return (
+              <div
+                key={id}
+                role="row"
+                data-testid="research-pull-job-row"
+                data-job-id={id}
+                className="grid grid-cols-[1.4fr_0.8fr_1fr_1fr] items-baseline gap-x-6 px-5 py-3 transition-colors duration-fast ease-out hover:bg-surface-2"
+              >
+                <span role="cell" className="truncate font-mono text-xs tabular-nums text-text-hi">
+                  {id}
+                </span>
+                <span role="cell">
+                  <StatusDot dotClass={pullStatusDotClass(status)} label={status ?? "unknown"} />
+                </span>
+                <span role="cell" className="font-mono text-xs text-text-md">
+                  {sourcesLabel}
+                </span>
+                <span role="cell" className="font-mono text-xs tabular-nums text-text-md">
+                  {createdAt}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
+}
+
+// ── (5) Snapshot block ──────────────────────────────────────────────────────────
+
+function SnapshotBlock({
+  snapshot,
+}: {
+  readonly snapshot: Record<string, unknown> | null;
+}): JSX.Element {
+  if (snapshot === null) {
+    return (
+      <section data-testid="research-snapshot" className="space-y-3">
+        <SectionHeading>Snapshot</SectionHeading>
+        <EmptyLine testid="research-snapshot-empty">
+          No snapshot exported yet — run a pull, then Export snapshot.
+        </EmptyLine>
+      </section>
+    );
+  }
+  // The real export-quant-snapshot manifest nests counts/date-range/coverage;
+  // read those first, then fall back to flat keys so simpler fixtures also work.
+  const obj = (value: unknown): Record<string, unknown> | undefined =>
+    isRecord(value) ? value : undefined;
+  const counts = obj(pick(snapshot, "counts"));
+  const dateRange = obj(pick(snapshot, "dateRange", "date_range"));
+  const id = str(pick(snapshot, "id", "snapshotId", "snapshot_id"));
+  const dateFrom =
+    str(pick(snapshot, "dateFrom", "date_from")) ??
+    (dateRange !== undefined ? str(pick(dateRange, "observedStart", "since", "from")) : undefined);
+  const dateTo =
+    str(pick(snapshot, "dateTo", "date_to")) ??
+    (dateRange !== undefined ? str(pick(dateRange, "observedEnd", "until", "to")) : undefined);
+  const games =
+    num(pick(snapshot, "games", "gameCount", "game_count")) ??
+    (counts !== undefined ? num(pick(counts, "games")) : undefined);
+  const incidents =
+    num(pick(snapshot, "incidents", "incidentCount", "incident_count")) ??
+    (counts !== undefined ? num(pick(counts, "incidents")) : undefined);
+  const scoreable =
+    num(pick(snapshot, "scoreable", "scoreableCount", "scoreable_count")) ??
+    (counts !== undefined ? num(pick(counts, "scoreWindows", "scoreable")) : undefined);
+  const doctor = pick(snapshot, "doctor", "doctorSummary", "doctor_summary");
+  const doctorText =
+    str(doctor) ?? (isRecord(doctor) ? str(pick(doctor, "summary", "text", "status")) : undefined);
+  // sourceCoverageSummary is an object like { canonical: 278 }; render its
+  // entries. Fall back to an array shape ([{id, class}]) for older fixtures.
+  const coverageSummary = obj(pick(snapshot, "sourceCoverageSummary"));
+  const coverage = pick(snapshot, "sourceCoverage", "source_coverage");
+  const files = pick(snapshot, "files");
+
+  return (
+    <section data-testid="research-snapshot" className="space-y-3">
+      <SectionHeading>Snapshot</SectionHeading>
+      <div className="bg-surface-1 px-5 py-4">
+        <div className="grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-3">
+          <div className="space-y-1">
+            <span className="font-mono text-xs text-text-lo">id</span>
+            <p
+              className="font-mono text-sm tabular-nums text-text-hi"
+              data-testid="research-snapshot-id"
+            >
+              {id ?? "—"}
+            </p>
+          </div>
+          <div className="space-y-1">
+            <span className="font-mono text-xs text-text-lo">date range</span>
+            <p className="font-mono text-sm tabular-nums text-text-hi">
+              {dateFrom ?? "—"} → {dateTo ?? "—"}
+            </p>
+          </div>
+          <div className="space-y-1">
+            <span className="font-mono text-xs text-text-lo">games</span>
+            <p className="font-mono text-sm tabular-nums text-text-hi">{fmtNum(games)}</p>
+          </div>
+          <div className="space-y-1">
+            <span className="font-mono text-xs text-text-lo">incidents</span>
+            <p className="font-mono text-sm tabular-nums text-text-hi">{fmtNum(incidents)}</p>
+          </div>
+          <div className="space-y-1">
+            <span className="font-mono text-xs text-text-lo">scoreable</span>
+            <p className="font-mono text-sm tabular-nums text-text-hi">{fmtNum(scoreable)}</p>
+          </div>
+        </div>
+        {coverageSummary !== undefined && Object.keys(coverageSummary).length > 0 ? (
+          <p
+            className="mt-3 font-mono text-xs text-text-md"
+            data-testid="research-snapshot-coverage"
+          >
+            source coverage:{" "}
+            {Object.entries(coverageSummary)
+              .map(([klass, count]) => `${klass}=${fmtNum(num(count))}`)
+              .join(" · ")}
+          </p>
+        ) : Array.isArray(coverage) && coverage.length > 0 ? (
+          <p
+            className="mt-3 font-mono text-xs text-text-md"
+            data-testid="research-snapshot-coverage"
+          >
+            source coverage:{" "}
+            {coverage
+              .map((entry) =>
+                isRecord(entry)
+                  ? `${str(pick(entry, "id")) ?? "?"}=${
+                      str(pick(entry, "class", "artifactClass")) ?? "?"
+                    }`
+                  : String(entry),
+              )
+              .join(" · ")}
+          </p>
+        ) : null}
+        {Array.isArray(files) && files.length > 0 ? (
+          <p className="mt-3 font-mono text-xs text-text-md" data-testid="research-snapshot-files">
+            files: {files.filter((f): f is string => typeof f === "string").join(" · ")}
+          </p>
+        ) : null}
+        {doctorText !== undefined ? (
+          <p
+            className="mt-3 max-w-[80ch] text-sm text-text-md"
+            data-testid="research-snapshot-doctor"
+          >
+            doctor: {doctorText}
+          </p>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
+// ── (6) Model lab ───────────────────────────────────────────────────────────────
+
+function ModelLab({
+  models,
+}: {
+  readonly models: readonly { id: string; label: string; description: string; source: string }[];
+}): JSX.Element {
+  return (
+    <section data-testid="research-model-lab" className="space-y-3">
+      <SectionHeading>Model lab</SectionHeading>
+      <p className="max-w-[80ch] text-xs text-text-md" data-testid="research-model-lab-note">
+        These are baseline research models, not tuned production detectors. They exist so a snapshot
+        can be scored repeatably; treat them as humble reference points, not the live suspend
+        signal.
+      </p>
+      <div role="table" aria-label="Model lab" className="bg-surface-1 text-sm">
+        <div
+          role="row"
+          className="grid grid-cols-[0.8fr_1fr_0.6fr_2fr] gap-x-6 px-5 pb-2 pt-4 font-mono text-xs uppercase tracking-[0.06em] text-text-lo"
+        >
+          <span role="columnheader">Model</span>
+          <span role="columnheader">Label</span>
+          <span role="columnheader">Source</span>
+          <span role="columnheader">Role</span>
+        </div>
+        {models.map((model) => (
+          <div
+            key={model.id}
+            role="row"
+            data-testid="research-model-row"
+            data-model-id={model.id}
+            className="grid grid-cols-[0.8fr_1fr_0.6fr_2fr] items-baseline gap-x-6 px-5 py-3 transition-colors duration-fast ease-out hover:bg-surface-2"
+          >
+            <span role="cell" className="font-mono text-xs text-text-hi">
+              {model.id}
+            </span>
+            <span role="cell" className="text-text-md">
+              {model.label}
+            </span>
+            <span role="cell" className="font-mono text-xs text-text-lo">
+              {model.source}
+            </span>
+            <span role="cell" className="text-xs text-text-md">
+              {model.description}
+            </span>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+// ── (7) Leaderboard ─────────────────────────────────────────────────────────────
+
+function Leaderboard({
+  runId,
+  rows,
+}: {
+  readonly runId: string | null;
+  readonly rows: readonly Record<string, unknown>[];
+}): JSX.Element {
+  return (
+    <section data-testid="research-leaderboard" className="space-y-3">
+      <SectionHeading>Leaderboard</SectionHeading>
+      <p className="font-mono text-xs text-text-lo" data-testid="research-leaderboard-disclaimer">
+        Research snapshot result, not live production behavior.
+      </p>
+      {rows.length === 0 ? (
+        <EmptyLine testid="research-leaderboard-empty">
+          No leaderboard yet — score a snapshot to populate this table.
+        </EmptyLine>
+      ) : (
+        <div role="table" aria-label="Leaderboard" className="bg-surface-1 text-sm">
+          <div
+            role="row"
+            className="grid grid-cols-[1fr_0.8fr_0.8fr_0.7fr_0.8fr_0.7fr_0.9fr] gap-x-5 px-5 pb-2 pt-4 font-mono text-xs uppercase tracking-[0.06em] text-text-lo"
+          >
+            <span role="columnheader">Model</span>
+            <span role="columnheader">
+              <Explain id="recall-fires-per-game">
+                <span>Incident recall</span>
+              </Explain>
+            </span>
+            <span role="columnheader">Caught/scoreable</span>
+            <span role="columnheader">
+              <Explain id="fires-per-game">
+                <span>Fires/game</span>
+              </Explain>
+            </span>
+            <span role="columnheader">
+              <Explain id="tape-outlier">
+                <span>Tape-outlier</span>
+              </Explain>
+            </span>
+            <span role="columnheader">Burden</span>
+            <span role="columnheader">
+              <Explain id="residual-coverage">
+                <span>Residual cov.</span>
+              </Explain>
+            </span>
+          </div>
+          {rows.map((row, i) => {
+            const model = str(pick(row, "model", "modelId", "id")) ?? `row-${String(i)}`;
+            const recall = num(pick(row, "incidentRecall", "incident_recall", "recall"));
+            const caught = num(pick(row, "caught", "incidentsCaught", "incidents_caught"));
+            const scoreable = num(pick(row, "scoreable", "incidentsTotal", "incidents_total"));
+            const firesPerGame = num(pick(row, "firesPerGame", "fires_per_game"));
+            const tapeOutlier = num(
+              pick(row, "tapeOutlier", "tapeOutlierRecall", "tape_outlier_recall", "tape_outlier"),
+            );
+            const burden = num(pick(row, "burden"));
+            const residual = num(pick(row, "residualCoverage", "residual_coverage"));
+            return (
+              <div
+                key={model}
+                role="row"
+                data-testid="research-leaderboard-row"
+                data-model-id={model}
+                className="grid grid-cols-[1fr_0.8fr_0.8fr_0.7fr_0.8fr_0.7fr_0.9fr] items-baseline gap-x-5 px-5 py-3 transition-colors duration-fast ease-out hover:bg-surface-2"
+              >
+                <span role="cell" className="font-mono text-xs text-text-hi">
+                  {model}
+                </span>
+                <span role="cell" className="font-mono text-xs tabular-nums text-text-md">
+                  {recall === undefined ? "—" : `${fmtNum(recall * 100, 1)}%`}
+                </span>
+                <span role="cell" className="font-mono text-xs tabular-nums text-text-md">
+                  {caught === undefined || scoreable === undefined
+                    ? "—"
+                    : `${fmtNum(caught)} / ${fmtNum(scoreable)}`}
+                </span>
+                <span role="cell" className="font-mono text-xs tabular-nums text-text-md">
+                  {fmtNum(firesPerGame, 1)}
+                </span>
+                <span role="cell" className="font-mono text-xs tabular-nums text-text-md">
+                  {tapeOutlier === undefined ? "—" : `${fmtNum(tapeOutlier * 100, 1)}%`}
+                </span>
+                <span role="cell" className="font-mono text-xs tabular-nums text-text-md">
+                  {fmtNum(burden)}
+                </span>
+                <span role="cell" className="font-mono text-xs tabular-nums text-text-md">
+                  {residual === undefined ? "—" : `${fmtNum(residual * 100, 1)}%`}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {runId !== null ? (
+        <p className="font-mono text-xs text-text-lo">
+          run <span className="tabular-nums text-text-md">{runId}</span>
+        </p>
+      ) : null}
+    </section>
+  );
+}
+
+// ── (8) Casebook preview ──────────────────────────────────────────────────────
+
+function CasebookPreview({ hasSnapshot }: { readonly hasSnapshot: boolean }): JSX.Element {
+  return (
+    <section data-testid="research-casebook" className="space-y-3">
+      <SectionHeading>Casebook preview</SectionHeading>
+      {!hasSnapshot ? (
+        <EmptyLine testid="research-casebook-empty">
+          No casebook yet — it is generated alongside a scored snapshot.
+        </EmptyLine>
+      ) : (
+        <p className="max-w-[80ch] text-xs text-text-md" data-testid="research-casebook-body">
+          The casebook walks each scored incident with its matched fires. Open the latest report for
+          the full per-case writeup; the full Known Cases replay lives on the Known Cases tab.
+        </p>
+      )}
+    </section>
+  );
+}
+
+// ── Page ─────────────────────────────────────────────────────────────────────
+
+export function ResearchPage(): JSX.Element {
+  const sources = useResearchSources();
+  const snapshot = useResearchSnapshot();
+  const leaderboard = useResearchLeaderboard();
+  const models = useResearchModels();
+  const pulls = useResearchPulls();
+  const [dialogOpen, setDialogOpen] = useState(false);
+
+  const snapshotData = snapshot.data?.snapshot ?? null;
+  const leaderboardRows = useMemo(() => leaderboard.data?.rows ?? [], [leaderboard.data?.rows]);
+  const pullRows = useMemo(() => pulls.data?.pulls ?? [], [pulls.data?.pulls]);
+  const sourceRows = useMemo(() => sources.data?.sources ?? [], [sources.data?.sources]);
+  const modelRows = useMemo(() => models.data?.models ?? [], [models.data?.models]);
+
+  const hasArtifacts = snapshotData !== null || pullRows.length > 0 || leaderboardRows.length > 0;
+
+  const latestPullStatus = isRecord(pullRows[0])
+    ? str(pick(pullRows[0], "state", "status"))
+    : undefined;
+  const snapshotId =
+    snapshotData !== null ? str(pick(snapshotData, "id", "snapshotId", "snapshot_id")) : undefined;
+  const leaderboardTimestamp =
+    leaderboard.data?.runId !== null && leaderboard.data?.runId !== undefined
+      ? leaderboard.data.runId
+      : undefined;
+
+  // Network-down banner takes precedence; otherwise surface the first hard error.
+  const queries = [sources, snapshot, leaderboard, models, pulls];
+  const networkErr = queries.find((q) => q.isError && isNetworkError(q.error));
+  const hardErr = queries.find((q) => q.isError && !isNetworkError(q.error));
+  const banner =
+    networkErr !== undefined ? (
+      <ApiUnreachableBanner error={networkErr.error} />
+    ) : hardErr !== undefined ? (
+      <QueryErrorBanner query={hardErr} label="Failed to load research artifacts" />
+    ) : null;
+
+  return (
+    <div data-testid="research-page" className="space-y-12">
+      {banner}
+      <HeaderStrip
+        snapshotId={snapshotId}
+        latestPullStatus={latestPullStatus}
+        leaderboardTimestamp={leaderboardTimestamp}
+        hasArtifacts={hasArtifacts}
+        hasSnapshot={snapshotData !== null}
+        onPull={() => {
+          setDialogOpen(true);
+        }}
+      />
+      <SourceCoverage sources={sourceRows} />
+      <PullJobsTable pulls={pullRows} />
+      <SnapshotBlock snapshot={snapshotData} />
+      <ModelLab models={modelRows} />
+      <Leaderboard runId={leaderboard.data?.runId ?? null} rows={leaderboardRows} />
+      <CasebookPreview hasSnapshot={snapshotData !== null} />
+
+      {dialogOpen ? (
+        <PullDialog
+          nowSeconds={Math.floor(Date.now() / 1000)}
+          onClose={() => {
+            setDialogOpen(false);
+          }}
+        />
+      ) : null}
+    </div>
+  );
+}

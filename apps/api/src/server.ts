@@ -23,6 +23,7 @@ import incidentsRoutes, { type IncidentsRoutesOptions } from "./routes/incidents
 import liveRoutes, { type LiveRoutesOptions } from "./routes/live";
 import microstructureRoutes, { type MicrostructureRoutesOptions } from "./routes/microstructure";
 import offPricePrintRoutes, { type OffPricePrintRoutesOptions } from "./routes/off-price-print";
+import researchRoutes, { type ResearchRoutesOptions } from "./routes/research";
 import settingsRoutes, { type SettingsRoutesOptions } from "./routes/settings";
 
 const DEFAULT_PORT = defaultApiPort;
@@ -42,7 +43,52 @@ export interface BuildServerOptions {
   readonly detectors?: DetectorsRoutesOptions;
   readonly offPricePrint?: OffPricePrintRoutesOptions;
   readonly ensembleOr?: EnsembleOrRoutesOptions;
+  readonly research?: ResearchRoutesOptions;
 }
+
+/**
+ * Default queue-backed enqueue for research pull jobs. Dynamically imports the
+ * shared live-repository so the API does not pay the gold-DB-init side effects
+ * at module load and so the route module itself stays DB-free. The job_id we
+ * echo back is the generated pull id (the pulls/<id>/ folder namespace); the
+ * admin-action queue row carries it in its payload for the worker to claim.
+ */
+interface SharedAdminQueue {
+  readonly enqueueResearchPull: (payload: {
+    readonly scope: string;
+    readonly requestedBy?: string;
+    readonly payloadJson: Record<string, unknown>;
+  }) => unknown;
+}
+
+function isSharedAdminQueue(m: unknown): m is SharedAdminQueue {
+  return (
+    typeof m === "object" &&
+    m !== null &&
+    "enqueueResearchPull" in m &&
+    typeof m.enqueueResearchPull === "function"
+  );
+}
+
+const defaultEnqueuePull: NonNullable<ResearchRoutesOptions["enqueuePull"]> = async ({
+  request,
+  jobId,
+}) => {
+  // Non-literal specifier: keeps @signal-console/shared's TS source out of the
+  // API tsc program (shared is strict-clean only under its own relaxed
+  // tsconfig). Resolved at runtime; the API's own files stay strictly checked.
+  const spec: string = "@signal-console/shared";
+  const mod: unknown = await import(spec);
+  if (!isSharedAdminQueue(mod)) {
+    throw new Error("@signal-console/shared does not expose enqueueResearchPull");
+  }
+  mod.enqueueResearchPull({
+    scope: jobId,
+    requestedBy: "research-api",
+    payloadJson: { jobId, request },
+  });
+  return { jobId };
+};
 
 export async function buildServer(options: BuildServerOptions = {}): Promise<FastifyInstance> {
   const app = Fastify({
@@ -83,6 +129,10 @@ export async function buildServer(options: BuildServerOptions = {}): Promise<Fas
   await app.register(detectorsRoutes, options.detectors ?? {});
   await app.register(offPricePrintRoutes, options.offPricePrint ?? {});
   await app.register(ensembleOrRoutes, options.ensembleOr ?? {});
+  await app.register(researchRoutes, {
+    enqueuePull: defaultEnqueuePull,
+    ...(options.research ?? {}),
+  });
 
   // Fastify instances are thenable (await app === app.ready()); awaiting here
   // satisfies @typescript-eslint/return-await:always and gives callers a

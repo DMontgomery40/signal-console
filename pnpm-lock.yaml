@@ -8,6 +8,9 @@ importers:
 
   .:
     devDependencies:
+      '@duckdb/node-api':
+        specifier: 1.5.3-r.2
+        version: 1.5.3-r.2
       '@eslint/js':
         specifier: ^9.39.4
         version: 9.39.4
@@ -59,6 +62,12 @@ importers:
       '@signal-console/detectors':
         specifier: workspace:*
         version: link:../../packages/detectors
+      '@signal-console/research-pull':
+        specifier: workspace:*
+        version: link:../../packages/research-pull
+      '@signal-console/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
       better-sqlite3:
         specifier: ^12.4.0
         version: 12.10.0
@@ -90,6 +99,9 @@ importers:
       '@signal-console/detectors':
         specifier: workspace:*
         version: link:../../packages/detectors
+      '@signal-console/research-pull':
+        specifier: workspace:*
+        version: link:../../packages/research-pull
       '@signal-console/ui':
         specifier: workspace:*
         version: link:../../packages/ui
@@ -216,6 +228,32 @@ importers:
         specifier: ^3.24.3
         version: 3.25.76
     devDependencies:
+      vitest:
+        specifier: ^3.2.0
+        version: 3.2.4(@types/debug@4.1.13)(@types/node@22.19.19)(jiti@1.21.7)(jsdom@29.1.1)(tsx@4.22.3)(yaml@2.9.0)
+
+  packages/research-pull:
+    dependencies:
+      zod:
+        specifier: ^3.23.8
+        version: 3.25.76
+    devDependencies:
+      vitest:
+        specifier: ^3.2.0
+        version: 3.2.4(@types/debug@4.1.13)(@types/node@22.19.19)(jiti@1.21.7)(jsdom@29.1.1)(tsx@4.22.3)(yaml@2.9.0)
+
+  packages/research-truth:
+    dependencies:
+      '@signal-console/db':
+        specifier: workspace:*
+        version: link:../db
+      '@signal-console/detectors':
+        specifier: workspace:*
+        version: link:../detectors
+    devDependencies:
+      '@duckdb/node-api':
+        specifier: 1.5.3-r.2
+        version: 1.5.3-r.2
       vitest:
         specifier: ^3.2.0
         version: 3.2.4(@types/debug@4.1.13)(@types/node@22.19.19)(jiti@1.21.7)(jsdom@29.1.1)(tsx@4.22.3)(yaml@2.9.0)
@@ -444,6 +482,56 @@ packages:
   '@csstools/css-tokenizer@4.0.0':
     resolution: {integrity: sha512-QxULHAm7cNu72w97JUNCBFODFaXpbDg+dP8b/oWFAZ2MTRppA3U00Y2L1HqaS4J6yBqxwa/Y3nMBaxVKbB/NsA==}
     engines: {node: '>=20.19.0'}
+
+  '@duckdb/node-api@1.5.3-r.2':
+    resolution: {integrity: sha512-xjn6W9n8Sn9PaYmzrB6ayidNLQHpqNKdaRz4gx3yVoLUkrsIebQC1M1jV3BR8KqXj5P0RX4wLs8Tg/fK2ZQmNA==}
+
+  '@duckdb/node-bindings-darwin-arm64@1.5.3-r.2':
+    resolution: {integrity: sha512-5RQ3+fUZn+OvIJEfa1i/KngJHo5d6ilpjunsHfHdQy5F7r5pewDkPxRQno4xInPqGukMibKDoMdpzCKnymFJtw==}
+    cpu: [arm64]
+    os: [darwin]
+
+  '@duckdb/node-bindings-darwin-x64@1.5.3-r.2':
+    resolution: {integrity: sha512-E7Pc+do8kj82+hHXkp4mxfw9Kqfe6V5FUT2EMoRsacbvhuoM1AeZxOj9jknh23IoNxPtn3S2tKnD1krL0v0I7A==}
+    cpu: [x64]
+    os: [darwin]
+
+  '@duckdb/node-bindings-linux-arm64-musl@1.5.3-r.2':
+    resolution: {integrity: sha512-P9lTyML8M6pS300fJbnMNFSBhojC0xJcvGvuR44xd//NqaHk9EwcPIs4+r2ek4LP5uugm7konVZ3VMr0BOKujw==}
+    cpu: [arm64]
+    os: [linux]
+    libc: [musl]
+
+  '@duckdb/node-bindings-linux-arm64@1.5.3-r.2':
+    resolution: {integrity: sha512-R8RKkNgVL4kHodot1krfbB4XQ+bA90LPsnN1Lm5J03QJlFgNlezul0H2U1UuvEaKUBPWDQj8g9Yt4hhKKKX0zw==}
+    cpu: [arm64]
+    os: [linux]
+    libc: [glibc]
+
+  '@duckdb/node-bindings-linux-x64-musl@1.5.3-r.2':
+    resolution: {integrity: sha512-V9kPvbMoJENvPo82LOzfhZ+KilFe1K8TKrksFmHe1Sy2pduNUVnxC+T4OQuOu4sqyCCVqVYRXe3pqTzKa/hCYg==}
+    cpu: [x64]
+    os: [linux]
+    libc: [musl]
+
+  '@duckdb/node-bindings-linux-x64@1.5.3-r.2':
+    resolution: {integrity: sha512-6vYTXgIqnWEjlNZX/AveTU7EzicuGATOdy8ncUbBIDxoC9cIrjoIqQc37COKEyT5IHjLIt25MllJtags96vvxA==}
+    cpu: [x64]
+    os: [linux]
+    libc: [glibc]
+
+  '@duckdb/node-bindings-win32-arm64@1.5.3-r.2':
+    resolution: {integrity: sha512-CjKqTI0WfRxwLgz8FV4fej/wkijPQnRgDk93aQlWQ+/+EwB9EnwQW3yfUy4Rs8cFjQkxkwlL5azoSR973l8U6w==}
+    cpu: [arm64]
+    os: [win32]
+
+  '@duckdb/node-bindings-win32-x64@1.5.3-r.2':
+    resolution: {integrity: sha512-/oxN8ZFf2LxhForL+Uc+lEqnzHNvhSEsu3blnk3zu73rKTbD/WvPYIecrenb1ysApRK9ElGxitIYFx8PBuVKxg==}
+    cpu: [x64]
+    os: [win32]
+
+  '@duckdb/node-bindings@1.5.3-r.2':
+    resolution: {integrity: sha512-bveKx+LfqRazcH8/MuCkMsbLVQKqr/EyuYRzaKpBcEvRYenw/TqK5+1N4fkMyoTv8ZukA4UYobymNYHqJUpdOA==}
 
   '@esbuild/aix-ppc64@0.25.12':
     resolution: {integrity: sha512-Hhmwd6CInZ3dwpuGTF8fJG6yoWmsToE+vYgD4nytZVxcu1ulHpUQRAB1UJ8+N1Am3Mz4+xOByoQoSZf4D+CpkA==}
@@ -3679,6 +3767,47 @@ snapshots:
       css-tree: 3.2.1
 
   '@csstools/css-tokenizer@4.0.0': {}
+
+  '@duckdb/node-api@1.5.3-r.2':
+    dependencies:
+      '@duckdb/node-bindings': 1.5.3-r.2
+
+  '@duckdb/node-bindings-darwin-arm64@1.5.3-r.2':
+    optional: true
+
+  '@duckdb/node-bindings-darwin-x64@1.5.3-r.2':
+    optional: true
+
+  '@duckdb/node-bindings-linux-arm64-musl@1.5.3-r.2':
+    optional: true
+
+  '@duckdb/node-bindings-linux-arm64@1.5.3-r.2':
+    optional: true
+
+  '@duckdb/node-bindings-linux-x64-musl@1.5.3-r.2':
+    optional: true
+
+  '@duckdb/node-bindings-linux-x64@1.5.3-r.2':
+    optional: true
+
+  '@duckdb/node-bindings-win32-arm64@1.5.3-r.2':
+    optional: true
+
+  '@duckdb/node-bindings-win32-x64@1.5.3-r.2':
+    optional: true
+
+  '@duckdb/node-bindings@1.5.3-r.2':
+    dependencies:
+      detect-libc: 2.1.2
+    optionalDependencies:
+      '@duckdb/node-bindings-darwin-arm64': 1.5.3-r.2
+      '@duckdb/node-bindings-darwin-x64': 1.5.3-r.2
+      '@duckdb/node-bindings-linux-arm64': 1.5.3-r.2
+      '@duckdb/node-bindings-linux-arm64-musl': 1.5.3-r.2
+      '@duckdb/node-bindings-linux-x64': 1.5.3-r.2
+      '@duckdb/node-bindings-linux-x64-musl': 1.5.3-r.2
+      '@duckdb/node-bindings-win32-arm64': 1.5.3-r.2
+      '@duckdb/node-bindings-win32-x64': 1.5.3-r.2
 
   '@esbuild/aix-ppc64@0.25.12':
     optional: true

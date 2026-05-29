@@ -624,6 +624,48 @@ The point of exposing it as one structured JSON object is honesty and portabilit
     eli5: String.raw`The integer SQLite \`user_version\` stamped on the gold DB at migration time. Useful to confirm the read-only handle is seeing the schema you expect.`,
     formal: String.raw`Read via \`PRAGMA user_version\` against the gold DB at request time. The writer (ingest worker / nba-predict shadow) bumps this on every successful migration; readers use it as a sanity check that the file they opened matches the schema they expect.`,
   },
+
+  // ──────────────────────────────────────────────────────────────────────────
+  //  Research lab concepts
+  // ──────────────────────────────────────────────────────────────────────────
+
+  "canonical-vs-artifact-only": {
+    title: "Canonical vs artifact-only",
+    eli5: String.raw`Not every source you can pull becomes part of the research record the same way. Some sources land as canonical truth — they get written into the gold database, and any later run reads back the exact same persisted history. Kalshi, Polymarket, Bet365, and the NBA game state all work this way.
+
+Other sources are artifact-only. You can still pull them and look at what they showed, but the output is saved as a one-off snapshot file, not as canonical history you can re-query as a warehouse. Odds-API.io is the main example: it is a live comparator lane, great for "what did the board look like right now," but it is not a place you go to reconstruct three weeks ago.
+
+For your job this matters when you trust a number. A canonical number is replayable and auditable. An artifact-only number is a point-in-time observation — useful, but do not treat it as if it were warehoused history.`,
+    formal: String.raw`The shared capability matrix (\`packages/research-pull/src/capability-matrix.ts\`) assigns each source a class. \`snapshot-eligible\` sources map to artifact class \`canonical\` (persisted to the gold DB as research truth). \`artifact-only\` (Odds-API.io) and \`pending\` (draftkings-direct, fanduel-direct — reachable only via Odds-API.io, no persisted direct adapter) pass through as \`artifact_only\` / \`pending\` and are never written to gold.
+
+The planner (\`planner.ts\`) emits per-source operations accordingly: \`snapshot-to-gold\` for canonical, an Odds-API.io REST/ws operation for artifact-only, and a \`noop\` for pending. This is why the pull preview separates the three counts: it is reporting where each source's output would land, not just whether the request is valid.`,
+  },
+
+  "recall-fires-per-game": {
+    title: "Incident recall @ fires/game",
+    eli5: String.raw`Recall is the share of the incidents we already know about that a model actually caught. On the research leaderboard you should always read it next to that model's fires-per-game, because the two trade off.
+
+Here is why they belong together. Any model can post perfect recall by firing on every bucket of every game — it would "catch" everything, but it would also bury the desk in alerts. So recall on its own is not a score you can rank by. Recall AT a given fires-per-game budget is: it answers "for the alert volume this model actually generates, how much of the known-bad did it find?" A model with 60% recall at 9 fires/game is doing real work; the same 60% at 40 fires/game is closer to firing blindly.
+
+When you compare two rows, look at recall and fires/game as a pair. The model you want is the one with the higher recall for a fire budget your operators can actually clear.`,
+    formal: String.raw`Incident recall is $\text{caught}/\text{scoreable}$ over the labelled incident corpus for the snapshot window. It is reported alongside fires-per-game (the model's per-game alert rate) because recall is monotonic in alert volume: a degenerate always-fire policy attains recall $=1$. The leaderboard therefore treats the pair $(\text{recall}, \text{fires/game})$ as the comparable unit — recall conditioned on the realized alert budget — rather than recall alone. This is a research-snapshot characterization, not a live production gate. Canonical sources: the run's \`leaderboard.json\` under \`outputs/nba-quant-lab/runs/<id>/\` and the incident corpus on the Known Cases page.`,
+  },
+
+  "tape-outlier": {
+    title: "Tape-outlier",
+    eli5: String.raw`A tape-outlier is a single trade print that lands far away from where the rest of the market is quoting at that moment — an off-price fill on the tape. Think of it as someone hitting a price the screen says shouldn't be available, often a sign that one participant knew something a beat before the board moved.
+
+On the leaderboard this column tells you how a model leaned on those off-price prints versus the broader board-volatility signal. A model that catches incidents mostly through tape-outliers is reacting to individual aggressive fills; one that catches them through board volatility is reacting to the whole board re-pricing together. Neither is automatically better — it tells you what kind of evidence the model is trusting.`,
+    formal: String.raw`Tape-outlier here is the off-price-print lane: a trade whose execution price is far from the contemporaneous implied-probability consensus, gated by \`offPriceMinVolumeShare\` and \`offPriceMinOffPriceDistance\` (see the \`off-price-print\` detector). On the research leaderboard the tape-outlier figure attributes a model's catches to the off-price lane rather than the board state-space lane, so two models with equal recall can be distinguished by which evidence stream drove the fire. Canonical source: \`packages/detectors/src/off-price-print\`.`,
+  },
+
+  "residual-coverage": {
+    title: "Residual coverage",
+    eli5: String.raw`Residual coverage answers a quieter question than recall. Recall asks "of the incidents we know about, how many did the model catch?" Residual coverage asks "of everything the model fired on that was NOT one of our labelled incidents, how much of it still looks like real board activity rather than noise?"
+
+It is a sanity check on a model's extra fires. A model can post great recall by firing constantly — but if most of its un-labelled fires are junk, the desk drowns. High residual coverage means the leftover fires still tend to sit on genuine board moves, so the operator's time spent checking them is not wasted. Low residual coverage is a warning that the model is padding its catches with chatter.`,
+    formal: String.raw`Residual coverage is computed over the fires NOT matched to a labelled incident (the residual set). It is the fraction of that residual set whose buckets still clear an independent board-activity criterion (e.g. a positive standardized innovation in the state-space filter), versus fires that sit on quiet buckets. It complements recall@fires/game: recall measures hits against the known corpus; residual coverage characterizes the quality of the remaining fire budget. A research-snapshot metric only — it is not a live production gate. Canonical source: the run's \`leaderboard.json\` under \`outputs/nba-quant-lab/runs/<id>/\`.`,
+  },
 } as const satisfies Record<string, Explainer>;
 
 export type ExplainerId = keyof typeof explainers;

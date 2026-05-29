@@ -14,6 +14,22 @@ dependencies = [
 dev = [
   "pytest>=8.3,<9",
 ]
+# Optional research/quant-lab dependencies. These are NOT required to run the
+# base nba-sidecar service; they are only needed for the offline research
+# package under src/nba_sidecar/research/ (snapshot loading, model iteration,
+# evaluation). Install with `uv sync --extra research`.
+research = [
+  "pandas>=2.2,<3",
+  "pyarrow>=16,<22",
+  "duckdb>=1.0,<2",
+  "numpy>=1.26,<3",
+  "matplotlib>=3.8,<4",
+  # Notebook authoring + headless execution for the `bootstrap` subcommand
+  # (writes notebooks/quant-lab-starter.ipynb) and its nbconvert validation.
+  "nbformat>=5.10,<6",
+  "nbconvert>=7.16,<8",
+  "ipykernel>=6.29,<7",
+]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

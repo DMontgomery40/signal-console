@@ -1,0 +1,47 @@
+{
+  "incidents": [
+    {
+      "id": "hartenstein_wallace",
+      "confidence": "high",
+      "anchorType": "second",
+      "gameDate": "2026-05-08",
+      "teams": "Oklahoma City Thunder at Indiana Pacers",
+      "gameId": "nba-0042500222",
+      "period": "Q3",
+      "clock": "08:19",
+      "utcTime": "2026-05-08T03:12:36.8Z",
+      "stat": "rebound",
+      "creditedPlayer": "I. Hartenstein",
+      "rightfulPlayer": "C. Wallace",
+      "sourceOrigin": "local_labels",
+      "sourceReference": "ref-1",
+      "sourceTextSummary": "",
+      "notes": "",
+      "officialCorrection": false,
+      "localBoardGameIds": ["nba-0042500222"]
+    },
+    {
+      "id": "reaves_hayes_legacy_snake",
+      "confidence": "high",
+      "anchor_type": "second",
+      "game_date": "2026-05-11",
+      "teams": "Oklahoma City Thunder at Los Angeles Lakers",
+      "game_id": "nba-0042500224",
+      "period": "Q3",
+      "clock": "05:00",
+      "utc_time": "2026-05-12T04:51:40.2Z",
+      "stat": "rebound",
+      "credited_player": "A. Reaves",
+      "rightful_player": "J. Hayes",
+      "source_origin": "local_labels",
+      "official_correction": false,
+      "local_board_game_ids": ["nba-0042500224"]
+    },
+    {
+      "id": "",
+      "confidence": "low",
+      "note": "rows without an id must be dropped by the normalizer"
+    }
+  ],
+  "archiveOnlyCount": 0
+}

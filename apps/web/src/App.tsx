@@ -8,6 +8,7 @@ import { LivePage } from "./features/live/LivePage";
 import { BacktestPage } from "./features/backtest/BacktestPage";
 import { KnownCasesPage } from "./features/incidents/KnownCasesPage";
 import { DetectorsPage } from "./features/detectors/DetectorsPage";
+import { ResearchPage } from "./features/research/ResearchPage";
 import { SettingsPage } from "./features/settings/SettingsPage";
 import { navigateTo, parseGameId, parseLiveId } from "./router";
 
@@ -22,6 +23,7 @@ const NAV_LINKS: readonly NavLink[] = [
   { label: "Backtest", href: "/backtest" },
   { label: "Known Cases", href: "/known-cases" },
   { label: "Detectors", href: "/detectors" },
+  { label: "Research", href: "/research" },
   { label: "Settings", href: "/settings" },
 ];
 
@@ -40,6 +42,7 @@ function activeLabelFor(path: string): string {
   if (path.startsWith("/backtest")) return "Backtest";
   if (path.startsWith("/known-cases")) return "Known Cases";
   if (path.startsWith("/detectors")) return "Detectors";
+  if (path.startsWith("/research")) return "Research";
   if (path.startsWith("/settings")) return "Settings";
   return "";
 }
@@ -52,6 +55,7 @@ function routeKey(path: string): string {
   if (path.startsWith("/backtest")) return "backtest";
   if (path.startsWith("/known-cases")) return "known-cases";
   if (path.startsWith("/detectors")) return "detectors";
+  if (path.startsWith("/research")) return "research";
   if (path.startsWith("/settings")) return "settings";
   return "recent";
 }
@@ -76,6 +80,8 @@ function routeContent(path: string): JSX.Element {
       return <KnownCasesPage />;
     case "detectors":
       return <DetectorsPage />;
+    case "research":
+      return <ResearchPage />;
     case "settings":
       return <SettingsPage />;
     default:
