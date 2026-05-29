@@ -465,6 +465,11 @@ describe("BacktestPage", () => {
     expect(screen.getByTestId("backtest-detector")).not.toBeNull();
     expect(screen.getByTestId("backtest-results-empty")).not.toBeNull();
     expect(screen.queryByTestId("backtest-run-id")).toBeNull();
+
+    // Secondary cross-link to the Research eval lab (in-app /research route).
+    const researchLink = screen.getByTestId("backtest-research-link");
+    expect(researchLink.getAttribute("href")).toBe("/research");
+    expect(researchLink.textContent).toContain("Score models in Research");
   });
 
   it("falls back to board-mad as the default detector when ensemble-or is not registered (older API)", async () => {

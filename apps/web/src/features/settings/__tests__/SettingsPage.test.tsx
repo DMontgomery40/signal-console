@@ -689,6 +689,26 @@ describe("SettingsPage > Detector defaults (US-053)", () => {
     expect(screen.getByTestId("detector-default-input-stateSpace-scale-madScale")).toBeDefined();
   });
 
+  it("surfaces a Research-workflow cross-link inside the advanced state-space disclosure", async () => {
+    fetchMock.mockImplementation(async () => {
+      await Promise.resolve();
+      return jsonResponse(makeSettings());
+    });
+
+    render(<SettingsPage />, { wrapper: makeWrapper() });
+
+    // The cross-link lives behind the same disclosure as the coefficients, so it
+    // is absent until the operator opens the advanced panel.
+    const toggle = await screen.findByTestId("state-space-advanced-toggle");
+    expect(screen.queryByTestId("settings-research-link")).toBeNull();
+
+    fireEvent.click(toggle);
+
+    const researchLink = screen.getByTestId("settings-research-link");
+    expect(researchLink.getAttribute("href")).toBe("/research");
+    expect(researchLink.textContent).toContain("Research workflow");
+  });
+
   it("profile promotion opens a confirmation and schedules the historical defaults", async () => {
     fetchMock.mockImplementation(async (input, init) => {
       const url = urlOf(input);

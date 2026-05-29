@@ -96,6 +96,7 @@ import {
   type StateSpaceGuidedFieldDef,
   type StateSpaceGuidedGroupId,
 } from "../state-space-guided-fields";
+import { navigateTo } from "../../router";
 
 type Sources = Settings["sources"];
 type SourceRowMap = Readonly<
@@ -1040,6 +1041,20 @@ function DetectorDefaultsSection({
                       </button>
                     )}
                   </div>
+                  <p className="text-xs text-text-lo">
+                    Tuning these knobs?{" "}
+                    <a
+                      href="/research"
+                      data-testid="settings-research-link"
+                      onClick={(e) => {
+                        navigateTo(e, "/research");
+                      }}
+                      className="font-mono text-xs text-accent-green transition-colors duration-fast ease-out hover:text-text-hi"
+                    >
+                      Research workflow
+                    </a>{" "}
+                    is the eval lab for scoring snapshots against these coefficients.
+                  </p>
                 </div>
               ) : null}
             </div>

@@ -304,6 +304,61 @@ function GoldStatus({ gold }: { readonly gold: ResearchGold | undefined }): JSX.
   );
 }
 
+// ── (0b) Quant-guide panel ──────────────────────────────────────────────────────
+//
+// Compact orientation panel placed below the gold/snapshot status so the gold
+// status is never pushed down. It keeps devs / traders / ops / researchers on
+// the same artifacts and routes anyone who wants the full workflow to the
+// durable guide. Two affordances, both reusing the page's minimal idioms:
+//   - "Open Quant Guide": a plain green text-link to the repo guide path. There
+//     is no in-app markdown route, so it opens in a new tab and renders the
+//     literal path so the link stays honest (no fake in-app destination).
+//   - "Copy CLI quickstart" (GreenButton): copies a short multi-line quickstart
+//     to the clipboard. No bordered card, no icons — same surface-1 fill + dot-
+//     free copy as GoldStatus.
+
+const QUANT_GUIDE_PATH = "docs/quant-researcher-guide.md";
+const QUANT_CLI_QUICKSTART = [
+  "pnpm quant:export",
+  "pnpm quant compare robust_mad state_space_current",
+  "pnpm quant doctor <snapshot>",
+].join("\n");
+
+function QuantGuidePanel(): JSX.Element {
+  function onCopy(): void {
+    const clip = typeof navigator !== "undefined" ? navigator.clipboard : undefined;
+    if (clip !== undefined) {
+      void clip.writeText(QUANT_CLI_QUICKSTART);
+    }
+  }
+  return (
+    <section data-testid="research-quant-guide" className="space-y-3">
+      <SectionHeading>Quant guide</SectionHeading>
+      <div className="space-y-3 bg-surface-1 px-5 py-4">
+        <p className="max-w-[80ch] text-sm text-text-md">
+          This page keeps devs, traders, ops, and researchers looking at the same artifacts. If you
+          want the full data/model workflow, open the quant guide.
+        </p>
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+          <a
+            href={QUANT_GUIDE_PATH}
+            target="_blank"
+            rel="noopener noreferrer"
+            data-testid="research-quant-guide-open"
+            className="text-sm font-medium text-accent-green transition-colors duration-fast ease-out hover:text-text-hi"
+          >
+            Open Quant Guide
+          </a>
+          <span className="break-all font-mono text-xs text-text-lo">{QUANT_GUIDE_PATH}</span>
+          <GreenButton onClick={onCopy} testid="research-quant-guide-copy">
+            Copy CLI quickstart
+          </GreenButton>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 // ── (1) Header strip ──────────────────────────────────────────────────────────
 
 function HeaderStrip({
@@ -1665,6 +1720,7 @@ export function ResearchPage(): JSX.Element {
         }}
       />
       <GoldStatus gold={goldData} />
+      <QuantGuidePanel />
       <SourceCoverage sources={sourceRows} />
       <PullJobsTable pulls={pullRows} />
       <SnapshotBlock snapshot={snapshotData} />

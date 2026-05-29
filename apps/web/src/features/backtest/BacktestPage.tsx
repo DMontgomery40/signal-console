@@ -34,6 +34,7 @@ import {
   type DetectorEntry,
 } from "../../data/queries";
 import { defaultValuesFor, parseSchema, type ParsedProperty } from "../../lib/paramsSchema";
+import { navigateTo } from "../../router";
 import {
   isBoardMadPrebucketField,
   BOARD_MAD_DETECTOR_ID,
@@ -1207,7 +1208,17 @@ export function BacktestPage(): JSX.Element {
       </div>
       <p className="mt-2 text-sm text-text-md">
         Replay a detector over a window. Results stay pinned to the last replay until you rerun with
-        the current params.
+        the current params.{" "}
+        <a
+          href="/research"
+          data-testid="backtest-research-link"
+          onClick={(e) => {
+            navigateTo(e, "/research");
+          }}
+          className="font-medium text-accent-green transition-colors duration-fast ease-out hover:text-text-hi"
+        >
+          Score models in Research
+        </a>
       </p>
 
       <form
