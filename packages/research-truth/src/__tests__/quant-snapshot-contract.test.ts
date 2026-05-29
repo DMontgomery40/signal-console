@@ -1,8 +1,9 @@
-import { spawnSync } from "node:child_process";
+import { execFile } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 
 import { DuckDBInstance } from "@duckdb/node-api";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -54,41 +55,52 @@ const describeMaybe = goldDbAvailable ? describe : describe.skip;
 
 let snapshotDir = "";
 let outRoot = "";
+// Second snapshot dir: the FULL-CORPUS default path (no sampling flag),
+// capped with --limit so the test stays fast while still exercising the
+// default branch + its manifest selection.mode.
+let defaultSnapshotDir = "";
+let defaultOutRoot = "";
 
-beforeAll(() => {
+// Use async execFile (NOT spawnSync): two back-to-back synchronous exporter
+// spawns would block the vitest worker thread for the whole beforeAll, starving
+// the reporter-RPC heartbeat and surfacing an unhandled "onTaskUpdate" timeout.
+// Awaiting async child processes lets the worker event loop breathe.
+const execFileAsync = promisify(execFile);
+
+async function runExporter(args: readonly string[], root: string, id: string): Promise<void> {
+  await execFileAsync("npx", ["tsx", exporter, ...args, "--out", root, "--snapshot-id", id], {
+    cwd: repoRoot,
+    env: { ...process.env, GOLD_DB_PATH, SIGNAL_CONSOLE_DB_PATH: GOLD_DB_PATH },
+    timeout: 300_000,
+    maxBuffer: 64 * 1024 * 1024,
+  });
+}
+
+beforeAll(async () => {
   if (!goldDbAvailable) return;
   outRoot = mkdtempSync(resolve(tmpdir(), "quant-snapshot-test-"));
   // Restrict to the parity game + one other incident game so the contract test
   // runs fast while still exercising incident-game/splits logic.
-  const result = spawnSync(
-    "npx",
-    [
-      "tsx",
-      exporter,
-      "--games",
-      `${PARITY_GAME},nba-0042500224`,
-      "--snapshot-id",
-      "contract-test",
-      "--out",
-      outRoot,
-      "--seed",
-      "7",
-    ],
-    {
-      cwd: repoRoot,
-      env: { ...process.env, GOLD_DB_PATH, SIGNAL_CONSOLE_DB_PATH: GOLD_DB_PATH },
-      encoding: "utf8",
-      timeout: 300_000,
-    },
+  await runExporter(
+    ["--games", `${PARITY_GAME},nba-0042500224`, "--seed", "7"],
+    outRoot,
+    "contract-test",
   );
-  if (result.status !== 0) {
-    throw new Error(`exporter failed: ${result.stderr || result.stdout}`);
-  }
   snapshotDir = resolve(outRoot, "contract-test");
+
+  // FULL-CORPUS DEFAULT path: NO --sample / --games flag. --limit 3 caps the
+  // heavy 1200+-game corpus to a fast 3-game write; the selection.mode is still
+  // computed as "full-corpus" because that depends on the absence of a sampling
+  // flag, not on --limit.
+  defaultOutRoot = mkdtempSync(resolve(tmpdir(), "quant-snapshot-default-"));
+  await runExporter(["--limit", "3"], defaultOutRoot, "default-test");
+  defaultSnapshotDir = resolve(defaultOutRoot, "default-test");
 }, 320_000);
 
 afterAll(() => {
   if (outRoot !== "" && existsSync(outRoot)) rmSync(outRoot, { recursive: true, force: true });
+  if (defaultOutRoot !== "" && existsSync(defaultOutRoot))
+    rmSync(defaultOutRoot, { recursive: true, force: true });
 });
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -169,6 +181,29 @@ describeMaybe("quant-lab snapshot exporter contract", () => {
       "missing",
     ]);
     for (const row of rows) expect(allowed.has(String(row["class"]))).toBe(true);
+  });
+
+  it("explicit --games path records selection.mode = explicit-games", () => {
+    const manifest = readJson("manifest.json");
+    const selection = field(manifest, "selection");
+    expect(field(selection, "mode")).toBe("explicit-games");
+    expect(field(selection, "sampleRequested")).toBe(null);
+  });
+
+  it("DEFAULT (no sampling flag) selects the FULL CORPUS, mode = full-corpus", () => {
+    const manifest: unknown = JSON.parse(
+      readFileSync(resolve(defaultSnapshotDir, "manifest.json"), "utf8"),
+    );
+    const selection = field(manifest, "selection");
+    // The new default is NOT a 29-game incident-plus-sample toy: with no
+    // sampling flag the exporter takes the board-eligible full corpus, and
+    // records that intent even when --limit caps the written rows.
+    expect(field(selection, "mode")).toBe("full-corpus");
+    expect(field(selection, "sampleRequested")).toBe(null);
+    // gameCount reflects the true number selected (capped by --limit 3 here).
+    expect(field(selection, "gameCount")).toBe(3);
+    const games = field(selection, "games");
+    expect(Array.isArray(games) && games.length).toBe(3);
   });
 
   it("manifest carries all provenance fields", () => {

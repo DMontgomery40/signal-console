@@ -7,10 +7,18 @@
 > **The dataset, in one line.** Per-game series of ~60-second buckets; the only causal
 > inputs are `intensity` (volume-weighted Σ|Δ implied prob|), `active_market_count`,
 > `source_count`, `source_dominance`, `source_disagreement`, `game_elapsed_seconds`.
-> Labels are sparse (15 scoreable incidents over ~20 games) and **forced into train**, so
-> incident recall is a small-corpus, near-zero-shot target. A candidate must score and
+> Labels are sparse and **forced into train**, so incident recall is a small-corpus,
+> near-zero-shot target (the frozen `sample-fixed` reference snapshot carries 15
+> scoreable incidents over ~20 truth-bearing games). A candidate must score and
 > _decide to fire_ causally (buckets `0..i` only), one decision per bucket. See
 > `docs/nba-quant-lab.md`.
+>
+> **Corpus size depends on the snapshot.** `pnpm quant:export` now defaults to the
+> **full corpus** (~1 256 board-eligible games on the current gold DB), not the
+> 29-game `sample-fixed` reference; sampling (`--sample N` / `--games a,b` / `--limit N`)
+> is opt-in. Scoreable-incident counts scale with the incident registry, not the
+> regular-game count, so a larger corpus mainly buys more non-incident games to test
+> fire-rate / residual-coverage generalization on.
 >
 > **What that implies for model choice.** This is a **streaming change/anomaly-detection**
 > problem on a short, low-dimensional, irregular series — _not_ a clean supervised

@@ -71,6 +71,9 @@ scorer, and asks you to beat the bar.
         │  scripts/export-quant-snapshot.ts  (TS-owned exporter, deterministic, seed=42)
         │  uses the SHARED @signal-console/research-truth functions, so the snapshot's
         │  truth equals the production NBA detector bake-off's truth (no second code path)
+        │  DEFAULT = FULL CORPUS: every board-eligible game (>=1 non-heartbeat quote
+        │  tick from an eligible source via source_markets) UNION every incident game.
+        │  Sampling is OPT-IN (`--sample N`, `--games a,b`, `--limit N`).
         ▼
   SNAPSHOT  outputs/nba-quant-lab/snapshots/<id>/        ← what models actually read
     *.parquet  +  snapshot.duckdb  +  manifest.json  +  feature_catalog.{json,md}  +  splits.json
@@ -86,6 +89,30 @@ emits `snapshot.duckdb` via `COPY TO`). The board observations come from the **l
 board lane shape** (`buildLiveBoardObservationsForGame`), restricted to the
 snapshot-eligible source set (`kalshi`, `polymarket`, `bet365`, `nba`). The tape-outlier
 episodes come from the byte-identical bake-off path on each game's full natural window.
+
+### Selection: the default is the FULL corpus
+
+The exporter's **default (no selection flag) is the full corpus**: every
+board-eligible game — defined as a game with at least one non-heartbeat quote
+tick carrying a numeric implied probability from a snapshot-eligible source
+(`kalshi`/`polymarket`/`bet365`; `nba` is the PBP feed and never contributes
+ticks) joined through `source_markets` — **unioned with every incident game that
+has a local window** (so the scoreable-incident truth set never regresses). On
+the current gold DB that is **1 260 board-eligible games (1 256 with a local PBP
+window)**, recorded in `manifest.selection.mode == "full-corpus"`.
+
+Sampling is **opt-in**, never the default:
+
+| invocation    | `selection.mode`       | games selected                                            |
+| ------------- | ---------------------- | --------------------------------------------------------- |
+| _(no flag)_   | `full-corpus`          | all board-eligible games ∪ all incident games             |
+| `--sample N`  | `incident-plus-sample` | ALL incident games + N deterministic regular-season games |
+| `--games a,b` | `explicit-games`       | exactly the listed ids that have a local window           |
+
+`--limit N`, `--since ISO`, and `--until ISO` post-filter whatever was selected
+on any path. The `sample-fixed` snapshot below was built with the **opt-in
+`--sample 15`** path (29 games), kept frozen as a small, fast reference; it is
+**not** what a default `pnpm quant:export` produces today.
 
 ### The hard rule
 
@@ -131,9 +158,11 @@ Schemas are read from the real parquet files. The authoritative per-field proven
 (units, causal/non-causal, leakage flag) lives in `feature_catalog.json` /
 `feature_catalog.md` next to the data.
 
-`sample-fixed` contents: **29 games** (14 incident games + 15 sampled regular games),
-**3 862 board observations**, **26 incidents** (15 scoreable), **15 score windows**,
-**99 market-outlier episodes**, **278 source-coverage rows**.
+`sample-fixed` contents: **29 games** (14 incident games + 15 sampled regular games —
+the **opt-in `--sample 15`** path, kept frozen as a small reference, NOT the
+full-corpus default of ~1 256 games), **3 862 board observations**, **26 incidents**
+(15 scoreable), **15 score windows**, **99 market-outlier episodes**, **278
+source-coverage rows**.
 
 ### 3.1 `board_observations.parquet` — THE MODEL INPUT (causal, leakage-safe)
 
@@ -358,7 +387,8 @@ runs the identical scorer and writes a run directory.
 > `pnpm quant compare ...`, `pnpm quant list-models`), which forwards to the Python CLI via
 > `scripts/quant.ts`, or the underlying **`uv run --extra research python -m nba_sidecar.research <cmd>`**
 > (useful if the venv isn't synced). The snapshot is exported separately via **`pnpm quant:export`**
-> (→ `scripts/export-quant-snapshot.ts`) and data is pulled via **`pnpm quant:pull`** — do not
+> (→ `scripts/export-quant-snapshot.ts`; **default = full corpus**, sampling is opt-in via
+> `--sample N` / `--games a,b` / `--limit N`) and data is pulled via **`pnpm quant:pull`** — do not
 > confuse the export/pull steps with the scoring step.
 
 ---

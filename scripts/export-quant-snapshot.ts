@@ -18,7 +18,20 @@
 // Outputs land under outputs/nba-quant-lab/snapshots/<snapshot-id>/. Parquet is
 // written via @duckdb/node-api (also emits snapshot.duckdb via COPY TO).
 //
+// Selection (default = FULL CORPUS):
+//   With NO selection flag, the exporter selects ALL board-eligible games
+//   (every game with at least one non-heartbeat quote tick from a
+//   snapshot-eligible source via source_markets), UNION every incident game
+//   that has a local window (so the scoreable-incident truth set never
+//   regresses). This is the manifest selection.mode == "full-corpus".
+//   Sampling is OPT-IN:
+//     --games a,b   explicit game ids                  (mode "explicit-games")
+//     --sample N    ALL incident games + N sampled      (mode "incident-plus-sample")
+//                   deterministic regular-season games
+//   --limit / --since / --until still post-filter whatever was selected.
+//
 // Run:
+//   GOLD_DB_PATH=... pnpm tsx scripts/export-quant-snapshot.ts        # full corpus
 //   GOLD_DB_PATH=... pnpm tsx scripts/export-quant-snapshot.ts [--games a,b] \
 //     [--limit N] [--sample N] [--since ISO] [--until ISO] [--seed N] \
 //     [--out DIR] [--snapshot-id ID]
@@ -52,9 +65,10 @@ import {
 
 const SCHEMA_VERSION = "nba-quant-lab/1.0.0";
 
-// Default snapshot sample sizing (the task's TRACTABLE run): ALL incident games
-// plus ~15 sampled regular-season games.
-const DEFAULT_REGULAR_SAMPLE = 15;
+// Sampling is OPT-IN via `--sample N` (ALL incident games + N deterministically
+// sampled regular-season games). The DEFAULT (no flag) is the FULL corpus of
+// board-eligible games, not a sample, so there is no implicit default sample
+// size to carry here.
 
 // LIVE board-mad runtime defaults (BASELINE detector-defaults). The
 // board_observations rows depend only on bucketSeconds/freshCapSeconds/
@@ -79,7 +93,9 @@ const INCIDENT_REGISTRY_PATH = resolve(
 interface CliOptions {
   readonly games: readonly string[] | null;
   readonly limit: number | null;
-  readonly sample: number;
+  // null == no `--sample` flag (FULL-CORPUS default). A non-null value is the
+  // explicit opt-in to the incident-plus-sample path.
+  readonly sample: number | null;
   readonly since: string | null;
   readonly until: string | null;
   readonly seed: number;
@@ -90,7 +106,8 @@ interface CliOptions {
 function parseArgs(argv: readonly string[]): CliOptions {
   let games: readonly string[] | null = null;
   let limit: number | null = null;
-  let sample = DEFAULT_REGULAR_SAMPLE;
+  // Default null = no sampling flag passed -> FULL CORPUS. Sampling is opt-in.
+  let sample: number | null = null;
   let since: string | null = null;
   let until: string | null = null;
   let seed = 42;
@@ -272,13 +289,18 @@ async function run(): Promise<number> {
       }
     }
 
-    // 3. Select which games to export. --games overrides everything; otherwise
-    //    ALL incident games + a deterministic regular-season sample, then
-    //    apply --since/--until (game selection only) and --limit.
+    // 3. Select which games to export. Precedence:
+    //      --games            -> explicit ids only        (mode "explicit-games")
+    //      --sample N (opt-in) -> ALL incident games + N   (mode "incident-plus-sample")
+    //                            deterministic regular games
+    //      DEFAULT (no flag)  -> FULL CORPUS: every board-eligible game UNION
+    //                            every incident game with a window
+    //                            (mode "full-corpus")
+    //    Then apply --since/--until (game selection only) and --limit.
     let selectedIds: string[];
     if (opts.games !== null) {
       selectedIds = opts.games.map(normalizeGameId).filter((id) => windowById.has(id));
-    } else {
+    } else if (opts.sample !== null) {
       const incidentIds = [...incidentGameIdSet].sort();
       const regularPool = allWindows
         .map((w) => w.gameId)
@@ -291,6 +313,13 @@ async function run(): Promise<number> {
       const rng = mulberry32(opts.seed);
       const sampled = deterministicShuffle(regularPool, rng).slice(0, Math.max(0, opts.sample));
       selectedIds = [...incidentIds, ...sampled.sort()];
+    } else {
+      // FULL CORPUS: every board-eligible game (has >=1 non-heartbeat eligible
+      // quote tick via source_markets) that also has a local PBP window, UNION
+      // every incident game with a window so the scoreable-incident truth set
+      // never regresses if an incident game lacks eligible board coverage.
+      const eligibleIds = loadBoardEligibleGameIds(db).filter((id) => windowById.has(id));
+      selectedIds = [...new Set([...eligibleIds, ...incidentGameIdSet])];
     }
     if (opts.since !== null || opts.until !== null) {
       selectedIds = selectedIds.filter((id) => {
@@ -559,8 +588,13 @@ async function run(): Promise<number> {
         snapshotDuckdb: "snapshot.duckdb",
       },
       selection: {
-        mode: opts.games !== null ? "explicit-games" : "incident-plus-sample",
-        sampleRequested: opts.games !== null ? null : opts.sample,
+        mode:
+          opts.games !== null
+            ? "explicit-games"
+            : opts.sample !== null
+              ? "incident-plus-sample"
+              : "full-corpus",
+        sampleRequested: opts.sample,
         limit: opts.limit,
         gameCount: selectedIds.length,
         incidentGameCount: incidentSelected.length,
@@ -613,6 +647,37 @@ async function run(): Promise<number> {
   } finally {
     db.close();
   }
+}
+
+// --- board-eligible selection ----------------------------------------------
+
+// Full-corpus selection policy (exporter-local, NOT a shared research-truth
+// contract): a game is "board-eligible" iff it has at least one non-heartbeat
+// quote tick with a numeric implied probability from a snapshot-eligible source
+// (kalshi/polymarket/bet365 -- "nba" is the PBP feed and never contributes
+// ticks) joined through source_markets. This is the cheap id-level query used
+// for selection; it deliberately does NOT build the heavy per-game board
+// observations just to decide membership.
+function loadBoardEligibleGameIds(db: ReturnType<typeof openGoldDb>): string[] {
+  const eligibleSources = [...SNAPSHOT_ELIGIBLE_SOURCES];
+  const placeholders = eligibleSources.map(() => "?").join(", ");
+  const rows: readonly unknown[] = db
+    .prepare(
+      `SELECT DISTINCT sm.game_id AS gameId
+       FROM source_markets sm
+       JOIN quote_ticks qt ON qt.source_market_id = sm.id AND qt.is_heartbeat = 0
+       WHERE qt.implied_probability IS NOT NULL
+         AND sm.source IN (${placeholders})
+       ORDER BY sm.game_id`,
+    )
+    .all(...eligibleSources);
+  const out: string[] = [];
+  for (const rec of rows) {
+    if (!isRecord(rec)) continue;
+    const gameId = typeof rec["gameId"] === "string" ? rec["gameId"] : null;
+    if (gameId !== null && gameId !== "") out.push(normalizeGameId(gameId));
+  }
+  return out;
 }
 
 // --- source coverage --------------------------------------------------------
