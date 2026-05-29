@@ -94,6 +94,7 @@ import {
   readStateSpaceFieldValue,
   writeStateSpaceFieldValue,
   type StateSpaceGuidedFieldDef,
+  type StateSpaceGuidedGroupId,
 } from "../state-space-guided-fields";
 
 type Sources = Settings["sources"];
@@ -490,6 +491,12 @@ function DetectorDefaultsSection({
   // Per-field "flash" set — populated immediately after a successful POST so
   // the changed field briefly highlights yellow per AC #3.
   const [flashing, setFlashing] = useState<ReadonlySet<keyof DetectorDefaults>>(new Set());
+  // Advanced state-space tuning is collapsed by default (progressive disclosure):
+  // the page leads with the profile + numeric defaults, and the ~30 coefficients
+  // live behind one toggle, grouped into subtabs so only one group shows at a time.
+  const [stateSpaceAdvancedOpen, setStateSpaceAdvancedOpen] = useState<boolean>(false);
+  const [stateSpaceActiveGroup, setStateSpaceActiveGroup] =
+    useState<StateSpaceGuidedGroupId>("trigger");
   const flashTimeoutsRef = useRef<Set<number>>(new Set());
 
   // Sync local draft with server-reported defaults on first load + after a
@@ -872,122 +879,169 @@ function DetectorDefaultsSection({
             }
           >
             <div className="flex max-w-3xl flex-col gap-2">
-              <div className="grid gap-4 border border-surface-2 bg-surface-1/40 p-3 lg:grid-cols-2 xl:grid-cols-3">
-                {STATE_SPACE_GUIDED_GROUPS.map((group) => (
-                  <div key={group.id} className="space-y-3">
-                    <div>
-                      <div className="text-text-hi text-xs font-semibold uppercase tracking-[0.08em]">
-                        {group.label}
-                      </div>
-                      <p className="mt-1 text-xs text-text-lo">{group.help}</p>
-                    </div>
-                    {STATE_SPACE_GUIDED_FIELDS.filter((field) => field.groupId === group.id).map(
-                      (field) => {
-                        const value = readStateSpaceFieldValue(draft.stateSpace, field);
-                        const serverValue = readStateSpaceFieldValue(defaults.stateSpace, field);
-                        const baselineValue = defaultStateSpaceFieldValue(field);
-                        const isBaseline = detectorDefaultValueEquals(serverValue, baselineValue);
-                        return (
-                          <label key={field.id} className="flex flex-col gap-1">
-                            <span className="text-text-md text-xs font-medium">
-                              {field.explainerId === undefined ? (
-                                <span>{field.label}</span>
-                              ) : (
-                                <ExplainerCard id={field.explainerId}>
+              <button
+                type="button"
+                aria-expanded={stateSpaceAdvancedOpen}
+                aria-controls="state-space-advanced"
+                onClick={() => {
+                  setStateSpaceAdvancedOpen((open) => !open);
+                }}
+                data-testid="state-space-advanced-toggle"
+                className="flex w-full items-center justify-between gap-3 py-1 text-left"
+              >
+                <span className="text-text-md text-xs font-medium">
+                  Advanced state-space model — {STATE_SPACE_GUIDED_FIELDS.length} coefficients in{" "}
+                  {STATE_SPACE_GUIDED_GROUPS.length} groups
+                </span>
+                <span className="shrink-0 font-mono text-xs uppercase tracking-wider text-accent-green">
+                  {stateSpaceAdvancedOpen ? "Hide" : "Show"}
+                </span>
+              </button>
+              {stateSpaceAdvancedOpen ? (
+                <div id="state-space-advanced" className="flex flex-col gap-4">
+                  <div
+                    role="tablist"
+                    aria-label="State-space coefficient groups"
+                    className="flex flex-wrap gap-x-5 gap-y-1 border-b border-surface-1"
+                  >
+                    {STATE_SPACE_GUIDED_GROUPS.map((group) => {
+                      const active = group.id === stateSpaceActiveGroup;
+                      return (
+                        <button
+                          key={group.id}
+                          type="button"
+                          role="tab"
+                          aria-selected={active}
+                          onClick={() => {
+                            setStateSpaceActiveGroup(group.id);
+                          }}
+                          data-testid={`state-space-subtab-${group.id}`}
+                          className={`-mb-px whitespace-nowrap border-b-2 pb-1.5 text-xs font-medium transition-colors duration-fast ${
+                            active
+                              ? "border-accent-green text-text-hi"
+                              : "border-transparent text-text-lo hover:text-text-md"
+                          }`}
+                        >
+                          {group.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {STATE_SPACE_GUIDED_GROUPS.filter(
+                    (group) => group.id === stateSpaceActiveGroup,
+                  ).map((group) => (
+                    <div key={group.id} className="flex flex-col gap-3">
+                      <p className="max-w-[64ch] text-xs text-text-lo">{group.help}</p>
+                      <div className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
+                        {STATE_SPACE_GUIDED_FIELDS.filter(
+                          (field) => field.groupId === group.id,
+                        ).map((field) => {
+                          const value = readStateSpaceFieldValue(draft.stateSpace, field);
+                          const serverValue = readStateSpaceFieldValue(defaults.stateSpace, field);
+                          const baselineValue = defaultStateSpaceFieldValue(field);
+                          const isBaseline = detectorDefaultValueEquals(serverValue, baselineValue);
+                          return (
+                            <label key={field.id} className="flex flex-col gap-1">
+                              <span className="text-text-md text-xs font-medium">
+                                {field.explainerId === undefined ? (
                                   <span>{field.label}</span>
-                                </ExplainerCard>
-                              )}
-                            </span>
-                            <input
-                              type="number"
-                              value={String(value)}
-                              min={field.min}
-                              max={field.max}
-                              step={field.step}
-                              onChange={(e: ChangeEvent<HTMLInputElement>) => {
-                                updateStateSpaceField(field, e.target.value);
-                              }}
-                              onBlur={() => {
-                                commit("stateSpace");
-                              }}
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter") {
-                                  e.preventDefault();
+                                ) : (
+                                  <ExplainerCard id={field.explainerId}>
+                                    <span>{field.label}</span>
+                                  </ExplainerCard>
+                                )}
+                              </span>
+                              <input
+                                type="number"
+                                value={String(value)}
+                                min={field.min}
+                                max={field.max}
+                                step={field.step}
+                                onChange={(e: ChangeEvent<HTMLInputElement>) => {
+                                  updateStateSpaceField(field, e.target.value);
+                                }}
+                                onBlur={() => {
                                   commit("stateSpace");
-                                }
-                              }}
-                              data-testid={`detector-default-input-stateSpace-${field.id}`}
-                              aria-label={field.label}
-                              className="w-full border border-surface-2 bg-surface-0-from px-2 py-1 text-sm font-mono text-text-hi focus:border-accent-green focus:outline-none"
-                            />
-                            <div className="flex items-start justify-between gap-3">
-                              <span className="text-xs text-text-lo">{field.help}</span>
-                              {isBaseline ? null : (
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    resetStateSpaceField(field);
-                                  }}
-                                  data-testid={`detector-default-reset-stateSpace-${field.id}`}
-                                  className="shrink-0 font-mono text-[10px] uppercase tracking-wider text-accent-green hover:text-text-hi"
-                                >
-                                  Reset
-                                </button>
-                              )}
-                            </div>
-                          </label>
-                        );
-                      },
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") {
+                                    e.preventDefault();
+                                    commit("stateSpace");
+                                  }
+                                }}
+                                data-testid={`detector-default-input-stateSpace-${field.id}`}
+                                aria-label={field.label}
+                                className="w-full border border-surface-2 bg-surface-0-from px-2 py-1 text-sm font-mono text-text-hi focus:border-accent-green focus:outline-none"
+                              />
+                              <div className="flex items-start justify-between gap-3">
+                                <span className="text-xs text-text-lo">{field.help}</span>
+                                {isBaseline ? null : (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      resetStateSpaceField(field);
+                                    }}
+                                    data-testid={`detector-default-reset-stateSpace-${field.id}`}
+                                    className="shrink-0 font-mono text-[10px] uppercase tracking-wider text-accent-green hover:text-text-hi"
+                                  >
+                                    Reset
+                                  </button>
+                                )}
+                              </div>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                  <p className="text-xs text-text-lo">
+                    Subtabs show one coefficient group at a time. The raw JSON below mirrors the
+                    full object for copy-paste, diffs, and handoff.
+                  </p>
+                  <textarea
+                    value={stateSpaceText}
+                    onChange={(e: ChangeEvent<HTMLTextAreaElement>) => {
+                      updateStateSpaceText(e.target.value);
+                    }}
+                    onBlur={() => {
+                      if (stateSpaceError === null) commit("stateSpace");
+                    }}
+                    data-testid="detector-default-input-stateSpace"
+                    aria-label="State-space config"
+                    className="min-h-64 w-full border border-surface-2 bg-surface-0-from px-3 py-2 text-xs font-mono text-text-hi focus:border-accent-green focus:outline-none"
+                  />
+                  <div className="flex items-center gap-3">
+                    {stateSpaceError === null ? (
+                      <span className="text-text-lo font-mono text-xs">
+                        One runtime object for trigger, breadth, anchors, state dynamics, the
+                        source-trust weighting, and the robust-MAD surprise scale.
+                      </span>
+                    ) : (
+                      <span
+                        data-testid="detector-default-error-stateSpace"
+                        className="font-mono text-xs text-accent-yellow"
+                      >
+                        {stateSpaceError}
+                      </span>
+                    )}
+                    {detectorDefaultValueEquals(
+                      defaults.stateSpace,
+                      BASELINE_DEFAULTS.stateSpace,
+                    ) ? null : (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          resetField("stateSpace");
+                        }}
+                        data-testid="detector-default-reset-stateSpace"
+                        className="font-mono text-xs uppercase tracking-wider text-accent-green hover:text-text-hi"
+                      >
+                        Reset to default
+                      </button>
                     )}
                   </div>
-                ))}
-              </div>
-              <p className="text-xs text-text-lo">
-                Every current state-space coefficient is editable above. The raw JSON below mirrors
-                the same object for copy-paste, diffs, and handoff.
-              </p>
-              <textarea
-                value={stateSpaceText}
-                onChange={(e: ChangeEvent<HTMLTextAreaElement>) => {
-                  updateStateSpaceText(e.target.value);
-                }}
-                onBlur={() => {
-                  if (stateSpaceError === null) commit("stateSpace");
-                }}
-                data-testid="detector-default-input-stateSpace"
-                aria-label="State-space config"
-                className="min-h-64 w-full border border-surface-2 bg-surface-0-from px-3 py-2 text-xs font-mono text-text-hi focus:border-accent-green focus:outline-none"
-              />
-              <div className="flex items-center gap-3">
-                {stateSpaceError === null ? (
-                  <span className="text-text-lo font-mono text-xs">
-                    One runtime object for trigger, breadth, anchors, state dynamics, observation
-                    noise, and variance-regime tuning.
-                  </span>
-                ) : (
-                  <span
-                    data-testid="detector-default-error-stateSpace"
-                    className="font-mono text-xs text-accent-yellow"
-                  >
-                    {stateSpaceError}
-                  </span>
-                )}
-                {detectorDefaultValueEquals(
-                  defaults.stateSpace,
-                  BASELINE_DEFAULTS.stateSpace,
-                ) ? null : (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      resetField("stateSpace");
-                    }}
-                    data-testid="detector-default-reset-stateSpace"
-                    className="font-mono text-xs uppercase tracking-wider text-accent-green hover:text-text-hi"
-                  >
-                    Reset to default
-                  </button>
-                )}
-              </div>
+                </div>
+              ) : null}
             </div>
           </dd>
         </div>
