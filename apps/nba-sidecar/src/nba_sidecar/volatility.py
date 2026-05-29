@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from math import exp, expm1, log, log1p, sqrt
+from math import exp, expm1, log1p, sqrt
 
 from .models import (
     VolatilityStateSpaceConfig,
@@ -36,7 +36,7 @@ def _mad(values: list[float], config: VolatilityStateSpaceConfig) -> float:
     if not values:
         return 0.0
     center = _median(values)
-    return _median([abs(value - center) for value in values]) * config.variance.madScale
+    return _median([abs(value - center) for value in values]) * config.scale.madScale
 
 
 def enter_z_threshold_from_k(k_mad: float, config: VolatilityStateSpaceConfig) -> float:
@@ -68,6 +68,12 @@ def _source_disagreement(
     return _clamp01(observation.sourceDisagreement)
 
 
+def _disagreement_score(
+    observation: VolatilityStateSpaceObservation, config: VolatilityStateSpaceConfig
+) -> float:
+    return _source_disagreement(observation, config) * config.observationModel.disagreementWeight
+
+
 def _transformed_score(
     observation: VolatilityStateSpaceObservation, config: VolatilityStateSpaceConfig
 ) -> float:
@@ -82,10 +88,28 @@ def _transformed_score(
     # That gives the filter one scalar observation that still carries the two
     # desk-relevant ideas: level of motion and cross-source conflict.
     intensity_score = log1p(observation.intensity / _breadth_normalizer(observation, config))
-    disagreement_score = (
-        _source_disagreement(observation, config) * config.observationModel.disagreementWeight
-    )
-    return intensity_score + disagreement_score
+    return intensity_score + _disagreement_score(observation, config)
+
+
+def _score_to_intensity(
+    score: float,
+    observation: VolatilityStateSpaceObservation,
+    config: VolatilityStateSpaceConfig,
+) -> float:
+    # The latent filter lives in transformed-score space:
+    #
+    #   score = log1p(intensity / breadth) + disagreement_bonus
+    #
+    # but the product UI plots raw board intensity on the Y axis. To draw an
+    # honest threshold line on that chart, we must first remove the current
+    # bucket's disagreement bonus and only then invert log1p(.). If we skip
+    # that subtraction, the returned "threshold" is no longer comparable to
+    # the green intensity line, which is exactly how a fired bucket can appear
+    # to sit below its own threshold.
+    intensity_score = score - _disagreement_score(observation, config)
+    if intensity_score <= 0.0:
+        return 0.0
+    return expm1(intensity_score) * _breadth_normalizer(observation, config)
 
 
 def _prior_level(prior: VolatilityHistoricalPrior | None) -> float:
@@ -98,7 +122,7 @@ def _prior_scale_score(
     if prior is None:
         return config.anchors.priorScaleFallback
     threshold = max(0.0, prior.median) + max(
-        config.variance.baselineMadFloor, prior.mad * config.variance.madScale
+        config.scale.baselineSpreadFloor, prior.mad * config.scale.madScale
     )
     return max(
         config.anchors.priorScaleFloor,
@@ -280,35 +304,39 @@ def _source_agreement_terms(
         observation.sourceDominance
         if observation.sourceDominance is not None
         else (
-            config.observationNoise.singleSourceDominance
+            config.sourceTrust.singleSourceDominance
             if source_count <= 1
-            else config.observationNoise.multiSourceDominanceFallback
+            else config.sourceTrust.multiSourceDominanceFallback
         )
     )
     source_agreement = 0.0 if source_count <= 1 else 1.0 - source_dominance
     return source_count, source_dominance, source_agreement
 
 
-def _measurement_noise(
+def _source_trust_multiplier(
     observation: VolatilityStateSpaceObservation, config: VolatilityStateSpaceConfig
 ) -> float:
+    # Answers "how much should we trust this bucket's board move?" and feeds it
+    # straight into the FIRE gate by scaling the surprise denominator:
+    #   * one source dominating  -> multiplier > 1 -> harder to fire
+    #     (a single glitchy book should not trigger a suspension call);
+    #   * several sources moving together -> multiplier < 1 -> easier to fire.
+    # It is centered near 1 for a typical balanced multi-source bucket. This is
+    # the observation-level analogue of inverse-variance weighting from basic
+    # estimation, rehomed onto the scale so it has a direct, testable effect on
+    # whether a bucket fires.
     source_count, source_dominance, source_agreement = _source_agreement_terms(
         observation, config
     )
-    # Measurement noise answers: "how much should we trust this observed board
-    # move?" If one source dominates, we trust it less. If several sources move
-    # together, we trust it more. This is the observation-level analogue of
-    # inverse-variance weighting from basic estimation.
-    noise = (
-        config.observationNoise.floor
-        * (1.0 + source_dominance * config.observationNoise.sourceDominancePenalty)
+    raw = (
+        1.0 + source_dominance * config.sourceTrust.sourceDominancePenalty
     ) / (
         1.0
-        + source_agreement * config.observationNoise.sourceAgreementBonus
-        + (source_count**config.observationNoise.sourceCountExponent)
-        * config.observationNoise.sourceCountBonus
+        + source_agreement * config.sourceTrust.sourceAgreementBonus
+        + (source_count**config.sourceTrust.sourceCountExponent)
+        * config.sourceTrust.sourceCountBonus
     )
-    return max(config.observationNoise.minimum, noise)
+    return _clamp(raw, config.sourceTrust.minMultiplier, config.sourceTrust.maxMultiplier)
 
 
 def _apply_anchor_to_state(
@@ -338,7 +366,6 @@ def _apply_anchor_to_state(
 class _FilterStep:
     baseline_intensity: float
     baseline_score: float
-    breadth_normalizer: float
     scale_score: float
     standardized_innovation: float
     warmed_up: bool
@@ -362,9 +389,6 @@ def _run_state_filter(request: VolatilityStateSpaceRequest) -> list[_FilterStep]
     p01 = 0.0
     p10 = 0.0
     p11 = config.dynamics.initialTrendVariance
-    log_variance = log(
-        max(_prior_scale_score(prior, config) ** 2, config.dynamics.initialVarianceFloor)
-    )
 
     memory = max(
         config.dynamics.minMemoryBuckets,
@@ -383,11 +407,14 @@ def _run_state_filter(request: VolatilityStateSpaceRequest) -> list[_FilterStep]
         + config.dynamics.levelProcessNoiseScale / memory
     )
     trend_process_noise = level_process_noise * config.dynamics.trendProcessNoiseRatio
-    variance_adaptation = (
-        config.dynamics.varianceAdaptationBase
-        + config.dynamics.varianceAdaptationScale
-        / (memory + config.dynamics.varianceAdaptationOffset)
-    )
+
+    # The surprise scale is a robust, causal dispersion of the filter's own
+    # innovations (residuals). We keep a trailing window of the most recent
+    # `memory` innovations and standardize each new innovation by their MAD, so
+    # a fire means "this bucket is enter_z robust-SDs above the game's own
+    # recent baseline volatility" — scale-invariant across calm and wild games.
+    recent_innovations: list[float] = []
+    seed_scale = max(config.scale.scaleFloor, _prior_scale_score(prior, config))
 
     steps: list[_FilterStep] = []
     for index, observation in enumerate(observations):
@@ -442,15 +469,33 @@ def _run_state_filter(request: VolatilityStateSpaceRequest) -> list[_FilterStep]
             )
 
         blended_level = predicted_level
-        latent_variance = exp(log_variance)
-        observation_noise = _measurement_noise(observation, config)
-        innovation_variance = max(
-            config.anchors.precisionVarianceFloor,
-            predicted_p00 + latent_variance + observation_noise,
-        )
         innovation = score - blended_level
-        standardized_innovation = innovation / sqrt(innovation_variance)
 
+        # Robust surprise scale from PAST innovations only (causal). MAD is
+        # outlier-resistant, so one monster spike cannot blind the detector to
+        # the next shock in the same cluster.
+        if len(recent_innovations) >= config.dynamics.minMemoryBuckets:
+            center = _median(recent_innovations)
+            robust = config.scale.madScale * _median(
+                [abs(value - center) for value in recent_innovations]
+            )
+            base_scale = robust if robust > 0.0 else seed_scale
+        else:
+            base_scale = seed_scale
+        base_scale = _clamp(base_scale, config.scale.scaleFloor, config.scale.scaleCeiling)
+        # Source trust modulates the gate (not level tracking): one-book buckets
+        # need a bigger move to fire; multi-source agreement fires more readily.
+        surprise_scale = max(
+            config.scale.scaleFloor,
+            base_scale * _source_trust_multiplier(observation, config),
+        )
+        standardized_innovation = innovation / surprise_scale
+
+        # The level/trend Kalman gain uses the trust-free volatility as the
+        # observation variance, so source distrust never slows baseline tracking.
+        innovation_variance = max(
+            config.anchors.precisionVarianceFloor, predicted_p00 + base_scale**2
+        )
         gain_level = predicted_p00 / innovation_variance
         gain_trend = predicted_p10 / innovation_variance
         level = blended_level + gain_level * innovation
@@ -460,42 +505,17 @@ def _run_state_filter(request: VolatilityStateSpaceRequest) -> list[_FilterStep]
         p10 = predicted_p10 - gain_trend * predicted_p00
         p11 = predicted_p11 - gain_trend * predicted_p01
 
-        _source_count, _source_dominance, source_agreement = _source_agreement_terms(
-            observation, config
-        )
-        positive_innovation = max(0.0, standardized_innovation)
-        # We adapt latent variance more after a positive surprise than after an
-        # ordinary bucket. Intuitively: when the board suddenly gets wild, the
-        # model should become more willing to believe that "wild" is the new
-        # regime, rather than firing forever against an outdated calm baseline.
-        variance_bump = (
-            variance_adaptation
-            * (
-                _clamp(
-                    positive_innovation**config.variance.innovationPower,
-                    0.0,
-                    config.variance.bumpCap,
-                )
-                - config.variance.bumpCenter
-            )
-            * (
-                config.variance.agreementBase
-                + source_agreement * config.variance.agreementScale
-            )
-        )
-        log_variance = _clamp(
-            log_variance * config.variance.decay + variance_bump,
-            log(config.variance.floor),
-            log(config.variance.ceiling),
-        )
+        # Record this innovation for future scale estimates only after using the
+        # past-only window above, so the current spike cannot deflate its own z.
+        recent_innovations.append(innovation)
+        if len(recent_innovations) > memory:
+            recent_innovations.pop(0)
 
-        current_breadth = _breadth_normalizer(observation, config)
         steps.append(
             _FilterStep(
-                baseline_intensity=expm1(blended_level) * current_breadth,
+                baseline_intensity=_score_to_intensity(blended_level, observation, config),
                 baseline_score=blended_level,
-                breadth_normalizer=current_breadth,
-                scale_score=sqrt(innovation_variance),
+                scale_score=surprise_scale,
                 standardized_innovation=standardized_innovation,
                 warmed_up=_warmed_up(observation, index, request),
             )
@@ -525,14 +545,15 @@ def score_volatility_state_space(
             in_alert = True
         if in_alert and positive_innovation <= exit_z:
             in_alert = False
-        threshold = (
-            expm1(step.baseline_score + enter_z * step.scale_score)
-            * step.breadth_normalizer
+        threshold = _score_to_intensity(
+            step.baseline_score + enter_z * step.scale_score,
+            observation,
+            request.params.stateSpace,
         )
         baseline_mad = max(
-            request.params.stateSpace.variance.baselineMadFloor,
+            request.params.stateSpace.scale.baselineSpreadFloor,
             (threshold - step.baseline_intensity)
-            / max(request.params.kMad, request.params.stateSpace.variance.baselineMadFloor),
+            / max(request.params.kMad, request.params.stateSpace.scale.baselineSpreadFloor),
         )
         scored_rows.append(
             VolatilityStateSpaceResultObservation(

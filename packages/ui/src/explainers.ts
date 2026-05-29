@@ -31,14 +31,14 @@ export const explainers = {
 
   "board-mad": {
     title: "Board state-space detector",
-    eli5: String.raw`This is the main suspend signal. It watches how the whole prediction-market board moves together on a game, then asks whether the current bucket looks surprising relative to the game's current hidden volatility regime.
+    eli5: String.raw`This is the main suspend signal. It watches how the whole prediction-market board moves together on a game, then asks whether the current bucket looks surprising relative to how much the board has recently been moving on its own.
 
-The live model is no longer a plain rolling median-plus-MAD rule. It still builds whole-board intensity from weighted implied-probability deltas, but the fire decision comes from a causal state-space filter. That filter tracks a latent baseline level and a latent volatility regime, then scores each new bucket by its standardized innovation. The practical output is the same trader question as before: "did the board just do something unusually informative for this game state?"`,
+The live model is no longer a plain rolling median-plus-MAD rule. It still builds whole-board intensity from weighted implied-probability deltas, but the fire decision comes from a causal state-space filter. That filter tracks a latent baseline level and short-term trend, then scores each new bucket by its standardized innovation: the gap between the predicted baseline and the actual bucket, divided by a robust trailing dispersion of the filter's own recent residuals. The practical output is the same trader question as before: "did the board just do something unusually informative for this game state?"`,
     formal: String.raw`For each bucket $t$, the observation model starts from whole-board intensity
 
 $$I_t = \sum_{m \in \mathcal{M}_g} \sum_{i \in t} w(v_{m,i}) \cdot \left| \Delta p_{m,i} \right|,$$
 
-with $w(v)=\log(1+v)$ by default, then normalizes by market breadth and works in transformed score space $y_t=\log(1+I_t/\sqrt{B_t}) + \omega_D D_t$, where $D_t$ is the cross-source directional disagreement score for the bucket. The live filter is a robust two-state level/trend model with adaptive observation variance. Historical priors, opening anchors, and current-game memory all enter as causal anchor distributions on the latent baseline before the innovation update.
+with $w(v)=\log(1+v)$ by default, then normalizes by market breadth and works in transformed score space $y_t=\log(1+I_t/\sqrt{B_t}) + \omega_D D_t$, where $D_t$ is the cross-source directional disagreement score for the bucket. The live filter is a robust two-state level/trend model. Each innovation is standardized by a robust surprise scale: the trailing MAD of the filter's own past innovations times \`scale.madScale\`, clamped to \`[scale.scaleFloor, scale.scaleCeiling]\`, then multiplied by a bounded source-trust multiplier. Historical priors, opening anchors, and current-game memory all enter as causal anchor distributions on the latent baseline before the innovation update.
 
 The alert rule is innovation-based: a bucket fires when the positive standardized innovation clears the configured enter threshold after warmup, with hysteresis on the exit side. The UI still shows baseline level and baseline scale because traders need an interpretable threshold line, but the live runtime truth is the state-space filter in \`apps/nba-sidecar/src/nba_sidecar/volatility.py\`.`,
   },
@@ -392,7 +392,7 @@ This is the switch that makes Backtest and live behavior match. If you promote h
   "settings-trailing-buckets": {
     title: "Filter memory",
     eli5: String.raw`Live setting for how much recent elapsed current-game time shapes the board filter's memory horizon. Twenty one-minute buckets means the filter adapts on roughly a 20-minute timescale.`,
-    formal: String.raw`Live override for \`trailingBuckets\`, the main state-memory horizon used by the whole-board filter. Smaller values adapt faster to regime changes; larger values stabilize the latent baseline and volatility regime.`,
+    formal: String.raw`Live override for \`trailingBuckets\`, the main state-memory horizon used by the whole-board filter. It sets both how fast the latent level/trend adapts and the length of the trailing innovation window that feeds the robust surprise scale. Smaller values adapt faster and react to shorter bursts; larger values stabilize the latent baseline and average the surprise scale over a longer stretch.`,
   },
 
   "settings-warmup-buckets": {
@@ -451,10 +451,10 @@ This is the switch that makes Backtest and live behavior match. If you promote h
 
   "settings-state-space-config": {
     title: "State-space config",
-    eli5: String.raw`This is the full advanced model object, not just a loose bag of extra numbers. It contains the internal choices that shape how the board model behaves: trigger math, breadth normalization, process noise, measurement noise, anchor handling, and variance adaptation.
+    eli5: String.raw`This is the full advanced model object, not just a loose bag of extra numbers. It contains the internal choices that shape how the board model behaves: trigger math, breadth normalization, process noise, anchor handling, the source-trust multiplier, and the robust surprise scale that standardizes each innovation.
 
 The point of exposing it as one structured JSON object is honesty and portability. Data-engineering or stats people can tune the actual model without spelunking Python literals, and the exact same object can travel through Settings, Backtest, saved defaults, and bakeoff runs.`,
-    formal: String.raw`Nested runtime config for the Python board state-space model. The object is validated end-to-end by \`BoardStateSpaceConfigSchema\` in \`packages/detectors/src/board-mad/state-space-config.ts\`, serialized through detector defaults and backtest params, and consumed by \`apps/nba-sidecar/src/nba_sidecar/volatility.py\`. Settings and Backtest expose the same object in grouped numeric controls plus a mirrored JSON editor, so there is one runtime contract rather than a second math path. This is the canonical home for trigger coefficients, breadth terms, cross-source disagreement embedding, anchor floors, state-dynamics constants, observation-noise weights, and variance-regime shape controls.`,
+    formal: String.raw`Nested runtime config for the Python board state-space model. The object is validated end-to-end by \`BoardStateSpaceConfigSchema\` in \`packages/detectors/src/board-mad/state-space-config.ts\`, serialized through detector defaults and backtest params, and consumed by \`apps/nba-sidecar/src/nba_sidecar/volatility.py\`. Settings and Backtest expose the same object in grouped numeric controls plus a mirrored JSON editor, so there is one runtime contract rather than a second math path. This is the canonical home for trigger coefficients, breadth terms, cross-source disagreement embedding, anchor floors, state-dynamics constants, the \`sourceTrust\` weighting that bounds the surprise-scale multiplier, and the \`scale\` group that sets the robust-MAD surprise scale and its clamp.`,
   },
 
   "settings-state-space-trigger-floor": {
@@ -493,28 +493,28 @@ The point of exposing it as one structured JSON object is honesty and portabilit
     formal: String.raw`This is \`stateSpace.dynamics.levelProcessNoiseBase\`, the base process-noise term for the latent level state. Larger values let the state filter move the baseline more freely from one bucket to the next.`,
   },
 
-  "settings-state-space-regime-lift-threshold": {
-    title: "Regime lift threshold",
-    eli5: String.raw`How large a surprise needs to be before the model says "this whole game may now be in a hotter volatility regime." Lower values let the regime rise sooner; higher values make it wait for bigger shocks.`,
-    formal: String.raw`This is \`stateSpace.variance.bumpCenter\`, the center of the variance-bump calculation that decides when positive standardized innovation starts lifting the latent volatility regime.`,
+  "settings-state-space-surprise-scale": {
+    title: "Surprise scale",
+    eli5: String.raw`How the model turns the board's own recent jitter into the yardstick it measures each new bucket against. The filter keeps a trailing window of its recent prediction misses, takes their robust spread, and multiplies by this number to get the denominator a surprise is divided by. Raise it and the same move looks less surprising; lower it and the model gets twitchier.`,
+    formal: String.raw`This is \`stateSpace.scale.madScale\`, the multiplier that converts the median absolute deviation (MAD) of the filter's trailing, past-only innovations into the surprise scale used as the standardization denominator \`z = innovation / scale\`. The default 1.4826 is the Gaussian-consistency constant, so MAD reads as a robust standard deviation. The product is then clamped to \`[scale.scaleFloor, scale.scaleCeiling]\` and multiplied by the bounded source-trust multiplier before standardizing.`,
   },
 
-  "settings-state-space-regime-persistence": {
-    title: "Regime persistence",
-    eli5: String.raw`How slowly an elevated regime decays after a wild stretch. Push it up and the model stays suspicious longer; pull it down and the regime cools faster after the burst passes.`,
-    formal: String.raw`This is \`stateSpace.variance.decay\`, the carry-over term on the latent log-variance state. Values closer to 1 preserve elevated volatility longer across future buckets.`,
+  "settings-state-space-scale-bounds": {
+    title: "Surprise-scale bounds",
+    eli5: String.raw`The smallest and largest the surprise yardstick is ever allowed to be. The floor stops a near-flat stretch from making tiny wiggles look like huge shocks; the ceiling stops a sustained-chaos stretch from hiding a genuine relative outlier behind a giant denominator.`,
+    formal: String.raw`These are \`stateSpace.scale.scaleFloor\` and \`stateSpace.scale.scaleCeiling\`, the clamp applied to the robust-MAD surprise scale before source-trust adjustment: \`scale = clamp(madScale * MAD, scaleFloor, scaleCeiling)\`. The schema enforces \`scaleFloor <= scaleCeiling\`, because an inverted ordering would make the clamp collapse to the ceiling and silently fire surprises more easily than configured.`,
   },
 
   "settings-state-space-single-source-penalty": {
     title: "Single-source penalty",
     eli5: String.raw`How much extra doubt to assign when one source is carrying most of the move by itself. Higher values make one-source bursts less trusted; lower values let them count more easily.`,
-    formal: String.raw`This is \`stateSpace.observationNoise.sourceDominancePenalty\`. It inflates measurement noise when source dominance is high, making one-source-heavy buckets less likely to produce strong innovations.`,
+    formal: String.raw`This is \`stateSpace.sourceTrust.sourceDominancePenalty\`. It pushes the source-trust multiplier above 1 when source dominance is high, inflating the robust-MAD surprise scale so one-source-heavy buckets need a bigger move to clear the fire gate.`,
   },
 
   "settings-state-space-cross-source-bonus": {
     title: "Cross-source bonus",
     eli5: String.raw`How much the model rewards different sources moving together. Higher values make cross-source agreement feel more believable and easier to alert on.`,
-    formal: String.raw`This is \`stateSpace.observationNoise.sourceAgreementBonus\`. It reduces effective measurement noise when source agreement is strong, so multi-source confirmation produces larger standardized innovations.`,
+    formal: String.raw`This is \`stateSpace.sourceTrust.sourceAgreementBonus\`. It pulls the source-trust multiplier below 1 when source agreement is strong, shrinking the robust-MAD surprise scale so multi-source confirmation produces larger standardized innovations and fires more readily.`,
   },
 
   "settings-pbp-pre-buffer-ms": {

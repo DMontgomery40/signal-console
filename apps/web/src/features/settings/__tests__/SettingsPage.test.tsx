@@ -659,11 +659,9 @@ describe("SettingsPage > Detector defaults (US-053)", () => {
       );
     });
     expect(
-      screen.getByTestId("detector-default-input-stateSpace-observationNoise-sourceCountExponent"),
+      screen.getByTestId("detector-default-input-stateSpace-sourceTrust-sourceCountExponent"),
     ).toBeDefined();
-    expect(
-      screen.getByTestId("detector-default-input-stateSpace-variance-innovationPower"),
-    ).toBeDefined();
+    expect(screen.getByTestId("detector-default-input-stateSpace-scale-madScale")).toBeDefined();
   });
 
   it("profile promotion opens a confirmation and schedules the historical defaults", async () => {
