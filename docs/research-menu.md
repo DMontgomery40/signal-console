@@ -13,10 +13,12 @@
 > _decide to fire_ causally (buckets `0..i` only), one decision per bucket. See
 > `docs/nba-quant-lab.md`.
 >
-> **Corpus size depends on the snapshot.** `pnpm quant:export` now defaults to the
-> **full corpus** (~1 256 board-eligible games on the current gold DB), not the
-> 29-game `sample-fixed` reference; sampling (`--sample N` / `--games a,b` / `--limit N`)
-> is opt-in. Scoreable-incident counts scale with the incident registry, not the
+> **Corpus size depends on the snapshot.** `pnpm quant:export` reads the **gold DB
+> directly** (no pull step required) and now defaults to the **full corpus**
+> (~1 256 board-eligible games on the current gold DB), not the 29-game `sample-fixed`
+> reference; sampling (`--sample N` / `--games a,b` / `--limit N`) is opt-in. (The old
+> "Pull" / "add-or-repair source data" step is optional — only for non-gold sources or
+> new date windows; see `docs/nba-quant-lab.md` §0.) Scoreable-incident counts scale with the incident registry, not the
 > regular-game count, so a larger corpus mainly buys more non-incident games to test
 > fire-rate / residual-coverage generalization on.
 >

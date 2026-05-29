@@ -14,6 +14,26 @@ _when an NBA in-game stat-misattribution incident is about to surface_ — and t
 so **better than the current baselines**, on a frozen, reproducible dataset, scored
 by one shared evaluator.
 
+### The workflow (gold-first)
+
+The canonical order is:
+
+1. **Check gold DB status.** The gold SQLite DB already holds canonical
+   Kalshi / Polymarket / Bet365 / NBA coverage. Confirm it is present and how
+   many games it carries (`GET /v1/research/gold`, or the "Gold dataset status"
+   panel on the `/research` page).
+2. **Export a snapshot.** The exporter reads the gold DB **directly** — there is
+   **no pull step required** to start modeling. (`pnpm quant:export`, or the
+   "Export snapshot" CTA on `/research` which POSTs `/v1/research/export` to
+   enqueue an export job the worker runs via `scripts/export-quant-snapshot.ts`.)
+3. **Run / score models** against that frozen snapshot (`pnpm quant ...`).
+4. **(Optional) Add or repair source data.** This is the old "Pull" step,
+   demoted: it is only for sources **not** persisted in the gold DB
+   (DraftKings / FanDuel via Odds-API.io) or for new date windows. Pulled data
+   lands as `artifact_only` coverage — non-canonical board input (see §2) — so it
+   is never required before exporting and never required to model the canonical
+   board.
+
 It is **not** a claim that the problem is solved. The two baselines shipped here are
 deliberately framed as **bars to beat**, not answers:
 
@@ -128,7 +148,9 @@ the evaluator replay any model deterministically.
 - **`artifact_only` coverage is not canonical.** `source_coverage.class` is one of
   `canonical | snapshot_eligible | partial | artifact_only | missing`. `artifact_only`
   rows describe coverage that exists only as a cached artifact (e.g. an odds-api.io
-  pull) and has not been promoted into the canonical tick store. Do not treat
+  pull) and has not been promoted into the canonical tick store. This is exactly what
+  the **optional** "add/repair source data" pull (DraftKings / FanDuel via
+  Odds-API.io; §0 step 4) lands: `artifact_only`, never gold. Do not treat
   `artifact_only` coverage as authoritative board input. (In the `sample-fixed`
   snapshot, all 278 coverage rows happen to be `canonical` — but the enum exists because
   other snapshots will not be, and a model must not assume otherwise.)
@@ -388,8 +410,13 @@ runs the identical scorer and writes a run directory.
 > `scripts/quant.ts`, or the underlying **`uv run --extra research python -m nba_sidecar.research <cmd>`**
 > (useful if the venv isn't synced). The snapshot is exported separately via **`pnpm quant:export`**
 > (→ `scripts/export-quant-snapshot.ts`; **default = full corpus**, sampling is opt-in via
-> `--sample N` / `--games a,b` / `--limit N`) and data is pulled via **`pnpm quant:pull`** — do not
-> confuse the export/pull steps with the scoring step.
+> `--sample N` / `--games a,b` / `--limit N`). The exporter reads the **gold DB directly**, so
+> there is **no pull step before exporting** — you can export and score the canonical board
+> straight from gold. **`pnpm quant:pull`** (→ `scripts/research-pull.ts`; the old "Pull",
+> surfaced as "Add/repair source data" on `/research`) is **optional**: use it only to add
+> sources not persisted in the gold DB (DraftKings / FanDuel via Odds-API.io) or to fill new
+> date windows, and it lands `artifact_only` coverage (non-canonical — see §2), not gold.
+> Do not confuse the export step with the scoring step.
 
 ---
 

@@ -14,13 +14,14 @@
 import { randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
 
-import { planPullJob } from "@signal-console/research-pull";
+import { planPullJob, validateExportRequest } from "@signal-console/research-pull";
 import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from "fastify";
 
 import {
   DEFAULT_RESEARCH_OUTPUT_ROOT,
   getLatestLeaderboard,
   getLatestSnapshot,
+  getResearchGold,
   getResearchModels,
   getResearchPull,
   getResearchSources,
@@ -41,15 +42,38 @@ export type EnqueuePullFn = (input: {
   readonly jobId: string;
 }) => EnqueuedPull | Promise<EnqueuedPull>;
 
+/**
+ * Result of enqueueing an export job. Mirrors EnqueuedPull; the route echoes the
+ * opaque id back as { jobId }.
+ */
+export interface EnqueuedExport {
+  readonly jobId: string;
+}
+
+export type EnqueueExportFn = (input: {
+  readonly request: unknown;
+  readonly jobId: string;
+}) => EnqueuedExport | Promise<EnqueuedExport>;
+
 export interface ResearchRoutesOptions {
   readonly outputRoot?: string;
+  /** Gold DB path inspected by GET /v1/research/gold; defaults to GOLD_DB_PATH. */
+  readonly goldDbPath?: string;
   /**
    * Injectable writer. Defaults to a queue-backed enqueue in server.ts. Tests
    * pass a spy to assert it fires on a valid request and NOT on an invalid one.
    */
   readonly enqueuePull?: EnqueuePullFn;
+  /**
+   * Injectable export writer (the SECOND writer). Defaults to a queue-backed
+   * enqueue in server.ts. Tests pass a spy to assert it fires on a valid request
+   * and NOT on an invalid one.
+   */
+  readonly enqueueExport?: EnqueueExportFn;
   /** Injectable id generator so POST responses are deterministic in tests. */
   readonly generateJobId?: () => string;
+  /** Injectable id generator for export jobs (defaults to generateJobId). */
+  readonly generateExportJobId?: () => string;
   /** Injectable clock (unix seconds) for the time-dependent validator. */
   readonly now?: () => number;
 }
@@ -146,6 +170,43 @@ const enqueueResponseSchema = {
   properties: { job_id: { type: "string" } },
 } as const;
 
+const goldResponseSchema = {
+  type: "object",
+  required: ["present", "path", "sizeBytes", "lastModified", "gameCount"],
+  properties: {
+    present: { type: "boolean" },
+    path: { type: "string" },
+    sizeBytes: { type: "number" },
+    lastModified: { type: "string" },
+    gameCount: { type: ["number", "null"] },
+  },
+} as const;
+
+const exportRequestSchema = {
+  // Permissive on purpose: the shared validateExportRequest owns the 400 so the
+  // error shape is exactly { error }. A strict Fastify body schema would reject
+  // with its own generic shape before the shared validator could run.
+  type: "object",
+  additionalProperties: true,
+  required: ["scope"],
+  properties: {
+    snapshotId: { type: "string" },
+    scope: { type: "string", enum: ["full", "sample"] },
+    sample: { type: "number" },
+    since: { type: "string", description: "ISO calendar date YYYY-MM-DD." },
+    until: { type: "string", description: "ISO calendar date YYYY-MM-DD." },
+    gameIds: { type: "array", items: { type: "string" } },
+  },
+  description:
+    "Snapshot-export request. The SECOND writer; mirrors POST /v1/research/pull. Validated by the shared research-pull export validator before the job is enqueued; the route does NOT run the export inline.",
+} as const;
+
+const exportEnqueueResponseSchema = {
+  type: "object",
+  required: ["jobId"],
+  properties: { jobId: { type: "string" } },
+} as const;
+
 const errorResponseSchema = {
   type: "object",
   required: ["error"],
@@ -163,6 +224,9 @@ const researchRoutes: FastifyPluginAsync<ResearchRoutesOptions> = (app, opts) =>
   // No-op default keeps the route safe to mount without a writer wired; the
   // real queue-backed enqueue is injected in server.ts.
   const enqueuePull: EnqueuePullFn = opts.enqueuePull ?? (({ jobId }) => ({ jobId }));
+  const generateExportJobId =
+    opts.generateExportJobId ?? opts.generateJobId ?? (() => `export-${randomUUID()}`);
+  const enqueueExport: EnqueueExportFn = opts.enqueueExport ?? (({ jobId }) => ({ jobId }));
 
   app.get(
     "/v1/research/sources",
@@ -270,6 +334,24 @@ const researchRoutes: FastifyPluginAsync<ResearchRoutesOptions> = (app, opts) =>
     },
   );
 
+  app.get(
+    "/v1/research/gold",
+    {
+      schema: {
+        tags: ["research"],
+        summary: "Gold DB status",
+        description:
+          "Read-only. Inspects the gold DB at GOLD_DB_PATH via openGoldDb and node:fs stat. Reports presence, size, mtime, and games count. Never throws on a missing or locked DB — returns present:false with zeros and gameCount:null.",
+        response: { 200: goldResponseSchema },
+      },
+    },
+    (_request: FastifyRequest, reply: FastifyReply) => {
+      reply.send(
+        getResearchGold(opts.goldDbPath === undefined ? {} : { goldDbPath: opts.goldDbPath }),
+      );
+    },
+  );
+
   app.get<{ Querystring: { id?: string } }>(
     "/v1/research/artifact",
     {
@@ -345,6 +427,43 @@ const researchRoutes: FastifyPluginAsync<ResearchRoutesOptions> = (app, opts) =>
       const jobId = generateJobId();
       const enqueued = await enqueuePull({ request: request.body, jobId });
       await reply.code(202).send({ job_id: enqueued.jobId });
+    },
+  );
+
+  app.post(
+    "/v1/research/export",
+    {
+      schema: {
+        tags: ["research"],
+        summary: "Validate and enqueue a snapshot-export job",
+        description:
+          "The SECOND writer; mirrors POST /v1/research/pull. Validates the request via the shared research-pull export validator, then ENQUEUES a research-export job to the admin-action queue and returns { jobId }. Does NOT run the export inline. Invalid requests return 400 and are NOT enqueued. The worker runs scripts/export-quant-snapshot.ts against the persisted gold corpus.",
+        body: exportRequestSchema,
+        response: {
+          202: exportEnqueueResponseSchema,
+          400: errorResponseSchema,
+        },
+      },
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const result = validateExportRequest(request.body);
+      if (!result.ok) {
+        // Invalid: { error } is the contract key; code/details are a harmless
+        // superset for operator debugging. DO NOT enqueue.
+        await reply.code(400).send({
+          error: "invalid export request",
+          code: "validation_failed",
+          details: result.errors.map((e) => ({
+            code: e.code,
+            message: e.message,
+            ...(e.path === undefined ? {} : { path: e.path }),
+          })),
+        });
+        return;
+      }
+      const jobId = generateExportJobId();
+      const enqueued = await enqueueExport({ request: result.request, jobId });
+      await reply.code(202).send({ jobId: enqueued.jobId });
     },
   );
 

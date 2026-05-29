@@ -2,10 +2,11 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 
 import { buildServer } from "../src/server";
-import type { EnqueuePullFn } from "../src/routes/research";
+import type { EnqueueExportFn, EnqueuePullFn } from "../src/routes/research";
 
 type FastifyApp = Awaited<ReturnType<typeof buildServer>>;
 
@@ -16,7 +17,9 @@ interface TestCtx {
   tempDir: string;
   tokenPath: string;
   outputRoot: string;
+  goldDbPath: string;
   enqueueSpy: Mock<EnqueuePullFn>;
+  enqueueExportSpy: Mock<EnqueueExportFn>;
 }
 
 const ctx: TestCtx = {
@@ -24,7 +27,9 @@ const ctx: TestCtx = {
   tempDir: "",
   tokenPath: "",
   outputRoot: "",
+  goldDbPath: "",
   enqueueSpy: vi.fn<EnqueuePullFn>(),
+  enqueueExportSpy: vi.fn<EnqueueExportFn>(),
 };
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -106,10 +111,26 @@ beforeEach(() => {
   ctx.tempDir = mkdtempSync(join(tmpdir(), "signal-console-research-"));
   ctx.tokenPath = join(ctx.tempDir, "token");
   ctx.outputRoot = join(ctx.tempDir, "nba-quant-lab");
+  // Default to an ABSENT gold DB path; the present-DB test seeds its own.
+  ctx.goldDbPath = join(ctx.tempDir, "absent-signal-console.sqlite");
   mkdirSync(ctx.outputRoot, { recursive: true });
   writeFileSync(ctx.tokenPath, `${TEST_TOKEN}\n`, "utf8");
   ctx.enqueueSpy = vi.fn<EnqueuePullFn>(({ jobId }) => ({ jobId }));
+  ctx.enqueueExportSpy = vi.fn<EnqueueExportFn>(({ jobId }) => ({ jobId }));
 });
+
+/** Seed a writable gold DB with a games table and N rows, then close it. */
+function seedGoldDb(rowCount: number): string {
+  const path = join(ctx.tempDir, "gold-signal-console.sqlite");
+  const db = new Database(path);
+  db.exec("CREATE TABLE games (id TEXT PRIMARY KEY)");
+  const insert = db.prepare("INSERT INTO games (id) VALUES (?)");
+  for (let i = 0; i < rowCount; i += 1) {
+    insert.run(`game-${i}`);
+  }
+  db.close();
+  return path;
+}
 
 afterEach(async () => {
   if (ctx.app !== null) {
@@ -122,12 +143,16 @@ afterEach(async () => {
 async function startApp(seed: boolean): Promise<FastifyApp> {
   if (seed) seedArtifacts();
   const enqueuePull: EnqueuePullFn = ctx.enqueueSpy;
+  const enqueueExport: EnqueueExportFn = ctx.enqueueExportSpy;
   const app = await buildServer({
     auth: { tokenPath: ctx.tokenPath, cacheTtlMs: 0 },
     research: {
       outputRoot: ctx.outputRoot,
+      goldDbPath: ctx.goldDbPath,
       enqueuePull,
+      enqueueExport,
       generateJobId: () => "pull-fixed-id",
+      generateExportJobId: () => "export-fixed-id",
       now: () => 1_900_000_000,
     },
   });
@@ -462,6 +487,123 @@ describe("research routes — POST /pull (the only writer)", () => {
     const codes = details.filter(isRecord).map((d) => d["code"]);
     expect(codes).toContain("unknown_source");
     expect(ctx.enqueueSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("research routes — GET /gold (gold DB status, never throws)", () => {
+  it("reports present:false with zeros when the gold DB is absent", async () => {
+    const app = await startApp(false);
+    const res = await app.inject({
+      method: "GET",
+      url: "/v1/research/gold",
+      headers: authHeaders(),
+    });
+    expect(res.statusCode).toBe(200);
+    const body: unknown = res.json();
+    if (!isRecord(body)) throw new Error("body not object");
+    expect(body["present"]).toBe(false);
+    expect(body["path"]).toBe(ctx.goldDbPath);
+    expect(body["sizeBytes"]).toBe(0);
+    expect(body["lastModified"]).toBe("");
+    expect(body["gameCount"]).toBeNull();
+  });
+
+  it("reports present:true with size/mtime and a games count when present", async () => {
+    ctx.goldDbPath = seedGoldDb(3);
+    const app = await startApp(false);
+    const res = await app.inject({
+      method: "GET",
+      url: "/v1/research/gold",
+      headers: authHeaders(),
+    });
+    expect(res.statusCode).toBe(200);
+    const body: unknown = res.json();
+    if (!isRecord(body)) throw new Error("body not object");
+    expect(body["present"]).toBe(true);
+    expect(body["path"]).toBe(ctx.goldDbPath);
+    const sizeBytes = body["sizeBytes"];
+    expect(typeof sizeBytes === "number" && sizeBytes > 0).toBe(true);
+    const lastModified = body["lastModified"];
+    expect(typeof lastModified === "string" && lastModified.length > 0).toBe(true);
+    expect(body["gameCount"]).toBe(3);
+  });
+});
+
+describe("research routes — POST /export (the SECOND writer)", () => {
+  it("validates and enqueues a full-corpus export, returning { jobId }", async () => {
+    const app = await startApp(false);
+    const res = await app.inject({
+      method: "POST",
+      url: "/v1/research/export",
+      headers: { ...authHeaders(), "content-type": "application/json" },
+      payload: { scope: "full" },
+    });
+    expect(res.statusCode).toBe(202);
+    const body: unknown = res.json();
+    if (!isRecord(body)) throw new Error("body not object");
+    expect(body["jobId"]).toBe("export-fixed-id");
+    expect(ctx.enqueueExportSpy).toHaveBeenCalledTimes(1);
+    const callArg = ctx.enqueueExportSpy.mock.calls[0]?.[0];
+    if (!isRecord(callArg)) throw new Error("enqueue arg not object");
+    expect(callArg["jobId"]).toBe("export-fixed-id");
+    if (!isRecord(callArg["request"])) throw new Error("request not object");
+    expect(callArg["request"]["scope"]).toBe("full");
+  });
+
+  it("validates and enqueues a sample export with explicit args", async () => {
+    const app = await startApp(false);
+    const res = await app.inject({
+      method: "POST",
+      url: "/v1/research/export",
+      headers: { ...authHeaders(), "content-type": "application/json" },
+      payload: {
+        scope: "sample",
+        sample: 25,
+        snapshotId: "snap-x",
+        since: "2026-05-01",
+        until: "2026-05-25",
+        gameIds: ["nba-1", "nba-2"],
+      },
+    });
+    expect(res.statusCode).toBe(202);
+    const body: unknown = res.json();
+    if (!isRecord(body)) throw new Error("body not object");
+    expect(body["jobId"]).toBe("export-fixed-id");
+    expect(ctx.enqueueExportSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects scope=sample without a sample count with 400 and does NOT enqueue", async () => {
+    const app = await startApp(false);
+    const res = await app.inject({
+      method: "POST",
+      url: "/v1/research/export",
+      headers: { ...authHeaders(), "content-type": "application/json" },
+      payload: { scope: "sample" },
+    });
+    expect(res.statusCode).toBe(400);
+    const body: unknown = res.json();
+    if (!isRecord(body)) throw new Error("body not object");
+    expect(typeof body["error"]).toBe("string");
+    const details = body["details"];
+    if (!isUnknownArray(details)) throw new Error("details not array");
+    const codes = details.filter(isRecord).map((d) => d["code"]);
+    expect(codes).toContain("sample_requires_count");
+    expect(ctx.enqueueExportSpy).not.toHaveBeenCalled();
+  });
+
+  it("rejects an invalid scope with 400 and does NOT enqueue", async () => {
+    const app = await startApp(false);
+    const res = await app.inject({
+      method: "POST",
+      url: "/v1/research/export",
+      headers: { ...authHeaders(), "content-type": "application/json" },
+      payload: { scope: "everything" },
+    });
+    expect(res.statusCode).toBe(400);
+    const body: unknown = res.json();
+    if (!isRecord(body)) throw new Error("body not object");
+    expect(typeof body["error"]).toBe("string");
+    expect(ctx.enqueueExportSpy).not.toHaveBeenCalled();
   });
 });
 

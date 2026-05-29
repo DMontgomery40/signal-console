@@ -61,12 +61,29 @@ interface SharedAdminQueue {
   }) => unknown;
 }
 
+interface SharedExportQueue {
+  readonly enqueueResearchExport: (payload: {
+    readonly scope: string;
+    readonly requestedBy?: string;
+    readonly payloadJson: Record<string, unknown>;
+  }) => unknown;
+}
+
 function isSharedAdminQueue(m: unknown): m is SharedAdminQueue {
   return (
     typeof m === "object" &&
     m !== null &&
     "enqueueResearchPull" in m &&
     typeof m.enqueueResearchPull === "function"
+  );
+}
+
+function isSharedExportQueue(m: unknown): m is SharedExportQueue {
+  return (
+    typeof m === "object" &&
+    m !== null &&
+    "enqueueResearchExport" in m &&
+    typeof m.enqueueResearchExport === "function"
   );
 }
 
@@ -83,6 +100,27 @@ const defaultEnqueuePull: NonNullable<ResearchRoutesOptions["enqueuePull"]> = as
     throw new Error("@signal-console/shared does not expose enqueueResearchPull");
   }
   mod.enqueueResearchPull({
+    scope: jobId,
+    requestedBy: "research-api",
+    payloadJson: { jobId, request },
+  });
+  return { jobId };
+};
+
+const defaultEnqueueExport: NonNullable<ResearchRoutesOptions["enqueueExport"]> = async ({
+  request,
+  jobId,
+}) => {
+  // Mirrors defaultEnqueuePull: non-literal specifier keeps shared's TS source
+  // out of the API tsc program. The admin-action queue row carries the export
+  // args in its payload for the worker to claim and run the exporter against the
+  // persisted gold corpus.
+  const spec: string = "@signal-console/shared";
+  const mod: unknown = await import(spec);
+  if (!isSharedExportQueue(mod)) {
+    throw new Error("@signal-console/shared does not expose enqueueResearchExport");
+  }
+  mod.enqueueResearchExport({
     scope: jobId,
     requestedBy: "research-api",
     payloadJson: { jobId, request },
@@ -131,6 +169,7 @@ export async function buildServer(options: BuildServerOptions = {}): Promise<Fas
   await app.register(ensembleOrRoutes, options.ensembleOr ?? {});
   await app.register(researchRoutes, {
     enqueuePull: defaultEnqueuePull,
+    enqueueExport: defaultEnqueueExport,
     ...(options.research ?? {}),
   });
 

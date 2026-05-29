@@ -10,6 +10,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, isAbsolute, join, normalize, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { GOLD_DB_PATH, openGoldDb } from "@signal-console/db";
 import { SOURCE_CAPABILITY_MATRIX, type SourceCapability } from "@signal-console/research-pull";
 
 /**
@@ -262,6 +263,83 @@ export function getResearchModels(options: ResearchServiceOptions = {}): Researc
     }
   }
   return { models: STATIC_MODELS };
+}
+
+/* --------------------------------- gold ----------------------------------- */
+
+export interface ResearchGoldPayload {
+  /** Gold DB file exists and opened read-only. */
+  readonly present: boolean;
+  /** Absolute gold DB path inspected. */
+  readonly path: string;
+  /** File size in bytes (0 if absent). */
+  readonly sizeBytes: number;
+  /** ISO mtime ("" if absent). */
+  readonly lastModified: string;
+  /** SELECT count(*) FROM games; null if DB absent/unreadable. */
+  readonly gameCount: number | null;
+}
+
+export interface ResearchGoldOptions {
+  /** Gold DB path to inspect. Defaults to the shared GOLD_DB_PATH. */
+  readonly goldDbPath?: string;
+}
+
+/**
+ * Read-only status of the gold DB. NEVER throws: a missing or locked DB returns
+ * present:false with zeros rather than surfacing openGoldDb's fileMustExist
+ * throw. File stats (size/mtime) are reported whenever the file exists, even if
+ * the connection cannot be opened (e.g. locked); gameCount is null whenever the
+ * `games` table cannot be read.
+ */
+export function getResearchGold(options: ResearchGoldOptions = {}): ResearchGoldPayload {
+  const path = options.goldDbPath ?? GOLD_DB_PATH;
+
+  // Absent file is the literal zeros case.
+  let stats;
+  try {
+    stats = statSync(path);
+  } catch {
+    return { present: false, path, sizeBytes: 0, lastModified: "", gameCount: null };
+  }
+
+  const sizeBytes = stats.size;
+  let lastModified = "";
+  try {
+    lastModified = stats.mtime.toISOString();
+  } catch {
+    lastModified = "";
+  }
+
+  // The file exists; try to open it read-only and count games. A locked/corrupt
+  // DB leaves present:false with the real stats and gameCount:null.
+  let present = false;
+  let gameCount: number | null = null;
+  let db;
+  try {
+    db = openGoldDb(path);
+    present = true;
+    try {
+      const row: unknown = db.prepare("SELECT count(*) AS n FROM games").get();
+      gameCount =
+        typeof row === "object" && row !== null && "n" in row && typeof row.n === "number"
+          ? row.n
+          : null;
+    } catch {
+      gameCount = null;
+    }
+  } catch {
+    present = false;
+    gameCount = null;
+  } finally {
+    try {
+      db?.close();
+    } catch {
+      // ignore close failures on an already-broken handle.
+    }
+  }
+
+  return { present, path, sizeBytes, lastModified, gameCount };
 }
 
 /* ------------------------------- artifacts -------------------------------- */
