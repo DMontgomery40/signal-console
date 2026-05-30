@@ -21,6 +21,7 @@ import {
   DEFAULT_RESEARCH_OUTPUT_ROOT,
   getLatestLeaderboard,
   getLatestSnapshot,
+  getQuantGuide,
   getResearchGold,
   getResearchModels,
   getResearchPull,
@@ -59,6 +60,8 @@ export interface ResearchRoutesOptions {
   readonly outputRoot?: string;
   /** Gold DB path inspected by GET /v1/research/gold; defaults to GOLD_DB_PATH. */
   readonly goldDbPath?: string;
+  /** Researcher-guide markdown path served by GET /v1/research/guide; defaults to docs/quant-researcher-guide.md. */
+  readonly guidePath?: string;
   /**
    * Injectable writer. Defaults to a queue-backed enqueue in server.ts. Tests
    * pass a spy to assert it fires on a valid request and NOT on an invalid one.
@@ -349,6 +352,30 @@ const researchRoutes: FastifyPluginAsync<ResearchRoutesOptions> = (app, opts) =>
       reply.send(
         getResearchGold(opts.goldDbPath === undefined ? {} : { goldDbPath: opts.goldDbPath }),
       );
+    },
+  );
+
+  app.get(
+    "/v1/research/guide",
+    {
+      schema: {
+        tags: ["research"],
+        summary: "Researcher guide (markdown)",
+        description:
+          "Read-only. Serves docs/quant-researcher-guide.md as text/markdown so the /research 'Open Quant Guide' link opens the real guide (the file lives outside the Vite web root). Auth-exempt (public docs). 404 if the guide file is missing.",
+        produces: ["text/markdown"],
+      },
+    },
+    (_request: FastifyRequest, reply: FastifyReply) => {
+      const guide = getQuantGuide(
+        opts.guidePath === undefined ? {} : { guidePath: opts.guidePath },
+      );
+      if (!guide.found) {
+        reply.code(404).send({ error: "guide not found", code: "not_found" });
+        return;
+      }
+      reply.header("content-type", "text/markdown; charset=utf-8");
+      reply.send(guide.content);
     },
   );
 

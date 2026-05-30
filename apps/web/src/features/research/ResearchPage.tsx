@@ -310,18 +310,20 @@ function GoldStatus({ gold }: { readonly gold: ResearchGold | undefined }): JSX.
 // status is never pushed down. It keeps devs / traders / ops / researchers on
 // the same artifacts and routes anyone who wants the full workflow to the
 // durable guide. Two affordances, both reusing the page's minimal idioms:
-//   - "Open Quant Guide": a plain green text-link to the repo guide path. There
-//     is no in-app markdown route, so it opens in a new tab and renders the
-//     literal path so the link stays honest (no fake in-app destination).
-//   - "Copy CLI quickstart" (GreenButton): copies a short multi-line quickstart
-//     to the clipboard. No bordered card, no icons — same surface-1 fill + dot-
-//     free copy as GoldStatus.
+//   - "Open Quant Guide": opens GET /v1/research/guide in a new tab — the API
+//     serves docs/quant-researcher-guide.md (which lives outside the Vite web
+//     root, so a static link to the path would fall through to the SPA shell).
+//     The source file path is shown alongside so the link stays honest.
+//   - "Copy CLI quickstart" (GreenButton): copies a short, RUNNABLE quickstart
+//     (export -> resolve newest snapshot -> compare with the required --snapshot
+//     flag). No bordered card, no icons — same surface-1 fill as GoldStatus.
 
 const QUANT_GUIDE_PATH = "docs/quant-researcher-guide.md";
+const QUANT_GUIDE_HREF = "/v1/research/guide";
 const QUANT_CLI_QUICKSTART = [
   "pnpm quant:export",
-  "pnpm quant compare robust_mad state_space_current",
-  "pnpm quant doctor <snapshot>",
+  "SNAP=$(ls -t outputs/nba-quant-lab/snapshots | head -1)",
+  'pnpm quant compare robust_mad state_space_current --snapshot "$SNAP"',
 ].join("\n");
 
 function QuantGuidePanel(): JSX.Element {
@@ -341,7 +343,7 @@ function QuantGuidePanel(): JSX.Element {
         </p>
         <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
           <a
-            href={QUANT_GUIDE_PATH}
+            href={QUANT_GUIDE_HREF}
             target="_blank"
             rel="noopener noreferrer"
             data-testid="research-quant-guide-open"
@@ -349,7 +351,9 @@ function QuantGuidePanel(): JSX.Element {
           >
             Open Quant Guide
           </a>
-          <span className="break-all font-mono text-xs text-text-lo">{QUANT_GUIDE_PATH}</span>
+          <span className="break-all font-mono text-xs text-text-lo">
+            source: {QUANT_GUIDE_PATH}
+          </span>
           <GreenButton onClick={onCopy} testid="research-quant-guide-copy">
             Copy CLI quickstart
           </GreenButton>

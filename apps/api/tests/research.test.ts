@@ -643,3 +643,30 @@ describe("research routes — auth and write isolation", () => {
     expect(after.body).toBe(before.body);
   });
 });
+
+describe("research routes — GET /guide (researcher guide markdown)", () => {
+  it("serves the guide as text/markdown, auth-exempt (no token), on the default path", async () => {
+    const app = await startApp(false);
+    // No auth header: the guide is exempt so it opens in a plain new tab.
+    const res = await app.inject({ method: "GET", url: "/v1/research/guide" });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["content-type"]).toContain("text/markdown");
+    expect(res.body).toContain("Quant Researcher Guide");
+  });
+
+  it("returns 404 when the guide file is missing", async () => {
+    const app = await buildServer({
+      auth: { tokenPath: ctx.tokenPath, cacheTtlMs: 0 },
+      research: {
+        outputRoot: ctx.outputRoot,
+        goldDbPath: ctx.goldDbPath,
+        guidePath: join(ctx.tempDir, "no-such-guide.md"),
+        enqueuePull: ctx.enqueueSpy,
+        enqueueExport: ctx.enqueueExportSpy,
+      },
+    });
+    ctx.app = app;
+    const res = await app.inject({ method: "GET", url: "/v1/research/guide" });
+    expect(res.statusCode).toBe(404);
+  });
+});

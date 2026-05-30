@@ -19,7 +19,10 @@ export interface AuthPluginOptions {
 }
 
 const DEFAULT_TOKEN_PATH = join(homedir(), ".signal-console", "token");
-const DEFAULT_EXEMPT_PATHS: readonly string[] = ["/v1/health/live"];
+// /v1/research/guide serves public researcher docs (markdown) and is opened in a
+// plain new browser tab that cannot carry the X-Signal-Token header, so it is
+// exempt like the liveness probe.
+const DEFAULT_EXEMPT_PATHS: readonly string[] = ["/v1/health/live", "/v1/research/guide"];
 const DEFAULT_CACHE_TTL_MS = 1000;
 
 interface TokenCache {

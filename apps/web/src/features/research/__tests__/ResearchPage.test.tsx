@@ -264,22 +264,24 @@ describe("ResearchPage", () => {
     const panel = await screen.findByTestId("research-quant-guide");
     expect(panel.textContent).toContain("devs, traders, ops, and researchers");
 
-    // "Open Quant Guide" is NOT an in-app route: it points at the repo guide
-    // path and opens in a new tab so the link stays honest.
+    // "Open Quant Guide" opens the API-served guide (GET /v1/research/guide),
+    // NOT a static docs path that would fall through to the SPA shell. The
+    // source file path is shown alongside so the link stays honest.
     const open = screen.getByTestId("research-quant-guide-open");
-    expect(open.getAttribute("href")).toBe("docs/quant-researcher-guide.md");
+    expect(open.getAttribute("href")).toBe("/v1/research/guide");
     expect(open.getAttribute("target")).toBe("_blank");
     expect(open.getAttribute("rel")).toContain("noopener");
-    // The literal path is shown so a reader can find the guide even off-app.
     expect(panel.textContent).toContain("docs/quant-researcher-guide.md");
 
-    // Copy writes the multi-line CLI quickstart to the clipboard.
+    // Copy writes a RUNNABLE multi-line quickstart: compare requires --snapshot,
+    // so the quickstart must resolve a snapshot id and pass the flag.
     fireEvent.click(screen.getByTestId("research-quant-guide-copy"));
     expect(writeText).toHaveBeenCalledTimes(1);
     const copied = writeText.mock.calls[0]?.[0] ?? "";
     expect(copied).toContain("pnpm quant:export");
     expect(copied).toContain("pnpm quant compare robust_mad state_space_current");
-    expect(copied).toContain("pnpm quant doctor <snapshot>");
+    expect(copied).toContain("--snapshot");
+    expect(copied).not.toContain("<snapshot>");
   });
 
   it("renders the gold dataset status: ready dot, path, humanized size, game count", async () => {

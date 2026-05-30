@@ -26,6 +26,31 @@ const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "
 export const DEFAULT_RESEARCH_OUTPUT_ROOT: string =
   process.env["RESEARCH_OUTPUT_ROOT"] ?? resolve(REPO_ROOT, "outputs", "nba-quant-lab");
 
+/** The durable researcher guide. Lives in docs/ (outside the Vite web root), so
+ * the /research "Open Quant Guide" link opens it via the API, not a static path
+ * that would fall through to the SPA shell. */
+export const DEFAULT_QUANT_GUIDE_PATH: string = resolve(
+  REPO_ROOT,
+  "docs",
+  "quant-researcher-guide.md",
+);
+
+export interface QuantGuidePayload {
+  readonly found: boolean;
+  readonly content: string;
+}
+
+/** Reads the researcher guide markdown. Never throws — a missing file yields
+ * found:false so the route can answer 404 instead of crashing. */
+export function getQuantGuide(options: { readonly guidePath?: string } = {}): QuantGuidePayload {
+  const guidePath = options.guidePath ?? DEFAULT_QUANT_GUIDE_PATH;
+  try {
+    return { found: true, content: readFileSync(guidePath, "utf8") };
+  } catch {
+    return { found: false, content: "" };
+  }
+}
+
 /** Static fallback model registry when no models.json artifact exists. */
 export const STATIC_MODELS: readonly ResearchModel[] = [
   {
