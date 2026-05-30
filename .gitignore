@@ -17,6 +17,9 @@ scripts/ralph/.story-attempts
 scripts/ralph/ralph.log
 scripts/ralph/.playwright-mcp/
 
+# Playwright MCP browser-snapshot residue (page-*.yml dumps); regenerable
+.playwright-mcp/
+
 # Gold DB (54 GB) — never tracked
 data/*.sqlite
 data/*.sqlite-wal

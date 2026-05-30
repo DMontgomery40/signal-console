@@ -718,9 +718,9 @@ describe("BacktestPage", () => {
       STATE_SPACE_GUIDED_FIELDS.length,
     );
     expect(
-      screen.getByTestId("backtest-state-space-input-observationNoise-sourceCountExponent"),
+      screen.getByTestId("backtest-state-space-input-sourceTrust-sourceCountExponent"),
     ).toBeDefined();
-    expect(screen.getByTestId("backtest-state-space-input-variance-innovationPower")).toBeDefined();
+    expect(screen.getByTestId("backtest-state-space-input-scale-madScale")).toBeDefined();
   });
 
   it("round-trip stability: editing trailingBuckets re-derives fires/game without an API call", async () => {

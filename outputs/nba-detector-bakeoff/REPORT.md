@@ -1,6 +1,6 @@
 # NBA Detector Bake-Off
 
-Generated: 2026-05-28T13:01:39.461Z
+Generated: 2026-05-29T15:40:47.102Z
 
 This is an offline research artifact, not an official NBA source of truth. It scores every locally surfaced incident candidate we could ground from the previous report and archive trail, then labels anchor/data gaps instead of pretending they are misses. Positive lead seconds mean the first matching fire happened after the disputed play; negative lead seconds mean a pre-play warning.
 
@@ -19,7 +19,7 @@ These rows are backed by the actual Python live runtime and the saved detector d
 
 | Runtime row                           | Incident caught | Tape outliers caught | Fires inside tape windows | Mean fires/game | Episodes/game | Report read                                                                                                                                   |
 | ------------------------------------- | --------------: | -------------------: | ------------------------: | --------------: | ------------: | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| A00_runtime_state_space_live_defaults |            0/15 |      446/5537 (8.1%) |                     51.3% |            0.67 |          0.67 | caution: This is the current live board runtime from detector-defaults.json; treat it as product truth, not as a generic research comparator. |
+| A00_runtime_state_space_live_defaults |            2/15 |     789/5537 (14.2%) |                     37.6% |            1.67 |          1.67 | caution: This is the current live board runtime from detector-defaults.json; treat it as product truth, not as a generic research comparator. |
 
 ## Top Rows
 

@@ -1246,20 +1246,26 @@ export async function detectWithPythonStateSpace(
   const request = buildStateSpaceRequestForGame(game, algo, allGames);
   const response = await postStateSpaceRequest(request, clientOptions);
   const buckets = bucketize(game, algo.bucketSeconds);
+  // The sidecar parses bucketStart into a datetime and re-serializes it without
+  // the zero millisecond fraction (e.g. "...:00Z"), while isoFromSeconds always
+  // emits "...:00.000Z". Canonicalize both key-spaces to epoch milliseconds so
+  // the join survives the ISO-8601 fractional-second difference.
+  const bucketStartKey = (iso: string): number => new Date(iso).getTime();
   const bucketByStart = new Map(
-    buckets.map((bucket) => [isoFromSeconds(bucket.startSec), bucket] as const),
+    buckets.map((bucket) => [bucketStartKey(isoFromSeconds(bucket.startSec)), bucket] as const),
   );
   const scoreByBucketStart = new Map(
     request.observations.map(
-      (observation) => [observation.bucketStart, observation.intensity] as const,
+      (observation) => [bucketStartKey(observation.bucketStart), observation.intensity] as const,
     ),
   );
   const fires: Fire[] = [];
   for (const observation of response) {
     if (!observation.fired) continue;
-    const bucket = bucketByStart.get(observation.bucketStart);
+    const key = bucketStartKey(observation.bucketStart);
+    const bucket = bucketByStart.get(key);
     if (bucket === undefined) continue;
-    const score = scoreByBucketStart.get(observation.bucketStart) ?? 0;
+    const score = scoreByBucketStart.get(key) ?? 0;
     if (score <= LOW_SIGNAL_FLOOR || !passesFanout(bucket, algo)) continue;
     fires.push(
       fireFromBucket(game.gameId, bucket, score, observation.threshold, algo.bucketSeconds),

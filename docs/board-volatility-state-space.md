@@ -27,9 +27,9 @@ All hidden-state coefficients that used to live as Python literals now live in o
 - `breadth`: market-count normalization
 - `observationModel`: extra observation embedding terms such as cross-source directional disagreement
 - `anchors`: prior and anchor precision floors
-- `dynamics`: memory, process noise, and variance adaptation
-- `observationNoise`: source dominance / agreement weighting
-- `variance`: MAD scaling, latent variance bounds, regime bump terms
+- `dynamics`: memory, process noise, and initial state variances for the latent level/trend filter
+- `sourceTrust`: source dominance / agreement / count weighting that bounds the surprise-scale multiplier
+- `scale`: robust MAD scaling of the filter innovations and the clamp on the resulting surprise scale
 
 If a board-model coefficient matters to runtime behavior, it belongs here or in the top-level operator settings object. Do not hide new model coefficients inside Python code without adding them to this contract.
 
@@ -58,32 +58,57 @@ Settings and Backtest now expose every current `stateSpace` field directly in gr
   - `levelProcessNoiseBase`
   - `levelProcessNoiseScale`
   - `trendProcessNoiseRatio`
-  - `varianceAdaptationBase`
-  - `varianceAdaptationScale`
-  - `varianceAdaptationOffset`
   - `initialLevelVariance`
   - `initialTrendVariance`
-  - `initialVarianceFloor`
-- `observationNoise`
-  - `floor`
-  - `minimum`
+- `sourceTrust`
+  - `minMultiplier`
+  - `maxMultiplier`
   - `singleSourceDominance`
   - `multiSourceDominanceFallback`
   - `sourceDominancePenalty`
   - `sourceAgreementBonus`
   - `sourceCountBonus`
   - `sourceCountExponent`
-- `variance`
+- `scale`
   - `madScale`
-  - `floor`
-  - `ceiling`
-  - `decay`
-  - `bumpCap`
-  - `bumpCenter`
-  - `innovationPower`
-  - `agreementBase`
-  - `agreementScale`
-  - `baselineMadFloor`
+  - `scaleFloor`
+  - `scaleCeiling`
+  - `baselineSpreadFloor`
+
+### Surprise scale and source trust
+
+The fire decision standardizes each filter innovation by a robust surprise scale:
+
+- `scale.madScale` turns the median absolute deviation (MAD) of the trailing,
+  past-only innovation window into a Gaussian-comparable sigma (1.4826 is the
+  Gaussian-consistency constant). That product is the base surprise scale.
+- `scale.scaleFloor` and `scale.scaleCeiling` clamp the base surprise scale to
+  `[scaleFloor, scaleCeiling]`. The schema enforces `scaleFloor <= scaleCeiling`,
+  because if the floor exceeded the ceiling the clamp would silently collapse to
+  the ceiling and let surprises fire more easily than the operator asked.
+- `scale.baselineSpreadFloor` is a tiny safety floor (default `1e-9`) on the
+  prior/baseline spread. It floors the historical-prior scale used to seed and
+  anchor the filter (so it can nudge firing through the anchor pull) and it also
+  floors the displayed intensity-space threshold-line spread. At the default it
+  essentially never binds.
+
+The clamped base scale is then multiplied by a bounded source-trust multiplier
+before standardizing the innovation: `z = innovation / (base_scale * multiplier)`.
+The multiplier is the `sourceTrust` group's only job. It is centered near 1 for a
+balanced multi-source bucket and is clamped to `[sourceTrust.minMultiplier,
+sourceTrust.maxMultiplier]`:
+
+- `sourceDominancePenalty` inflates the multiplier (scale up, harder to fire)
+  when one source dominates the bucket move.
+- `sourceAgreementBonus` and `sourceCountBonus` shrink the multiplier (scale
+  down, easier to fire) when independent sources agree, with `sourceCountExponent`
+  shaping how the count bonus grows.
+- `singleSourceDominance` and `multiSourceDominanceFallback` supply the assumed
+  dominance score when the observation does not carry an explicit split.
+
+Source trust only modulates the fire gate. The latent level/trend Kalman update
+uses the trust-free base scale as its observation variance, so distrust of a
+single book never slows baseline tracking.
 
 ## Current operator knobs outside `stateSpace`
 

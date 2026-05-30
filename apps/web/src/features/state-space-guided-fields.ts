@@ -10,8 +10,8 @@ type BreadthKey = keyof BoardStateSpaceConfig["breadth"];
 type ObservationModelKey = keyof BoardStateSpaceConfig["observationModel"];
 type AnchorKey = keyof BoardStateSpaceConfig["anchors"];
 type DynamicsKey = keyof BoardStateSpaceConfig["dynamics"];
-type ObservationNoiseKey = keyof BoardStateSpaceConfig["observationNoise"];
-type VarianceKey = keyof BoardStateSpaceConfig["variance"];
+type SourceTrustKey = keyof BoardStateSpaceConfig["sourceTrust"];
+type ScaleKey = keyof BoardStateSpaceConfig["scale"];
 
 type StateSpaceField =
   | {
@@ -35,12 +35,12 @@ type StateSpaceField =
       readonly key: DynamicsKey;
     }
   | {
-      readonly section: "observationNoise";
-      readonly key: ObservationNoiseKey;
+      readonly section: "sourceTrust";
+      readonly key: SourceTrustKey;
     }
   | {
-      readonly section: "variance";
-      readonly key: VarianceKey;
+      readonly section: "scale";
+      readonly key: ScaleKey;
     };
 
 export type StateSpaceGuidedGroupId =
@@ -49,8 +49,8 @@ export type StateSpaceGuidedGroupId =
   | "observationModel"
   | "anchors"
   | "dynamics"
-  | "observationNoise"
-  | "variance";
+  | "sourceTrust"
+  | "scale";
 
 export type StateSpaceGuidedFieldDef = StateSpaceField & {
   readonly id: string;
@@ -91,17 +91,17 @@ export const STATE_SPACE_GUIDED_GROUPS: ReadonlyArray<{
   {
     id: "dynamics",
     label: "State dynamics",
-    help: "How fast the latent level, trend, and adaptation terms can move.",
+    help: "How fast the latent baseline level and short-term trend can move.",
   },
   {
-    id: "observationNoise",
-    label: "Observation noise",
-    help: "How source dominance, agreement, and breadth affect measurement trust.",
+    id: "sourceTrust",
+    label: "Source trust",
+    help: "How source dominance, agreement, and count make a bucket harder or easier to fire.",
   },
   {
-    id: "variance",
-    label: "Variance regime",
-    help: "How strongly surprises lift, preserve, and cool the latent volatility regime.",
+    id: "scale",
+    label: "Surprise scale",
+    help: "The robust trailing dispersion of the board's own moves that a new bucket is judged against.",
   },
 ];
 
@@ -289,39 +289,6 @@ export const STATE_SPACE_GUIDED_FIELDS: ReadonlyArray<StateSpaceGuidedFieldDef> 
     step: 0.01,
   },
   {
-    id: "dynamics-varianceAdaptationBase",
-    groupId: "dynamics",
-    section: "dynamics",
-    key: "varianceAdaptationBase",
-    label: "Regime lift base",
-    help: "Base size of the volatility-regime update after a positive surprise.",
-    min: 0,
-    max: 5,
-    step: 0.01,
-  },
-  {
-    id: "dynamics-varianceAdaptationScale",
-    groupId: "dynamics",
-    section: "dynamics",
-    key: "varianceAdaptationScale",
-    label: "Regime lift scale",
-    help: "How strongly shorter memory horizons amplify regime adaptation.",
-    min: 0,
-    max: 10,
-    step: 0.01,
-  },
-  {
-    id: "dynamics-varianceAdaptationOffset",
-    groupId: "dynamics",
-    section: "dynamics",
-    key: "varianceAdaptationOffset",
-    label: "Regime lift offset",
-    help: "Offset term that softens the memory dependence of regime adaptation.",
-    min: 0,
-    max: 200,
-    step: 1,
-  },
-  {
     id: "dynamics-initialLevelVariance",
     groupId: "dynamics",
     section: "dynamics",
@@ -344,42 +311,31 @@ export const STATE_SPACE_GUIDED_FIELDS: ReadonlyArray<StateSpaceGuidedFieldDef> 
     step: 0.01,
   },
   {
-    id: "dynamics-initialVarianceFloor",
-    groupId: "dynamics",
-    section: "dynamics",
-    key: "initialVarianceFloor",
-    label: "Initial regime floor",
-    help: "Smallest starting latent variance before the first update arrives.",
-    min: 1e-9,
-    max: 10,
-    step: 0.001,
-  },
-  {
-    id: "observationNoise-floor",
-    groupId: "observationNoise",
-    section: "observationNoise",
-    key: "floor",
-    label: "Noise floor",
-    help: "Base measurement-noise level before source dominance and agreement adjustments.",
-    min: 1e-9,
-    max: 5,
-    step: 0.001,
-  },
-  {
-    id: "observationNoise-minimum",
-    groupId: "observationNoise",
-    section: "observationNoise",
-    key: "minimum",
-    label: "Noise minimum",
-    help: "Hard lower bound on measurement noise after all bonuses and penalties.",
-    min: 1e-12,
+    id: "sourceTrust-minMultiplier",
+    groupId: "sourceTrust",
+    section: "sourceTrust",
+    key: "minMultiplier",
+    label: "Max trust (scale floor)",
+    help: "Most a fully-agreeing multi-source bucket can shrink the surprise scale (easiest to fire).",
+    min: 0.05,
     max: 1,
-    step: 1e-6,
+    step: 0.01,
   },
   {
-    id: "observationNoise-singleSourceDominance",
-    groupId: "observationNoise",
-    section: "observationNoise",
+    id: "sourceTrust-maxMultiplier",
+    groupId: "sourceTrust",
+    section: "sourceTrust",
+    key: "maxMultiplier",
+    label: "Max distrust (scale cap)",
+    help: "Most a single-book-dominated bucket can inflate the surprise scale (hardest to fire).",
+    min: 1,
+    max: 10,
+    step: 0.05,
+  },
+  {
+    id: "sourceTrust-singleSourceDominance",
+    groupId: "sourceTrust",
+    section: "sourceTrust",
     key: "singleSourceDominance",
     label: "Single-source dominance",
     help: "Dominance score assumed when only one source is present in a bucket.",
@@ -388,9 +344,9 @@ export const STATE_SPACE_GUIDED_FIELDS: ReadonlyArray<StateSpaceGuidedFieldDef> 
     step: 0.01,
   },
   {
-    id: "observationNoise-multiSourceDominanceFallback",
-    groupId: "observationNoise",
-    section: "observationNoise",
+    id: "sourceTrust-multiSourceDominanceFallback",
+    groupId: "sourceTrust",
+    section: "sourceTrust",
     key: "multiSourceDominanceFallback",
     label: "Multi-source dominance fallback",
     help: "Fallback dominance score used when multiple sources exist but no split is available.",
@@ -399,33 +355,33 @@ export const STATE_SPACE_GUIDED_FIELDS: ReadonlyArray<StateSpaceGuidedFieldDef> 
     step: 0.01,
   },
   {
-    id: "observationNoise-sourceDominancePenalty",
-    groupId: "observationNoise",
-    section: "observationNoise",
+    id: "sourceTrust-sourceDominancePenalty",
+    groupId: "sourceTrust",
+    section: "sourceTrust",
     key: "sourceDominancePenalty",
     label: "Single-source penalty",
-    help: "How much extra doubt to add when one source dominates the bucket.",
+    help: "How much a dominant single book inflates the surprise scale (harder to fire).",
     min: 0,
     max: 10,
     step: 0.05,
     explainerId: "settings-state-space-single-source-penalty",
   },
   {
-    id: "observationNoise-sourceAgreementBonus",
-    groupId: "observationNoise",
-    section: "observationNoise",
+    id: "sourceTrust-sourceAgreementBonus",
+    groupId: "sourceTrust",
+    section: "sourceTrust",
     key: "sourceAgreementBonus",
     label: "Cross-source bonus",
-    help: "How much to trust the bucket more when multiple sources are moving together.",
+    help: "How much agreeing sources shrink the surprise scale (easier to fire) when they move together.",
     min: 0,
     max: 10,
     step: 0.05,
     explainerId: "settings-state-space-cross-source-bonus",
   },
   {
-    id: "observationNoise-sourceCountBonus",
-    groupId: "observationNoise",
-    section: "observationNoise",
+    id: "sourceTrust-sourceCountBonus",
+    groupId: "sourceTrust",
+    section: "sourceTrust",
     key: "sourceCountBonus",
     label: "Source-count bonus",
     help: "How much extra trust to add as more independent sources participate.",
@@ -434,9 +390,9 @@ export const STATE_SPACE_GUIDED_FIELDS: ReadonlyArray<StateSpaceGuidedFieldDef> 
     step: 0.01,
   },
   {
-    id: "observationNoise-sourceCountExponent",
-    groupId: "observationNoise",
-    section: "observationNoise",
+    id: "sourceTrust-sourceCountExponent",
+    groupId: "sourceTrust",
+    section: "sourceTrust",
     key: "sourceCountExponent",
     label: "Source-count exponent",
     help: "How aggressively the source-count bonus grows as more sources join the bucket.",
@@ -445,113 +401,48 @@ export const STATE_SPACE_GUIDED_FIELDS: ReadonlyArray<StateSpaceGuidedFieldDef> 
     step: 0.01,
   },
   {
-    id: "variance-madScale",
-    groupId: "variance",
-    section: "variance",
+    id: "scale-madScale",
+    groupId: "scale",
+    section: "scale",
     key: "madScale",
     label: "MAD scale",
-    help: "Scale factor used when robust spreads are converted from MAD space.",
+    help: "Multiplier turning the robust MAD of recent innovations into a surprise scale (1.4826 ≈ Gaussian SD).",
     min: 0.001,
     max: 10,
     step: 0.0001,
+    explainerId: "settings-state-space-surprise-scale",
   },
   {
-    id: "variance-floor",
-    groupId: "variance",
-    section: "variance",
-    key: "floor",
-    label: "Variance floor",
-    help: "Lowest allowed latent variance for the volatility regime.",
-    min: 1e-12,
-    max: 10,
-    step: 1e-6,
+    id: "scale-scaleFloor",
+    groupId: "scale",
+    section: "scale",
+    key: "scaleFloor",
+    label: "Scale floor",
+    help: "Smallest allowed surprise scale, so a near-flat stretch cannot make tiny moves look huge.",
+    min: 1e-6,
+    max: 5,
+    step: 0.001,
+    explainerId: "settings-state-space-scale-bounds",
   },
   {
-    id: "variance-ceiling",
-    groupId: "variance",
-    section: "variance",
-    key: "ceiling",
-    label: "Variance ceiling",
-    help: "Highest allowed latent variance before the regime saturates.",
-    min: 1e-9,
+    id: "scale-scaleCeiling",
+    groupId: "scale",
+    section: "scale",
+    key: "scaleCeiling",
+    label: "Scale ceiling",
+    help: "Largest allowed surprise scale, so sustained chaos still lets a genuine relative outlier through.",
+    min: 1e-3,
     max: 100,
     step: 0.01,
+    explainerId: "settings-state-space-scale-bounds",
   },
   {
-    id: "variance-decay",
-    groupId: "variance",
-    section: "variance",
-    key: "decay",
-    label: "Regime persistence",
-    help: "How slowly the elevated regime decays after a wild stretch.",
-    min: 0,
-    max: 1,
-    step: 0.005,
-    explainerId: "settings-state-space-regime-persistence",
-  },
-  {
-    id: "variance-bumpCap",
-    groupId: "variance",
-    section: "variance",
-    key: "bumpCap",
-    label: "Regime lift cap",
-    help: "Upper cap on how large one surprise can count in the regime-lift math.",
-    min: 0.001,
-    max: 100,
-    step: 0.01,
-  },
-  {
-    id: "variance-bumpCenter",
-    groupId: "variance",
-    section: "variance",
-    key: "bumpCenter",
-    label: "Regime lift threshold",
-    help: "How big a standardized surprise must be before the model raises its internal volatility regime.",
-    min: 0,
-    max: 20,
-    step: 0.1,
-    explainerId: "settings-state-space-regime-lift-threshold",
-  },
-  {
-    id: "variance-innovationPower",
-    groupId: "variance",
-    section: "variance",
-    key: "innovationPower",
-    label: "Regime lift power",
-    help: "How sharply larger surprises count more than smaller ones when lifting the regime.",
-    min: 0.25,
-    max: 4,
-    step: 0.01,
-  },
-  {
-    id: "variance-agreementBase",
-    groupId: "variance",
-    section: "variance",
-    key: "agreementBase",
-    label: "Agreement base",
-    help: "Base multiplier on regime lift before cross-source agreement adds more weight.",
-    min: 0,
-    max: 10,
-    step: 0.01,
-  },
-  {
-    id: "variance-agreementScale",
-    groupId: "variance",
-    section: "variance",
-    key: "agreementScale",
-    label: "Agreement scale",
-    help: "How much source agreement amplifies the volatility-regime update.",
-    min: 0,
-    max: 10,
-    step: 0.01,
-  },
-  {
-    id: "variance-baselineMadFloor",
-    groupId: "variance",
-    section: "variance",
-    key: "baselineMadFloor",
-    label: "Baseline MAD floor",
-    help: "Lower bound used when translating the filter threshold back into an intensity-space MAD line.",
+    id: "scale-baselineSpreadFloor",
+    groupId: "scale",
+    section: "scale",
+    key: "baselineSpreadFloor",
+    label: "Baseline spread floor",
+    help: "Lower bound on the displayed intensity-space baseline spread used to draw the threshold line.",
     min: 1e-12,
     max: 1,
     step: 1e-9,
@@ -573,10 +464,10 @@ export function readStateSpaceFieldValue(
       return config.anchors[field.key];
     case "dynamics":
       return config.dynamics[field.key];
-    case "observationNoise":
-      return config.observationNoise[field.key];
-    case "variance":
-      return config.variance[field.key];
+    case "sourceTrust":
+      return config.sourceTrust[field.key];
+    case "scale":
+      return config.scale[field.key];
   }
   throw new Error("Unhandled state-space field");
 }
@@ -616,15 +507,15 @@ export function writeStateSpaceFieldValue(
         ...config,
         dynamics: { ...config.dynamics, [field.key]: nextValue },
       });
-    case "observationNoise":
+    case "sourceTrust":
       return BoardStateSpaceConfigSchema.parse({
         ...config,
-        observationNoise: { ...config.observationNoise, [field.key]: nextValue },
+        sourceTrust: { ...config.sourceTrust, [field.key]: nextValue },
       });
-    case "variance":
+    case "scale":
       return BoardStateSpaceConfigSchema.parse({
         ...config,
-        variance: { ...config.variance, [field.key]: nextValue },
+        scale: { ...config.scale, [field.key]: nextValue },
       });
   }
   throw new Error("Unhandled state-space field");

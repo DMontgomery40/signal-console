@@ -38,7 +38,7 @@ import {
   isBoardMadPrebucketField,
   BOARD_MAD_DETECTOR_ID,
   ENSEMBLE_OR_DETECTOR_ID,
-} from "./clientRecompute";
+} from "./boardMadDetectorIds";
 import { BacktestTimelines } from "./BacktestTimelines";
 import { SensitivityDial } from "./SensitivityDial";
 import { MemoryDial } from "./MemoryDial";
@@ -893,7 +893,17 @@ export function BacktestPage(): JSX.Element {
     if (field === undefined) return;
     const parsed = Number.parseFloat(raw);
     if (!Number.isFinite(parsed)) return;
-    updateBoardStateSpaceConfig(writeStateSpaceFieldValue(currentStateSpace, field, parsed));
+    // writeStateSpaceFieldValue re-parses the whole config (cross-field rules
+    // such as scaleFloor <= scaleCeiling). A mid-edit value that inverts that
+    // ordering throws; surface it and keep the prior valid config rather than
+    // crashing the page.
+    try {
+      updateBoardStateSpaceConfig(writeStateSpaceFieldValue(currentStateSpace, field, parsed));
+    } catch {
+      setStateSpaceError(
+        "That value is invalid for the model schema (for example, scaleFloor must stay below or equal to scaleCeiling).",
+      );
+    }
   }
 
   function applyBoardProfile(profileId: BoardProfileId): void {
@@ -1448,9 +1458,16 @@ export function BacktestPage(): JSX.Element {
                   }}
                 />
                 <p className="max-w-[42ch] text-center text-xs text-text-md">
-                  The center readout is estimated fires per game for the last run. It updates in
-                  memory as the trigger moves.
+                  The center readout is estimated fires per game from the last run.
                 </p>
+                {stale ? (
+                  <p
+                    data-testid="backtest-sensitivity-stale-note"
+                    className="max-w-[42ch] text-center text-xs text-accent-yellow"
+                  >
+                    Trigger or timing changed since then — re-run to refresh fires/game.
+                  </p>
+                ) : null}
               </div>
               <div
                 className="border border-surface-2 bg-surface-0-from/70 px-4 py-5 sm:px-5"
@@ -1585,8 +1602,8 @@ export function BacktestPage(): JSX.Element {
 
         {selectedDetector?.id === BOARD_MAD_DETECTOR_ID ? (
           <p data-testid="backtest-recompute-hint" className="text-xs text-text-lo max-w-[64ch]">
-            Trigger and board-model timing recompute in memory after the first run. Changing
-            bucketSeconds, weighting, or freshCapSeconds requires re-running.
+            Changing any parameter after a run — including the trigger and board-model timing —
+            marks the result stale. Re-run the backtest to refresh fires/game.
           </p>
         ) : null}
       </form>
