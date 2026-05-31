@@ -20,9 +20,11 @@ import {
   listPlayerPropDisagreementAlerts,
   listResearchDivergence,
   listSignalMismatches,
+  listPbpAttributionTransitions,
   recordGameStateObservation,
   recordMarketMicrostructureEvent,
   recordNbaPlayByPlayActions,
+  recordNbaPlayByPlayRevisions,
   recordQuoteObservation,
   recordRawPayload,
   resetDatabase,
@@ -254,6 +256,52 @@ describe("live repository", () => {
     expect(bare.person_id).toBeNull();
     expect(bare.player_name).toBeNull();
     expect(bare.sub_type).toBeNull();
+  });
+
+  it("recovers a credited->rightful correction by diffing versioned PBP revisions", () => {
+    seedLiveRepositoryGame();
+    const gameId = "nba-bos-nyk-2026-04-21";
+    // snapshot 1: action 416 live-credited to Merrill (personId 100)
+    const snap1 = recordNbaPlayByPlayRevisions({
+      gameId,
+      capturedAt: "2026-04-21T23:41:00.000Z",
+      actions: [
+        { actionNumber: 416, actionType: "rebound", subType: "offensive", personId: 100, playerName: "S. Merrill" },
+        { actionNumber: 417, actionType: "rebound", personId: 300, playerName: "J. Tatum" },
+      ],
+    });
+    expect(snap1.revisionsWritten).toBe(2);
+    // re-running the SAME snapshot is idempotent (no new revisions)
+    expect(
+      recordNbaPlayByPlayRevisions({
+        gameId,
+        capturedAt: "2026-04-21T23:41:00.000Z",
+        actions: [
+          { actionNumber: 416, actionType: "rebound", subType: "offensive", personId: 100, playerName: "S. Merrill" },
+        ],
+      }).revisionsWritten,
+    ).toBe(0);
+    // snapshot 2 (later): action 416 corrected to Allen (personId 200); 417 unchanged
+    recordNbaPlayByPlayRevisions({
+      gameId,
+      capturedAt: "2026-04-21T23:55:00.000Z",
+      actions: [
+        { actionNumber: 416, actionType: "rebound", subType: "offensive", personId: 200, playerName: "J. Allen" },
+        { actionNumber: 417, actionType: "rebound", personId: 300, playerName: "J. Tatum" },
+      ],
+    });
+
+    const transitions = listPbpAttributionTransitions(gameId);
+    // exactly one transition: action 416 Merrill->Allen; 417 never changed
+    expect(transitions).toHaveLength(1);
+    const t = transitions[0];
+    expect(t.actionNumber).toBe(416);
+    expect(t.fromPersonId).toBe(100);
+    expect(t.toPersonId).toBe(200);
+    expect(t.fromPlayer).toBe("S. Merrill");
+    expect(t.toPlayer).toBe("J. Allen");
+    expect(t.firstSeenAt).toBe("2026-04-21T23:41:00.000Z");
+    expect(t.changedAt).toBe("2026-04-21T23:55:00.000Z");
   });
 
   it("ignores scheduled regressions after a game has started or finished", () => {

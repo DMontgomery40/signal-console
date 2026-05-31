@@ -2,7 +2,7 @@ import { DatabaseFailureError } from "./errors";
 
 import type Database from "better-sqlite3";
 
-export const currentSchemaVersion = 15;
+export const currentSchemaVersion = 16;
 
 function nowIso() {
   return new Date().toISOString();
@@ -356,6 +356,10 @@ export function applyMigrations(db: Database.Database, dbPath: string) {
 
   if (getAppliedVersion(db) < 15) {
     applyNbaPlayByPlayAttributionColumns(db);
+  }
+
+  if (getAppliedVersion(db) < 16) {
+    applyNbaPlayByPlayRevisionShadow(db);
   }
 }
 
@@ -754,5 +758,39 @@ function applyNbaPlayByPlayAttributionColumns(db: Database.Database) {
     }
 
     insertMigration(db, 15, "nba-play-by-play-attribution-columns");
+  })();
+}
+
+function applyNbaPlayByPlayRevisionShadow(db: Database.Database) {
+  db.transaction(() => {
+    // Versioned shadow of play-by-play: stores EVERY re-snapshot revision keyed
+    // (game_id, action_number, captured_at), unlike nba_play_by_play_actions
+    // which keeps only the latest (upsert). This is the label engine: NBA stat
+    // corrections are silent edits with no official feed, so the credited->rightful
+    // transition is recovered by DIFFING revisions of the same action across
+    // captured_at. Append-only; never overwrites a prior revision.
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS nba_pbp_revisions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        game_id TEXT NOT NULL,
+        action_number INTEGER NOT NULL,
+        captured_at TEXT NOT NULL,
+        action_type TEXT,
+        sub_type TEXT,
+        person_id INTEGER,
+        player_name TEXT,
+        period INTEGER,
+        clock TEXT,
+        description TEXT,
+        time_actual TEXT,
+        FOREIGN KEY (game_id) REFERENCES games(id) ON DELETE CASCADE,
+        UNIQUE (game_id, action_number, captured_at)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_nba_pbp_revisions_action
+        ON nba_pbp_revisions(game_id, action_number, captured_at);
+    `);
+
+    insertMigration(db, 16, "nba-play-by-play-revision-shadow");
   })();
 }

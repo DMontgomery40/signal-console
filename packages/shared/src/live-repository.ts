@@ -2632,6 +2632,147 @@ export function recordNbaPlayByPlayActions(input: {
   );
 }
 
+/**
+ * Append a play-by-play snapshot revision to the versioned shadow table. Unlike
+ * recordNbaPlayByPlayActions (latest-only upsert), every (game_id, action_number,
+ * captured_at) is preserved, so re-snapshots accumulate and the credited->rightful
+ * correction can be recovered by diffing. Idempotent per snapshot (INSERT OR
+ * IGNORE on the triple key), so re-running the same snapshot is a no-op.
+ */
+export function recordNbaPlayByPlayRevisions(input: {
+  actions: NbaPlayByPlayActionInput[];
+  capturedAt: string;
+  gameId: string;
+}) {
+  return executeDatabaseOperation(
+    "nbaPlayByPlayRevisions.append",
+    () => {
+      const db = getDatabase();
+      const statement = db.prepare(
+        `
+          INSERT OR IGNORE INTO nba_pbp_revisions (
+            game_id,
+            action_number,
+            captured_at,
+            action_type,
+            sub_type,
+            person_id,
+            player_name,
+            period,
+            clock,
+            description,
+            time_actual
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `,
+      );
+      const run = db.transaction(() => {
+        let written = 0;
+        for (const action of input.actions) {
+          if (!Number.isFinite(action.actionNumber)) continue;
+          const result = statement.run(
+            input.gameId,
+            action.actionNumber,
+            input.capturedAt,
+            action.actionType ?? null,
+            action.subType ?? null,
+            action.personId ?? null,
+            action.playerName ?? null,
+            action.period ?? null,
+            action.clock ?? null,
+            action.description ?? null,
+            action.timeActual ?? null,
+          );
+          written += result.changes;
+        }
+        return written;
+      });
+      return { actionsSeen: input.actions.length, revisionsWritten: run() };
+    },
+    {
+      gameId: input.gameId,
+    },
+  );
+}
+
+export interface PbpAttributionTransition {
+  actionNumber: number;
+  fromPersonId: number | null;
+  toPersonId: number | null;
+  fromPlayer: string | null;
+  toPlayer: string | null;
+  firstSeenAt: string;
+  changedAt: string;
+}
+
+/**
+ * Recover candidate miscredit-correction LABELS by diffing revisions of the same
+ * action across captured_at. An action whose credited person_id changes between
+ * consecutive snapshots (or player_name, when ids are absent) is a
+ * credited->rightful transition with latency = changedAt - firstSeenAt. This is
+ * the label engine for the attribution re-ranker; NBA stat corrections are silent
+ * edits with no official feed, so the transition IS the label.
+ */
+export function listPbpAttributionTransitions(gameId: string): PbpAttributionTransition[] {
+  return executeDatabaseOperation(
+    "nbaPlayByPlayRevisions.transitions",
+    () => {
+      const db = getDatabase();
+      const rows = db
+        .prepare(
+          `
+          SELECT action_number, captured_at, person_id, player_name
+          FROM nba_pbp_revisions
+          WHERE game_id = ?
+          ORDER BY action_number ASC, captured_at ASC
+        `,
+        )
+        .all(gameId) as Array<{
+        action_number: number;
+        captured_at: string;
+        person_id: number | null;
+        player_name: string | null;
+      }>;
+
+      const byAction = new Map<number, typeof rows>();
+      for (const row of rows) {
+        const list = byAction.get(row.action_number);
+        if (list) list.push(row);
+        else byAction.set(row.action_number, [row]);
+      }
+
+      const transitions: PbpAttributionTransition[] = [];
+      for (const [actionNumber, revs] of byAction) {
+        for (let k = 1; k < revs.length; k += 1) {
+          const a = revs[k - 1];
+          const b = revs[k];
+          const idChanged =
+            a.person_id !== b.person_id && (a.person_id !== null || b.person_id !== null);
+          const nameChanged =
+            a.person_id === null &&
+            b.person_id === null &&
+            (a.player_name ?? null) !== (b.player_name ?? null);
+          if (idChanged || nameChanged) {
+            transitions.push({
+              actionNumber,
+              fromPersonId: a.person_id,
+              toPersonId: b.person_id,
+              fromPlayer: a.player_name,
+              toPlayer: b.player_name,
+              firstSeenAt: a.captured_at,
+              changedAt: b.captured_at,
+            });
+          }
+        }
+      }
+      return transitions;
+    },
+    {
+      gameId,
+    },
+  );
+}
+
 export function upsertMarketInstrument(instrument: MarketInstrument) {
   executeDatabaseOperation(
     "marketInstruments.upsert",
