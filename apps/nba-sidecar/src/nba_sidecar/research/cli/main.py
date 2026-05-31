@@ -20,6 +20,7 @@ from ..evaluation.artifacts import (
     render_report_md_from_artifacts,
     write_run,
 )
+from ..evaluation.separation import report_to_dict, run_separation
 from ..models import get_model, list_models as registry_list_models
 from .bootstrap import (
     DEFAULT_NOTEBOOK_PATH,
@@ -149,6 +150,16 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     return 0 if result["ok"] else 1
 
 
+def cmd_separation(args: argparse.Namespace) -> int:
+    report = run_separation(
+        args.snapshot,
+        control_percentile=args.control_percentile,
+        movement_floor=args.movement_floor,
+    )
+    _print_json(report_to_dict(report))
+    return 0 if report.support == "ok" else 1
+
+
 def cmd_bootstrap(args: argparse.Namespace) -> int:
     notebook_path = Path(args.out) if args.out else DEFAULT_NOTEBOOK_PATH
     snapshot_path = Path(args.snapshot) if args.snapshot else DEFAULT_SNAPSHOT_PATH
@@ -211,6 +222,21 @@ def build_parser() -> argparse.ArgumentParser:
     p_doc = sub.add_parser("doctor", help="coverage/leakage/scoreability preflight")
     p_doc.add_argument("snapshot")
     p_doc.set_defaults(func=cmd_doctor)
+
+    p_sep = sub.add_parser(
+        "separation",
+        help="incident-alignment: does any feature separate incidents from equally-large non-incident moves?",
+    )
+    p_sep.add_argument("snapshot")
+    p_sep.add_argument(
+        "--control-percentile", type=float, default=90.0,
+        help="intensity percentile defining the equally-large non-incident control set (default 90)",
+    )
+    p_sep.add_argument(
+        "--movement-floor", type=float, default=1.0,
+        help="intensity below which an incident window counts as 'no board move' (default 1.0)",
+    )
+    p_sep.set_defaults(func=cmd_separation)
 
     p_boot = sub.add_parser(
         "bootstrap",
