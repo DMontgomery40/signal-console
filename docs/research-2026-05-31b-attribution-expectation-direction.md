@@ -114,3 +114,22 @@ Build only what the evidence supports; JEPA stays an explicit untrained scaffold
 4. **Harvest pipeline (running):** PBP-verified web stream + (follow-on) programmatic
    PBP-vs-final-boxscore discrepancy mining across the 1,260-game gold corpus, to grow N.
 5. **JEPA-like gamestate embedding:** explicit, untrained scaffold/option only — not built.
+
+## Update (2026-05-31, evening) — directed-paired gate + DB attribution shipped
+- **Probe 6 (directed signed-paired gate, the core of Approach A):** around each incident, does the
+  *rightful* prop drift toward its over while the *credited* prop drifts against? **Mostly ABSTAINS**:
+  the wrongly-credited player is usually an illiquid role player (no rebound-prop ticks), so the
+  credited leg — the discriminating half — is unobservable at this N. The rightful-star leg, where
+  observable, moved in the correct direction (Wembanyama over +0.155 / +0.181 at his corrections),
+  consistent-but-not-confirmed. ⇒ the binding gate is **labels + credited-side liquidity**, not model
+  cleverness — exactly the control-corpus posture in scratchpad (II)c.
+- **Shipped (committed, branch `research/miscredit-attribution-20260531`, not pushed):**
+  (a) structured PBP attribution end-to-end — sidecar normalizer → worker → gold DB **migration 15**
+  (`person_id`/`player_name`/`sub_type`) → writer → `v_events`; (b) re-ingested the 9 playoff incident
+  games via `scripts/backfill-pbp-attribution.ts` (action 416 of 0042500312 now exactly
+  `V. Wembanyama / offensive`, not regex-bait); (c) `models.json` emission so the /research Model lab
+  shows the real registry.
+- **Next (in order):** versioned snapshot-diff **label harvester** (the only label engine; gold PBP keeps
+  no revision history); a **per-player prop-tick snapshot feature extension** (Path-B) so the re-ranker
+  has its inputs; the **signed-paired re-ranker + conformal abstention** as a Quant Lab plugin **and**
+  its /research portal surfaces (API route + ResearchPage section) — front and back.
