@@ -22,6 +22,7 @@ import {
   listSignalMismatches,
   recordGameStateObservation,
   recordMarketMicrostructureEvent,
+  recordNbaPlayByPlayActions,
   recordQuoteObservation,
   recordRawPayload,
   resetDatabase,
@@ -214,6 +215,45 @@ describe("live repository", () => {
     if (tempDir) {
       rmSync(tempDir, { recursive: true, force: true });
     }
+  });
+
+  it("persists structured PBP attribution (personId/playerName/subType) through migration 15", () => {
+    seedLiveRepositoryGame();
+    recordNbaPlayByPlayActions({
+      gameId: "nba-bos-nyk-2026-04-21",
+      capturedAt: "2026-04-21T23:41:00.000Z",
+      actions: [
+        {
+          actionNumber: 416,
+          actionType: "rebound",
+          subType: "offensive",
+          personId: 1641705,
+          playerName: "V. Wembanyama",
+          description: "V. Wembanyama REBOUND",
+        },
+        { actionNumber: 417, actionType: "timeout" },
+      ],
+    });
+    const db = getDatabase();
+    const row = db
+      .prepare(
+        "SELECT person_id, player_name, sub_type FROM nba_play_by_play_actions WHERE game_id = ? AND action_number = 416",
+      )
+      .get("nba-bos-nyk-2026-04-21") as {
+      person_id: number | null;
+      player_name: string | null;
+      sub_type: string | null;
+    };
+    expect(row.person_id).toBe(1641705);
+    expect(row.player_name).toBe("V. Wembanyama");
+    expect(row.sub_type).toBe("offensive");
+    // unattributed action -> null attribution, not an error
+    const bare = db
+      .prepare("SELECT person_id, player_name, sub_type FROM nba_play_by_play_actions WHERE action_number = 417")
+      .get() as { person_id: number | null; player_name: string | null; sub_type: string | null };
+    expect(bare.person_id).toBeNull();
+    expect(bare.player_name).toBeNull();
+    expect(bare.sub_type).toBeNull();
   });
 
   it("ignores scheduled regressions after a game has started or finished", () => {

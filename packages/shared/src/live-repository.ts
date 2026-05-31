@@ -2536,6 +2536,9 @@ export function recordGameStateObservation(input: Omit<CanonicalGameState, "id">
 export type NbaPlayByPlayActionInput = {
   actionNumber: number;
   actionType?: string | null;
+  subType?: string | null;
+  personId?: number | null;
+  playerName?: string | null;
   clock?: string | null;
   description?: string | null;
   period?: number | null;
@@ -2561,6 +2564,9 @@ export function recordNbaPlayByPlayActions(input: {
             game_id,
             action_number,
             action_type,
+            sub_type,
+            person_id,
+            player_name,
             period,
             clock,
             description,
@@ -2571,9 +2577,12 @@ export function recordNbaPlayByPlayActions(input: {
             captured_at,
             raw_metadata_json
           )
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT(game_id, action_number) DO UPDATE SET
             action_type = excluded.action_type,
+            sub_type = excluded.sub_type,
+            person_id = excluded.person_id,
+            player_name = excluded.player_name,
             period = excluded.period,
             clock = excluded.clock,
             description = excluded.description,
@@ -2594,6 +2603,9 @@ export function recordNbaPlayByPlayActions(input: {
             input.gameId,
             action.actionNumber,
             action.actionType ?? null,
+            action.subType ?? null,
+            action.personId ?? null,
+            action.playerName ?? null,
             action.period ?? null,
             action.clock ?? null,
             action.description ?? null,

@@ -2,7 +2,7 @@ import { DatabaseFailureError } from "./errors";
 
 import type Database from "better-sqlite3";
 
-export const currentSchemaVersion = 14;
+export const currentSchemaVersion = 15;
 
 function nowIso() {
   return new Date().toISOString();
@@ -352,6 +352,10 @@ export function applyMigrations(db: Database.Database, dbPath: string) {
 
   if (getAppliedVersion(db) < 14) {
     applyBoardVolatilityBaselineStorage(db);
+  }
+
+  if (getAppliedVersion(db) < 15) {
+    applyNbaPlayByPlayAttributionColumns(db);
   }
 }
 
@@ -726,5 +730,29 @@ function applyBoardVolatilityBaselineStorage(db: Database.Database) {
     `);
 
     insertMigration(db, 14, "board-volatility-baseline-storage");
+  })();
+}
+
+function applyNbaPlayByPlayAttributionColumns(db: Database.Database) {
+  db.transaction(() => {
+    // Structured live attribution (the credit a misattribution moves between
+    // players). Previously stripped pre-persistence, leaving only free-text
+    // `description`. Additive + nullable so existing rows are unaffected;
+    // populated going forward + on re-ingest.
+    const columns = db.prepare(`PRAGMA table_info('nba_play_by_play_actions')`).all() as Array<{
+      name: string;
+    }>;
+    const has = (name: string) => columns.some((c) => c.name === name);
+    if (!has("person_id")) {
+      db.exec(`ALTER TABLE nba_play_by_play_actions ADD COLUMN person_id INTEGER;`);
+    }
+    if (!has("player_name")) {
+      db.exec(`ALTER TABLE nba_play_by_play_actions ADD COLUMN player_name TEXT;`);
+    }
+    if (!has("sub_type")) {
+      db.exec(`ALTER TABLE nba_play_by_play_actions ADD COLUMN sub_type TEXT;`);
+    }
+
+    insertMigration(db, 15, "nba-play-by-play-attribution-columns");
   })();
 }

@@ -47,6 +47,9 @@ type SidecarGameOutcome = {
 type SidecarPlayByPlayAction = {
   actionNumber?: number | null;
   actionType?: string | null;
+  subType?: string | null;
+  personId?: number | null;
+  playerName?: string | null;
   clock?: string | null;
   description?: string | null;
   period?: number | null;
