@@ -3346,6 +3346,10 @@ export function enqueueResearchPull(payload: AdminActionPayload) {
   return enqueueAdminAction("research-pull", payload);
 }
 
+export function enqueueResearchExport(payload: AdminActionPayload) {
+  return enqueueAdminAction("research-export", payload);
+}
+
 export function claimNextQueuedAdminAction() {
   return executeDatabaseOperation("adminActions.claimNext", () => {
     const db = getDatabase();

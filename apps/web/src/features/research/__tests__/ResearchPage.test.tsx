@@ -1,11 +1,19 @@
 // ResearchPage tests.
 //
+// The page is gold-DB-first: a 31GB golden SQLite DB already holds the canonical
+// sources, so Export (the PRIMARY yellow CTA) reads it directly and is enabled
+// whenever the gold DB is present — NOT gated on an existing snapshot. Pull is
+// demoted to a secondary "Add/repair source data" action for sources not in the
+// gold DB or new date windows.
+//
 // The page reads the read-only /v1/research/* API via queries.ts hooks
-// (useResearchSources / Snapshot / Leaderboard / Models / Pulls) and writes via
-// POST /v1/research/pull. The fetch mock routes by URL prefix across all of
-// them (mirrors DetectorsPage.test's harness). Coverage:
-//   - empty state: no artifacts -> right CTAs disabled, NO fabricated numbers,
-//     honest "no artifacts" warning + the "not live" leaderboard framing.
+// (useResearchGold / Sources / Snapshot / Leaderboard / Models / Pulls) and
+// writes via POST /v1/research/export ({ jobId }) and POST /v1/research/pull
+// ({ job_id }). The fetch mock routes by URL prefix across all of them. Coverage:
+//   - gold status renders (path, humanized size, game count) when present, and
+//     an honest "Gold DB not found" line with NO fabricated numbers when absent.
+//   - empty state: gold present + no snapshot -> Export ENABLED, honest
+//     export-first prompt (NOT "no artifacts"), "not live" leaderboard framing.
 //   - mocked artifacts: source matrix, pull job, snapshot + doctor summary,
 //     models, leaderboard all render.
 //   - dry-run validation enforces the odds-api.io rules (one-bookmaker,
@@ -13,7 +21,7 @@
 //   - copy separates canonical vs artifact-only in the dry-run preview.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { JSX, ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
@@ -48,6 +56,28 @@ function urlOf(input: Parameters<FetchFn>[0]): string {
 function isDisabled(el: HTMLElement): boolean {
   return el instanceof HTMLButtonElement ? el.disabled : el.hasAttribute("disabled");
 }
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+// Gold-DB status fixtures. The default is a present 31GB-scale gold DB with the
+// canonical 1256-game corpus; the absent variant returns present:false with
+// zeroed numerics and gameCount:null (the route NEVER throws on a missing DB).
+const GOLD_RESPONSE = {
+  present: true,
+  path: "/data/signal-console.sqlite",
+  sizeBytes: 33_285_996_544, // ≈31 GB
+  lastModified: "2026-05-28T22:10:00Z",
+  gameCount: 1256,
+};
+const GOLD_ABSENT_RESPONSE = {
+  present: false,
+  path: "/data/signal-console.sqlite",
+  sizeBytes: 0,
+  lastModified: "",
+  gameCount: null,
+};
 
 // The capability matrix is shipped by the API from the shared package; this
 // fixture is the live shape (snapshot-eligible / artifact-only / pending).
@@ -132,6 +162,7 @@ const PULLS_RESPONSE = {
 };
 
 interface MockShape {
+  readonly gold?: unknown;
   readonly sources?: unknown;
   readonly snapshot?: unknown;
   readonly leaderboard?: unknown;
@@ -154,6 +185,7 @@ describe("ResearchPage", () => {
   });
 
   function mockResearch(shape: MockShape = {}): void {
+    const gold = shape.gold ?? GOLD_RESPONSE;
     const sources = shape.sources ?? SOURCES_RESPONSE;
     const snapshot = shape.snapshot ?? EMPTY_SNAPSHOT;
     const leaderboard = shape.leaderboard ?? EMPTY_LEADERBOARD;
@@ -163,9 +195,15 @@ describe("ResearchPage", () => {
       await Promise.resolve();
       const url = urlOf(input);
       const method = (init?.method ?? "GET").toUpperCase();
+      // Export ({ jobId }) is checked before pull because both contain
+      // "/v1/research/" and the URLs are distinct.
+      if (method === "POST" && url.includes("/v1/research/export")) {
+        return jsonResponse({ jobId: "export-new-1" }, { status: 202 });
+      }
       if (method === "POST" && url.includes("/v1/research/pull")) {
         return jsonResponse({ job_id: "pull-new-1" }, { status: 202 });
       }
+      if (url.includes("/v1/research/gold")) return jsonResponse(gold);
       if (url.includes("/v1/research/sources")) return jsonResponse(sources);
       if (url.includes("/v1/research/snapshot/latest")) return jsonResponse(snapshot);
       if (url.includes("/v1/research/leaderboard/latest")) return jsonResponse(leaderboard);
@@ -175,32 +213,108 @@ describe("ResearchPage", () => {
     });
   }
 
-  it("renders the empty state with the right CTAs and NO fabricated numbers", async () => {
+  it("gold present + no snapshot: Export enabled, honest export-first prompt, NO fabricated numbers", async () => {
     mockResearch();
     render(<ResearchPage />, { wrapper: makeWrapper() });
 
-    // No-artifacts warning present.
-    const warning = await screen.findByTestId("research-no-artifacts");
-    expect(warning.textContent).toContain("No research artifacts yet");
+    // Gold IS present, so there is NO "no artifacts" warning; instead the honest
+    // export-first prompt that never implies we have no data.
+    const prompt = await screen.findByTestId("research-empty-prompt");
+    expect(prompt.textContent).toBe(
+      "Golden DB ready. Export a reproducible snapshot to start modeling.",
+    );
+    expect(screen.queryByTestId("research-no-artifacts")).toBeNull();
 
-    // Pull data is always enabled; Export + Open report disabled until a
-    // snapshot exists.
+    // Export is the PRIMARY CTA, ENABLED whenever the gold DB is present (NOT
+    // gated on a snapshot). Pull stays enabled (now "Add/repair source data").
+    // Open report disabled until a leaderboard/report exists.
+    expect(isDisabled(screen.getByTestId("research-cta-export"))).toBe(false);
     expect(isDisabled(screen.getByTestId("research-cta-pull"))).toBe(false);
-    expect(isDisabled(screen.getByTestId("research-cta-export"))).toBe(true);
+    expect(screen.getByTestId("research-cta-pull").textContent).toContain("Add/repair source data");
     expect(isDisabled(screen.getByTestId("research-cta-report"))).toBe(true);
 
     // Header reads "none", never a fabricated 0.
     expect(screen.getByTestId("research-latest-snapshot-id").textContent).toBe("none");
 
-    // Empty tables show honest one-liners, not zeroed rows.
-    expect(screen.getByTestId("research-pull-jobs-empty")).not.toBeNull();
-    expect(screen.getByTestId("research-snapshot-empty")).not.toBeNull();
+    // Empty tables show honest one-liners (export-first, never pull-blocked).
+    expect(screen.getByTestId("research-pull-jobs-empty").textContent).toContain(
+      "No add/repair jobs yet",
+    );
+    expect(screen.getByTestId("research-snapshot-empty").textContent).toContain("no pull needed");
     expect(screen.getByTestId("research-leaderboard-empty")).not.toBeNull();
     expect(screen.queryByTestId("research-leaderboard-row")).toBeNull();
     expect(screen.queryByTestId("research-pull-job-row")).toBeNull();
 
+    // Model lab shows the export-first empty state, not a pull prompt.
+    expect(screen.getByTestId("research-model-lab-empty").textContent).toContain("no pull needed");
+
     // No fabricated fires/game number anywhere in the empty page.
     expect(screen.queryByText(/fires\/game/i)).toBeNull();
+  });
+
+  it("renders the quant-guide panel with an honest Open link and a Copy CLI quickstart action", async () => {
+    mockResearch();
+    // jsdom has no clipboard; stub navigator with a writeText spy. The file's
+    // afterEach unstubs all globals, so this does not leak into other tests.
+    const writeText = vi.fn<(text: string) => Promise<void>>(() => Promise.resolve());
+    vi.stubGlobal("navigator", { clipboard: { writeText } });
+
+    render(<ResearchPage />, { wrapper: makeWrapper() });
+
+    const panel = await screen.findByTestId("research-quant-guide");
+    expect(panel.textContent).toContain("devs, traders, ops, and researchers");
+
+    // "Open Quant Guide" opens the API-served guide (GET /v1/research/guide),
+    // NOT a static docs path that would fall through to the SPA shell. The
+    // source file path is shown alongside so the link stays honest.
+    const open = screen.getByTestId("research-quant-guide-open");
+    expect(open.getAttribute("href")).toBe("/v1/research/guide");
+    expect(open.getAttribute("target")).toBe("_blank");
+    expect(open.getAttribute("rel")).toContain("noopener");
+    expect(panel.textContent).toContain("docs/quant-researcher-guide.md");
+
+    // Copy writes a RUNNABLE multi-line quickstart: compare requires --snapshot,
+    // so the quickstart must resolve a snapshot id and pass the flag.
+    fireEvent.click(screen.getByTestId("research-quant-guide-copy"));
+    expect(writeText).toHaveBeenCalledTimes(1);
+    const copied = writeText.mock.calls[0]?.[0] ?? "";
+    expect(copied).toContain("pnpm quant:export");
+    expect(copied).toContain("pnpm quant compare robust_mad state_space_current");
+    expect(copied).toContain("--snapshot");
+    expect(copied).not.toContain("<snapshot>");
+  });
+
+  it("renders the gold dataset status: ready dot, path, humanized size, game count", async () => {
+    mockResearch();
+    render(<ResearchPage />, { wrapper: makeWrapper() });
+
+    await screen.findByTestId("research-gold-ready");
+    const status = screen.getByTestId("research-gold-status");
+    expect(status.textContent).toContain("Golden DB ready");
+    expect(screen.getByTestId("research-gold-path").textContent).toBe(
+      "/data/signal-console.sqlite",
+    );
+    // 33_285_996_544 bytes ≈ 31.0 GB.
+    expect(screen.getByTestId("research-gold-size").textContent).toBe("31.0 GB");
+    expect(screen.getByTestId("research-gold-game-count").textContent).toBe("1,256");
+  });
+
+  it("gold absent: honest 'not found' line with NO fabricated numbers and Export disabled", async () => {
+    mockResearch({ gold: GOLD_ABSENT_RESPONSE });
+    render(<ResearchPage />, { wrapper: makeWrapper() });
+
+    // The gold-DB-absent path: honest message, no ready dot, no fabricated size.
+    const absent = await screen.findByTestId("research-gold-absent");
+    expect(absent.textContent).toBe("Gold DB not found at /data/signal-console.sqlite");
+    expect(screen.queryByTestId("research-gold-ready")).toBeNull();
+    expect(screen.queryByTestId("research-gold-size")).toBeNull();
+
+    // With no gold DB AND no snapshot, the "no artifacts" framing returns, and
+    // Export is disabled (nothing to read).
+    expect(screen.getByTestId("research-no-artifacts").textContent).toContain(
+      "No research artifacts yet",
+    );
+    expect(isDisabled(screen.getByTestId("research-cta-export"))).toBe(true);
   });
 
   it("keeps the honest 'not live' framing on the leaderboard even when empty", async () => {
@@ -223,9 +337,11 @@ describe("ResearchPage", () => {
       if (row === undefined) throw new Error(`no source row ${id}`);
       return row;
     };
-    expect(byId("kalshi").textContent).toContain("canonical / snapshot-eligible");
+    // Gold-first readiness wording: canonical sources are already in the gold DB,
+    // artifact-only land via optional pulls, pending sources require a pull to add.
+    expect(byId("kalshi").textContent).toContain("canonical · in gold DB");
     expect(byId("odds-api-io").textContent).toContain("artifact-only");
-    expect(byId("draftkings-direct").textContent).toContain("pending");
+    expect(byId("draftkings-direct").textContent).toContain("pull to add");
 
     // Odds-API.io row carries the warehouse-disclaimer copy verbatim.
     expect(screen.getByTestId("research-odds-api-io-note").textContent).toBe(
@@ -272,7 +388,7 @@ describe("ResearchPage", () => {
     expect(lbRow.textContent).toContain("3 / 5"); // caught / scoreable
     expect(lbRow.textContent).toContain("18.4"); // fires/game
 
-    // Export + Open report enabled once a snapshot exists.
+    // Export enabled (gold present); Open report enabled once a report exists.
     expect(isDisabled(screen.getByTestId("research-cta-export"))).toBe(false);
     expect(isDisabled(screen.getByTestId("research-cta-report"))).toBe(false);
   });
@@ -302,14 +418,388 @@ describe("ResearchPage", () => {
     ).toBe("residual-coverage");
   });
 
-  it("CTAs Export/Open-report stay disabled when only pulls exist (no snapshot)", async () => {
+  it("Export is gold-gated (enabled with gold present even without a snapshot); Open report stays report-gated", async () => {
+    // Gold is present (default mock) but there is no snapshot and no leaderboard.
+    // Export must be ENABLED (it reads the gold DB directly); Open report must be
+    // DISABLED until a report exists.
     mockResearch({ pulls: PULLS_RESPONSE });
     render(<ResearchPage />, { wrapper: makeWrapper() });
     await screen.findByTestId("research-pull-job-row");
-    // Has artifacts (a pull), so no warning, but no snapshot -> export/report off.
     expect(screen.queryByTestId("research-no-artifacts")).toBeNull();
-    expect(isDisabled(screen.getByTestId("research-cta-export"))).toBe(true);
+    expect(isDisabled(screen.getByTestId("research-cta-export"))).toBe(false);
     expect(isDisabled(screen.getByTestId("research-cta-report"))).toBe(true);
+  });
+
+  it("opens the Export dialog, POSTs /v1/research/export, and shows the returned jobId + CLI", async () => {
+    mockResearch();
+    render(<ResearchPage />, { wrapper: makeWrapper() });
+
+    // Wait for gold so the CTA is enabled, then open the export dialog.
+    await screen.findByTestId("research-gold-ready");
+    fireEvent.click(screen.getByTestId("research-cta-export"));
+    const dialog = await screen.findByTestId("research-export-dialog");
+
+    // Gold recap + the exact one-command CLI for CLI users.
+    expect(within(dialog).getByTestId("research-export-cli").textContent).toBe("pnpm quant:export");
+
+    // Full corpus is the default scope.
+    expect(screen.getByTestId("research-export-scope-full").getAttribute("data-active")).toBe(
+      "true",
+    );
+    expect(screen.getByTestId("research-export-snapshot-id").getAttribute("pattern")).toBe(
+      "[A-Za-z0-9][A-Za-z0-9_-]*",
+    );
+
+    // Submit POSTs and surfaces the returned jobId.
+    fireEvent.click(screen.getByTestId("research-export-submit"));
+    const job = await screen.findByTestId("research-export-job");
+    expect(job.textContent).toContain("export-new-1");
+    expect(job.textContent).toContain("appears under Snapshot when done");
+
+    const posted = fetchMock.mock.calls.find(
+      (c) =>
+        (c[1]?.method ?? "GET").toUpperCase() === "POST" &&
+        urlOf(c[0]).includes("/v1/research/export"),
+    );
+    expect(posted).toBeDefined();
+    const rawBody = posted?.[1]?.body;
+    expect(typeof rawBody).toBe("string");
+    const body: unknown = JSON.parse(typeof rawBody === "string" ? rawBody : "{}");
+    expect(isRecord(body) ? body.scope : undefined).toBe("full");
+  });
+
+  it("builds the Export dialog CLI equivalent from the active form values", async () => {
+    mockResearch();
+    render(<ResearchPage />, { wrapper: makeWrapper() });
+
+    await screen.findByTestId("research-gold-ready");
+    fireEvent.click(screen.getByTestId("research-cta-export"));
+    await screen.findByTestId("research-export-dialog");
+
+    fireEvent.change(screen.getByTestId("research-export-snapshot-id"), {
+      target: { value: "snap-x" },
+    });
+    fireEvent.change(screen.getByTestId("research-export-since"), {
+      target: { value: "2026-05-01" },
+    });
+    fireEvent.change(screen.getByTestId("research-export-until"), {
+      target: { value: "2026-05-25" },
+    });
+    fireEvent.change(screen.getByTestId("research-export-game-ids"), {
+      target: { value: "nba-1, nba-2" },
+    });
+
+    expect(screen.getByTestId("research-export-cli").textContent).toBe(
+      "pnpm quant:export --snapshot-id snap-x --since 2026-05-01 --until 2026-05-25 --games nba-1,nba-2",
+    );
+
+    fireEvent.click(screen.getByTestId("research-export-scope-sample"));
+    fireEvent.change(screen.getByTestId("research-export-sample"), {
+      target: { value: "25" },
+    });
+    expect(screen.getByTestId("research-export-cli").textContent).toBe(
+      "pnpm quant:export --sample 25 --snapshot-id snap-x --since 2026-05-01 --until 2026-05-25",
+    );
+  });
+
+  it("does not send gameIds from the Export dialog when sample scope is selected", async () => {
+    mockResearch();
+    render(<ResearchPage />, { wrapper: makeWrapper() });
+
+    await screen.findByTestId("research-gold-ready");
+    fireEvent.click(screen.getByTestId("research-cta-export"));
+    await screen.findByTestId("research-export-dialog");
+
+    fireEvent.change(screen.getByTestId("research-export-game-ids"), {
+      target: { value: "nba-1,nba-2" },
+    });
+    fireEvent.click(screen.getByTestId("research-export-scope-sample"));
+    expect(isDisabled(screen.getByTestId("research-export-game-ids"))).toBe(true);
+
+    fireEvent.click(screen.getByTestId("research-export-submit"));
+    await screen.findByTestId("research-export-job");
+
+    const posted = fetchMock.mock.calls.find(
+      (c) =>
+        (c[1]?.method ?? "GET").toUpperCase() === "POST" &&
+        urlOf(c[0]).includes("/v1/research/export"),
+    );
+    const rawBody = posted?.[1]?.body;
+    expect(typeof rawBody).toBe("string");
+    const body: unknown = JSON.parse(typeof rawBody === "string" ? rawBody : "{}");
+    expect(isRecord(body) ? body.scope : undefined).toBe("sample");
+    expect(isRecord(body) ? body.gameIds : undefined).toBeUndefined();
+  });
+
+  it("keeps polling after replacement exports until the latest snapshot changes", async () => {
+    const oldSnapshot = {
+      snapshot: {
+        ...SNAPSHOT_RESPONSE.snapshot,
+        snapshotId: "snap-existing",
+        generatedAt: "2026-05-20T09:00:00Z",
+      },
+    };
+    const newSnapshot = {
+      snapshot: {
+        ...SNAPSHOT_RESPONSE.snapshot,
+        snapshotId: "snap-replacement",
+        generatedAt: "2026-05-31T20:00:00Z",
+      },
+    };
+    let exportPosted = false;
+    let postExportSnapshotReads = 0;
+    fetchMock.mockImplementation(async (input, init) => {
+      await Promise.resolve();
+      const url = urlOf(input);
+      const method = (init?.method ?? "GET").toUpperCase();
+      if (method === "POST" && url.includes("/v1/research/export")) {
+        exportPosted = true;
+        return jsonResponse({ jobId: "export-new-1" }, { status: 202 });
+      }
+      if (method === "POST" && url.includes("/v1/research/pull")) {
+        return jsonResponse({ job_id: "pull-new-1" }, { status: 202 });
+      }
+      if (url.includes("/v1/research/gold")) return jsonResponse(GOLD_RESPONSE);
+      if (url.includes("/v1/research/sources")) return jsonResponse(SOURCES_RESPONSE);
+      if (url.includes("/v1/research/snapshot/latest")) {
+        if (exportPosted) postExportSnapshotReads += 1;
+        return jsonResponse(
+          exportPosted && postExportSnapshotReads >= 2 ? newSnapshot : oldSnapshot,
+        );
+      }
+      if (url.includes("/v1/research/leaderboard/latest")) return jsonResponse(EMPTY_LEADERBOARD);
+      if (url.includes("/v1/research/models")) return jsonResponse(MODELS_RESPONSE);
+      if (url.includes("/v1/research/pulls")) return jsonResponse(EMPTY_PULLS);
+      return new Response("not found", { status: 404 });
+    });
+
+    render(<ResearchPage />, { wrapper: makeWrapper() });
+    expect((await screen.findByTestId("research-snapshot-id")).textContent).toBe("snap-existing");
+
+    fireEvent.click(screen.getByTestId("research-cta-export"));
+    await screen.findByTestId("research-export-dialog");
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-31T20:00:00Z"));
+    fireEvent.click(screen.getByTestId("research-export-submit"));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(screen.getByTestId("research-export-job").textContent).toContain("export-new-1");
+    expect(screen.getByTestId("research-snapshot-id").textContent).toBe("snap-existing");
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(screen.getByTestId("research-snapshot-id").textContent).toBe("snap-replacement");
+  });
+
+  it("does not treat the first snapshot response as completion when export starts before snapshot loads", async () => {
+    let resolveInitialSnapshot: ((response: Response) => void) | undefined;
+    const initialSnapshot = new Promise<Response>((resolve) => {
+      resolveInitialSnapshot = resolve;
+    });
+    const oldSnapshot = {
+      snapshot: {
+        ...SNAPSHOT_RESPONSE.snapshot,
+        snapshotId: "snap-existing",
+        generatedAt: "2026-05-20T09:00:00Z",
+      },
+    };
+    const newSnapshot = {
+      snapshot: {
+        ...SNAPSHOT_RESPONSE.snapshot,
+        snapshotId: "snap-replacement",
+        generatedAt: "2026-05-31T20:00:00Z",
+      },
+    };
+    let snapshotReads = 0;
+    fetchMock.mockImplementation(async (input, init) => {
+      await Promise.resolve();
+      const url = urlOf(input);
+      const method = (init?.method ?? "GET").toUpperCase();
+      if (method === "POST" && url.includes("/v1/research/export")) {
+        return jsonResponse({ jobId: "export-new-1" }, { status: 202 });
+      }
+      if (method === "POST" && url.includes("/v1/research/pull")) {
+        return jsonResponse({ job_id: "pull-new-1" }, { status: 202 });
+      }
+      if (url.includes("/v1/research/gold")) return jsonResponse(GOLD_RESPONSE);
+      if (url.includes("/v1/research/sources")) return jsonResponse(SOURCES_RESPONSE);
+      if (url.includes("/v1/research/snapshot/latest")) {
+        snapshotReads += 1;
+        if (snapshotReads === 1) return await initialSnapshot;
+        return jsonResponse(snapshotReads >= 3 ? newSnapshot : oldSnapshot);
+      }
+      if (url.includes("/v1/research/leaderboard/latest")) return jsonResponse(EMPTY_LEADERBOARD);
+      if (url.includes("/v1/research/models")) return jsonResponse(MODELS_RESPONSE);
+      if (url.includes("/v1/research/pulls")) return jsonResponse(EMPTY_PULLS);
+      return new Response("not found", { status: 404 });
+    });
+
+    render(<ResearchPage />, { wrapper: makeWrapper() });
+    await screen.findByTestId("research-gold-ready");
+    fireEvent.click(screen.getByTestId("research-cta-export"));
+    await screen.findByTestId("research-export-dialog");
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-31T20:00:00Z"));
+    fireEvent.click(screen.getByTestId("research-export-submit"));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(screen.getByTestId("research-export-job").textContent).toContain("export-new-1");
+
+    await act(async () => {
+      resolveInitialSnapshot?.(jsonResponse(oldSnapshot));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(15_000);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(screen.getByTestId("research-snapshot-id").textContent).toBe("snap-replacement");
+  });
+
+  it("stops polling when the first unresolved snapshot already reflects a fast export", async () => {
+    let resolveInitialSnapshot: ((response: Response) => void) | undefined;
+    const initialSnapshot = new Promise<Response>((resolve) => {
+      resolveInitialSnapshot = resolve;
+    });
+    const fastSnapshot = {
+      snapshot: {
+        ...SNAPSHOT_RESPONSE.snapshot,
+        snapshotId: "snap-fast",
+        generatedAt: "2026-05-31T20:00:01Z",
+      },
+    };
+    let snapshotReads = 0;
+    fetchMock.mockImplementation(async (input, init) => {
+      await Promise.resolve();
+      const url = urlOf(input);
+      const method = (init?.method ?? "GET").toUpperCase();
+      if (method === "POST" && url.includes("/v1/research/export")) {
+        return jsonResponse({ jobId: "export-new-1" }, { status: 202 });
+      }
+      if (method === "POST" && url.includes("/v1/research/pull")) {
+        return jsonResponse({ job_id: "pull-new-1" }, { status: 202 });
+      }
+      if (url.includes("/v1/research/gold")) return jsonResponse(GOLD_RESPONSE);
+      if (url.includes("/v1/research/sources")) return jsonResponse(SOURCES_RESPONSE);
+      if (url.includes("/v1/research/snapshot/latest")) {
+        snapshotReads += 1;
+        if (snapshotReads === 1) return await initialSnapshot;
+        return jsonResponse(fastSnapshot);
+      }
+      if (url.includes("/v1/research/leaderboard/latest")) return jsonResponse(EMPTY_LEADERBOARD);
+      if (url.includes("/v1/research/models")) return jsonResponse(MODELS_RESPONSE);
+      if (url.includes("/v1/research/pulls")) return jsonResponse(EMPTY_PULLS);
+      return new Response("not found", { status: 404 });
+    });
+
+    render(<ResearchPage />, { wrapper: makeWrapper() });
+    await screen.findByTestId("research-gold-ready");
+    fireEvent.click(screen.getByTestId("research-cta-export"));
+    await screen.findByTestId("research-export-dialog");
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-31T20:00:00Z"));
+    fireEvent.click(screen.getByTestId("research-export-submit"));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(screen.getByTestId("research-export-job").textContent).toContain("export-new-1");
+
+    await act(async () => {
+      resolveInitialSnapshot?.(jsonResponse(fastSnapshot));
+      await vi.advanceTimersByTimeAsync(0);
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(screen.getByTestId("research-snapshot-id").textContent).toBe("snap-fast");
+
+    const readsAfterCompletion = snapshotReads;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(snapshotReads).toBe(readsAfterCompletion);
+  });
+
+  it("stops export polling and surfaces a timeout when the snapshot never changes", async () => {
+    const oldSnapshot = {
+      snapshot: {
+        ...SNAPSHOT_RESPONSE.snapshot,
+        snapshotId: "snap-existing",
+        generatedAt: "2026-05-20T09:00:00Z",
+      },
+    };
+    let exportPosted = false;
+    let snapshotReads = 0;
+    fetchMock.mockImplementation(async (input, init) => {
+      await Promise.resolve();
+      const url = urlOf(input);
+      const method = (init?.method ?? "GET").toUpperCase();
+      if (method === "POST" && url.includes("/v1/research/export")) {
+        exportPosted = true;
+        return jsonResponse({ jobId: "export-new-1" }, { status: 202 });
+      }
+      if (method === "POST" && url.includes("/v1/research/pull")) {
+        return jsonResponse({ job_id: "pull-new-1" }, { status: 202 });
+      }
+      if (url.includes("/v1/research/gold")) return jsonResponse(GOLD_RESPONSE);
+      if (url.includes("/v1/research/sources")) return jsonResponse(SOURCES_RESPONSE);
+      if (url.includes("/v1/research/snapshot/latest")) {
+        if (exportPosted) snapshotReads += 1;
+        return jsonResponse(oldSnapshot);
+      }
+      if (url.includes("/v1/research/leaderboard/latest")) return jsonResponse(EMPTY_LEADERBOARD);
+      if (url.includes("/v1/research/models")) return jsonResponse(MODELS_RESPONSE);
+      if (url.includes("/v1/research/pulls")) return jsonResponse(EMPTY_PULLS);
+      return new Response("not found", { status: 404 });
+    });
+
+    render(<ResearchPage />, { wrapper: makeWrapper() });
+    expect((await screen.findByTestId("research-snapshot-id")).textContent).toBe("snap-existing");
+
+    fireEvent.click(screen.getByTestId("research-cta-export"));
+    await screen.findByTestId("research-export-dialog");
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-31T20:00:00Z"));
+    fireEvent.click(screen.getByTestId("research-export-submit"));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(screen.getByTestId("research-export-job").textContent).toContain("export-new-1");
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(125_000);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(screen.getByTestId("research-export-polling-error").textContent).toContain(
+      "Export did not produce a new snapshot",
+    );
+
+    const readsAfterTimeout = snapshotReads;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(snapshotReads).toBe(readsAfterTimeout);
   });
 
   async function openDialog(): Promise<void> {
@@ -476,7 +966,8 @@ describe("ResearchPage", () => {
       if (url.includes("/v1/research/sources")) {
         return new Response("boom", { status: 500, statusText: "Internal Server Error" });
       }
-      // Other reads succeed empty so only the sources error surfaces.
+      // Other reads succeed (gold present) so only the sources error surfaces.
+      if (url.includes("/v1/research/gold")) return jsonResponse(GOLD_RESPONSE);
       if (url.includes("/v1/research/snapshot/latest")) return jsonResponse(EMPTY_SNAPSHOT);
       if (url.includes("/v1/research/leaderboard/latest")) return jsonResponse(EMPTY_LEADERBOARD);
       if (url.includes("/v1/research/models")) return jsonResponse(MODELS_RESPONSE);

@@ -7,10 +7,11 @@ when we compare a new candidate against "what production does today", this is
 that line on the chart — not an approximation of it.
 
 It is a peer, not the answer. The state-space filter is more sophisticated than
-``robust_mad`` (breadth normalization, source-trust measurement noise, regime
-variance adaptation, opening-ramp anchoring), but it is still a baseline with its
-own failure modes and tuning assumptions. A candidate that beats it has to do so
-on the evaluation phase's recall/burden tradeoff, not on vibes.
+``robust_mad`` (breadth normalization, a robust trailing-MAD surprise scale
+modulated by a source-trust multiplier, opening-ramp anchoring), but it is still
+a baseline with its own failure modes and tuning assumptions. A candidate that
+beats it has to do so on the evaluation phase's recall/burden tradeoff, not on
+vibes.
 
 The default params mirror the clean detector defaults checked into
 ``packages/detectors/src/board-mad`` (state-space config + the opening-ramp live
@@ -54,34 +55,24 @@ _STATE_SPACE_CONFIG_DEFAULTS: dict[str, Any] = {
         "levelProcessNoiseBase": 0.015,
         "levelProcessNoiseScale": 0.18,
         "trendProcessNoiseRatio": 0.2,
-        "varianceAdaptationBase": 0.06,
-        "varianceAdaptationScale": 0.9,
-        "varianceAdaptationOffset": 10,
         "initialLevelVariance": 1,
         "initialTrendVariance": 1,
-        "initialVarianceFloor": 0.04,
     },
-    "observationNoise": {
-        "floor": 0.05,
-        "minimum": 1e-4,
-        "singleSourceDominance": 1,
+    "sourceTrust": {
+        "minMultiplier": 0.5,
+        "maxMultiplier": 2.0,
+        "singleSourceDominance": 1.0,
         "multiSourceDominanceFallback": 0.5,
         "sourceDominancePenalty": 1.2,
         "sourceAgreementBonus": 0.45,
         "sourceCountBonus": 0.15,
         "sourceCountExponent": 0.5,
     },
-    "variance": {
+    "scale": {
         "madScale": 1.4826,
-        "floor": 1e-4,
-        "ceiling": 4,
-        "decay": 0.98,
-        "bumpCap": 9,
-        "bumpCenter": 1,
-        "innovationPower": 2,
-        "agreementBase": 0.8,
-        "agreementScale": 0.4,
-        "baselineMadFloor": 1e-9,
+        "scaleFloor": 0.05,
+        "scaleCeiling": 4.0,
+        "baselineSpreadFloor": 1e-9,
     },
 }
 
@@ -92,10 +83,10 @@ class StateSpaceCurrentModel(BoardModel):
     name = "State-space (current production)"
     summary = (
         "Current production baseline: the live nba_sidecar state-space volatility "
-        "filter (Kalman-style level/trend with breadth normalization, source-trust "
-        "measurement noise, regime variance adaptation, and opening-ramp anchoring) "
-        "run over the snapshot board observations with the clean detector defaults. "
-        "A faithful peer to compare candidates against, not the answer."
+        "filter (Kalman-style level/trend with breadth normalization, a robust "
+        "trailing-MAD surprise scale modulated by a source-trust multiplier, and "
+        "opening-ramp anchoring) run over the snapshot board observations with the "
+        "clean detector defaults. A faithful peer to compare candidates against, not the answer."
     )
     family = "state-space"
     references = (

@@ -32,7 +32,10 @@ import {
 import { BOARD_STATE_SPACE_CONFIG_DEFAULTS } from "@signal-console/detectors/board-mad/state-space-config";
 
 import { BacktestPage } from "../BacktestPage";
-import { STATE_SPACE_GUIDED_FIELDS } from "../../state-space-guided-fields";
+import {
+  STATE_SPACE_GUIDED_FIELDS,
+  STATE_SPACE_GUIDED_GROUPS,
+} from "../../state-space-guided-fields";
 
 const postBodySchema = z.object({
   detector_id: z.string(),
@@ -462,6 +465,11 @@ describe("BacktestPage", () => {
     expect(screen.getByTestId("backtest-detector")).not.toBeNull();
     expect(screen.getByTestId("backtest-results-empty")).not.toBeNull();
     expect(screen.queryByTestId("backtest-run-id")).toBeNull();
+
+    // Secondary cross-link to the Research eval lab (in-app /research route).
+    const researchLink = screen.getByTestId("backtest-research-link");
+    expect(researchLink.getAttribute("href")).toBe("/research");
+    expect(researchLink.textContent).toContain("Score models in Research");
   });
 
   it("falls back to board-mad as the default detector when ensemble-or is not registered (older API)", async () => {
@@ -704,7 +712,7 @@ describe("BacktestPage", () => {
     expect(trigger["enterOffset"]).toBe(1.4);
   });
 
-  it("renders a direct numeric control for every state-space field", async () => {
+  it("shows per-run state-space coefficients one group at a time via subtabs", async () => {
     mockEnsembleSettingsAndBacktest({
       settings: makeSettingsBody({ offPriceMinOffPriceDistance: 0.4 }),
     });
@@ -714,12 +722,22 @@ describe("BacktestPage", () => {
     await waitFor(() => {
       expect(screen.getByTestId("backtest-state-space-config")).toBeDefined();
     });
-    expect(screen.getAllByTestId(/^backtest-state-space-input-/)).toHaveLength(
-      STATE_SPACE_GUIDED_FIELDS.length,
-    );
+    // A subtab exists for every coefficient group...
+    for (const group of STATE_SPACE_GUIDED_GROUPS) {
+      expect(screen.getByTestId(`backtest-state-space-subtab-${group.id}`)).toBeDefined();
+    }
+    // ...but only the active group's fields render at once (default is trigger),
+    // so the per-run panel stays scannable instead of dumping ~30 knobs.
+    const triggerFieldCount = STATE_SPACE_GUIDED_FIELDS.filter(
+      (field) => field.groupId === "trigger",
+    ).length;
+    expect(screen.getAllByTestId(/^backtest-state-space-input-/)).toHaveLength(triggerFieldCount);
+
+    fireEvent.click(screen.getByTestId("backtest-state-space-subtab-sourceTrust"));
     expect(
       screen.getByTestId("backtest-state-space-input-sourceTrust-sourceCountExponent"),
     ).toBeDefined();
+    fireEvent.click(screen.getByTestId("backtest-state-space-subtab-scale"));
     expect(screen.getByTestId("backtest-state-space-input-scale-madScale")).toBeDefined();
   });
 

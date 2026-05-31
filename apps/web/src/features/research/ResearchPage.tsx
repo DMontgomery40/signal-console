@@ -1,12 +1,21 @@
-// ResearchPage — read-only research-lab artifact surface.
+// ResearchPage — gold-DB-first research-lab artifact surface.
+//
+// Product truth: a 31GB golden SQLite DB already holds canonical Kalshi /
+// Polymarket / Bet365 / NBA coverage (1256 games). Export reads that gold DB
+// DIRECTLY — no pull is required to start modeling. Pull is ONLY to augment /
+// repair (DraftKings / FanDuel via odds-api-io, or new date windows).
 //
 // Reads the quant-lab artifact tree via the read-only /v1/research/* API
-// (queries.ts hooks: useResearchSnapshot / Leaderboard / Models / Pulls /
-// Sources). The ONLY writer is the Pull-data dialog, which validates the
-// request CLIENT-SIDE with the SAME shared planner the server runs
-// (@signal-console/research-pull), shows a dry-run preview of where each
-// source would land (canonical / artifact-only / pending), and only then
-// enables "Submit job" (POST /v1/research/pull -> { job_id }).
+// (queries.ts hooks: useResearchGold / Snapshot / Leaderboard / Models / Pulls
+// / Sources). There are TWO writers:
+//   - PRIMARY: the Export-snapshot dialog, ENABLED whenever the gold DB is
+//     present, which POSTs /v1/research/export -> { jobId } (the worker runs the
+//     existing scripts/export-quant-snapshot.ts against the gold DB).
+//   - SECONDARY (demoted): the "Add/repair source data" dialog, which validates
+//     the request CLIENT-SIDE with the SAME shared planner the server runs
+//     (@signal-console/research-pull), shows a dry-run preview of where each
+//     source would land (canonical / artifact-only / pending), and only then
+//     enables "Submit job" (POST /v1/research/pull -> { job_id }).
 //
 // Design-language rules honored here: no bordered cards / no drop shadows
 // (sections are whitespace-stacked over surface-1 fills + type hierarchy);
@@ -23,7 +32,7 @@
 // the Odds-API.io source row says it is an event-snapshot/live artifact lane,
 // not a historical warehouse.
 
-import { useMemo, useState, type JSX } from "react";
+import { useEffect, useMemo, useState, type JSX } from "react";
 
 import { ExplainerCard, explainers } from "@signal-console/ui";
 import type { ExplainerId } from "@signal-console/ui";
@@ -44,12 +53,17 @@ import { planPullJob, type PullPlan } from "@signal-console/research-pull/planne
 import { ApiUnreachableBanner, isNetworkError } from "../../components/ApiUnreachableBanner";
 import { QueryErrorBanner } from "../../components/QueryErrorBanner";
 import {
+  API_BASE_URL,
+  useResearchGold,
   useResearchLeaderboard,
   useResearchModels,
   useResearchPulls,
   useResearchSnapshot,
   useResearchSources,
+  useSubmitExport,
   useSubmitPull,
+  type ResearchExportRequest,
+  type ResearchGold,
   type ResearchSource,
 } from "../../data/queries";
 
@@ -80,12 +94,67 @@ function pick(record: Record<string, unknown>, ...keys: readonly string[]): unkn
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
+const NO_SNAPSHOT_POLLING_KEY = "__no_snapshot__";
+const UNKNOWN_SNAPSHOT_POLLING_KEY = "__unknown_snapshot__";
+const EXPORT_POLLING_TIMEOUT_MS = 120_000;
+const EXPORT_POLLING_TIMEOUT_MESSAGE =
+  "Export did not produce a new snapshot within two minutes. Check the worker admin action status, then retry.";
+function snapshotPollingKey(snapshot: Record<string, unknown> | null): string | null {
+  if (snapshot === null) return null;
+  const id = str(pick(snapshot, "id", "snapshotId", "snapshot_id")) ?? "";
+  const generatedAt =
+    str(
+      pick(
+        snapshot,
+        "generatedAt",
+        "generated_at",
+        "createdAt",
+        "created_at",
+        "updatedAt",
+        "updated_at",
+        "lastModified",
+        "last_modified",
+      ),
+    ) ?? "";
+  return `${id}|${generatedAt}|${JSON.stringify(snapshot)}`;
+}
+function snapshotGeneratedAtMs(snapshot: Record<string, unknown> | null): number | null {
+  if (snapshot === null) return null;
+  const generatedAt = str(
+    pick(
+      snapshot,
+      "generatedAt",
+      "generated_at",
+      "createdAt",
+      "created_at",
+      "updatedAt",
+      "updated_at",
+      "lastModified",
+      "last_modified",
+    ),
+  );
+  if (generatedAt === undefined) return null;
+  const parsed = Date.parse(generatedAt);
+  return Number.isFinite(parsed) ? parsed : null;
+}
 function fmtNum(value: number | undefined, digits = 0): string {
   if (value === undefined) return "—";
   return value.toLocaleString(undefined, {
     minimumFractionDigits: digits,
     maximumFractionDigits: digits,
   });
+}
+// Humanize a byte count to a stable, mono-friendly string. The gold DB is on
+// the GB scale (≈31GB), so we render GB with one decimal; fall back to MB/KB/B
+// for smaller sizes so the recap never reads "0.0 GB" for a tiny fixture.
+function fmtBytes(bytes: number): string {
+  const KB = 1024;
+  const MB = KB * 1024;
+  const GB = MB * 1024;
+  if (bytes >= GB) return `${(bytes / GB).toFixed(1)} GB`;
+  if (bytes >= MB) return `${(bytes / MB).toFixed(1)} MB`;
+  if (bytes >= KB) return `${(bytes / KB).toFixed(1)} KB`;
+  return `${fmtNum(bytes)} B`;
 }
 
 // snapshot-eligible -> green (canonical), artifact-only -> yellow (the task's
@@ -96,10 +165,13 @@ function sourceDotClass(klass: ResearchSource["class"]): string {
   if (klass === "artifact-only") return "bg-accent-yellow";
   return "bg-text-lo";
 }
+// Gold-first readiness wording: snapshot-eligible sources are the canonical
+// coverage ALREADY persisted in the gold DB; artifact-only sources land only as
+// optional pull artifacts; pending sources require a pull to add.
 function sourceReadinessLabel(klass: ResearchSource["class"]): string {
-  if (klass === "snapshot-eligible") return "canonical / snapshot-eligible";
+  if (klass === "snapshot-eligible") return "canonical · in gold DB";
   if (klass === "artifact-only") return "artifact-only";
-  return "pending";
+  return "pull to add";
 }
 function pullStatusDotClass(status: string | undefined): string {
   if (status === undefined) return "bg-text-lo";
@@ -214,23 +286,163 @@ function EmptyLine({
   );
 }
 
+// ── (0) Gold dataset status ─────────────────────────────────────────────────────
+//
+// First section after the header. Minimal design language: dot+label status,
+// mono tabular numerics, no bordered cards. When present, "Golden DB ready"
+// (accent-green dot) plus path / size / last modified / game count. When
+// absent, a single honest text-lo line with NO fabricated numbers.
+function GoldStatus({ gold }: { readonly gold: ResearchGold | undefined }): JSX.Element {
+  return (
+    <section data-testid="research-gold-status" className="space-y-3">
+      <SectionHeading>Gold dataset status</SectionHeading>
+      {gold === undefined ? (
+        <EmptyLine testid="research-gold-loading">Loading gold DB status…</EmptyLine>
+      ) : gold.present ? (
+        <div className="bg-surface-1 px-5 py-4 space-y-3">
+          <StatusDot
+            dotClass="bg-accent-green"
+            label="Golden DB ready"
+            testid="research-gold-ready"
+          />
+          <div className="grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-4">
+            <div className="space-y-1 sm:col-span-2">
+              <span className="font-mono text-xs text-text-lo">path</span>
+              <p
+                className="break-all font-mono text-sm text-text-hi"
+                data-testid="research-gold-path"
+              >
+                {gold.path}
+              </p>
+            </div>
+            <div className="space-y-1">
+              <span className="font-mono text-xs text-text-lo">size</span>
+              <p
+                className="font-mono text-sm tabular-nums text-text-hi"
+                data-testid="research-gold-size"
+              >
+                {fmtBytes(gold.sizeBytes)}
+              </p>
+            </div>
+            <div className="space-y-1">
+              <span className="font-mono text-xs text-text-lo">last modified</span>
+              <p className="font-mono text-sm tabular-nums text-text-hi">
+                {gold.lastModified.length > 0 ? gold.lastModified : "—"}
+              </p>
+            </div>
+            <div className="space-y-1">
+              <span className="font-mono text-xs text-text-lo">games</span>
+              <p
+                className="font-mono text-sm tabular-nums text-text-hi"
+                data-testid="research-gold-game-count"
+              >
+                {gold.gameCount === null ? "—" : fmtNum(gold.gameCount)}
+              </p>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <EmptyLine testid="research-gold-absent">{`Gold DB not found at ${gold.path}`}</EmptyLine>
+      )}
+    </section>
+  );
+}
+
+// ── (0b) Quant-guide panel ──────────────────────────────────────────────────────
+//
+// Compact orientation panel placed below the gold/snapshot status so the gold
+// status is never pushed down. It keeps devs / traders / ops / researchers on
+// the same artifacts and routes anyone who wants the full workflow to the
+// durable guide. Two affordances, both reusing the page's minimal idioms:
+//   - "Open Quant Guide": opens GET /v1/research/guide in a new tab — the API
+//     serves docs/quant-researcher-guide.md (which lives outside the Vite web
+//     root, so a static link to the path would fall through to the SPA shell).
+//     The source file path is shown alongside so the link stays honest.
+//   - "Copy CLI quickstart" (GreenButton): copies a short, RUNNABLE quickstart
+//     (export -> resolve newest snapshot -> compare with the required --snapshot
+//     flag). No bordered card, no icons — same surface-1 fill as GoldStatus.
+
+const QUANT_GUIDE_PATH = "docs/quant-researcher-guide.md";
+const QUANT_GUIDE_HREF = `${API_BASE_URL}/v1/research/guide`;
+const QUANT_CLI_QUICKSTART = [
+  "pnpm quant:export",
+  "SNAP=$(ls -t outputs/nba-quant-lab/snapshots | head -1)",
+  'pnpm quant compare robust_mad state_space_current --snapshot "$SNAP"',
+].join("\n");
+
+function QuantGuidePanel(): JSX.Element {
+  function onCopy(): void {
+    const clip = typeof navigator !== "undefined" ? navigator.clipboard : undefined;
+    if (clip !== undefined) {
+      void clip.writeText(QUANT_CLI_QUICKSTART);
+    }
+  }
+  return (
+    <section data-testid="research-quant-guide" className="space-y-3">
+      <SectionHeading>Quant guide</SectionHeading>
+      <div className="space-y-3 bg-surface-1 px-5 py-4">
+        <p className="max-w-[80ch] text-sm text-text-md">
+          This page keeps devs, traders, ops, and researchers looking at the same artifacts. If you
+          want the full data/model workflow, open the quant guide.
+        </p>
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+          <a
+            href={QUANT_GUIDE_HREF}
+            target="_blank"
+            rel="noopener noreferrer"
+            data-testid="research-quant-guide-open"
+            className="text-sm font-medium text-accent-green transition-colors duration-fast ease-out hover:text-text-hi"
+          >
+            Open Quant Guide
+          </a>
+          <span className="break-all font-mono text-xs text-text-lo">
+            source: {QUANT_GUIDE_PATH}
+          </span>
+          <GreenButton onClick={onCopy} testid="research-quant-guide-copy">
+            Copy CLI quickstart
+          </GreenButton>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 // ── (1) Header strip ──────────────────────────────────────────────────────────
 
 function HeaderStrip({
   snapshotId,
   latestPullStatus,
   leaderboardTimestamp,
-  hasArtifacts,
+  goldPresent,
   hasSnapshot,
+  hasReport,
+  onExport,
   onPull,
 }: {
   readonly snapshotId: string | undefined;
   readonly latestPullStatus: string | undefined;
   readonly leaderboardTimestamp: string | undefined;
-  readonly hasArtifacts: boolean;
+  readonly goldPresent: boolean;
   readonly hasSnapshot: boolean;
+  readonly hasReport: boolean;
+  readonly onExport: () => void;
   readonly onPull: () => void;
 }): JSX.Element {
+  // Empty-state header copy is gold-aware: with a ready gold DB we NEVER imply
+  // we have no data — we prompt the next honest step (export). The "no
+  // artifacts" framing only appears when the gold DB itself is absent.
+  const emptyLine = !hasSnapshot ? (
+    goldPresent ? (
+      <p className="font-mono text-xs text-accent-yellow" data-testid="research-empty-prompt">
+        Golden DB ready. Export a reproducible snapshot to start modeling.
+      </p>
+    ) : (
+      <p className="font-mono text-xs text-accent-yellow" data-testid="research-no-artifacts">
+        No research artifacts yet — the gold DB is not present, so sources and models below are the
+        static capability registry, not a completed run.
+      </p>
+    )
+  ) : null;
   return (
     <section data-testid="research-header" className="bg-surface-1 px-5 py-5">
       <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-3">
@@ -258,23 +470,23 @@ function HeaderStrip({
               </span>
             </span>
           </div>
-          {!hasArtifacts ? (
-            <p className="font-mono text-xs text-accent-yellow" data-testid="research-no-artifacts">
-              No research artifacts yet — sources and models below are the static capability
-              registry, not a completed run.
-            </p>
-          ) : null}
+          {emptyLine}
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          <YellowButton onClick={onPull} testid="research-cta-pull">
-            Pull data
-          </YellowButton>
-          <YellowButton disabled={!hasSnapshot} testid="research-cta-export">
+          {/* PRIMARY CTA: export reads the gold DB directly, so it is enabled
+              whenever the gold DB is present — NOT gated on an existing snapshot. */}
+          <YellowButton onClick={onExport} disabled={!goldPresent} testid="research-cta-export">
             Export snapshot
           </YellowButton>
-          <YellowButton disabled={!hasSnapshot} testid="research-cta-report">
+          {/* DEMOTED to secondary (green): pull only augments/repairs sources the
+              gold DB doesn't carry, or new date windows. Same testid as before so
+              existing dialog-open tests keep working. */}
+          <GreenButton onClick={onPull} testid="research-cta-pull">
+            Add/repair source data
+          </GreenButton>
+          <GreenButton disabled={!hasReport} testid="research-cta-report">
             Open latest report
-          </YellowButton>
+          </GreenButton>
         </div>
       </div>
     </section>
@@ -863,6 +1075,275 @@ function PullDialog({
   );
 }
 
+// ── (3b) Export-snapshot dialog ─────────────────────────────────────────────────
+//
+// PRIMARY writer. Reuses the canonical floating-surface treatment (surface-
+// elevated + yellow left stripe + three-edge hairline, NO shadow) from the Pull
+// dialog. Reads the gold DB directly — NO pull is needed because the canonical
+// sources are already persisted. POSTs /v1/research/export -> { jobId } and
+// shows the returned jobId; also surfaces the exact one-command CLI for CLI users.
+
+interface ExportFormState {
+  readonly scope: "full" | "sample";
+  readonly sample: string;
+  readonly dateFrom: string;
+  readonly dateTo: string;
+  readonly gameIds: string;
+  readonly snapshotId: string;
+}
+
+const DEFAULT_EXPORT_FORM: ExportFormState = {
+  scope: "full",
+  sample: "100",
+  dateFrom: "",
+  dateTo: "",
+  gameIds: "",
+  snapshotId: "",
+};
+
+function buildExportRequest(form: ExportFormState): ResearchExportRequest {
+  const gameIds = splitList(form.gameIds);
+  const sample = Number.parseInt(form.sample, 10);
+  return {
+    scope: form.scope,
+    ...(form.scope === "sample" && Number.isFinite(sample) && sample > 0 ? { sample } : {}),
+    ...(form.snapshotId.trim().length > 0 ? { snapshotId: form.snapshotId.trim() } : {}),
+    ...(form.dateFrom.length > 0 ? { since: form.dateFrom } : {}),
+    ...(form.dateTo.length > 0 ? { until: form.dateTo } : {}),
+    ...(form.scope === "full" && gameIds.length > 0 ? { gameIds } : {}),
+  };
+}
+
+function shellArg(value: string): string {
+  if (/^[A-Za-z0-9_./:=,@+-]+$/.test(value)) return value;
+  return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+function buildExportCliCommand(form: ExportFormState): string {
+  const request = buildExportRequest(form);
+  const args = ["pnpm", "quant:export"];
+  if (request.scope === "sample" && request.sample !== undefined) {
+    args.push("--sample", String(request.sample));
+  }
+  if (request.snapshotId !== undefined) {
+    args.push("--snapshot-id", shellArg(request.snapshotId));
+  }
+  if (request.since !== undefined) {
+    args.push("--since", shellArg(request.since));
+  }
+  if (request.until !== undefined) {
+    args.push("--until", shellArg(request.until));
+  }
+  if (request.gameIds !== undefined && request.gameIds.length > 0) {
+    args.push("--games", shellArg(request.gameIds.join(",")));
+  }
+  return args.join(" ");
+}
+
+function ExportDialog({
+  gold,
+  onClose,
+  onExportEnqueued,
+}: {
+  readonly gold: ResearchGold | undefined;
+  readonly onClose: () => void;
+  // Fired once the export job is enqueued so the page can poll
+  // /v1/research/snapshot/latest until the worker lands the snapshot.
+  readonly onExportEnqueued: () => void;
+}): JSX.Element {
+  const [form, setForm] = useState<ExportFormState>(DEFAULT_EXPORT_FORM);
+  const submit = useSubmitExport();
+  const cliCommand = buildExportCliCommand(form);
+
+  function update<K extends keyof ExportFormState>(key: K, value: ExportFormState[K]): void {
+    setForm((prev) => ({ ...prev, [key]: value }));
+  }
+
+  function onSubmit(): void {
+    submit.mutate(buildExportRequest(form), {
+      onSuccess: () => {
+        onExportEnqueued();
+      },
+    });
+  }
+
+  const jobId = submit.data?.jobId;
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="research-export-title"
+      data-testid="research-export-dialog"
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-surface-0-from/80 px-4 py-10"
+    >
+      <div className="w-[min(680px,calc(100vw-32px))] border-l-[3px] border-l-accent-yellow border-t border-r border-b border-text-lo/30 bg-surface-elevated p-5">
+        <div className="flex items-baseline justify-between gap-4">
+          <h4 id="research-export-title" className="text-base font-semibold text-text-hi">
+            Export snapshot
+          </h4>
+          <button
+            type="button"
+            onClick={onClose}
+            data-testid="research-export-cancel"
+            className="px-2 py-1 font-mono text-xs uppercase tracking-wider text-text-lo hover:text-text-hi"
+          >
+            Cancel
+          </button>
+        </div>
+
+        {/* Gold status recap — the export reads THIS DB directly. */}
+        <div className="mt-4 bg-surface-1 p-4">
+          {gold !== undefined && gold.present ? (
+            <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+              <StatusDot dotClass="bg-accent-green" label="Golden DB ready" />
+              <span className="break-all font-mono text-xs text-text-md">{gold.path}</span>
+              <span className="font-mono text-xs tabular-nums text-text-md">
+                {fmtBytes(gold.sizeBytes)}
+              </span>
+              <span className="font-mono text-xs tabular-nums text-text-md">
+                {gold.gameCount === null ? "—" : `${fmtNum(gold.gameCount)} games`}
+              </span>
+            </div>
+          ) : (
+            <StatusDot dotClass="bg-text-lo" label="Gold DB not present" />
+          )}
+        </div>
+
+        <div className="mt-4 space-y-4">
+          <div>
+            <span className="font-mono text-xs text-text-lo">Scope</span>
+            <div className="mt-1 flex flex-wrap gap-2">
+              <ChipToggle
+                label="Full corpus"
+                active={form.scope === "full"}
+                onClick={() => {
+                  update("scope", "full");
+                }}
+                testid="research-export-scope-full"
+              />
+              <ChipToggle
+                label="Sample"
+                active={form.scope === "sample"}
+                onClick={() => {
+                  update("scope", "sample");
+                }}
+                testid="research-export-scope-sample"
+              />
+            </div>
+          </div>
+
+          {form.scope === "sample" ? (
+            <DialogField label="Sample size (games)">
+              <input
+                type="number"
+                value={form.sample}
+                data-testid="research-export-sample"
+                onChange={(e) => {
+                  update("sample", e.target.value);
+                }}
+                className={INPUT_CLASS}
+              />
+            </DialogField>
+          ) : null}
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <DialogField label="Since (optional, YYYY-MM-DD)">
+              <input
+                type="date"
+                value={form.dateFrom}
+                data-testid="research-export-since"
+                onChange={(e) => {
+                  update("dateFrom", e.target.value);
+                }}
+                className={INPUT_CLASS}
+              />
+            </DialogField>
+            <DialogField label="Until (optional, YYYY-MM-DD)">
+              <input
+                type="date"
+                value={form.dateTo}
+                data-testid="research-export-until"
+                onChange={(e) => {
+                  update("dateTo", e.target.value);
+                }}
+                className={INPUT_CLASS}
+              />
+            </DialogField>
+          </div>
+
+          <DialogField label="Game IDs (optional, space/comma separated)">
+            <input
+              value={form.gameIds}
+              data-testid="research-export-game-ids"
+              placeholder="nba-0042500222"
+              disabled={form.scope === "sample"}
+              onChange={(e) => {
+                update("gameIds", e.target.value);
+              }}
+              className={INPUT_CLASS}
+            />
+          </DialogField>
+
+          <DialogField label="Snapshot id (optional; the script picks one by default)">
+            <input
+              value={form.snapshotId}
+              data-testid="research-export-snapshot-id"
+              pattern="[A-Za-z0-9][A-Za-z0-9_-]*"
+              title="Letters, numbers, underscores, or hyphens only"
+              onChange={(e) => {
+                update("snapshotId", e.target.value);
+              }}
+              className={INPUT_CLASS}
+            />
+          </DialogField>
+        </div>
+
+        {/* The exact one-command path for CLI users. */}
+        <div className="mt-4 bg-surface-1 p-4">
+          <p className="font-mono text-xs uppercase tracking-[0.08em] text-text-lo">
+            CLI equivalent
+          </p>
+          <p className="mt-1 font-mono text-sm text-text-hi" data-testid="research-export-cli">
+            {cliCommand}
+          </p>
+        </div>
+
+        {jobId !== undefined ? (
+          <p className="mt-4 font-mono text-xs text-text-md" data-testid="research-export-job">
+            job <span className="tabular-nums text-text-hi">{jobId}</span> — exporting… this reads
+            the gold DB and appears under Snapshot when done
+          </p>
+        ) : null}
+
+        {submit.isError ? (
+          <p
+            className="mt-3 font-mono text-xs text-negative"
+            data-testid="research-export-submit-error"
+          >
+            {submit.error.message}
+          </p>
+        ) : null}
+
+        <div className="mt-5 flex flex-wrap items-center gap-3">
+          <YellowButton
+            onClick={onSubmit}
+            disabled={submit.isPending || jobId !== undefined}
+            testid="research-export-submit"
+          >
+            Export snapshot
+          </YellowButton>
+          {jobId !== undefined ? (
+            <GreenButton onClick={onClose} testid="research-export-done">
+              Close
+            </GreenButton>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── (4) Pull jobs table ─────────────────────────────────────────────────────────
 
 function PullJobsTable({
@@ -875,7 +1356,8 @@ function PullJobsTable({
       <SectionHeading>Pull jobs</SectionHeading>
       {pulls.length === 0 ? (
         <EmptyLine testid="research-pull-jobs-empty">
-          No pull jobs yet — use Pull data above to enqueue one.
+          No add/repair jobs yet — optional, for sources not in the gold DB (DraftKings, FanDuel,
+          Odds-API.io) or new date windows.
         </EmptyLine>
       ) : (
         <div role="table" aria-label="Pull jobs" className="bg-surface-1 text-sm">
@@ -937,7 +1419,8 @@ function SnapshotBlock({
       <section data-testid="research-snapshot" className="space-y-3">
         <SectionHeading>Snapshot</SectionHeading>
         <EmptyLine testid="research-snapshot-empty">
-          No snapshot exported yet — run a pull, then Export snapshot.
+          No snapshot exported yet from the gold DB. Export one to begin (no pull needed — the
+          canonical sources are already persisted).
         </EmptyLine>
       </section>
     );
@@ -1055,9 +1538,25 @@ function SnapshotBlock({
 
 function ModelLab({
   models,
+  hasSnapshot,
 }: {
   readonly models: readonly { id: string; label: string; description: string; source: string }[];
+  readonly hasSnapshot: boolean;
 }): JSX.Element {
+  // Run/score affordances are AVAILABLE only once a snapshot exists. With no
+  // snapshot we show the export-first empty state (NOT a pull prompt): the gold
+  // DB already holds the data, so the next step is Export snapshot.
+  if (!hasSnapshot) {
+    return (
+      <section data-testid="research-model-lab" className="space-y-3">
+        <SectionHeading>Model lab</SectionHeading>
+        <EmptyLine testid="research-model-lab-empty">
+          No snapshot exported yet from the gold DB. Export one to begin (no pull needed — the
+          canonical sources are already persisted), then score these baseline models against it.
+        </EmptyLine>
+      </section>
+    );
+  }
   return (
     <section data-testid="research-model-lab" className="space-y-3">
       <SectionHeading>Model lab</SectionHeading>
@@ -1231,20 +1730,77 @@ function CasebookPreview({ hasSnapshot }: { readonly hasSnapshot: boolean }): JS
 // ── Page ─────────────────────────────────────────────────────────────────────
 
 export function ResearchPage(): JSX.Element {
+  const gold = useResearchGold();
   const sources = useResearchSources();
-  const snapshot = useResearchSnapshot();
+  const [pullDialogOpen, setPullDialogOpen] = useState(false);
+  const [exportDialogOpen, setExportDialogOpen] = useState(false);
+  // After an export is enqueued, poll /v1/research/snapshot/latest until the
+  // worker lands the snapshot (the dialog promises it "appears under Snapshot
+  // when done"). Polling is off by default so the page stays one-shot otherwise.
+  const [exportPollingBaselineKey, setExportPollingBaselineKey] = useState<string | null>(null);
+  const [exportPollingSubmittedAtMs, setExportPollingSubmittedAtMs] = useState<number | null>(null);
+  const [exportPollingError, setExportPollingError] = useState<string | null>(null);
+  const exportPolling = exportPollingBaselineKey !== null;
+  const snapshot = useResearchSnapshot(exportPolling ? { refetchInterval: 5000 } : undefined);
   const leaderboard = useResearchLeaderboard();
   const models = useResearchModels();
   const pulls = useResearchPulls();
-  const [dialogOpen, setDialogOpen] = useState(false);
 
+  const goldData = gold.data;
   const snapshotData = snapshot.data?.snapshot ?? null;
   const leaderboardRows = useMemo(() => leaderboard.data?.rows ?? [], [leaderboard.data?.rows]);
   const pullRows = useMemo(() => pulls.data?.pulls ?? [], [pulls.data?.pulls]);
   const sourceRows = useMemo(() => sources.data?.sources ?? [], [sources.data?.sources]);
   const modelRows = useMemo(() => models.data?.models ?? [], [models.data?.models]);
 
-  const hasArtifacts = snapshotData !== null || pullRows.length > 0 || leaderboardRows.length > 0;
+  const hasSnapshot = snapshotData !== null;
+  const snapshotKey = useMemo(() => snapshotPollingKey(snapshotData), [snapshotData]);
+  const snapshotGeneratedAt = useMemo(() => snapshotGeneratedAtMs(snapshotData), [snapshotData]);
+  // Once the polled snapshot changes from the pre-export artifact, stop the interval.
+  useEffect(() => {
+    if (exportPollingBaselineKey === null) return;
+    if (exportPollingBaselineKey === UNKNOWN_SNAPSHOT_POLLING_KEY) {
+      if (snapshot.isFetched) {
+        if (
+          snapshotKey !== null &&
+          exportPollingSubmittedAtMs !== null &&
+          snapshotGeneratedAt !== null &&
+          snapshotGeneratedAt >= exportPollingSubmittedAtMs
+        ) {
+          setExportPollingBaselineKey(null);
+          setExportPollingSubmittedAtMs(null);
+          setExportPollingError(null);
+          return;
+        }
+        setExportPollingBaselineKey(snapshotKey ?? NO_SNAPSHOT_POLLING_KEY);
+      }
+      return;
+    }
+    if (snapshotKey !== null && snapshotKey !== exportPollingBaselineKey) {
+      setExportPollingBaselineKey(null);
+      setExportPollingSubmittedAtMs(null);
+      setExportPollingError(null);
+      return;
+    }
+    if (
+      exportPollingSubmittedAtMs !== null &&
+      Date.now() - exportPollingSubmittedAtMs >= EXPORT_POLLING_TIMEOUT_MS
+    ) {
+      setExportPollingBaselineKey(null);
+      setExportPollingSubmittedAtMs(null);
+      setExportPollingError(EXPORT_POLLING_TIMEOUT_MESSAGE);
+    }
+  }, [
+    exportPollingBaselineKey,
+    exportPollingSubmittedAtMs,
+    snapshot.dataUpdatedAt,
+    snapshot.isFetched,
+    snapshotGeneratedAt,
+    snapshotKey,
+  ]);
+  const goldPresent = goldData?.present === true;
+  // "Open latest report" stays enabled only when a leaderboard/report exists.
+  const hasReport = leaderboardRows.length > 0;
 
   const latestPullStatus = isRecord(pullRows[0])
     ? str(pick(pullRows[0], "state", "status"))
@@ -1257,7 +1813,7 @@ export function ResearchPage(): JSX.Element {
       : undefined;
 
   // Network-down banner takes precedence; otherwise surface the first hard error.
-  const queries = [sources, snapshot, leaderboard, models, pulls];
+  const queries = [gold, sources, snapshot, leaderboard, models, pulls];
   const networkErr = queries.find((q) => q.isError && isNetworkError(q.error));
   const hardErr = queries.find((q) => q.isError && !isNetworkError(q.error));
   const banner =
@@ -1270,28 +1826,60 @@ export function ResearchPage(): JSX.Element {
   return (
     <div data-testid="research-page" className="space-y-12">
       {banner}
+      {exportPollingError !== null ? (
+        <div
+          role="alert"
+          data-testid="research-export-polling-error"
+          className="border-l-[3px] border-l-accent-yellow bg-surface-1 px-4 py-3 text-sm text-text-hi"
+        >
+          {exportPollingError}
+        </div>
+      ) : null}
       <HeaderStrip
         snapshotId={snapshotId}
         latestPullStatus={latestPullStatus}
         leaderboardTimestamp={leaderboardTimestamp}
-        hasArtifacts={hasArtifacts}
-        hasSnapshot={snapshotData !== null}
+        goldPresent={goldPresent}
+        hasSnapshot={hasSnapshot}
+        hasReport={hasReport}
+        onExport={() => {
+          setExportDialogOpen(true);
+        }}
         onPull={() => {
-          setDialogOpen(true);
+          setPullDialogOpen(true);
         }}
       />
+      <GoldStatus gold={goldData} />
+      <QuantGuidePanel />
       <SourceCoverage sources={sourceRows} />
       <PullJobsTable pulls={pullRows} />
       <SnapshotBlock snapshot={snapshotData} />
-      <ModelLab models={modelRows} />
+      <ModelLab models={modelRows} hasSnapshot={hasSnapshot} />
       <Leaderboard runId={leaderboard.data?.runId ?? null} rows={leaderboardRows} />
-      <CasebookPreview hasSnapshot={snapshotData !== null} />
+      <CasebookPreview hasSnapshot={hasSnapshot} />
 
-      {dialogOpen ? (
+      {pullDialogOpen ? (
         <PullDialog
           nowSeconds={Math.floor(Date.now() / 1000)}
           onClose={() => {
-            setDialogOpen(false);
+            setPullDialogOpen(false);
+          }}
+        />
+      ) : null}
+      {exportDialogOpen ? (
+        <ExportDialog
+          gold={goldData}
+          onClose={() => {
+            setExportDialogOpen(false);
+          }}
+          onExportEnqueued={() => {
+            setExportPollingSubmittedAtMs(Date.now());
+            setExportPollingError(null);
+            setExportPollingBaselineKey(
+              snapshot.isFetched
+                ? (snapshotKey ?? NO_SNAPSHOT_POLLING_KEY)
+                : UNKNOWN_SNAPSHOT_POLLING_KEY,
+            );
           }}
         />
       ) : null}

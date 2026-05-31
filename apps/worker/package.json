@@ -16,6 +16,7 @@
   "dependencies": {
     "@signal-console/adapters": "workspace:*",
     "@signal-console/domain": "workspace:*",
+    "@signal-console/research-pull": "workspace:*",
     "@signal-console/shared": "workspace:*"
   },
   "devDependencies": {

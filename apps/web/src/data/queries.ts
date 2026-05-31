@@ -23,7 +23,7 @@ import {
 import { BoardStateSpaceConfigSchema } from "@signal-console/detectors/board-mad/state-space-config";
 import { z } from "zod";
 
-const API_BASE_URL: string =
+export const API_BASE_URL: string =
   typeof import.meta.env.VITE_API_URL === "string" && import.meta.env.VITE_API_URL.length > 0
     ? import.meta.env.VITE_API_URL
     : "";
@@ -833,8 +833,21 @@ const researchPullsSchema = z.object({
   pulls: z.array(z.record(z.unknown())),
 });
 
+// /v1/research/gold — read-only gold-DB status. The route reads GOLD_DB_PATH
+// via openGoldDb and NEVER throws on a missing/locked DB: it returns
+// present:false with zeroed numerics and gameCount:null instead. `gameCount`
+// is `SELECT count(*) FROM games` when the DB is present and readable, else null.
+const researchGoldSchema = z.object({
+  present: z.boolean(),
+  path: z.string(),
+  sizeBytes: z.number(),
+  lastModified: z.string(),
+  gameCount: z.number().nullable(),
+});
+
 export type ResearchSource = z.infer<typeof researchSourceSchema>;
 export type ResearchSources = z.infer<typeof researchSourcesSchema>;
+export type ResearchGold = z.infer<typeof researchGoldSchema>;
 export type ResearchSnapshot = z.infer<typeof researchSnapshotSchema>;
 export type ResearchLeaderboard = z.infer<typeof researchLeaderboardSchema>;
 export type ResearchModel = z.infer<typeof researchModelSchema>;
@@ -848,11 +861,24 @@ export function useResearchSources(): UseQueryResult<ResearchSources, Error> {
   });
 }
 
-export function useResearchSnapshot(): UseQueryResult<ResearchSnapshot, Error> {
+export function useResearchGold(): UseQueryResult<ResearchGold, Error> {
+  return useQuery({
+    queryKey: ["research-gold"],
+    queryFn: ({ signal }) => fetchJson(`/v1/research/gold`, researchGoldSchema, signal),
+  });
+}
+
+// `refetchInterval` is opt-in so the Export dialog can poll /v1/research/snapshot/latest
+// while an export job is in flight (the snapshot appears once the worker
+// finishes); the page leaves it unset otherwise so it stays one-shot per visit.
+export function useResearchSnapshot(
+  opts?: { readonly refetchInterval?: number },
+): UseQueryResult<ResearchSnapshot, Error> {
   return useQuery({
     queryKey: ["research-snapshot"],
     queryFn: ({ signal }) =>
       fetchJson(`/v1/research/snapshot/latest`, researchSnapshotSchema, signal),
+    ...(opts?.refetchInterval !== undefined ? { refetchInterval: opts.refetchInterval } : {}),
   });
 }
 
@@ -925,6 +951,65 @@ export function useSubmitPull(): UseMutationResult<SubmitPullResponse, Error, un
     mutationFn: submitPullRequest,
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["research-pulls"] });
+    },
+  });
+}
+
+// POST /v1/research/export — the SECOND writer, mirrors POST /v1/research/pull
+// EXACTLY: validated server-side via a shared validator, then enqueues an
+// admin-action of type "research-export" and returns { jobId } (HTTP 202). The
+// worker runs the EXISTING scripts/export-quant-snapshot.ts against the gold DB
+// — no pull needed, the canonical sources are already persisted there. On
+// success we invalidate ['research-snapshot'] so the latest snapshot refreshes
+// once the export lands. Note the response key is `jobId` (camelCase), distinct
+// from pull's `job_id`.
+export interface ResearchExportRequest {
+  readonly snapshotId?: string;
+  readonly scope: "full" | "sample";
+  readonly sample?: number;
+  readonly since?: string;
+  readonly until?: string;
+  readonly gameIds?: readonly string[];
+}
+const submitExportResponseSchema = z.object({ jobId: z.string() });
+const submitExportErrorSchema = z.object({ error: z.string() });
+export type SubmitExportResponse = z.infer<typeof submitExportResponseSchema>;
+
+async function submitExportRequest(body: ResearchExportRequest): Promise<SubmitExportResponse> {
+  const res = await fetch(`${API_BASE_URL}/v1/research/export`, {
+    method: "POST",
+    headers: { "X-Signal-Token": SIGNAL_TOKEN, "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const text = await res.text();
+  if (!res.ok) {
+    const parsed = (() => {
+      try {
+        return submitExportErrorSchema.safeParse(JSON.parse(text));
+      } catch {
+        return { success: false } as const;
+      }
+    })();
+    const detail = parsed.success ? parsed.data.error : text || res.statusText;
+    throw new Error(`HTTP ${String(res.status)}: ${detail}`);
+  }
+  const json: unknown = JSON.parse(text);
+  return submitExportResponseSchema.parse(json);
+}
+
+export function useSubmitExport(): UseMutationResult<
+  SubmitExportResponse,
+  Error,
+  ResearchExportRequest
+> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: submitExportRequest,
+    onSuccess: () => {
+      // The export reads the gold DB and lands a new snapshot; nudge the latest
+      // snapshot query so it appears under Snapshot when done (the page also
+      // polls). Gold-DB status is unaffected by an export.
+      void queryClient.invalidateQueries({ queryKey: ["research-snapshot"] });
     },
   });
 }

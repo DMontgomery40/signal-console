@@ -169,6 +169,9 @@ importers:
       '@signal-console/domain':
         specifier: workspace:*
         version: link:../../packages/domain
+      '@signal-console/research-pull':
+        specifier: workspace:*
+        version: link:../../packages/research-pull
       '@signal-console/shared':
         specifier: workspace:*
         version: link:../../packages/shared

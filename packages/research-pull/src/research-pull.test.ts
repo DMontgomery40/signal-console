@@ -21,6 +21,7 @@ import {
   validatePullJobRequest,
   type ValidationCode,
 } from "./validator";
+import { validateExportRequest, type ExportValidationCode } from "./export-validator";
 
 const NOW = 1_700_000_000; // fixed unix seconds for deterministic time rules.
 
@@ -674,6 +675,67 @@ describe("executor — state machine", () => {
     expect(adapters.fetchOddsApiIoNbaEvents).not.toHaveBeenCalled();
     expect(adapters.syncKalshiNbaHistorical).not.toHaveBeenCalled();
     expect(statSync(join(result.jobDir, "SUMMARY.md")).isFile()).toBe(true);
+  });
+});
+
+describe("validateExportRequest", () => {
+  function exportCodes(input: unknown): ExportValidationCode[] {
+    const result = validateExportRequest(input);
+    return result.ok ? [] : result.errors.map((e) => e.code);
+  }
+
+  it("accepts a full-corpus export with no sample", () => {
+    const result = validateExportRequest({ scope: "full" });
+    expect(result.ok).toBe(true);
+  });
+
+  it("accepts a sample export with a positive count and optional window", () => {
+    const result = validateExportRequest({
+      scope: "sample",
+      sample: 25,
+      snapshotId: "snap-x",
+      since: "2026-05-01",
+      until: "2026-05-25",
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  it("rejects snapshot ids that are not safe path segments", () => {
+    for (const snapshotId of ["../escape", "/tmp/escape", ".", "..", "snap.child", "snap/child"]) {
+      expect(exportCodes({ scope: "full", snapshotId })).toContain("schema_invalid");
+    }
+  });
+
+  it("rejects gameIds on a sample export so sampling cannot be overridden", () => {
+    expect(exportCodes({ scope: "sample", sample: 25, gameIds: ["nba-1"] })).toContain(
+      "sample_rejects_game_ids",
+    );
+  });
+
+  it("rejects an unknown scope as schema_invalid", () => {
+    expect(exportCodes({ scope: "everything" })).toContain("schema_invalid");
+  });
+
+  it("rejects scope=sample without a count", () => {
+    expect(exportCodes({ scope: "sample" })).toContain("sample_requires_count");
+  });
+
+  it("rejects a non-positive sample as schema_invalid (zod gate)", () => {
+    expect(exportCodes({ scope: "sample", sample: 0 })).toContain("schema_invalid");
+  });
+
+  it("rejects a sample count on a full-corpus scope", () => {
+    expect(exportCodes({ scope: "full", sample: 10 })).toContain("sample_count_without_scope");
+  });
+
+  it("rejects an inverted since/until window", () => {
+    expect(exportCodes({ scope: "full", since: "2026-05-25", until: "2026-05-01" })).toContain(
+      "date_range_inverted",
+    );
+  });
+
+  it("rejects unknown keys via the strict schema", () => {
+    expect(exportCodes({ scope: "full", bogus: true })).toContain("schema_invalid");
   });
 });
 
