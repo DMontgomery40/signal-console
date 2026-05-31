@@ -386,6 +386,10 @@ def normalize_live_playbyplay_payload(
         PlayByPlayAction(
             actionNumber=_coerce_int(action.get("actionNumber")),
             actionType=action.get("actionType"),
+            subType=action.get("subType"),
+            personId=_coerce_int(action.get("personId")),
+            # cdn uses playerNameI ("V. Wembanyama"); fall back to playerName.
+            playerName=action.get("playerNameI") or action.get("playerName"),
             clock=action.get("clock"),
             description=action.get("description"),
             period=_coerce_int(action.get("period")),
