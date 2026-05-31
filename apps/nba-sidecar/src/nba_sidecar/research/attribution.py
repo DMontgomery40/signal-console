@@ -98,6 +98,16 @@ def signed_paired_score(
     p = params or AttributionParams()
     c = leg_drift(credited_ticks, event_epoch, p)
     r = leg_drift(rightful_ticks, event_epoch, p)
+    return paired_from_legs(c, r)
+
+
+def paired_from_legs(credited: LegResult, rightful: LegResult) -> PairedScore:
+    """Combine two pre-computed legs into the directed-paired score + support flag.
+
+    Separated from signed_paired_score so callers that compute legs differently
+    (e.g. per-(source,line) drift then aggregate) reuse the SAME abstention logic.
+    """
+    c, r = credited, rightful
     if c.abstain and r.abstain:
         return PairedScore(c, r, None, "insufficient_support", "no ticks on either leg")
     if c.abstain:
@@ -107,4 +117,12 @@ def signed_paired_score(
     return PairedScore(c, r, (r.drift or 0.0) - (c.drift or 0.0), "ok", "both legs observed")
 
 
-__all__ = ["Tick", "AttributionParams", "LegResult", "PairedScore", "leg_drift", "signed_paired_score"]
+__all__ = [
+    "Tick",
+    "AttributionParams",
+    "LegResult",
+    "PairedScore",
+    "leg_drift",
+    "signed_paired_score",
+    "paired_from_legs",
+]

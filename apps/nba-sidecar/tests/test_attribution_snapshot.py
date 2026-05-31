@@ -12,11 +12,13 @@ import pandas as pd
 import pytest
 
 from nba_sidecar.research.attribution_snapshot import (
+    aggregate_leg_drift,
     evaluate_snapshot,
     last_name,
     score_incident_snapshot,
     select_player_series,
 )
+from nba_sidecar.research.attribution import AttributionParams
 from nba_sidecar.research.loader import read_player_prop_ticks
 
 EVENT = "2026-05-21T02:00:43.6Z"
@@ -90,3 +92,28 @@ def test_evaluate_stratifies_player_swap_vs_team_dispute(tmp_path):
     assert rep["team_dispute"]["n"] == 1
     # 'a': champagnie illiquid -> rightful_only (scored); 'b': team_dispute, rightful only too
     assert rep["player_swap"]["n_scored"] == 1
+
+
+def test_aggregate_drift_is_level_invariant_across_lines(tmp_path):
+    # two lines, DIFFERENT levels, SAME +0.20 drift -> aggregate is +0.20 (the mean of
+    # per-line drifts), not a blended-level artifact.
+    rows = _ticks("g", "victor-wembanyama", "bet365", 9.5, [(-100, 0.30), (-40, 0.30), (200, 0.50), (280, 0.50)])
+    rows += _ticks("g", "victor-wembanyama", "kalshi", 9.5, [(-100, 0.70), (-40, 0.70), (200, 0.90), (280, 0.90)])
+    df = read_player_prop_ticks(_snap(tmp_path, rows))
+    event = datetime.fromisoformat(EVENT.replace("Z", "+00:00")).timestamp()
+    lr = aggregate_leg_drift(df, "g", "wembanyama", event, AttributionParams())
+    assert not lr.abstain
+    assert lr.drift == pytest.approx(0.20)
+
+
+def test_aggregate_drift_path_scores_player_swap(tmp_path):
+    rows = _ticks("g", "victor-wembanyama", "bet365", 9.5, [(-100, 0.30), (-40, 0.30), (200, 0.55), (280, 0.55)])
+    rows += _ticks("g", "julian-champagnie", "bet365", 7.5, [(-100, 0.60), (-40, 0.60), (200, 0.45), (280, 0.45)])
+    df = read_player_prop_ticks(_snap(tmp_path, rows))
+    ps, stratum = score_incident_snapshot(
+        df, game_id="g", credited_player="J. Champagnie", rightful_player="V. Wembanyama",
+        event_iso=EVENT, line_select="aggregate_drift",
+    )
+    assert stratum == "player_swap"
+    assert ps is not None and ps.support == "ok"
+    assert ps.score == pytest.approx(0.40)

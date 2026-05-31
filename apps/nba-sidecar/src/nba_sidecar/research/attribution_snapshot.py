@@ -22,7 +22,14 @@ from datetime import datetime
 
 import pandas as pd
 
-from .attribution import AttributionParams, PairedScore, signed_paired_score
+from .attribution import (
+    AttributionParams,
+    LegResult,
+    PairedScore,
+    leg_drift,
+    paired_from_legs,
+    signed_paired_score,
+)
 from .loader import read_player_prop_ticks
 
 
@@ -80,6 +87,42 @@ def select_player_series(
     return out
 
 
+def aggregate_leg_drift(
+    ticks_df: pd.DataFrame,
+    game_id: str,
+    player_last: str,
+    event_epoch: float,
+    params: AttributionParams,
+) -> LegResult:
+    """Drift aggregated ACROSS a player's (source, line) series: leg_drift per group,
+    then mean of the non-abstaining drifts. Level-invariant (each line's drift is
+    post-pre), so it keeps coverage without blending line levels. Abstains only if
+    NO (source, line) series has enough ticks in the window."""
+    if not player_last:
+        return LegResult(drift=None, n_ticks=0, abstain=True)
+    sub = ticks_df[
+        (ticks_df["game_id"] == game_id)
+        & ticks_df["player_key"].str.lower().str.endswith(player_last.lower(), na=False)
+    ]
+    if sub.empty:
+        return LegResult(drift=None, n_ticks=0, abstain=True)
+    drifts: list[float] = []
+    total_ticks = 0
+    for _, g in sub.groupby(["source", "line"], dropna=False):
+        ser: list[tuple[float, float]] = []
+        for captured_at, prob in zip(g["captured_at"], g["implied_probability"]):
+            e = _epoch(captured_at)
+            if e is not None and pd.notna(prob):
+                ser.append((e, float(prob)))
+        lr = leg_drift(ser, event_epoch, params)
+        total_ticks += lr.n_ticks
+        if not lr.abstain and lr.drift is not None:
+            drifts.append(lr.drift)
+    if not drifts:
+        return LegResult(drift=None, n_ticks=total_ticks, abstain=True)
+    return LegResult(drift=sum(drifts) / len(drifts), n_ticks=total_ticks, abstain=False)
+
+
 def score_incident_snapshot(
     ticks_df: pd.DataFrame,
     *,
@@ -90,15 +133,24 @@ def score_incident_snapshot(
     params: AttributionParams | None = None,
     line_select: str = "most_active",
 ) -> tuple[PairedScore | None, str]:
-    """Score one incident from the snapshot. Returns (PairedScore|None, stratum)."""
+    """Score one incident from the snapshot. Returns (PairedScore|None, stratum).
+
+    line_select: 'most_active' | 'closest_to_half' pick ONE coherent series per
+    player; 'aggregate_drift' computes per-(source,line) drift then averages
+    (keeps coverage, level-invariant -> lower abstention)."""
+    p = params or AttributionParams()
     cl, rl = last_name(credited_player), last_name(rightful_player)
     stratum = "player_swap" if (cl and rl) else "team_dispute"
     t = _epoch(event_iso)
     if t is None:
         return None, stratum
+    if line_select == "aggregate_drift":
+        c = aggregate_leg_drift(ticks_df, game_id, cl, t, p)
+        r = aggregate_leg_drift(ticks_df, game_id, rl, t, p)
+        return paired_from_legs(c, r), stratum
     credited = select_player_series(ticks_df, game_id, cl, line_select=line_select)
     rightful = select_player_series(ticks_df, game_id, rl, line_select=line_select)
-    return signed_paired_score(credited, rightful, t, params), stratum
+    return signed_paired_score(credited, rightful, t, p), stratum
 
 
 def evaluate_snapshot(
@@ -151,4 +203,10 @@ def evaluate_snapshot(
     }
 
 
-__all__ = ["last_name", "select_player_series", "score_incident_snapshot", "evaluate_snapshot"]
+__all__ = [
+    "last_name",
+    "select_player_series",
+    "aggregate_leg_drift",
+    "score_incident_snapshot",
+    "evaluate_snapshot",
+]
