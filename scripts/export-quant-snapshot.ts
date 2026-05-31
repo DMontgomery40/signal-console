@@ -834,6 +834,8 @@ function buildPlayerPropTickRows(
 ): Row[] {
   const stmt = db.prepare(
     `SELECT mi.participant_key AS player_key,
+            sm.source AS source,
+            mi.line AS line,
             qt.captured_at AS captured_at,
             qt.implied_probability AS implied_probability,
             qt.volume AS volume
@@ -844,20 +846,28 @@ function buildPlayerPropTickRows(
        AND mi.family = 'player-prop'
        AND lower(mi.display_label) LIKE '%rebound%'
        AND qt.implied_probability IS NOT NULL
-     ORDER BY mi.participant_key, qt.captured_at`,
+     ORDER BY mi.participant_key, sm.source, mi.line, qt.captured_at`,
   );
   const rows: Row[] = [];
   for (const gameId of gameIds) {
     for (const rec of stmt.all(gameId)) {
       if (!isRecord(rec)) continue;
       const playerKey = typeof rec["player_key"] === "string" ? rec["player_key"] : null;
+      const source = typeof rec["source"] === "string" ? rec["source"] : null;
       const capturedAt = typeof rec["captured_at"] === "string" ? rec["captured_at"] : null;
       const impliedProbability =
         typeof rec["implied_probability"] === "number" ? rec["implied_probability"] : null;
-      if (playerKey === null || capturedAt === null || impliedProbability === null) continue;
+      if (playerKey === null || source === null || capturedAt === null || impliedProbability === null) {
+        continue;
+      }
       rows.push({
         game_id: gameId,
         player_key: playerKey,
+        source,
+        // line distinguishes the over/under threshold (e.g. 5.5 vs 9.5) so the
+        // re-ranker can select ONE coherent series per player/source instead of
+        // blending levels; null for line-less props.
+        line: typeof rec["line"] === "number" ? rec["line"] : null,
         stat: "rebounds",
         captured_at: capturedAt,
         implied_probability: impliedProbability,
@@ -960,6 +970,8 @@ const SOURCE_COVERAGE_COLUMNS: readonly ColumnSpec[] = [
 const PLAYER_PROP_TICKS_COLUMNS: readonly ColumnSpec[] = [
   { name: "game_id", type: "VARCHAR" },
   { name: "player_key", type: "VARCHAR" },
+  { name: "source", type: "VARCHAR" },
+  { name: "line", type: "DOUBLE" },
   { name: "stat", type: "VARCHAR" },
   { name: "captured_at", type: "VARCHAR" },
   { name: "implied_probability", type: "DOUBLE" },
@@ -1111,6 +1123,24 @@ const FEATURE_CATALOG: readonly FeatureCatalogEntry[] = [
     causalOrNoncausal: "noncausal",
     leakageSafeForOnlineScoring: false,
     derivedFromSourceTables: ["quote_ticks", "source_markets"],
+  },
+  {
+    file: "player_prop_ticks.parquet",
+    name: "source",
+    meaning: "Book/exchange for the prop (kalshi/bet365/polymarket); lets the re-ranker pick a per-source series + measure cross-source divergence",
+    units: "categorical",
+    causalOrNoncausal: "causal",
+    leakageSafeForOnlineScoring: true,
+    derivedFromSourceTables: ["source_markets", "market_instruments"],
+  },
+  {
+    file: "player_prop_ticks.parquet",
+    name: "line",
+    meaning: "Over/under threshold for the prop (e.g. 5.5, 9.5); lets the re-ranker select ONE coherent line per player/source rather than blending levels",
+    units: "rebounds",
+    causalOrNoncausal: "causal",
+    leakageSafeForOnlineScoring: true,
+    derivedFromSourceTables: ["market_instruments"],
   },
   {
     file: "player_prop_ticks.parquet",

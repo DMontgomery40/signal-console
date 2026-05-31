@@ -292,6 +292,8 @@ PLAYER_PROP_TICKS_COLUMNS = ParquetTableSpec(
     columns=(
         ColumnSpec("game_id", "string", meaning="Game identifier."),
         ColumnSpec("player_key", "string", meaning="Player participant key (e.g. victor-wembanyama)."),
+        ColumnSpec("source", "string", meaning="Book/exchange (kalshi/bet365/polymarket) for per-source series + cross-source divergence."),
+        ColumnSpec("line", "float", nullable=True, meaning="Over/under threshold (e.g. 5.5); select one coherent line per player/source."),
         ColumnSpec("stat", "string", meaning="Prop stat family (currently 'rebounds')."),
         ColumnSpec("captured_at", "datetime", meaning="Tick wall-clock instant (ISO-8601 Z). Causal."),
         ColumnSpec(

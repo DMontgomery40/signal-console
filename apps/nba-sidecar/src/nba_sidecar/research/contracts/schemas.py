@@ -106,6 +106,8 @@ class PlayerPropTickRow(BaseModel):
 
     game_id: str
     player_key: str
+    source: str
+    line: float | None = None
     stat: str
     captured_at: datetime
     implied_probability: float = Field(ge=0, le=1)

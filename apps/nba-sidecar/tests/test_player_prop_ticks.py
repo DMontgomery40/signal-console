@@ -28,15 +28,15 @@ def test_read_player_prop_ticks_validates_and_returns(tmp_path):
     d = _write_snapshot(
         tmp_path,
         [
-            {"game_id": "nba-g", "player_key": "victor-wembanyama", "stat": "rebounds",
-             "captured_at": "2026-05-21T02:00:43Z", "implied_probability": 0.55, "volume": 12.0},
-            {"game_id": "nba-g", "player_key": "victor-wembanyama", "stat": "rebounds",
-             "captured_at": "2026-05-21T02:01:00Z", "implied_probability": 0.60, "volume": None},
+            {"game_id": "nba-g", "player_key": "victor-wembanyama", "source": "kalshi", "line": 9.5,
+             "stat": "rebounds", "captured_at": "2026-05-21T02:00:43Z", "implied_probability": 0.55, "volume": 12.0},
+            {"game_id": "nba-g", "player_key": "victor-wembanyama", "source": "bet365", "line": None,
+             "stat": "rebounds", "captured_at": "2026-05-21T02:01:00Z", "implied_probability": 0.60, "volume": None},
         ],
     )
     df = read_player_prop_ticks(d)
     assert len(df) == 2
-    assert {"game_id", "player_key", "stat", "captured_at", "implied_probability", "volume"} <= set(df.columns)
+    assert {"game_id", "player_key", "source", "line", "stat", "captured_at", "implied_probability", "volume"} <= set(df.columns)
 
 
 def test_read_missing_file_raises(tmp_path):
@@ -54,17 +54,17 @@ def test_validate_rejects_missing_required_column():
 
 def test_pydantic_row_requires_aware_time_and_prob_range():
     ok = PlayerPropTickRow(
-        game_id="g", player_key="p", stat="rebounds",
+        game_id="g", player_key="p", source="kalshi", stat="rebounds",
         captured_at=datetime(2026, 5, 21, 2, 0, tzinfo=timezone.utc), implied_probability=0.5,
     )
-    assert ok.captured_at.tzinfo is not None and ok.volume is None
+    assert ok.captured_at.tzinfo is not None and ok.volume is None and ok.line is None
     with pytest.raises(ValidationError):  # prob > 1
         PlayerPropTickRow(
-            game_id="g", player_key="p", stat="rebounds",
+            game_id="g", player_key="p", source="kalshi", stat="rebounds",
             captured_at=datetime(2026, 5, 21, 2, 0, tzinfo=timezone.utc), implied_probability=1.5,
         )
     with pytest.raises(ValidationError):  # naive datetime
         PlayerPropTickRow(
-            game_id="g", player_key="p", stat="rebounds",
+            game_id="g", player_key="p", source="kalshi", stat="rebounds",
             captured_at=datetime(2026, 5, 21, 2, 0), implied_probability=0.5,
         )
