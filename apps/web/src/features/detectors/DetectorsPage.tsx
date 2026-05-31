@@ -26,6 +26,7 @@ import { ApiUnreachableBanner, isNetworkError } from "../../components/ApiUnreac
 import { QueryErrorBanner } from "../../components/QueryErrorBanner";
 import { useDetectors, type DetectorEntry } from "../../data/queries";
 import { isRecord, parseSchema, readBoolean, type ParsedProperty } from "../../lib/paramsSchema";
+import { navigateTo } from "../../router";
 
 // Per US-046, each detector card's title and each visible param name is
 // wrapped in an ExplainerCard so the registered HoverCard fires on hover.
@@ -376,7 +377,17 @@ export function DetectorsPage(): JSX.Element {
       </div>
       <p className="mt-2 text-sm text-text-md">
         Registry view of each detector's inputs. Tune live behavior in Settings and compare per-run
-        behavior in Backtest.
+        behavior in Backtest.{" "}
+        <a
+          href="/research"
+          data-testid="detectors-research-link"
+          onClick={(e) => {
+            navigateTo(e, "/research");
+          }}
+          className="font-medium text-accent-green transition-colors duration-fast ease-out hover:text-text-hi"
+        >
+          Compare in Research
+        </a>
       </p>
 
       {detectors.isLoading ? (

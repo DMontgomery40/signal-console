@@ -39,6 +39,16 @@ export type {
   ValidationResult,
 } from "./validator";
 
+export { EXPORT_SCOPES, exportRequestSchema } from "./export-contract";
+export type { ExportRequest, ExportScope } from "./export-contract";
+
+export { EXPORT_VALIDATION_CODES, validateExportRequest } from "./export-validator";
+export type {
+  ExportValidationCode,
+  ExportValidationError,
+  ExportValidationResult,
+} from "./export-validator";
+
 export { planPullJob } from "./planner";
 export type { PlannedOperation, PlannedSource, PullPlan } from "./planner";
 

@@ -14,6 +14,26 @@ _when an NBA in-game stat-misattribution incident is about to surface_ — and t
 so **better than the current baselines**, on a frozen, reproducible dataset, scored
 by one shared evaluator.
 
+### The workflow (gold-first)
+
+The canonical order is:
+
+1. **Check gold DB status.** The gold SQLite DB already holds canonical
+   Kalshi / Polymarket / Bet365 / NBA coverage. Confirm it is present and how
+   many games it carries (`GET /v1/research/gold`, or the "Gold dataset status"
+   panel on the `/research` page).
+2. **Export a snapshot.** The exporter reads the gold DB **directly** — there is
+   **no pull step required** to start modeling. (`pnpm quant:export`, or the
+   "Export snapshot" CTA on `/research` which POSTs `/v1/research/export` to
+   enqueue an export job the worker runs via `scripts/export-quant-snapshot.ts`.)
+3. **Run / score models** against that frozen snapshot (`pnpm quant ...`).
+4. **(Optional) Add or repair source data.** This is the old "Pull" step,
+   demoted: it is only for sources **not** persisted in the gold DB
+   (DraftKings / FanDuel via Odds-API.io) or for new date windows. Pulled data
+   lands as `artifact_only` coverage — non-canonical board input (see §2) — so it
+   is never required before exporting and never required to model the canonical
+   board.
+
 It is **not** a claim that the problem is solved. The two baselines shipped here are
 deliberately framed as **bars to beat**, not answers:
 
@@ -71,6 +91,9 @@ scorer, and asks you to beat the bar.
         │  scripts/export-quant-snapshot.ts  (TS-owned exporter, deterministic, seed=42)
         │  uses the SHARED @signal-console/research-truth functions, so the snapshot's
         │  truth equals the production NBA detector bake-off's truth (no second code path)
+        │  DEFAULT = FULL CORPUS: every board-eligible game (>=1 non-heartbeat quote
+        │  tick from an eligible source via source_markets) UNION every incident game.
+        │  Sampling is OPT-IN (`--sample N`, `--games a,b`, `--limit N`).
         ▼
   SNAPSHOT  outputs/nba-quant-lab/snapshots/<id>/        ← what models actually read
     *.parquet  +  snapshot.duckdb  +  manifest.json  +  feature_catalog.{json,md}  +  splits.json
@@ -87,6 +110,31 @@ board lane shape** (`buildLiveBoardObservationsForGame`), restricted to the
 snapshot-eligible source set (`kalshi`, `polymarket`, `bet365`, `nba`). The tape-outlier
 episodes come from the byte-identical bake-off path on each game's full natural window.
 
+### Selection: the default is the FULL corpus
+
+The exporter's **default (no selection flag) is the full corpus**: every
+board-eligible game — defined as a game with at least one non-heartbeat quote
+tick carrying a numeric implied probability from a snapshot-eligible source
+(`kalshi`/`polymarket`/`bet365`; `nba` is the PBP feed and never contributes
+ticks) joined through `source_markets` — **unioned with every incident game that
+has a local window** (so the scoreable-incident truth set never regresses). On
+the current gold DB that is **1 260 board-eligible games (1 256 with a local PBP
+window)**, recorded in `manifest.selection.mode == "full-corpus"`.
+
+Sampling is **opt-in**, never the default:
+
+| invocation    | `selection.mode`       | games selected                                            |
+| ------------- | ---------------------- | --------------------------------------------------------- |
+| _(no flag)_   | `full-corpus`          | all board-eligible games ∪ all incident games             |
+| `--sample N`  | `incident-plus-sample` | ALL incident games + N deterministic regular-season games |
+| `--games a,b` | `explicit-games`       | exactly the listed ids that have a local window           |
+
+`--limit N`, `--since DATE|ISO`, and `--until DATE|ISO` post-filter whatever was selected
+on any path. Date-only `--since` starts at `00:00:00Z`; date-only `--until` is inclusive
+through `23:59:59Z`. The `sample-fixed` snapshot below was built with the **opt-in
+`--sample 15`** path (29 games), kept frozen as a small, fast reference; it is
+**not** what a default `pnpm quant:export` produces today.
+
 ### The hard rule
 
 **Models read the snapshot, never SQLite.** The Python research package's loader
@@ -101,7 +149,9 @@ the evaluator replay any model deterministically.
 - **`artifact_only` coverage is not canonical.** `source_coverage.class` is one of
   `canonical | snapshot_eligible | partial | artifact_only | missing`. `artifact_only`
   rows describe coverage that exists only as a cached artifact (e.g. an odds-api.io
-  pull) and has not been promoted into the canonical tick store. Do not treat
+  pull) and has not been promoted into the canonical tick store. This is exactly what
+  the **optional** "add/repair source data" pull (DraftKings / FanDuel via
+  Odds-API.io; §0 step 4) lands: `artifact_only`, never gold. Do not treat
   `artifact_only` coverage as authoritative board input. (In the `sample-fixed`
   snapshot, all 278 coverage rows happen to be `canonical` — but the enum exists because
   other snapshots will not be, and a model must not assume otherwise.)
@@ -126,14 +176,16 @@ against the same gold DB + registry get the same snapshot.
 ## 3. The dataset: files + schemas
 
 All paths below are under
-`/Users/davidmontgomery/signal-console-quant-lab/outputs/nba-quant-lab/snapshots/sample-fixed/`.
+`/Users/davidmontgomery/signal-console/outputs/nba-quant-lab/snapshots/sample-fixed/`.
 Schemas are read from the real parquet files. The authoritative per-field provenance
 (units, causal/non-causal, leakage flag) lives in `feature_catalog.json` /
 `feature_catalog.md` next to the data.
 
-`sample-fixed` contents: **29 games** (14 incident games + 15 sampled regular games),
-**3 862 board observations**, **26 incidents** (15 scoreable), **15 score windows**,
-**99 market-outlier episodes**, **278 source-coverage rows**.
+`sample-fixed` contents: **29 games** (14 incident games + 15 sampled regular games —
+the **opt-in `--sample 15`** path, kept frozen as a small reference, NOT the
+full-corpus default of ~1 256 games), **3 862 board observations**, **26 incidents**
+(15 scoreable), **15 score windows**, **99 market-outlier episodes**, **278
+source-coverage rows**.
 
 ### 3.1 `board_observations.parquet` — THE MODEL INPUT (causal, leakage-safe)
 
@@ -246,7 +298,7 @@ Models live in
 **Step 1 — copy the template.**
 
 ```bash
-cd /Users/davidmontgomery/signal-console-quant-lab/apps/nba-sidecar/src/nba_sidecar/research/models
+cd /Users/davidmontgomery/signal-console/apps/nba-sidecar/src/nba_sidecar/research/models
 cp template_model.py my_model.py
 ```
 
@@ -299,9 +351,9 @@ want the **residual-coverage** diagnostic to light up (see §5).
 and not part of the base sidecar service):
 
 ```bash
-cd /Users/davidmontgomery/signal-console-quant-lab/apps/nba-sidecar
+cd /Users/davidmontgomery/signal-console/apps/nba-sidecar
 uv sync --extra research          # installs pandas, pyarrow, duckdb, numpy, matplotlib
-SNAP=/Users/davidmontgomery/signal-console-quant-lab/outputs/nba-quant-lab/snapshots/sample-fixed
+SNAP=/Users/davidmontgomery/signal-console/outputs/nba-quant-lab/snapshots/sample-fixed
 
 uv run --extra research python -m nba_sidecar.research list-models
 uv run --extra research python -m nba_sidecar.research run-model my_model "$SNAP"
@@ -342,8 +394,8 @@ overlap: `bucket_end`, `threshold`, `intensity`, `warmed`. If you omit `threshol
 **Score it:**
 
 ```bash
-cd /Users/davidmontgomery/signal-console-quant-lab/apps/nba-sidecar
-SNAP=/Users/davidmontgomery/signal-console-quant-lab/outputs/nba-quant-lab/snapshots/sample-fixed
+cd /Users/davidmontgomery/signal-console/apps/nba-sidecar
+SNAP=/Users/davidmontgomery/signal-console/outputs/nba-quant-lab/snapshots/sample-fixed
 
 uv run --extra research python -m nba_sidecar.research \
     score-predictions /path/to/predictions.parquet "$SNAP" \
@@ -358,8 +410,14 @@ runs the identical scorer and writes a run directory.
 > `pnpm quant compare ...`, `pnpm quant list-models`), which forwards to the Python CLI via
 > `scripts/quant.ts`, or the underlying **`uv run --extra research python -m nba_sidecar.research <cmd>`**
 > (useful if the venv isn't synced). The snapshot is exported separately via **`pnpm quant:export`**
-> (→ `scripts/export-quant-snapshot.ts`) and data is pulled via **`pnpm quant:pull`** — do not
-> confuse the export/pull steps with the scoring step.
+> (→ `scripts/export-quant-snapshot.ts`; **default = full corpus**, sampling is opt-in via
+> `--sample N` / `--games a,b` / `--limit N`). The exporter reads the **gold DB directly**, so
+> there is **no pull step before exporting** — you can export and score the canonical board
+> straight from gold. **`pnpm quant:pull`** (→ `scripts/research-pull.ts`; the old "Pull",
+> surfaced as "Add/repair source data" on `/research`) is **optional**: use it only to add
+> sources not persisted in the gold DB (DraftKings / FanDuel via Odds-API.io) or to fill new
+> date windows, and it lands `artifact_only` coverage (non-canonical — see §2), not gold.
+> Do not confuse the export step with the scoring step.
 
 ---
 

@@ -10,6 +10,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, isAbsolute, join, normalize, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { GOLD_DB_PATH, openGoldDb } from "@signal-console/db";
 import { SOURCE_CAPABILITY_MATRIX, type SourceCapability } from "@signal-console/research-pull";
 
 /**
@@ -24,6 +25,31 @@ import { SOURCE_CAPABILITY_MATRIX, type SourceCapability } from "@signal-console
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..");
 export const DEFAULT_RESEARCH_OUTPUT_ROOT: string =
   process.env["RESEARCH_OUTPUT_ROOT"] ?? resolve(REPO_ROOT, "outputs", "nba-quant-lab");
+
+/** The durable researcher guide. Lives in docs/ (outside the Vite web root), so
+ * the /research "Open Quant Guide" link opens it via the API, not a static path
+ * that would fall through to the SPA shell. */
+export const DEFAULT_QUANT_GUIDE_PATH: string = resolve(
+  REPO_ROOT,
+  "docs",
+  "quant-researcher-guide.md",
+);
+
+export interface QuantGuidePayload {
+  readonly found: boolean;
+  readonly content: string;
+}
+
+/** Reads the researcher guide markdown. Never throws — a missing file yields
+ * found:false so the route can answer 404 instead of crashing. */
+export function getQuantGuide(options: { readonly guidePath?: string } = {}): QuantGuidePayload {
+  const guidePath = options.guidePath ?? DEFAULT_QUANT_GUIDE_PATH;
+  try {
+    return { found: true, content: readFileSync(guidePath, "utf8") };
+  } catch {
+    return { found: false, content: "" };
+  }
+}
 
 /** Static fallback model registry when no models.json artifact exists. */
 export const STATIC_MODELS: readonly ResearchModel[] = [
@@ -262,6 +288,89 @@ export function getResearchModels(options: ResearchServiceOptions = {}): Researc
     }
   }
   return { models: STATIC_MODELS };
+}
+
+/* --------------------------------- gold ----------------------------------- */
+
+export interface ResearchGoldPayload {
+  /** Gold DB file exists and opened read-only. */
+  readonly present: boolean;
+  /** Absolute gold DB path inspected. */
+  readonly path: string;
+  /** File size in bytes (0 if absent). */
+  readonly sizeBytes: number;
+  /** ISO mtime ("" if absent). */
+  readonly lastModified: string;
+  /** SELECT count(*) FROM games; null if DB absent/unreadable. */
+  readonly gameCount: number | null;
+}
+
+export interface ResearchGoldOptions {
+  /** Gold DB path to inspect. Defaults to the exporter-compatible env path. */
+  readonly goldDbPath?: string;
+}
+
+function resolveResearchGoldPath(explicitPath: string | undefined): string {
+  return (
+    explicitPath ?? process.env.GOLD_DB_PATH ?? process.env.SIGNAL_CONSOLE_DB_PATH ?? GOLD_DB_PATH
+  );
+}
+
+/**
+ * Read-only status of the gold DB. NEVER throws: a missing or locked DB returns
+ * present:false with zeros rather than surfacing openGoldDb's fileMustExist
+ * throw. File stats (size/mtime) are reported whenever the file exists, even if
+ * the connection cannot be opened (e.g. locked); gameCount is null whenever the
+ * `games` table cannot be read.
+ */
+export function getResearchGold(options: ResearchGoldOptions = {}): ResearchGoldPayload {
+  const path = resolveResearchGoldPath(options.goldDbPath);
+
+  // Absent file is the literal zeros case.
+  let stats;
+  try {
+    stats = statSync(path);
+  } catch {
+    return { present: false, path, sizeBytes: 0, lastModified: "", gameCount: null };
+  }
+
+  const sizeBytes = stats.size;
+  let lastModified = "";
+  try {
+    lastModified = stats.mtime.toISOString();
+  } catch {
+    lastModified = "";
+  }
+
+  // The file exists; try to open it read-only and count games. A locked/corrupt
+  // DB leaves present:false with the real stats and gameCount:null.
+  let present = false;
+  let gameCount: number | null = null;
+  let db;
+  try {
+    db = openGoldDb(path);
+    present = true;
+    try {
+      const row: unknown = db.prepare("SELECT count(*) AS n FROM games").get();
+      gameCount =
+        typeof row === "object" && row !== null && "n" in row && typeof row.n === "number"
+          ? row.n
+          : null;
+    } catch {
+      gameCount = null;
+    }
+  } catch {
+    present = false;
+    gameCount = null;
+  } finally {
+    try {
+      db?.close();
+    } catch {
+      // ignore close failures on an already-broken handle.
+    }
+  }
+
+  return { present, path, sizeBytes, lastModified, gameCount };
 }
 
 /* ------------------------------- artifacts -------------------------------- */

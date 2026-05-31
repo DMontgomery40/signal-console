@@ -1,8 +1,9 @@
-import { spawnSync } from "node:child_process";
+import { execFile } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 
 import { DuckDBInstance } from "@duckdb/node-api";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -54,41 +55,67 @@ const describeMaybe = goldDbAvailable ? describe : describe.skip;
 
 let snapshotDir = "";
 let outRoot = "";
+// Second snapshot dir: the FULL-CORPUS default path (no sampling flag),
+// capped with --limit so the test stays fast while still exercising the
+// default branch + its manifest selection.mode.
+let defaultSnapshotDir = "";
+let defaultOutRoot = "";
+let dateLimitedSnapshotDir = "";
+let dateLimitedOutRoot = "";
 
-beforeAll(() => {
+// Use async execFile (NOT spawnSync): two back-to-back synchronous exporter
+// spawns would block the vitest worker thread for the whole beforeAll, starving
+// the reporter-RPC heartbeat and surfacing an unhandled "onTaskUpdate" timeout.
+// Awaiting async child processes lets the worker event loop breathe.
+const execFileAsync = promisify(execFile);
+
+async function runExporter(args: readonly string[], root: string, id: string): Promise<void> {
+  await execFileAsync("npx", ["tsx", exporter, ...args, "--out", root, "--snapshot-id", id], {
+    cwd: repoRoot,
+    env: { ...process.env, GOLD_DB_PATH, SIGNAL_CONSOLE_DB_PATH: GOLD_DB_PATH },
+    timeout: 300_000,
+    maxBuffer: 64 * 1024 * 1024,
+  });
+}
+
+beforeAll(async () => {
   if (!goldDbAvailable) return;
   outRoot = mkdtempSync(resolve(tmpdir(), "quant-snapshot-test-"));
   // Restrict to the parity game + one other incident game so the contract test
   // runs fast while still exercising incident-game/splits logic.
-  const result = spawnSync(
-    "npx",
-    [
-      "tsx",
-      exporter,
-      "--games",
-      `${PARITY_GAME},nba-0042500224`,
-      "--snapshot-id",
-      "contract-test",
-      "--out",
-      outRoot,
-      "--seed",
-      "7",
-    ],
-    {
-      cwd: repoRoot,
-      env: { ...process.env, GOLD_DB_PATH, SIGNAL_CONSOLE_DB_PATH: GOLD_DB_PATH },
-      encoding: "utf8",
-      timeout: 300_000,
-    },
+  await runExporter(
+    ["--games", `${PARITY_GAME},nba-0042500224`, "--seed", "7"],
+    outRoot,
+    "contract-test",
   );
-  if (result.status !== 0) {
-    throw new Error(`exporter failed: ${result.stderr || result.stdout}`);
-  }
   snapshotDir = resolve(outRoot, "contract-test");
+
+  // FULL-CORPUS DEFAULT path: NO --sample / --games flag. --limit 3 caps the
+  // heavy 1200+-game corpus to a fast 3-game write; the selection.mode is still
+  // computed as "full-corpus" because that depends on the absence of a sampling
+  // flag, not on --limit.
+  defaultOutRoot = mkdtempSync(resolve(tmpdir(), "quant-snapshot-default-"));
+  await runExporter(["--limit", "3"], defaultOutRoot, "default-test");
+  defaultSnapshotDir = resolve(defaultOutRoot, "default-test");
+
+  // Regression for the full-corpus limit/date interaction: limit must be applied
+  // after date filtering, otherwise early lexicographic eligible games outside the
+  // requested window can underfill or empty the snapshot.
+  dateLimitedOutRoot = mkdtempSync(resolve(tmpdir(), "quant-snapshot-date-limit-"));
+  await runExporter(
+    ["--limit", "2", "--since", "2026-05-01", "--until", "2026-05-10"],
+    dateLimitedOutRoot,
+    "date-limit-test",
+  );
+  dateLimitedSnapshotDir = resolve(dateLimitedOutRoot, "date-limit-test");
 }, 320_000);
 
 afterAll(() => {
   if (outRoot !== "" && existsSync(outRoot)) rmSync(outRoot, { recursive: true, force: true });
+  if (defaultOutRoot !== "" && existsSync(defaultOutRoot))
+    rmSync(defaultOutRoot, { recursive: true, force: true });
+  if (dateLimitedOutRoot !== "" && existsSync(dateLimitedOutRoot))
+    rmSync(dateLimitedOutRoot, { recursive: true, force: true });
 });
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -102,6 +129,47 @@ function readJson(file: string): unknown {
 function field(value: unknown, key: string): unknown {
   return isRecord(value) ? value[key] : undefined;
 }
+
+function commandErrorText(error: unknown): string {
+  if (!isRecord(error)) return error instanceof Error ? error.message : String(error);
+  const message = typeof error["message"] === "string" ? error["message"] : "";
+  const stderr = typeof error["stderr"] === "string" ? error["stderr"] : "";
+  return `${message}\n${stderr}`;
+}
+
+describe("quant-lab snapshot exporter CLI validation", () => {
+  it("rejects snapshot ids that would escape the output root before creating directories", async () => {
+    const root = mkdtempSync(resolve(tmpdir(), "quant-snapshot-safe-id-"));
+    const escapedName = `quant-snapshot-escape-${process.pid}-${Date.now()}`;
+    const escapedDir = resolve(root, "..", escapedName);
+    try {
+      let errorText = "";
+      try {
+        await execFileAsync(
+          "npx",
+          ["tsx", exporter, "--out", root, "--snapshot-id", `../${escapedName}`],
+          {
+            cwd: repoRoot,
+            env: {
+              ...process.env,
+              GOLD_DB_PATH: "/definitely/missing/signal-console.sqlite",
+              SIGNAL_CONSOLE_DB_PATH: "/definitely/missing/signal-console.sqlite",
+            },
+            timeout: 30_000,
+          },
+        );
+      } catch (error) {
+        errorText = commandErrorText(error);
+      }
+
+      expect(errorText).toContain("invalid --snapshot-id");
+      expect(existsSync(escapedDir)).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(escapedDir, { recursive: true, force: true });
+    }
+  });
+});
 
 async function readParquetRows(file: string): Promise<readonly Record<string, unknown>[]> {
   const inst = await DuckDBInstance.create(":memory:");
@@ -169,6 +237,43 @@ describeMaybe("quant-lab snapshot exporter contract", () => {
       "missing",
     ]);
     for (const row of rows) expect(allowed.has(String(row["class"]))).toBe(true);
+  });
+
+  it("explicit --games path records selection.mode = explicit-games", () => {
+    const manifest = readJson("manifest.json");
+    const selection = field(manifest, "selection");
+    expect(field(selection, "mode")).toBe("explicit-games");
+    expect(field(selection, "sampleRequested")).toBe(null);
+  });
+
+  it("DEFAULT (no sampling flag) selects the FULL CORPUS, mode = full-corpus", () => {
+    const manifest: unknown = JSON.parse(
+      readFileSync(resolve(defaultSnapshotDir, "manifest.json"), "utf8"),
+    );
+    const selection = field(manifest, "selection");
+    // The new default is NOT a 29-game incident-plus-sample toy: with no
+    // sampling flag the exporter takes the board-eligible full corpus, and
+    // records that intent even when --limit caps the written rows.
+    expect(field(selection, "mode")).toBe("full-corpus");
+    expect(field(selection, "sampleRequested")).toBe(null);
+    // gameCount reflects the true number selected (capped by --limit 3 here).
+    expect(field(selection, "gameCount")).toBe(3);
+    const games = field(selection, "games");
+    expect(Array.isArray(games) && games.length).toBe(3);
+  });
+
+  it("--limit with calendar --since/--until applies the limit after inclusive date filtering", () => {
+    const manifest: unknown = JSON.parse(
+      readFileSync(resolve(dateLimitedSnapshotDir, "manifest.json"), "utf8"),
+    );
+    const selection = field(manifest, "selection");
+    expect(field(selection, "mode")).toBe("full-corpus");
+    expect(field(selection, "gameCount")).toBe(2);
+    const games = field(selection, "games");
+    expect(Array.isArray(games) && games.length).toBe(2);
+    const dateRange = field(manifest, "dateRange");
+    expect(field(dateRange, "since")).toBe("2026-05-01T00:00:00Z");
+    expect(field(dateRange, "until")).toBe("2026-05-10T23:59:59Z");
   });
 
   it("manifest carries all provenance fields", () => {

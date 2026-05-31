@@ -29,7 +29,10 @@ import {
 import { BOARD_STATE_SPACE_CONFIG_DEFAULTS } from "@signal-console/detectors/board-mad/state-space-config";
 
 import { SettingsPage } from "../SettingsPage";
-import { STATE_SPACE_GUIDED_FIELDS } from "../../state-space-guided-fields";
+import {
+  STATE_SPACE_GUIDED_FIELDS,
+  STATE_SPACE_GUIDED_GROUPS,
+} from "../../state-space-guided-fields";
 
 function makeWrapper(): (props: { children: ReactNode }) => JSX.Element {
   const client = new QueryClient({
@@ -618,6 +621,8 @@ describe("SettingsPage > Detector defaults (US-053)", () => {
 
     render(<SettingsPage />, { wrapper: makeWrapper() });
 
+    // Advanced state-space tuning is collapsed by default; open it first.
+    fireEvent.click(await screen.findByTestId("state-space-advanced-toggle"));
     const input = await waitFor(() =>
       screen.getByTestId("detector-default-input-stateSpace-trigger-enterOffset"),
     );
@@ -645,7 +650,7 @@ describe("SettingsPage > Detector defaults (US-053)", () => {
     expect(trigger["enterOffset"]).toBe(1.4);
   });
 
-  it("renders a direct numeric control for every state-space field", async () => {
+  it("reveals state-space coefficients behind a collapsed disclosure with per-group subtabs", async () => {
     fetchMock.mockImplementation(async () => {
       await Promise.resolve();
       return jsonResponse(makeSettings());
@@ -653,15 +658,55 @@ describe("SettingsPage > Detector defaults (US-053)", () => {
 
     render(<SettingsPage />, { wrapper: makeWrapper() });
 
-    await waitFor(() => {
-      expect(screen.getAllByTestId(/^detector-default-input-stateSpace-/)).toHaveLength(
-        STATE_SPACE_GUIDED_FIELDS.length,
-      );
-    });
+    // Collapsed by default: no coefficient inputs render until advanced is opened
+    // (progressive disclosure — the page does not dump every knob at once).
+    const toggle = await screen.findByTestId("state-space-advanced-toggle");
+    expect(screen.queryAllByTestId(/^detector-default-input-stateSpace-/)).toHaveLength(0);
+
+    fireEvent.click(toggle);
+
+    // A subtab exists for every coefficient group...
+    for (const group of STATE_SPACE_GUIDED_GROUPS) {
+      expect(screen.getByTestId(`state-space-subtab-${group.id}`)).toBeDefined();
+    }
+    // ...but only the active group's fields render at once (the default is trigger).
+    const triggerFieldCount = STATE_SPACE_GUIDED_FIELDS.filter(
+      (field) => field.groupId === "trigger",
+    ).length;
+    expect(screen.getAllByTestId(/^detector-default-input-stateSpace-/)).toHaveLength(
+      triggerFieldCount,
+    );
+    expect(
+      screen.getByTestId("detector-default-input-stateSpace-trigger-enterOffset"),
+    ).toBeDefined();
+
+    // Switching subtabs swaps which group's coefficients are visible (conditional render).
+    fireEvent.click(screen.getByTestId("state-space-subtab-sourceTrust"));
     expect(
       screen.getByTestId("detector-default-input-stateSpace-sourceTrust-sourceCountExponent"),
     ).toBeDefined();
+    fireEvent.click(screen.getByTestId("state-space-subtab-scale"));
     expect(screen.getByTestId("detector-default-input-stateSpace-scale-madScale")).toBeDefined();
+  });
+
+  it("surfaces a Research-workflow cross-link inside the advanced state-space disclosure", async () => {
+    fetchMock.mockImplementation(async () => {
+      await Promise.resolve();
+      return jsonResponse(makeSettings());
+    });
+
+    render(<SettingsPage />, { wrapper: makeWrapper() });
+
+    // The cross-link lives behind the same disclosure as the coefficients, so it
+    // is absent until the operator opens the advanced panel.
+    const toggle = await screen.findByTestId("state-space-advanced-toggle");
+    expect(screen.queryByTestId("settings-research-link")).toBeNull();
+
+    fireEvent.click(toggle);
+
+    const researchLink = screen.getByTestId("settings-research-link");
+    expect(researchLink.getAttribute("href")).toBe("/research");
+    expect(researchLink.textContent).toContain("Research workflow");
   });
 
   it("profile promotion opens a confirmation and schedules the historical defaults", async () => {

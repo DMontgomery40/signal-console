@@ -34,6 +34,7 @@ import {
   type DetectorEntry,
 } from "../../data/queries";
 import { defaultValuesFor, parseSchema, type ParsedProperty } from "../../lib/paramsSchema";
+import { navigateTo } from "../../router";
 import {
   isBoardMadPrebucketField,
   BOARD_MAD_DETECTOR_ID,
@@ -49,6 +50,7 @@ import {
   STATE_SPACE_GUIDED_GROUPS,
   readStateSpaceFieldValue,
   writeStateSpaceFieldValue,
+  type StateSpaceGuidedGroupId,
 } from "../state-space-guided-fields";
 import {
   BOARD_MAD_BASELINE_MODE_HISTORICAL_BLEND,
@@ -812,6 +814,10 @@ export function BacktestPage(): JSX.Element {
     stableJson(BOARD_STATE_SPACE_CONFIG_DEFAULTS),
   );
   const [stateSpaceError, setStateSpaceError] = useState<string | null>(null);
+  // Per-run state-space tuning is shown one coefficient group at a time via
+  // subtabs (same idiom as Settings) so the ~30 knobs stay scannable.
+  const [stateSpaceActiveGroup, setStateSpaceActiveGroup] =
+    useState<StateSpaceGuidedGroupId>("trigger");
 
   const detectorRows = useMemo(() => detectorsQuery.data?.detectors ?? [], [detectorsQuery.data]);
   const selectedDetector = useMemo(
@@ -1202,7 +1208,17 @@ export function BacktestPage(): JSX.Element {
       </div>
       <p className="mt-2 text-sm text-text-md">
         Replay a detector over a window. Results stay pinned to the last replay until you rerun with
-        the current params.
+        the current params.{" "}
+        <a
+          href="/research"
+          data-testid="backtest-research-link"
+          onClick={(e) => {
+            navigateTo(e, "/research");
+          }}
+          className="font-medium text-accent-green transition-colors duration-fast ease-out hover:text-text-hi"
+        >
+          Score models in Research
+        </a>
       </p>
 
       <form
@@ -1482,17 +1498,44 @@ export function BacktestPage(): JSX.Element {
                   Direct controls for every current state-space coefficient, plus the mirrored JSON
                   object for copy-paste and handoff. Any change here requires a rerun.
                 </p>
-                <div className="mt-3 grid gap-4 border border-surface-2 bg-surface-1/40 p-3 lg:grid-cols-2 xl:grid-cols-3">
-                  {STATE_SPACE_GUIDED_GROUPS.map((group) => (
-                    <div key={group.id} className="space-y-3">
-                      <div>
-                        <div className="text-text-hi text-xs font-semibold uppercase tracking-[0.08em]">
+                <div className="mt-3 flex flex-col gap-4">
+                  <div
+                    role="tablist"
+                    aria-label="State-space coefficient groups"
+                    className="flex flex-wrap gap-x-5 gap-y-1 border-b border-surface-1"
+                  >
+                    {STATE_SPACE_GUIDED_GROUPS.map((group) => {
+                      const active = group.id === stateSpaceActiveGroup;
+                      return (
+                        <button
+                          key={group.id}
+                          type="button"
+                          role="tab"
+                          aria-selected={active}
+                          onClick={() => {
+                            setStateSpaceActiveGroup(group.id);
+                          }}
+                          data-testid={`backtest-state-space-subtab-${group.id}`}
+                          className={`-mb-px whitespace-nowrap border-b-2 pb-1.5 text-xs font-medium transition-colors duration-fast ${
+                            active
+                              ? "border-accent-green text-text-hi"
+                              : "border-transparent text-text-lo hover:text-text-md"
+                          }`}
+                        >
                           {group.label}
-                        </div>
-                        <p className="mt-1 text-xs text-text-lo">{group.help}</p>
-                      </div>
-                      {STATE_SPACE_GUIDED_FIELDS.filter((field) => field.groupId === group.id).map(
-                        (field) => (
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {STATE_SPACE_GUIDED_GROUPS.filter(
+                    (group) => group.id === stateSpaceActiveGroup,
+                  ).map((group) => (
+                    <div key={group.id} className="flex flex-col gap-3">
+                      <p className="max-w-[64ch] text-xs text-text-lo">{group.help}</p>
+                      <div className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
+                        {STATE_SPACE_GUIDED_FIELDS.filter(
+                          (field) => field.groupId === group.id,
+                        ).map((field) => (
                           <label key={field.id} className="flex flex-col gap-1">
                             <span className="text-text-md text-xs font-medium">
                               {field.explainerId === undefined ? (
@@ -1518,8 +1561,8 @@ export function BacktestPage(): JSX.Element {
                             />
                             <span className="text-xs text-text-lo">{field.help}</span>
                           </label>
-                        ),
-                      )}
+                        ))}
+                      </div>
                     </div>
                   ))}
                 </div>

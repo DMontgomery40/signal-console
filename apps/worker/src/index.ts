@@ -1,3 +1,7 @@
+import { spawn, type ChildProcess } from "node:child_process";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
 import {
   KALSHI_NBA_HISTORICAL_PERIOD_INTERVAL_MINUTES,
   syncBet365Historical,
@@ -9,6 +13,7 @@ import {
   syncPolymarketNbaTrades,
 } from "@signal-console/adapters";
 import { backfillGamesBodySchema, backfillMarketsBodySchema } from "@signal-console/domain";
+import { validateExportRequest, type ExportRequest } from "@signal-console/research-pull";
 import {
   checkDatabaseHealth,
   claimNextQueuedAdminAction,
@@ -253,6 +258,137 @@ async function executeQueuedMarketsBackfill(
   }
 }
 
+// Repo root from this module (apps/worker/src/index.ts -> ../../..). Used as the
+// child-process cwd so `pnpm exec tsx scripts/...` resolves regardless of the
+// worker's own cwd (which is apps/worker under `pnpm --filter`).
+const WORKER_REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
+
+/** Minimal injectable spawn signature so tests can substitute a fake child. */
+export type SpawnProcessFn = (
+  command: string,
+  args: readonly string[],
+  options: { cwd: string; env: NodeJS.ProcessEnv },
+) => ChildProcess;
+
+function requireValidExportRequest(input: unknown): ExportRequest {
+  const result = validateExportRequest(input);
+  if (!result.ok) {
+    const detail = result.errors
+      .map((error) => (error.path ? `${error.code}:${error.path}` : error.code))
+      .join(", ");
+    throw new Error(`invalid research-export payload: ${detail}`);
+  }
+  return result.request;
+}
+
+function optionalNonEmptyString(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function exportRequestPayload(payloadJson: Record<string, unknown>): Record<string, unknown> {
+  const isRecord = (value: unknown): value is Record<string, unknown> =>
+    typeof value === "object" && value !== null && !Array.isArray(value);
+  if (isRecord(payloadJson["request"])) return payloadJson["request"];
+
+  const request: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(payloadJson)) {
+    if (key !== "jobId" && key !== "outputRoot") {
+      request[key] = value;
+    }
+  }
+  return request;
+}
+
+/**
+ * Map a research-export admin-action payload to the exact CLI args for
+ * scripts/export-quant-snapshot.ts. PURE so the mapping is unit-testable.
+ *
+ *   scope "full"   -> no --sample (full corpus is the script default)
+ *   scope "sample" -> --sample <n>
+ *   snapshotId     -> --snapshot-id <id>
+ *   since/until    -> --since/--until <date>
+ *   gameIds        -> --games a,b for full/explicit exports
+ *   outputRoot     -> --out <root>/snapshots from queue metadata
+ *
+ * Reads the export args out of payloadJson.request (the shape the API enqueues:
+ * { jobId, request }), falling back to the payload root for forward-compat.
+ */
+export function mapExportArgs(payloadJson: Record<string, unknown>): string[] {
+  const request = requireValidExportRequest(exportRequestPayload(payloadJson));
+  const args: string[] = [];
+  const outputRoot = optionalNonEmptyString(payloadJson["outputRoot"]);
+
+  if (outputRoot !== undefined) {
+    args.push("--out", join(outputRoot, "snapshots"));
+  }
+
+  if (request.scope === "sample") {
+    args.push("--sample", String(request.sample));
+  }
+  // scope "full" -> no --sample (full corpus is the script default).
+
+  if (request.snapshotId !== undefined) {
+    args.push("--snapshot-id", request.snapshotId);
+  }
+
+  if (request.since !== undefined) {
+    args.push("--since", request.since);
+  }
+
+  if (request.until !== undefined) {
+    args.push("--until", request.until);
+  }
+
+  if (request.gameIds !== undefined && request.gameIds.length > 0) {
+    args.push("--games", request.gameIds.join(","));
+  }
+
+  return args;
+}
+
+/**
+ * Run the EXISTING snapshot exporter as a child process. Reuses the exact,
+ * tested export code path (scripts/export-quant-snapshot.ts via the repo's tsx);
+ * does NOT reimplement export logic. Resolves on exit 0; rejects with a
+ * stderr-tail-bearing error otherwise so the admin-action loop marks it errored.
+ * The exporter reads GOLD_DB_PATH from the inherited environment.
+ */
+export async function executeResearchExport(
+  payloadJson: Record<string, unknown>,
+  spawnProcess: SpawnProcessFn = spawn,
+): Promise<void> {
+  const args = mapExportArgs(payloadJson);
+  const child = spawnProcess("pnpm", ["exec", "tsx", "scripts/export-quant-snapshot.ts", ...args], {
+    cwd: WORKER_REPO_ROOT,
+    env: { ...process.env, NODE_OPTIONS: "--max-old-space-size=10240" },
+  });
+
+  const stderrChunks: string[] = [];
+  child.stderr?.on("data", (chunk: unknown) => {
+    stderrChunks.push(typeof chunk === "string" ? chunk : String(chunk));
+  });
+
+  await new Promise<void>((resolvePromise, rejectPromise) => {
+    child.on("error", (error: Error) => {
+      rejectPromise(error);
+    });
+    child.on("close", (code: number | null) => {
+      if (code === 0) {
+        resolvePromise();
+        return;
+      }
+      const tail = stderrChunks.join("").slice(-2000).trim();
+      rejectPromise(
+        new Error(
+          `export-quant-snapshot.ts exited with code ${String(code)}${tail ? `: ${tail}` : ""}`,
+        ),
+      );
+    });
+  });
+}
+
 async function drainQueuedAdminActions(options: {
   executeGamesBackfill: (
     payload: GamesBackfillPayload,
@@ -267,6 +403,7 @@ async function drainQueuedAdminActions(options: {
       syncPolymarketHistorical: typeof syncPolymarketNbaHistorical;
     },
   ) => Promise<void>;
+  executeResearchExport: (payloadJson: Record<string, unknown>) => Promise<void>;
   logger: AppLogger;
   now: Date;
   syncBet365Historical: typeof syncBet365Historical;
@@ -293,6 +430,8 @@ async function drainQueuedAdminActions(options: {
         });
       } else if (action.actionType === "board-volatility-baseline-rebuild") {
         rebuildBoardVolatilityBaselines();
+      } else if (action.actionType === "research-export") {
+        await options.executeResearchExport(action.payloadJson);
       } else {
         throw new Error(`Unsupported admin action type: ${action.actionType}.`);
       }
@@ -369,6 +508,7 @@ export async function runWorkerCycle(options?: {
       syncPolymarketHistorical: typeof syncPolymarketNbaHistorical;
     },
   ) => Promise<void>;
+  executeResearchExport?: (payloadJson: Record<string, unknown>) => Promise<void>;
   intervalMs?: number;
   logger?: AppLogger;
   maxBackoffMs?: number;
@@ -400,6 +540,8 @@ export async function runWorkerCycle(options?: {
   const syncPolymarketTrades = options?.syncPolymarketTrades ?? syncPolymarketNbaTrades;
   const queuedGamesBackfill = options?.executeGamesBackfill ?? executeQueuedGamesBackfill;
   const queuedMarketsBackfill = options?.executeMarketsBackfill ?? executeQueuedMarketsBackfill;
+  const queuedResearchExport =
+    options?.executeResearchExport ?? ((payloadJson) => executeResearchExport(payloadJson));
 
   try {
     let bet365GamesMatched = 0;
@@ -534,6 +676,18 @@ export async function runWorkerCycle(options?: {
       logger.error({ error: serialized }, "Polymarket sync failed.");
     }
 
+    await drainQueuedAdminActions({
+      executeGamesBackfill: queuedGamesBackfill,
+      executeMarketsBackfill: queuedMarketsBackfill,
+      executeResearchExport: queuedResearchExport,
+      logger,
+      now: now(),
+      syncBet365Historical: syncBet365HistoricalRange,
+      syncKalshiHistorical,
+      syncNbaSidecar,
+      syncPolymarketHistorical,
+    });
+
     if (marketProviderAttempts > 0 && providerFailures.length === marketProviderAttempts) {
       throw new Error(
         `All configured market providers failed: ${providerFailures
@@ -554,17 +708,6 @@ export async function runWorkerCycle(options?: {
       polymarketGamesMatched,
       polymarketSourceMarketsObserved,
       providerFailures,
-    });
-
-    await drainQueuedAdminActions({
-      executeGamesBackfill: queuedGamesBackfill,
-      executeMarketsBackfill: queuedMarketsBackfill,
-      logger,
-      now: now(),
-      syncBet365Historical: syncBet365HistoricalRange,
-      syncKalshiHistorical,
-      syncNbaSidecar,
-      syncPolymarketHistorical,
     });
 
     await options?.onHeartbeat?.(summary);

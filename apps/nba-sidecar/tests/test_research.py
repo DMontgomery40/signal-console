@@ -1,16 +1,18 @@
 """Unit tests for the research package (registry, models, loader, contracts).
 
-These run against the real exported snapshot at
-``outputs/nba-quant-lab/snapshots/sample-fixed`` so the models are exercised on
-real board observations, not synthetic toys. To keep them fast we slice to a
-couple of small games.
+These use a hermetic tiny snapshot by default so the repo gate does not depend on
+an adjacent worktree. Set ``NBA_RESEARCH_SNAPSHOT_PATH`` to exercise the same
+contracts against a real exported snapshot such as
+``outputs/nba-quant-lab/snapshots/sample-fixed``.
 """
 
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import os
 from pathlib import Path
 
+import pandas as pd
 import pytest
 
 from nba_sidecar.research.contracts import (
@@ -24,18 +26,68 @@ from nba_sidecar.research.loader import build_game_series, load_game_series
 from nba_sidecar.research.models import get_model, list_models
 from nba_sidecar.research.models.base import ScoreRequest
 
-SNAPSHOT = Path(
-    "/Users/davidmontgomery/signal-console-quant-lab/outputs/nba-quant-lab/snapshots/sample-fixed"
-)
+SNAPSHOT_ENV = "NBA_RESEARCH_SNAPSHOT_PATH"
 
-# Small games (by bucket count) keep the suite fast while still real.
-SMALL_GAMES = ("nba-0022500547", "nba-0042500224")
+SMALL_GAMES = ("nba-test-1", "nba-test-2")
 CAUSAL_MODELS = ("robust_mad", "state_space_current")
 
 
+def _iso(sec: int) -> str:
+    return datetime.fromtimestamp(sec, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+
+
+def _board_rows(game_id: str, base: int, n: int) -> list[dict]:
+    rows = []
+    for i in range(n):
+        start = base + i * 60
+        rows.append(
+            {
+                "game_id": game_id,
+                "bucket_start": _iso(start),
+                "bucket_end": _iso(start + 60),
+                "game_elapsed_seconds": float(i * 60),
+                "intensity": float(1 + (i % 7)),
+                "active_market_count": 2 + (i % 3),
+                "source_count": 2,
+                "source_dominance": 0.5 + (0.05 * (i % 4)),
+                "source_disagreement": 0.1 + (0.02 * (i % 5)),
+            }
+        )
+    return rows
+
+
+def _write_tiny_snapshot(snapshot_path: Path) -> Path:
+    import duckdb
+
+    board = pd.DataFrame(
+        _board_rows(SMALL_GAMES[0], 1_700_000_000, 32)
+        + _board_rows(SMALL_GAMES[1], 1_700_100_000, 32)
+    )
+    board.to_parquet(snapshot_path / "board_observations.parquet", index=False)
+
+    con = duckdb.connect(str(snapshot_path / "snapshot.duckdb"))
+    try:
+        con.register("board_observations_df", board)
+        con.execute("CREATE TABLE board_observations AS SELECT * FROM board_observations_df")
+    finally:
+        con.close()
+    return snapshot_path
+
+
 @pytest.fixture(scope="module")
-def all_series() -> dict[str, GameBucketSeries]:
-    return load_game_series(SNAPSHOT)
+def snapshot_path(tmp_path_factory) -> Path:
+    configured = os.environ.get(SNAPSHOT_ENV)
+    if configured:
+        path = Path(configured)
+        if not path.exists():
+            pytest.skip(f"{SNAPSHOT_ENV} does not exist: {path}")
+        return path
+    return _write_tiny_snapshot(tmp_path_factory.mktemp("nba-research-snapshot"))
+
+
+@pytest.fixture(scope="module")
+def all_series(snapshot_path: Path) -> dict[str, GameBucketSeries]:
+    return load_game_series(snapshot_path)
 
 
 @pytest.fixture(scope="module")
@@ -86,17 +138,15 @@ def test_loader_builds_ordered_causal_series(small_series):
         assert starts == sorted(starts)
 
 
-def test_duckdb_backend_matches_pandas():
-    pandas_series = load_game_series(SNAPSHOT, backend="pandas")
-    duck_series = load_game_series(SNAPSHOT, backend="duckdb")
+def test_duckdb_backend_matches_pandas(snapshot_path: Path):
+    pandas_series = load_game_series(snapshot_path, backend="pandas")
+    duck_series = load_game_series(snapshot_path, backend="duckdb")
     assert set(pandas_series) == set(duck_series)
     gid = SMALL_GAMES[0]
     assert len(pandas_series[gid]) == len(duck_series[gid])
 
 
 def test_prediction_column_spec_validates_roundtrip(small_series):
-    import pandas as pd
-
     model = get_model("robust_mad")
     series = small_series[SMALL_GAMES[0]]
     result = model.score(ScoreRequest(series=series))

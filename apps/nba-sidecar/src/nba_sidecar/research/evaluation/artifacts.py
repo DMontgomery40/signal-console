@@ -27,9 +27,8 @@ import pandas as pd
 from .casebook import Casebook
 from .scorer import ScoreResultBundle
 
-DEFAULT_RUNS_ROOT = Path(
-    "/Users/davidmontgomery/signal-console-quant-lab/outputs/nba-quant-lab/runs"
-)
+_REPO_ROOT = Path(__file__).resolve().parents[6]
+DEFAULT_RUNS_ROOT = _REPO_ROOT / "outputs" / "nba-quant-lab" / "runs"
 
 # Leaderboard column order (the headline contract the task asks for).
 LEADERBOARD_COLUMNS = (
