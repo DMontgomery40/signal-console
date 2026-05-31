@@ -160,6 +160,22 @@ def cmd_separation(args: argparse.Namespace) -> int:
     return 0 if report.support == "ok" else 1
 
 
+def cmd_emit_models(args: argparse.Namespace) -> int:
+    # Emit outputs/nba-quant-lab/models.json from the registry so the /research
+    # "Model lab" surfaces the REAL registered models (the API's getResearchModels
+    # reads this file and otherwise falls back to a static list). Front<->back
+    # fabric: python registry -> models.json -> GET /v1/research/models -> UI.
+    out = Path(args.out)
+    models = []
+    for mid in registry_list_models():
+        m = get_model(mid)
+        models.append({"id": m.id, "label": m.name, "description": m.summary, "family": m.family})
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps({"models": models}, indent=2))
+    print(f"wrote {out} ({len(models)} models)")
+    return 0
+
+
 def cmd_bootstrap(args: argparse.Namespace) -> int:
     notebook_path = Path(args.out) if args.out else DEFAULT_NOTEBOOK_PATH
     snapshot_path = Path(args.snapshot) if args.snapshot else DEFAULT_SNAPSHOT_PATH
@@ -237,6 +253,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="intensity below which an incident window counts as 'no board move' (default 1.0)",
     )
     p_sep.set_defaults(func=cmd_separation)
+
+    p_em = sub.add_parser(
+        "emit-models",
+        help="write outputs/nba-quant-lab/models.json from the registry (surfaces models in the /research Model lab)",
+    )
+    p_em.add_argument("--out", default="outputs/nba-quant-lab/models.json")
+    p_em.set_defaults(func=cmd_emit_models)
 
     p_boot = sub.add_parser(
         "bootstrap",
