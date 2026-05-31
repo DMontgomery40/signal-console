@@ -133,3 +133,19 @@ Build only what the evidence supports; JEPA stays an explicit untrained scaffold
   no revision history); a **per-player prop-tick snapshot feature extension** (Path-B) so the re-ranker
   has its inputs; the **signed-paired re-ranker + conformal abstention** as a Quant Lab plugin **and**
   its /research portal surfaces (API route + ResearchPage section) — front and back.
+
+## Update (2026-05-31, late) — scaffold built; offline re-ranker eval result
+Shipped (branch `research/miscredit-attribution-20260531`, not pushed): the **live label harvester**
+(migration 16 `nba_pbp_revisions` shadow + worker capture hook + `listPbpAttributionTransitions` to
+recover credited→rightful corrections by diffing snapshots), the **re-ranker core**
+(`research/attribution.py`, directed signed-paired score + fail-closed abstention, 7 pure tests), and an
+**offline gold-backed eval** (`research/attribution_eval.py`, 4 hermetic tests).
+
+**Eval on the 15 registry incidents (gold prop ticks): 33% abstention, 10 scored.** Stratified result —
+the directed signature holds for **player→player swaps** (`champagnie→wembanyama` +0.240 / +0.220,
+`hartenstein_wallace` +0.095) but is *negative* for **TEAM-rebound disputes** (`holmgren_team` −0.150,
+`towns_team` −0.187, `wembanyama_team` −0.125): the speculative "rightful" never got credited, so their
+prop falls and the hypothesis correctly does not fire. Credited leg illiquid in 6/10 scored (rightful_only).
+N≈2 clean positives, no control ⇒ **encouraging-but-not-validated**; the binding gate remains
+**labels + credited-side liquidity**, not model machinery. Implication: stratify candidates (player-swap
+vs TEAM-dispute) and treat the TEAM-dispute class as a different (likely market-invisible) problem.
