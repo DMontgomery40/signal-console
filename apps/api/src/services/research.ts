@@ -290,6 +290,26 @@ export function getResearchModels(options: ResearchServiceOptions = {}): Researc
   return { models: STATIC_MODELS };
 }
 
+/* ----------------------------- attribution -------------------------------- */
+
+export interface ResearchAttributionPayload {
+  /** The latest attribution re-ranker report, or null when not yet emitted. */
+  readonly attribution: Record<string, unknown> | null;
+}
+
+/**
+ * Root-level attribution_reranker.json emitted by `pnpm quant attribution-eval`
+ * (the signed-paired re-ranker over incident truth, stratified player_swap vs
+ * team_dispute). Absent/malformed -> { attribution: null }; never throws.
+ */
+export function getLatestAttribution(
+  options: ResearchServiceOptions = {},
+): ResearchAttributionPayload {
+  const outputRoot = options.outputRoot ?? DEFAULT_RESEARCH_OUTPUT_ROOT;
+  const parsed = safeReadJson(join(outputRoot, "attribution_reranker.json"));
+  return { attribution: isRecord(parsed) ? parsed : null };
+}
+
 /* --------------------------------- gold ----------------------------------- */
 
 export interface ResearchGoldPayload {

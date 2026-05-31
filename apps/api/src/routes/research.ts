@@ -19,6 +19,7 @@ import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from "fastify";
 
 import {
   DEFAULT_RESEARCH_OUTPUT_ROOT,
+  getLatestAttribution,
   getLatestLeaderboard,
   getLatestSnapshot,
   getQuantGuide,
@@ -127,6 +128,14 @@ const leaderboardResponseSchema = {
   properties: {
     runId: { type: ["string", "null"] },
     rows: { type: "array", items: { type: "object", additionalProperties: true } },
+  },
+} as const;
+
+const attributionResponseSchema = {
+  type: "object",
+  required: ["attribution"],
+  properties: {
+    attribution: { type: ["object", "null"], additionalProperties: true },
   },
 } as const;
 
@@ -334,6 +343,22 @@ const researchRoutes: FastifyPluginAsync<ResearchRoutesOptions> = (app, opts) =>
     },
     (_request: FastifyRequest, reply: FastifyReply) => {
       reply.send(getLatestLeaderboard({ outputRoot }));
+    },
+  );
+
+  app.get(
+    "/v1/research/attribution",
+    {
+      schema: {
+        tags: ["research"],
+        summary: "Latest attribution re-ranker report",
+        description:
+          "Read-only. Returns the root-level attribution_reranker.json emitted by `pnpm quant attribution-eval` (signed-paired re-ranker over incident truth, stratified player_swap vs team_dispute). Absent returns { attribution: null }.",
+        response: { 200: attributionResponseSchema },
+      },
+    },
+    (_request: FastifyRequest, reply: FastifyReply) => {
+      reply.send(getLatestAttribution({ outputRoot }));
     },
   );
 

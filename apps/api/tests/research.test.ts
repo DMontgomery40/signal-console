@@ -105,6 +105,15 @@ function seedArtifacts(): void {
       { id: "state_space_current", label: "State-space", description: "from registry" },
     ],
   });
+
+  // attribution re-ranker report at the root.
+  writeJson(join(root, "attribution_reranker.json"), {
+    overall: { n: 15, n_scored: 9, abstention_rate: 0.4, median_score: 0.0 },
+    player_swap: { n: 8, n_scored: 6, abstention_rate: 0.25, median_score: 0.022 },
+    team_dispute: { n: 7, n_scored: 3, abstention_rate: 0.57, median_score: -0.015 },
+    line_select: "aggregate_drift",
+    n_incidents: 15,
+  });
 }
 
 beforeEach(() => {
@@ -274,6 +283,22 @@ describe("research routes — read endpoints (seeded artifact tree)", () => {
     if (!isUnknownArray(rows)) throw new Error("rows not array");
     expect(rows).toHaveLength(2);
   });
+
+  it("GET /v1/research/attribution returns the re-ranker report", async () => {
+    const app = await startApp(true);
+    const res = await app.inject({
+      method: "GET",
+      url: "/v1/research/attribution",
+      headers: authHeaders(),
+    });
+    expect(res.statusCode).toBe(200);
+    const body: unknown = res.json();
+    if (!isRecord(body)) throw new Error("body not object");
+    const attribution = body["attribution"];
+    if (!isRecord(attribution)) throw new Error("attribution not object");
+    expect(attribution["line_select"]).toBe("aggregate_drift");
+    expect(isRecord(attribution["player_swap"])).toBe(true);
+  });
 });
 
 describe("research routes — empty / absent artifact states (no seed)", () => {
@@ -316,6 +341,16 @@ describe("research routes — empty / absent artifact states (no seed)", () => {
     const lbBody: unknown = leaderboard.json();
     if (!isRecord(lbBody)) throw new Error("leaderboard body not object");
     expect(lbBody["runId"]).toBeNull();
+
+    const attribution = await app.inject({
+      method: "GET",
+      url: "/v1/research/attribution",
+      headers: authHeaders(),
+    });
+    expect(attribution.statusCode).toBe(200);
+    const attrBody: unknown = attribution.json();
+    if (!isRecord(attrBody)) throw new Error("attribution body not object");
+    expect(attrBody["attribution"]).toBeNull();
     expect(lbBody["rows"]).toEqual([]);
 
     // models falls back to the static list when no models.json exists.
