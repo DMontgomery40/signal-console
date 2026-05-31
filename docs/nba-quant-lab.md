@@ -174,11 +174,20 @@ against the same gold DB + registry get the same snapshot.
 
 ## 3. The dataset: files + schemas
 
-All paths below are under
-`/Users/davidmontgomery/signal-console-quant-lab/outputs/nba-quant-lab/snapshots/sample-fixed/`.
-Schemas are read from the real parquet files. The authoritative per-field provenance
-(units, causal/non-causal, leakage flag) lives in `feature_catalog.json` /
-`feature_catalog.md` next to the data.
+All paths below are under a snapshot directory
+`outputs/nba-quant-lab/snapshots/<id>/` (repo-relative; `<id>` is whatever you
+exported). Schemas are read from the real parquet files. The authoritative
+per-field provenance (units, causal/non-causal, leakage flag) lives in
+`feature_catalog.json` / `feature_catalog.md` next to the data.
+
+> **Snapshot note.** The `sample-fixed` snapshot described throughout this
+> section is **not present in this worktree**; the current exported snapshot
+> here is `slice-eval` (44 games, 5 676 board observations, 26 incidents /
+> 15 scoreable, 132 tape-outlier episodes). The per-snapshot counts and the
+> recorded `REAL-compare-sample-fixed` metrics below are kept for shape and
+> have not been regenerated against `slice-eval` — re-run
+> `pnpm quant compare robust_mad state_space_current --snapshot "$SNAP"` on the
+> current snapshot for live numbers.
 
 `sample-fixed` contents: **29 games** (14 incident games + 15 sampled regular games —
 the **opt-in `--sample 15`** path, kept frozen as a small reference, NOT the
@@ -297,7 +306,7 @@ Models live in
 **Step 1 — copy the template.**
 
 ```bash
-cd /Users/davidmontgomery/signal-console-quant-lab/apps/nba-sidecar/src/nba_sidecar/research/models
+cd apps/nba-sidecar/src/nba_sidecar/research/models
 cp template_model.py my_model.py
 ```
 
@@ -350,9 +359,9 @@ want the **residual-coverage** diagnostic to light up (see §5).
 and not part of the base sidecar service):
 
 ```bash
-cd /Users/davidmontgomery/signal-console-quant-lab/apps/nba-sidecar
+cd apps/nba-sidecar
 uv sync --extra research          # installs pandas, pyarrow, duckdb, numpy, matplotlib
-SNAP=/Users/davidmontgomery/signal-console-quant-lab/outputs/nba-quant-lab/snapshots/sample-fixed
+SNAP=/absolute/path/to/outputs/nba-quant-lab/snapshots/<id>
 
 uv run --extra research python -m nba_sidecar.research list-models
 uv run --extra research python -m nba_sidecar.research run-model my_model "$SNAP"
@@ -393,8 +402,8 @@ overlap: `bucket_end`, `threshold`, `intensity`, `warmed`. If you omit `threshol
 **Score it:**
 
 ```bash
-cd /Users/davidmontgomery/signal-console-quant-lab/apps/nba-sidecar
-SNAP=/Users/davidmontgomery/signal-console-quant-lab/outputs/nba-quant-lab/snapshots/sample-fixed
+cd apps/nba-sidecar
+SNAP=/absolute/path/to/outputs/nba-quant-lab/snapshots/<id>
 
 uv run --extra research python -m nba_sidecar.research \
     score-predictions /path/to/predictions.parquet "$SNAP" \
