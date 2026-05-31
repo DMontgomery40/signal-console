@@ -117,3 +117,27 @@ def test_aggregate_drift_path_scores_player_swap(tmp_path):
     assert stratum == "player_swap"
     assert ps is not None and ps.support == "ok"
     assert ps.score == pytest.approx(0.40)
+
+
+def test_cli_attribution_eval_emits_portal_artifact(tmp_path):
+    import json
+
+    from nba_sidecar.research.cli.main import build_parser
+
+    rows = _ticks("nba-g", "victor-wembanyama", "bet365", 9.5, [(-100, 0.30), (-40, 0.30), (200, 0.55), (280, 0.55)])
+    rows += _ticks("nba-g", "julian-champagnie", "bet365", 7.5, [(-100, 0.60), (-40, 0.60), (200, 0.45), (280, 0.45)])
+    snap = _snap(tmp_path, rows)
+    reg = tmp_path / "registry.json"
+    reg.write_text(json.dumps({"incidents": [
+        {"id": "x", "gameId": "nba-g", "utcTime": EVENT,
+         "creditedPlayer": "J. Champagnie", "rightfulPlayer": "V. Wembanyama"},
+    ]}))
+    out = tmp_path / "attribution_reranker.json"
+    args = build_parser().parse_args(
+        ["attribution-eval", snap, "--registry", str(reg), "--out", str(out), "--line-select", "aggregate_drift"]
+    )
+    assert args.func(args) == 0
+    rep = json.loads(out.read_text())
+    assert rep["n_incidents"] == 1
+    assert rep["overall"]["n"] == 1 and rep["player_swap"]["n"] == 1
+    assert rep["line_select"] == "aggregate_drift"

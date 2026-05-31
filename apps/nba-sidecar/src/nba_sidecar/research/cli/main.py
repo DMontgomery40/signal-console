@@ -20,6 +20,7 @@ from ..evaluation.artifacts import (
     render_report_md_from_artifacts,
     write_run,
 )
+from ..attribution_snapshot import evaluate_snapshot
 from ..evaluation.separation import report_to_dict, run_separation
 from ..models import get_model, list_models as registry_list_models
 from .bootstrap import (
@@ -160,6 +161,36 @@ def cmd_separation(args: argparse.Namespace) -> int:
     return 0 if report.support == "ok" else 1
 
 
+def cmd_attribution_eval(args: argparse.Namespace) -> int:
+    # Run the snapshot-backed signed-paired re-ranker over incident truth and emit
+    # outputs/nba-quant-lab/attribution_reranker.json (the /research portal reads it).
+    registry = json.loads(Path(args.registry).read_text())
+    raw = registry.get("incidents", registry) if isinstance(registry, dict) else registry
+    incidents = []
+    for inc in raw if isinstance(raw, list) else []:
+        gid = inc.get("gameId", "")
+        if not gid or not inc.get("utcTime"):
+            continue
+        incidents.append(
+            {
+                "id": inc.get("id"),
+                "game_id": gid if gid.startswith("nba-") else f"nba-{gid}",
+                "credited_player": inc.get("creditedPlayer", ""),
+                "rightful_player": inc.get("rightfulPlayer", ""),
+                "event_iso": inc.get("utcTime", ""),
+            }
+        )
+    report = evaluate_snapshot(args.snapshot, incidents, line_select=args.line_select)
+    report["line_select"] = args.line_select
+    report["n_incidents"] = len(incidents)
+    out = Path(args.out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(report, indent=2, default=str))
+    print(f"wrote {out} ({len(incidents)} incidents, line_select={args.line_select})")
+    _print_json({k: report[k] for k in ("overall", "player_swap", "team_dispute")})
+    return 0
+
+
 def cmd_emit_models(args: argparse.Namespace) -> int:
     # Emit outputs/nba-quant-lab/models.json from the registry so the /research
     # "Model lab" surfaces the REAL registered models (the API's getResearchModels
@@ -253,6 +284,21 @@ def build_parser() -> argparse.ArgumentParser:
         help="intensity below which an incident window counts as 'no board move' (default 1.0)",
     )
     p_sep.set_defaults(func=cmd_separation)
+
+    p_attr = sub.add_parser(
+        "attribution-eval",
+        help="run the signed-paired attribution re-ranker over incident truth; emit attribution_reranker.json",
+    )
+    p_attr.add_argument("snapshot")
+    p_attr.add_argument(
+        "--registry", default="outputs/nba-detector-bakeoff/research/incident-registry-expanded.json"
+    )
+    p_attr.add_argument("--out", default="outputs/nba-quant-lab/attribution_reranker.json")
+    p_attr.add_argument(
+        "--line-select", default="aggregate_drift",
+        choices=["most_active", "closest_to_half", "aggregate_drift"],
+    )
+    p_attr.set_defaults(func=cmd_attribution_eval)
 
     p_em = sub.add_parser(
         "emit-models",
