@@ -54,6 +54,7 @@ import { ApiUnreachableBanner, isNetworkError } from "../../components/ApiUnreac
 import { QueryErrorBanner } from "../../components/QueryErrorBanner";
 import {
   useResearchGold,
+  useResearchAttribution,
   useResearchLeaderboard,
   useResearchModels,
   useResearchPulls,
@@ -1633,6 +1634,91 @@ function Leaderboard({
   );
 }
 
+// ── (7b) Attribution re-ranker ────────────────────────────────────────────────
+
+function AttributionReranker({
+  attribution,
+}: {
+  readonly attribution: Record<string, unknown> | null;
+}): JSX.Element {
+  const strata: readonly { key: string; label: string }[] = [
+    { key: "overall", label: "Overall" },
+    { key: "player_swap", label: "Player swap" },
+    { key: "team_dispute", label: "TEAM dispute" },
+  ];
+  const lineSelect = attribution !== null ? str(pick(attribution, "line_select")) : undefined;
+  const nIncidents = attribution !== null ? num(pick(attribution, "n_incidents")) : undefined;
+  return (
+    <section data-testid="research-attribution" className="space-y-3">
+      <SectionHeading>Attribution re-ranker</SectionHeading>
+      <p className="max-w-[80ch] text-xs text-text-md" data-testid="research-attribution-note">
+        Directed signed-paired prop drift over labeled incidents (the rightful player&apos;s over
+        rises while the credited player&apos;s falls), stratified by candidate type. Research
+        diagnostic, not the live suspend signal; &ldquo;score&rdquo; is unitless directed drift and
+        abstentions are shown, never scored as misses.
+      </p>
+      {attribution === null ? (
+        <EmptyLine testid="research-attribution-empty">
+          No attribution report yet — run pnpm quant attribution-eval &lt;snapshot&gt; to populate this.
+        </EmptyLine>
+      ) : (
+        <div role="table" aria-label="Attribution re-ranker" className="bg-surface-1 text-sm">
+          <div
+            role="row"
+            className="grid grid-cols-[1.2fr_0.6fr_0.8fr_0.9fr_0.9fr] gap-x-5 px-5 pb-2 pt-4 font-mono text-xs uppercase tracking-[0.06em] text-text-lo"
+          >
+            <span role="columnheader">Stratum</span>
+            <span role="columnheader">n</span>
+            <span role="columnheader">Scored</span>
+            <span role="columnheader">Abstention</span>
+            <span role="columnheader">Median score</span>
+          </div>
+          {strata.map(({ key, label }) => {
+            const s = pick(attribution, key);
+            const rec = isRecord(s) ? s : {};
+            const n = num(pick(rec, "n"));
+            const scored = num(pick(rec, "n_scored"));
+            const abst = num(pick(rec, "abstention_rate"));
+            const med = num(pick(rec, "median_score"));
+            return (
+              <div
+                key={key}
+                role="row"
+                data-testid="research-attribution-row"
+                data-stratum={key}
+                className="grid grid-cols-[1.2fr_0.6fr_0.8fr_0.9fr_0.9fr] items-baseline gap-x-5 px-5 py-3"
+              >
+                <span role="cell" className="text-text-md">
+                  {label}
+                </span>
+                <span role="cell" className="font-mono text-xs tabular-nums text-text-md">
+                  {fmtNum(n)}
+                </span>
+                <span role="cell" className="font-mono text-xs tabular-nums text-text-md">
+                  {scored === undefined || n === undefined ? "—" : `${fmtNum(scored)} / ${fmtNum(n)}`}
+                </span>
+                <span role="cell" className="font-mono text-xs tabular-nums text-text-md">
+                  {abst === undefined ? "—" : `${fmtNum(abst * 100, 0)}%`}
+                </span>
+                <span role="cell" className="font-mono text-xs tabular-nums text-text-md">
+                  {med === undefined ? "—" : fmtNum(med, 3)}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {attribution !== null && (nIncidents !== undefined || lineSelect !== undefined) ? (
+        <p className="font-mono text-xs text-text-lo" data-testid="research-attribution-meta">
+          {nIncidents !== undefined ? `incidents ${fmtNum(nIncidents)}` : ""}
+          {nIncidents !== undefined && lineSelect !== undefined ? " · " : ""}
+          {lineSelect !== undefined ? `line-select ${lineSelect}` : ""}
+        </p>
+      ) : null}
+    </section>
+  );
+}
+
 // ── (8) Casebook preview ──────────────────────────────────────────────────────
 
 function CasebookPreview({ hasSnapshot }: { readonly hasSnapshot: boolean }): JSX.Element {
@@ -1668,6 +1754,7 @@ export function ResearchPage(): JSX.Element {
   const leaderboard = useResearchLeaderboard();
   const models = useResearchModels();
   const pulls = useResearchPulls();
+  const attribution = useResearchAttribution();
 
   const goldData = gold.data;
   const snapshotData = snapshot.data?.snapshot ?? null;
@@ -1675,6 +1762,7 @@ export function ResearchPage(): JSX.Element {
   const pullRows = useMemo(() => pulls.data?.pulls ?? [], [pulls.data?.pulls]);
   const sourceRows = useMemo(() => sources.data?.sources ?? [], [sources.data?.sources]);
   const modelRows = useMemo(() => models.data?.models ?? [], [models.data?.models]);
+  const attributionData = attribution.data?.attribution ?? null;
 
   const hasSnapshot = snapshotData !== null;
   // Once the polled snapshot lands, stop the interval.
@@ -1696,7 +1784,7 @@ export function ResearchPage(): JSX.Element {
       : undefined;
 
   // Network-down banner takes precedence; otherwise surface the first hard error.
-  const queries = [gold, sources, snapshot, leaderboard, models, pulls];
+  const queries = [gold, sources, snapshot, leaderboard, models, pulls, attribution];
   const networkErr = queries.find((q) => q.isError && isNetworkError(q.error));
   const hardErr = queries.find((q) => q.isError && !isNetworkError(q.error));
   const banner =
@@ -1730,6 +1818,7 @@ export function ResearchPage(): JSX.Element {
       <SnapshotBlock snapshot={snapshotData} />
       <ModelLab models={modelRows} hasSnapshot={hasSnapshot} />
       <Leaderboard runId={leaderboard.data?.runId ?? null} rows={leaderboardRows} />
+      <AttributionReranker attribution={attributionData} />
       <CasebookPreview hasSnapshot={hasSnapshot} />
 
       {pullDialogOpen ? (

@@ -161,6 +161,17 @@ const PULLS_RESPONSE = {
   ],
 };
 
+const EMPTY_ATTRIBUTION = { attribution: null };
+const SEEDED_ATTRIBUTION = {
+  attribution: {
+    overall: { n: 15, n_scored: 9, abstention_rate: 0.4, median_score: 0 },
+    player_swap: { n: 8, n_scored: 6, abstention_rate: 0.25, median_score: 0.022 },
+    team_dispute: { n: 7, n_scored: 3, abstention_rate: 0.57, median_score: -0.015 },
+    line_select: "aggregate_drift",
+    n_incidents: 15,
+  },
+};
+
 interface MockShape {
   readonly gold?: unknown;
   readonly sources?: unknown;
@@ -168,6 +179,7 @@ interface MockShape {
   readonly leaderboard?: unknown;
   readonly models?: unknown;
   readonly pulls?: unknown;
+  readonly attribution?: unknown;
 }
 
 describe("ResearchPage", () => {
@@ -191,6 +203,7 @@ describe("ResearchPage", () => {
     const leaderboard = shape.leaderboard ?? EMPTY_LEADERBOARD;
     const models = shape.models ?? MODELS_RESPONSE;
     const pulls = shape.pulls ?? EMPTY_PULLS;
+    const attribution = shape.attribution ?? EMPTY_ATTRIBUTION;
     fetchMock.mockImplementation(async (input, init) => {
       await Promise.resolve();
       const url = urlOf(input);
@@ -209,6 +222,7 @@ describe("ResearchPage", () => {
       if (url.includes("/v1/research/leaderboard/latest")) return jsonResponse(leaderboard);
       if (url.includes("/v1/research/models")) return jsonResponse(models);
       if (url.includes("/v1/research/pulls")) return jsonResponse(pulls);
+      if (url.includes("/v1/research/attribution")) return jsonResponse(attribution);
       return new Response("not found", { status: 404 });
     });
   }
@@ -244,12 +258,30 @@ describe("ResearchPage", () => {
     expect(screen.getByTestId("research-leaderboard-empty")).not.toBeNull();
     expect(screen.queryByTestId("research-leaderboard-row")).toBeNull();
     expect(screen.queryByTestId("research-pull-job-row")).toBeNull();
+    expect(screen.getByTestId("research-attribution-empty")).not.toBeNull();
+    expect(screen.queryByTestId("research-attribution-row")).toBeNull();
 
     // Model lab shows the export-first empty state, not a pull prompt.
     expect(screen.getByTestId("research-model-lab-empty").textContent).toContain("no pull needed");
 
     // No fabricated fires/game number anywhere in the empty page.
     expect(screen.queryByText(/fires\/game/i)).toBeNull();
+  });
+
+  it("renders the attribution re-ranker section stratified (overall/player_swap/team_dispute)", async () => {
+    mockResearch({ attribution: SEEDED_ATTRIBUTION });
+    render(<ResearchPage />, { wrapper: makeWrapper() });
+
+    expect(await screen.findByTestId("research-attribution")).not.toBeNull();
+    const rows = await screen.findAllByTestId("research-attribution-row");
+    expect(rows.map((r) => r.getAttribute("data-stratum"))).toEqual([
+      "overall",
+      "player_swap",
+      "team_dispute",
+    ]);
+    // the line-select footnote surfaces the chosen strategy; not the live signal
+    expect(screen.getByTestId("research-attribution-meta").textContent).toContain("aggregate_drift");
+    expect(screen.getByTestId("research-attribution-note").textContent).toContain("not the live suspend signal");
   });
 
   it("renders the quant-guide panel with an honest Open link and a Copy CLI quickstart action", async () => {
