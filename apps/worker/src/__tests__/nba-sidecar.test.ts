@@ -218,6 +218,14 @@ describe("nba sidecar worker integration", () => {
         .prepare("SELECT COUNT(*) AS count FROM nba_play_by_play_actions WHERE game_id = ?")
         .get("nba-0022600001"),
     ).toEqual({ count: 1 });
+
+    // the capture hook also appended the action to the versioned revision shadow
+    // (the label harvester accumulates every snapshot for correction-diffing)
+    expect(
+      getDatabase()
+        .prepare("SELECT COUNT(*) AS count FROM nba_pbp_revisions WHERE game_id = ?")
+        .get("nba-0022600001"),
+    ).toEqual({ count: 1 });
   });
 
   it("cancels vanished if-necessary games when a successful scoreboard date no longer lists them", async () => {

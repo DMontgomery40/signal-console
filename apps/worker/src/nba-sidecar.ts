@@ -3,6 +3,7 @@ import {
   recordAdapterRun,
   recordGameStateObservation,
   recordNbaPlayByPlayActions,
+  recordNbaPlayByPlayRevisions,
   upsertGame,
   upsertGameOutcome,
 } from "@signal-console/shared";
@@ -359,16 +360,27 @@ export function ingestNbaSidecarPlayByPlay(options: {
   canonicalGameId: string;
   payload: NbaSidecarPlayByPlayPayload;
 }) {
+  const actions = options.payload.actions
+    .filter(
+      (action): action is SidecarPlayByPlayAction & { actionNumber: number } =>
+        action.actionNumber != null && Number.isFinite(action.actionNumber),
+    )
+    .map((action) => ({
+      ...action,
+      rawMetadata: action as unknown as Record<string, unknown>,
+    }));
+
   const result = recordNbaPlayByPlayActions({
-    actions: options.payload.actions
-      .filter(
-        (action): action is SidecarPlayByPlayAction & { actionNumber: number } =>
-          action.actionNumber != null && Number.isFinite(action.actionNumber),
-      )
-      .map((action) => ({
-        ...action,
-        rawMetadata: action as unknown as Record<string, unknown>,
-      })),
+    actions,
+    capturedAt: options.payload.generatedAt,
+    gameId: options.canonicalGameId,
+  });
+
+  // Also append to the versioned revision shadow so silent stat corrections
+  // (the same action re-credited across re-snapshots) accumulate as ground-truth
+  // miscredit labels (see listPbpAttributionTransitions). Idempotent per snapshot.
+  const revisions = recordNbaPlayByPlayRevisions({
+    actions,
     capturedAt: options.payload.generatedAt,
     gameId: options.canonicalGameId,
   });
@@ -376,6 +388,7 @@ export function ingestNbaSidecarPlayByPlay(options: {
   return {
     actionsSeen: result.actionsSeen,
     actionsWritten: result.actionsWritten,
+    revisionsWritten: revisions.revisionsWritten,
   };
 }
 
