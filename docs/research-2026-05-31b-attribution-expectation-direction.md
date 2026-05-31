@@ -149,3 +149,21 @@ prop falls and the hypothesis correctly does not fire. Credited leg illiquid in 
 N≈2 clean positives, no control ⇒ **encouraging-but-not-validated**; the binding gate remains
 **labels + credited-side liquidity**, not model machinery. Implication: stratify candidates (player-swap
 vs TEAM-dispute) and treat the TEAM-dispute class as a different (likely market-invisible) problem.
+
+### Update (2026-05-31, self-paced /loop) — full pipeline + portal shipped
+The fabric now exists end-to-end (committed, not pushed; `research/miscredit-attribution-20260531`):
+- **Snapshot input:** `player_prop_ticks.parquet` (raw causal rebound-prop ticks incl. `source`+`line`) +
+  Python contract (`PLAYER_PROP_TICKS_COLUMNS`, `PlayerPropTickRow`, `read_player_prop_ticks`).
+- **Re-ranker:** `research/attribution.py` (pure signed-paired score + fail-closed abstention) +
+  `research/attribution_snapshot.py` (snapshot-backed; line-selection incl. **`aggregate_drift`** = per-
+  (source,line) drift then mean, level-invariant; player_swap/team_dispute stratification). With
+  `aggregate_drift`, slice-eval abstention drops 67%→**40%**, player_swap median **+0.022** (still N-gated).
+- **Portal (front+back):** `pnpm quant attribution-eval` → `attribution_reranker.json` →
+  `GET /v1/research/attribution` → `ResearchPage` "Attribution re-ranker" section (stratified, with an
+  honest "not the live suspend signal" note).
+- **Label engine:** migration 16 `nba_pbp_revisions` versioned shadow + worker capture hook +
+  `listPbpAttributionTransitions` (silent-edit corrections recovered by diffing snapshots).
+
+**Still open (gated on labels):** operationalize the harvester on live games; source more incidents +
+FAR-calibrate the SPRT/abstention threshold on the ~5,537-episode control corpus. The re-ranker must not
+claim validated precision until those land.
