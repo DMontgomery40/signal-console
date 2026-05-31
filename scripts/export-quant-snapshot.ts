@@ -475,6 +475,15 @@ async function run(): Promise<number> {
     //       missing             - eligible source absent for this game/family
     const coverageRows = buildSourceCoverageRows(db, selectedIds);
 
+    // 11. player_prop_ticks.parquet — per-player rebound-prop microstructure for
+    //     the attribution re-ranker. Scoped to truth-bearing games (incident +
+    //     tape-episode games) so the re-ranker can window per candidate event
+    //     without reading the gold DB. Raw causal ticks.
+    const truthBearingIds = selectedIds.filter(
+      (id) => incidentGameIdSet.has(id) || (episodesByGame.get(id)?.length ?? 0) > 0,
+    );
+    const playerPropTickRows = buildPlayerPropTickRows(db, truthBearingIds);
+
     // --- write parquet via duckdb ----------------------------------------
     const instance = await DuckDBInstance.create(resolve(snapshotDir, "snapshot.duckdb"));
     const connection = await instance.connect();
@@ -521,6 +530,13 @@ async function run(): Promise<number> {
       SOURCE_COVERAGE_COLUMNS,
       coverageRows,
       resolve(snapshotDir, "source_coverage.parquet"),
+    );
+    await writeParquetTable(
+      target,
+      "player_prop_ticks",
+      PLAYER_PROP_TICKS_COLUMNS,
+      playerPropTickRows,
+      resolve(snapshotDir, "player_prop_ticks.parquet"),
     );
     connection.disconnectSync();
     instance.closeSync();
@@ -610,6 +626,7 @@ async function run(): Promise<number> {
         scoreWindows: scoreWindowRows.length,
         marketOutlierEpisodes: episodeRows.length,
         sourceCoverage: coverageRows.length,
+        playerPropTicks: playerPropTickRows.length,
       },
       boardObservationDiagnostics: Object.fromEntries(boardDiag),
       sourceCoverageSummary,
@@ -621,6 +638,7 @@ async function run(): Promise<number> {
         "score_windows.parquet",
         "market_outlier_episodes.parquet",
         "source_coverage.parquet",
+        "player_prop_ticks.parquet",
         "splits.json",
         "feature_catalog.md",
         "feature_catalog.json",
@@ -804,6 +822,52 @@ function maxIso(ids: readonly string[], byId: Map<string, GameWindow>): string |
   return best;
 }
 
+// --- player prop ticks (re-ranker input) ------------------------------------
+
+// Raw per-player rebound-prop ticks for the attribution re-ranker's signed-paired
+// legs. Scoped by the caller to truth-bearing games to bound size. Causal (raw
+// ticks, no future info); the re-ranker windows them around candidate events and
+// never reads the gold DB directly.
+function buildPlayerPropTickRows(
+  db: ReturnType<typeof openGoldDb>,
+  gameIds: readonly string[],
+): Row[] {
+  const stmt = db.prepare(
+    `SELECT mi.participant_key AS player_key,
+            qt.captured_at AS captured_at,
+            qt.implied_probability AS implied_probability,
+            qt.volume AS volume
+     FROM source_markets sm
+     JOIN market_instruments mi ON sm.instrument_id = mi.id
+     JOIN quote_ticks qt ON qt.source_market_id = sm.id AND qt.is_heartbeat = 0
+     WHERE sm.game_id = ?
+       AND mi.family = 'player-prop'
+       AND lower(mi.display_label) LIKE '%rebound%'
+       AND qt.implied_probability IS NOT NULL
+     ORDER BY mi.participant_key, qt.captured_at`,
+  );
+  const rows: Row[] = [];
+  for (const gameId of gameIds) {
+    for (const rec of stmt.all(gameId)) {
+      if (!isRecord(rec)) continue;
+      const playerKey = typeof rec["player_key"] === "string" ? rec["player_key"] : null;
+      const capturedAt = typeof rec["captured_at"] === "string" ? rec["captured_at"] : null;
+      const impliedProbability =
+        typeof rec["implied_probability"] === "number" ? rec["implied_probability"] : null;
+      if (playerKey === null || capturedAt === null || impliedProbability === null) continue;
+      rows.push({
+        game_id: gameId,
+        player_key: playerKey,
+        stat: "rebounds",
+        captured_at: capturedAt,
+        implied_probability: impliedProbability,
+        volume: typeof rec["volume"] === "number" ? rec["volume"] : null,
+      });
+    }
+  }
+  return rows;
+}
+
 // --- parquet column specs ---------------------------------------------------
 
 const GAMES_COLUMNS: readonly ColumnSpec[] = [
@@ -888,6 +952,18 @@ const SOURCE_COVERAGE_COLUMNS: readonly ColumnSpec[] = [
   { name: "market_count", type: "INTEGER" },
   { name: "tick_count", type: "BIGINT" },
   { name: "eligible", type: "BOOLEAN" },
+];
+
+// Per-player rebound-prop microstructure — the attribution re-ranker's input.
+// Raw causal ticks (no whole-game stats), so it is leakage-safe for online
+// scoring; the re-ranker windows these per candidate event.
+const PLAYER_PROP_TICKS_COLUMNS: readonly ColumnSpec[] = [
+  { name: "game_id", type: "VARCHAR" },
+  { name: "player_key", type: "VARCHAR" },
+  { name: "stat", type: "VARCHAR" },
+  { name: "captured_at", type: "VARCHAR" },
+  { name: "implied_probability", type: "DOUBLE" },
+  { name: "volume", type: "DOUBLE" },
 ];
 
 // --- feature catalog --------------------------------------------------------
@@ -1035,6 +1111,25 @@ const FEATURE_CATALOG: readonly FeatureCatalogEntry[] = [
     causalOrNoncausal: "noncausal",
     leakageSafeForOnlineScoring: false,
     derivedFromSourceTables: ["quote_ticks", "source_markets"],
+  },
+  {
+    file: "player_prop_ticks.parquet",
+    name: "implied_probability",
+    meaning:
+      "Per-player rebound-prop implied probability per tick (raw causal series the attribution re-ranker windows around candidate events)",
+    units: "probability 0..1",
+    causalOrNoncausal: "causal",
+    leakageSafeForOnlineScoring: true,
+    derivedFromSourceTables: ["quote_ticks", "source_markets", "market_instruments"],
+  },
+  {
+    file: "player_prop_ticks.parquet",
+    name: "volume",
+    meaning: "Per-player rebound-prop traded volume at the tick (for signed-flow / BVC features)",
+    units: "contracts/shares (source-native)",
+    causalOrNoncausal: "causal",
+    leakageSafeForOnlineScoring: true,
+    derivedFromSourceTables: ["quote_ticks", "source_markets", "market_instruments"],
   },
 ];
 

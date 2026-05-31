@@ -12,9 +12,8 @@
 //
 // Defaults to the incident-registry games already present in the gold DB.
 
-import { recordNbaPlayByPlayActions } from "@signal-console/shared";
-
 import { GOLD_DB_PATH } from "../packages/db/src/open";
+import { recordNbaPlayByPlayActions } from "../packages/shared/src/live-repository";
 
 // Ensure the writable repository connection points at the gold DB (live-repository
 // opens SIGNAL_CONSOLE_DB_PATH and runs migrations, incl. migration 15).
@@ -68,8 +67,9 @@ async function fetchPbp(rawGameId: string): Promise<{ actions: CdnAction[]; gene
 
 function parseArgGames(): string[] {
   const i = process.argv.indexOf("--games");
-  if (i >= 0 && process.argv[i + 1]) {
-    return process.argv[i + 1].split(",").map((s) => s.trim()).filter(Boolean);
+  const raw = i >= 0 ? process.argv[i + 1] : undefined;
+  if (raw) {
+    return raw.split(",").map((s) => s.trim()).filter(Boolean);
   }
   return DEFAULT_GAMES;
 }
