@@ -86,6 +86,28 @@ def _make_aggregate_scorer(game_ticks: pd.DataFrame, params: AttributionParams):
     return score
 
 
+def _make_recall_scorer(game_ticks: pd.DataFrame, game_id: str, params: AttributionParams, line_select: str):
+    """A (credited_name, rightful_name, event_iso) -> (PairedScore|None, stratum)
+    scorer that HONORS line_select, so matched recall scores at the SAME operating
+    point as the control FAR. aggregate_drift uses the fast per-game series cache;
+    other line_selects fall back to the per-pair score_incident_snapshot."""
+    if line_select == "aggregate_drift":
+        return _make_aggregate_scorer(game_ticks, params)
+
+    def score(credited_name: str, rightful_name: str, event_iso: str):
+        return score_incident_snapshot(
+            game_ticks,
+            game_id=game_id,
+            credited_player=credited_name,
+            rightful_player=rightful_name,
+            event_iso=event_iso,
+            params=params,
+            line_select=line_select,
+        )
+
+    return score
+
+
 def score_control_pairs(
     ticks_df: pd.DataFrame,
     pbp_by_game: dict[str, list[dict[str, Any]]],
@@ -198,6 +220,7 @@ def incident_recall_matched(
     params: AttributionParams | None = None,
     thresholds: tuple[float, ...] = DEFAULT_THRESHOLDS,
     match_window_sec: float = 300.0,
+    line_select: str = "aggregate_drift",
 ) -> dict[str, Any]:
     """Push each known incident through the SAME candidate path used for FAR, so
     recall (TPR) and false-alarm rate share an operating point (advisor).
@@ -269,7 +292,7 @@ def incident_recall_matched(
             row["matched"] = True
             row["match_dt_sec"] = round(best_team_dt)
             tcs = by_team[best_team_action]
-            scorer = _make_aggregate_scorer(by_game.get(gid, ticks_df.iloc[0:0]), p)
+            scorer = _make_recall_scorer(by_game.get(gid, ticks_df.iloc[0:0]), gid, p, line_select)
             tscored = [
                 {
                     "last": last_name(tc.candidate_name or ""),
@@ -309,7 +332,7 @@ def incident_recall_matched(
         row["matched"] = True
         row["match_dt_sec"] = round(best_dt)
         cs = by_action[best_action]
-        scorer = _make_aggregate_scorer(by_game.get(gid, ticks_df.iloc[0:0]), p)
+        scorer = _make_recall_scorer(by_game.get(gid, ticks_df.iloc[0:0]), gid, p, line_select)
         scored = []
         for c in cs:
             ps, _ = scorer(c.credited_name or "", c.candidate_name or "", c.time_actual or "")

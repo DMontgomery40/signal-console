@@ -277,7 +277,7 @@ def cmd_far_calibration(args: argparse.Namespace) -> int:
     scored = score_control_pairs(ticks, pbp, line_select=args.line_select)
     all_summary = summarize_far(scored)
     pure = summarize_far([r for r in scored if r["game_id"] not in epi_games])
-    recall = incident_recall_matched(ticks, incident_pbp, specs)
+    recall = incident_recall_matched(ticks, incident_pbp, specs, line_select=args.line_select)
     report = {
         "snapshot": snap,
         "line_select": args.line_select,

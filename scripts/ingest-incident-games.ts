@@ -58,6 +58,12 @@ async function main(): Promise<void> {
   for (const raw of games) {
     try {
       const box = await fetchCdnBoxscore(raw);
+      // These are settled historical games; an invented scheduledStart would
+      // silently corrupt chronology. Fail closed if the boxscore lacks the real
+      // game time (the per-game catch records it FAILED + exits non-zero).
+      if (box.gameTimeUTC === null || box.gameTimeUTC === "") {
+        throw new Error("cdn boxscore has no gameTimeUTC; refusing to invent scheduledStart");
+      }
       const game: CanonicalGame = {
         id: `nba-${raw}`,
         sport: "basketball",
@@ -65,7 +71,7 @@ async function main(): Promise<void> {
         sourceGameKeyNba: raw,
         homeParticipant: participant(box.homeTeam, "home"),
         awayParticipant: participant(box.awayTeam, "away"),
-        scheduledStart: box.gameTimeUTC ?? new Date().toISOString(),
+        scheduledStart: box.gameTimeUTC,
       };
       upsertGame(game);
       const { actions, generatedAt } = await fetchCdnPbp(raw);

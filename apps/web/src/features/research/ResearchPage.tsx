@@ -1959,7 +1959,21 @@ export function ResearchPage(): JSX.Element {
       : undefined;
 
   // Network-down banner takes precedence; otherwise surface the first hard error.
-  const queries = [gold, sources, snapshot, leaderboard, models, pulls, attribution];
+  // Include farCalibration + harvestedLabels so a failed /far-calibration or
+  // /harvested-labels request surfaces as an operator error, not a silent
+  // "No report yet" empty state (an ABSENT artifact returns null successfully and
+  // is NOT an error, so this only banners real request failures).
+  const queries = [
+    gold,
+    sources,
+    snapshot,
+    leaderboard,
+    models,
+    pulls,
+    attribution,
+    farCalibration,
+    harvestedLabels,
+  ];
   const networkErr = queries.find((q) => q.isError && isNetworkError(q.error));
   const hardErr = queries.find((q) => q.isError && !isNetworkError(q.error));
   const banner =

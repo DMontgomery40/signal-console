@@ -770,4 +770,30 @@ describe("ResearchPage", () => {
     const banner = await screen.findByTestId("query-error-banner");
     expect(banner.textContent).toContain("Failed to load research artifacts");
   });
+
+  it("surfaces a FAILED far-calibration request as an error banner, not a silent empty state", async () => {
+    fetchMock.mockImplementation(async (input) => {
+      await Promise.resolve();
+      const url = urlOf(input);
+      // Only far-calibration fails; everything else (incl. harvested-labels) succeeds.
+      if (url.includes("/v1/research/far-calibration")) {
+        return new Response("boom", { status: 500, statusText: "Internal Server Error" });
+      }
+      if (url.includes("/v1/research/gold")) return jsonResponse(GOLD_RESPONSE);
+      if (url.includes("/v1/research/sources")) return jsonResponse(SOURCES_RESPONSE);
+      if (url.includes("/v1/research/snapshot/latest")) return jsonResponse(EMPTY_SNAPSHOT);
+      if (url.includes("/v1/research/leaderboard/latest")) return jsonResponse(EMPTY_LEADERBOARD);
+      if (url.includes("/v1/research/models")) return jsonResponse(MODELS_RESPONSE);
+      if (url.includes("/v1/research/pulls")) return jsonResponse(EMPTY_PULLS);
+      if (url.includes("/v1/research/harvested-labels")) return jsonResponse(EMPTY_HARVESTED);
+      if (url.includes("/v1/research/attribution")) return jsonResponse(EMPTY_ATTRIBUTION);
+      return new Response("not found", { status: 404 });
+    });
+    render(<ResearchPage />, { wrapper: makeWrapper() });
+    // Only far-calibration fails + every other read succeeds, so the error banner can
+    // only come from far-calibration being in the error aggregation — before the fix
+    // its failure was omitted and produced NO banner (a silent empty state instead).
+    const banner = await screen.findByTestId("query-error-banner");
+    expect(banner.textContent).toContain("Failed to load research artifacts");
+  });
 });

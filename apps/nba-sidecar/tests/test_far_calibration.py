@@ -101,6 +101,13 @@ def test_incident_recall_matched_locates_ranks_and_scores_rightful():
     assert r["rightful_oncourt"] and r["rightful_score"] > 0 and r["is_score_argmax"] is True
     assert res["tpr_per_pair"][0.0] == 1.0
     assert res["tpr_correct_argmax"][0.0] == 1.0
+    # line_select is HONORED (threaded to the recall scorer), not silently forced to
+    # aggregate_drift — non-default operating points must match the control FAR's.
+    res_ma = incident_recall_matched(
+        _ticks(rows), PBP, inc, thresholds=(0.0,), line_select="most_active"
+    )
+    assert res_ma["n_scored"] == 1
+    assert res_ma["incidents"][0]["rightful_score"] is not None
 
 
 def test_incident_recall_matched_unmatched_when_no_credited_rebound():

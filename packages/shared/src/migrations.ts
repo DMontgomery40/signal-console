@@ -777,6 +777,13 @@ function applyNbaPlayByPlayRevisionShadow(db: Database.Database) {
     // corrections are silent edits with no official feed, so the credited->rightful
     // transition is recovered by DIFFING revisions of the same action across
     // captured_at. Append-only; never overwrites a prior revision.
+    // Like migrations 11/15, skip on partial-schema DBs without the `games` FK
+    // target so a child table is never created with a non-existent parent (still
+    // record the migration so the version advances).
+    if (!tableExists(db, "games")) {
+      insertMigration(db, 16, "nba-play-by-play-revision-shadow");
+      return;
+    }
     db.exec(`
       CREATE TABLE IF NOT EXISTS nba_pbp_revisions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
