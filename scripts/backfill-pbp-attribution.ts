@@ -15,6 +15,8 @@
 import { GOLD_DB_PATH } from "../packages/db/src/open";
 import { recordNbaPlayByPlayActions } from "../packages/shared/src/live-repository";
 
+import { fetchCdnPbp, mapCdnPbpActions } from "./lib/cdn-pbp";
+
 // Ensure the writable repository connection points at the gold DB (live-repository
 // opens SIGNAL_CONSOLE_DB_PATH and runs migrations, incl. migration 15).
 process.env.SIGNAL_CONSOLE_DB_PATH ??= process.env.GOLD_DB_PATH ?? GOLD_DB_PATH;
@@ -33,38 +35,6 @@ const DEFAULT_GAMES = [
   "0042500314",
 ];
 
-interface CdnAction {
-  actionNumber?: number;
-  actionType?: string;
-  subType?: string;
-  personId?: number;
-  playerNameI?: string;
-  playerName?: string;
-  clock?: string;
-  description?: string;
-  period?: number;
-  scoreAway?: string | number;
-  scoreHome?: string | number;
-  teamTricode?: string;
-  timeActual?: string;
-}
-
-async function fetchPbp(rawGameId: string): Promise<{ actions: CdnAction[]; generatedAt: string }> {
-  const url = `https://cdn.nba.com/static/json/liveData/playbyplay/playbyplay_${rawGameId}.json`;
-  const res = await fetch(url, {
-    headers: { "User-Agent": "Mozilla/5.0", Referer: "https://www.nba.com/" },
-  });
-  if (!res.ok) throw new Error(`cdn ${rawGameId}: HTTP ${res.status}`);
-  const json = (await res.json()) as {
-    game?: { actions?: CdnAction[] };
-    meta?: { time?: string };
-  };
-  return {
-    actions: json.game?.actions ?? [],
-    generatedAt: json.meta?.time ?? new Date().toISOString(),
-  };
-}
-
 function parseArgGames(): string[] {
   const i = process.argv.indexOf("--games");
   const raw = i >= 0 ? process.argv[i + 1] : undefined;
@@ -79,23 +49,8 @@ async function main(): Promise<void> {
   console.log(`backfilling PBP attribution for ${games.length} games -> ${process.env.SIGNAL_CONSOLE_DB_PATH}`);
   for (const raw of games) {
     try {
-      const { actions, generatedAt } = await fetchPbp(raw);
-      const mapped = actions
-        .filter((a) => a.actionNumber != null && Number.isFinite(a.actionNumber))
-        .map((a) => ({
-          actionNumber: a.actionNumber as number,
-          actionType: a.actionType ?? null,
-          subType: a.subType ?? null,
-          personId: typeof a.personId === "number" && a.personId > 0 ? a.personId : null,
-          playerName: a.playerNameI ?? a.playerName ?? null,
-          clock: a.clock ?? null,
-          description: a.description ?? null,
-          period: a.period ?? null,
-          scoreAway: a.scoreAway != null ? String(a.scoreAway) : null,
-          scoreHome: a.scoreHome != null ? String(a.scoreHome) : null,
-          teamTricode: a.teamTricode ?? null,
-          timeActual: a.timeActual ?? null,
-        }));
+      const { actions, generatedAt } = await fetchCdnPbp(raw);
+      const mapped = mapCdnPbpActions(actions);
       const withPerson = mapped.filter((a) => a.personId != null).length;
       const result = recordNbaPlayByPlayActions({
         gameId: `nba-${raw}`,
