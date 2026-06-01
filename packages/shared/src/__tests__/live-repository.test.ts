@@ -21,6 +21,8 @@ import {
   listResearchDivergence,
   listSignalMismatches,
   listPbpAttributionTransitions,
+  listNbaPbpRevisionGameIds,
+  harvestMiscreditLabels,
   recordGameStateObservation,
   recordMarketMicrostructureEvent,
   recordNbaPlayByPlayActions,
@@ -286,7 +288,14 @@ describe("live repository", () => {
       gameId,
       capturedAt: "2026-04-21T23:55:00.000Z",
       actions: [
-        { actionNumber: 416, actionType: "rebound", subType: "offensive", personId: 200, playerName: "J. Allen" },
+        {
+          actionNumber: 416,
+          actionType: "rebound",
+          subType: "offensive",
+          personId: 200,
+          playerName: "J. Allen",
+          timeActual: "2026-04-21T23:40:30.000Z",
+        },
         { actionNumber: 417, actionType: "rebound", personId: 300, playerName: "J. Tatum" },
       ],
     });
@@ -302,6 +311,56 @@ describe("live repository", () => {
     expect(t.toPlayer).toBe("J. Allen");
     expect(t.firstSeenAt).toBe("2026-04-21T23:41:00.000Z");
     expect(t.changedAt).toBe("2026-04-21T23:55:00.000Z");
+    // event context carried for the label bridge: rebound type + event time
+    expect(t.actionType).toBe("rebound");
+    expect(t.timeActual).toBe("2026-04-21T23:40:30.000Z");
+  });
+
+  it("harvestMiscreditLabels turns a rebound correction into an eval-ready label", () => {
+    seedLiveRepositoryGame();
+    const gameId = "nba-bos-nyk-2026-04-21";
+    // a rebound credited to Merrill, later corrected to Allen (the label) ...
+    recordNbaPlayByPlayRevisions({
+      gameId,
+      capturedAt: "2026-04-21T23:41:00.000Z",
+      actions: [
+        { actionNumber: 416, actionType: "rebound", personId: 100, playerName: "S. Merrill", timeActual: "2026-04-21T23:40:30.000Z" },
+        // ... and a non-rebound correction (a foul re-credit) that must be EXCLUDED for stat='rebound'
+        { actionNumber: 500, actionType: "foul", personId: 700, playerName: "X. Foulguy" },
+      ],
+    });
+    recordNbaPlayByPlayRevisions({
+      gameId,
+      capturedAt: "2026-04-21T23:55:00.000Z",
+      actions: [
+        { actionNumber: 416, actionType: "rebound", personId: 200, playerName: "J. Allen", timeActual: "2026-04-21T23:40:30.000Z" },
+        { actionNumber: 500, actionType: "foul", personId: 701, playerName: "Y. Otherguy" },
+      ],
+    });
+
+    expect(listNbaPbpRevisionGameIds()).toContain(gameId);
+    const result = harvestMiscreditLabels({ gameIds: [gameId], stat: "rebound" });
+    expect(result.netTransitions).toBe(2); // rebound 416 + foul 500
+    expect(result.nonStatTransitions).toBe(1); // the foul is counted but not emitted
+    expect(result.incidents).toHaveLength(1);
+    const label = result.incidents[0]!;
+    expect(label.creditedPlayer).toBe("S. Merrill");
+    expect(label.rightfulPlayer).toBe("J. Allen");
+    expect(label.stat).toBe("rebound");
+    expect(label.utcTime).toBe("2026-04-21T23:40:30.000Z");
+    expect(label.correctionLatencySec).toBe(14 * 60); // 23:41 -> 23:55
+    expect(label.id).toBe("harvested-nba-bos-nyk-2026-04-21-416");
+  });
+
+  it("harvestMiscreditLabels drops a flip that cancels back to the original credit", () => {
+    seedLiveRepositoryGame();
+    const gameId = "nba-bos-nyk-2026-04-21";
+    // Merrill -> Allen -> Merrill: net credit unchanged, so NOT a label
+    recordNbaPlayByPlayRevisions({ gameId, capturedAt: "2026-04-21T23:41:00.000Z", actions: [{ actionNumber: 416, actionType: "rebound", personId: 100, playerName: "S. Merrill" }] });
+    recordNbaPlayByPlayRevisions({ gameId, capturedAt: "2026-04-21T23:50:00.000Z", actions: [{ actionNumber: 416, actionType: "rebound", personId: 200, playerName: "J. Allen" }] });
+    recordNbaPlayByPlayRevisions({ gameId, capturedAt: "2026-04-21T23:55:00.000Z", actions: [{ actionNumber: 416, actionType: "rebound", personId: 100, playerName: "S. Merrill" }] });
+    const result = harvestMiscreditLabels({ gameIds: [gameId], stat: "rebound" });
+    expect(result.incidents).toHaveLength(0);
   });
 
   it("ignores scheduled regressions after a game has started or finished", () => {
