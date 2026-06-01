@@ -122,12 +122,17 @@ def test_harvested_label_specs_parses_rebound_labels_only():
             # missing rightful -> dropped
             {"id": "h3", "gameId": "nba-z", "creditedPlayer": "C. Three", "rightfulPlayer": "",
              "stat": "rebound", "utcTime": "2026-01-01T00:10:00Z"},
+            # TEAM-credited (harvester sentinel) -> kept with credited_last="" for the TEAM branch
+            {"id": "h4", "gameId": "nba-w", "creditedPlayer": "TEAM", "rightfulPlayer": "V. Wembanyama",
+             "stat": "rebound", "utcTime": "2026-01-01T00:10:00Z"},
         ]
     }
     specs = harvested_label_specs(report)
-    assert len(specs) == 1
-    assert specs[0]["game_id"] == "nba-x"
-    assert (specs[0]["credited_last"], specs[0]["rightful_last"]) == ("merrill", "allen")
+    assert len(specs) == 2
+    swap = next(s for s in specs if s["game_id"] == "nba-x")
+    assert (swap["credited_last"], swap["rightful_last"]) == ("merrill", "allen")
+    team = next(s for s in specs if s["game_id"] == "nba-w")
+    assert (team["credited_last"], team["rightful_last"]) == ("", "wembanyama")
     assert harvested_label_specs({}) == []  # absent/empty report is safe
 
 

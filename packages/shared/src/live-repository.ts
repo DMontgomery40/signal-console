@@ -2843,29 +2843,38 @@ export function harvestMiscreditLabels(options?: {
       const first = list[0];
       const last = list[list.length - 1];
       if (first === undefined || last === undefined) continue;
-      // net credited (first.from) must differ from net rightful (last.to)
-      const samePerson =
-        first.fromPersonId !== null &&
-        last.toPersonId !== null &&
-        first.fromPersonId === last.toPersonId;
-      const sameName =
-        first.fromPersonId === null &&
-        last.toPersonId === null &&
-        (first.fromPlayer ?? null) === (last.toPlayer ?? null);
-      if (samePerson || sameName) continue;
+      // Resolve the net credited + rightful ENTITY. For a rebound, a row with no
+      // person_id AND no player_name is a TEAM rebound (gold invariant: rebound rows
+      // are either id+name present or both null=TEAM, description 'TEAM ... REBOUND'),
+      // represented by the "TEAM" sentinel so a TEAM->player correction is a real
+      // credited->rightful change instead of a dropped null. Crucially, a transition
+      // that keeps the SAME name while only the person_id flickers (e.g. 100/Merrill ->
+      // null/Merrill, a feed dropping the id) is the SAME entity and must NEVER become a
+      // creditedPlayer===rightfulPlayer self-label.
+      const creditedName =
+        first.fromPersonId === null && (first.fromPlayer ?? null) === null ? "TEAM" : first.fromPlayer;
+      const rightfulName = last.toPlayer;
+      const sameEntity =
+        (first.fromPersonId !== null && first.fromPersonId === last.toPersonId) ||
+        (creditedName !== null && creditedName === rightfulName);
+      if (sameEntity) continue;
       netTransitions += 1;
       if ((last.actionType ?? "").toLowerCase() !== stat) {
         nonStatTransitions += 1;
         continue;
       }
-      if (!first.fromPlayer || !last.toPlayer) continue;
+      // The rightful must be a NAMED player (the re-ranker scores its prop); a
+      // player->TEAM correction has no named rightful and is not re-ranker-scoreable.
+      // The credited may be "TEAM" (TEAM->player correction; the eval's TEAM branch
+      // consumes credited_last="").
+      if (!rightfulName || !creditedName) continue;
       const firstMs = Date.parse(first.firstSeenAt);
       const changedMs = Date.parse(last.changedAt);
       incidents.push({
         id: `harvested-${gameId}-${last.actionNumber}`,
         gameId,
-        creditedPlayer: first.fromPlayer,
-        rightfulPlayer: last.toPlayer,
+        creditedPlayer: creditedName,
+        rightfulPlayer: rightfulName,
         stat,
         utcTime: last.timeActual ?? last.changedAt,
         actionNumber: last.actionNumber,

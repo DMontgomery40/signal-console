@@ -374,11 +374,16 @@ def harvested_label_specs(report: Any, stat: str = "rebound") -> list[dict[str, 
             continue
         if str(inc.get("stat", "")).lower() != stat:
             continue
-        cl = last_name(str(inc.get("creditedPlayer", "")))
+        credited_str = str(inc.get("creditedPlayer", ""))
+        cl = last_name(credited_str)
         rl = last_name(str(inc.get("rightfulPlayer", "")))
         ev = _epoch(inc.get("utcTime"))
         gid = str(inc.get("gameId", ""))
-        if cl and rl and ev is not None and gid:
+        # player_swap (cl present) OR TEAM-credited (cl == "" but credited is a TEAM
+        # rebound, e.g. the harvester's "TEAM" sentinel) — the latter keeps credited_last
+        # "" so incident_recall_matched's TEAM branch consumes it (mirrors the CLI).
+        is_team = not cl and "team" in credited_str.lower()
+        if rl and ev is not None and gid and (cl or is_team):
             out.append(
                 {"id": inc.get("id"), "game_id": gid, "credited_last": cl, "rightful_last": rl, "event_epoch": ev}
             )
