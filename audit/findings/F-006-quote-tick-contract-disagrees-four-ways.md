@@ -8,11 +8,11 @@
 
 ## The four definitions of one quote tick
 
-| field | DB `quote_ticks` | domain `live.ts` `quoteTickSchema` | `/v1/live` route JSON schema | web `queries.ts` `quoteTickSchema` |
-|---|---|---|---|---|
-| `volume` | `REAL` (nullable) | `z.number().nullable()` | `{ type: "number" }` (**non-null**) | `z.number()` (**non-null**) |
-| `isHeartbeat` | `INTEGER` 0/1 | `z.boolean()` | `{ type: "integer" }` | `z.number().int()` |
-| `impliedProbability` | `REAL` (unconstrained) | `.min(0).max(1).nullable()` | `["number","null"]` (no bound) | `z.number().nullable()` (no bound) |
+| field                | DB `quote_ticks`       | domain `live.ts` `quoteTickSchema` | `/v1/live` route JSON schema        | web `queries.ts` `quoteTickSchema` |
+| -------------------- | ---------------------- | ---------------------------------- | ----------------------------------- | ---------------------------------- |
+| `volume`             | `REAL` (nullable)      | `z.number().nullable()`            | `{ type: "number" }` (**non-null**) | `z.number()` (**non-null**)        |
+| `isHeartbeat`        | `INTEGER` 0/1          | `z.boolean()`                      | `{ type: "integer" }`               | `z.number().int()`                 |
+| `impliedProbability` | `REAL` (unconstrained) | `.min(0).max(1).nullable()`        | `["number","null"]` (no bound)      | `z.number().nullable()` (no bound) |
 
 Two of these are the same exported name (`quoteTickSchema` / `type QuoteTick`)
 in two packages — `packages/domain/src/schemas/live.ts` and
@@ -36,7 +36,7 @@ also adds `source`/`instrumentId`/`rawFamily`/`rawLabel` and drops
    successfully parse the same bytes: a payload with `isHeartbeat: 1` fails the
    domain schema; `isHeartbeat: true` fails the web schema and the route's
    `integer`. Today web+route agree on integer, so the web path works — but any
-   code that reaches for the *domain* `quoteTickSchema` to validate a route-shaped
+   code that reaches for the _domain_ `quoteTickSchema` to validate a route-shaped
    payload (the natural thing to do, since it's the "canonical" one in the domain
    package) will throw on every non-trivial tick.
 
@@ -78,3 +78,50 @@ today). Even if masked, the contract is inconsistent and the mask is incidental.
 `apps/api/src/routes/live.ts:58-71`; `live-repository.ts:512,517,719-724` and the
 `COALESCE(implied_probability, CASE WHEN price_raw BETWEEN 0 AND 1 …)` price
 resolution; DB `quote_ticks` (`migrations.ts:133-148`).
+
+---
+
+## RESOLUTION + PARTIAL RETRACTION (2026-05-30)
+
+Verifying before fixing (as the finding instructed) corrected two of the three claims:
+
+### Volume "break" — RETRACTED (no break)
+
+`getLive` (`apps/api/src/services/live.ts:88`) resolves volume as
+`COALESCE(qt.volume, 0)` — a null DB volume is coalesced to **0** before it
+leaves the API. So `/v1/live` never emits `volume: null`; the route schema
+`volume: number` and the web `z.number()` are **accurate**, not a latent break.
+Making them nullable (the original fix idea) would have _misrepresented_ the real
+contract. The DB column is nullable, but the serving layer pins it to a number —
+a deliberate, consistent reconciliation. No change made.
+
+### `implied_probability` unguarded COALESCE — FIXED
+
+This was the genuine defect: the price-resolution SQL guarded `price_raw` to
+`[0,1]` but trusted `implied_probability` unguarded, so an out-of-range value
+would flow straight into the divergence/disagreement `price`. Fixed all **5**
+occurrences in `live-repository.ts` (aliases `q`, `q2`, `prev`) to guard
+`implied_probability` symmetrically:
+`COALESCE(CASE WHEN x.implied_probability BETWEEN 0 AND 1 THEN x.implied_probability END, CASE WHEN x.price_raw BETWEEN 0 AND 1 THEN x.price_raw END)`.
+Value-preserving for all in-range or NULL data (identical results), so it only
+ever filters genuinely out-of-range probabilities. Verified: shared `tsc` clean;
+`live-repository` suite 31/31 pass.
+
+### `isHeartbeat` boolean-vs-int + dual `quoteTickSchema` name — DOWNGRADED to a naming residual
+
+The domain `quoteTickSchema` (volume nullable, `isHeartbeat: boolean`) and the web
+`quoteTickSchema` (`isHeartbeat: z.number().int()`) are not a contract break —
+they are two DIFFERENT layer representations that share a name: the domain one is
+the raw persistence-row shape; the web one is the `/v1/live` _response_ shape
+(coalesced, integer heartbeat). Both are internally correct for their layer.
+Recommended follow-up (low risk, not done here to avoid a rename ripple at the end
+of a long session): rename the web `quoteTickSchema`/`QuoteTick` →
+`liveTickSchema`/`LiveTick` so the name stops implying it's the same contract as
+domain's. Tracked as a naming cleanup, not a correctness defect.
+
+### Residual smell (noted)
+
+The price-resolution COALESCE is copy-pasted 5× across different queries — a
+"defined in N places" pattern. The guard is now uniform, but extracting the
+fragment into one SQL helper would make future changes single-point. Deferred
+(cross-query refactor risk).

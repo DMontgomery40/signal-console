@@ -1,9 +1,9 @@
 ---
-name: cluster-130
-description: "Skill for the Cluster_130 area of signal-console. 16 symbols across 1 files."
+name: cluster-158
+description: "Skill for the Cluster_158 area of signal-console. 16 symbols across 1 files."
 ---
 
-# Cluster_130
+# Cluster_158
 
 16 symbols | 1 files | Cohesion: 100%
 
@@ -11,7 +11,7 @@ description: "Skill for the Cluster_130 area of signal-console. 16 symbols acros
 
 - Working with code in `packages/`
 - Understanding how syncPolymarketNbaTrades work
-- Modifying cluster_130-related functionality
+- Modifying cluster_158-related functionality
 
 ## Key Files
 
@@ -57,5 +57,5 @@ Start here when exploring this area:
 ## How to Explore
 
 1. `gitnexus_context({name: "syncPolymarketNbaTrades"})` — see callers and callees
-2. `gitnexus_query({query: "cluster_130"})` — find related execution flows
+2. `gitnexus_query({query: "cluster_158"})` — find related execution flows
 3. Read key files listed above for implementation details

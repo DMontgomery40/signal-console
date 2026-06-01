@@ -1,3 +1,5 @@
+import { resolveOddsApiKey } from "@signal-console/shared";
+
 type FetchLike = typeof fetch;
 
 export const ODDS_API_IO_BASE_URL = "https://api.odds-api.io/v3";
@@ -95,8 +97,11 @@ export type OddsApiIoCoverageSummary = {
   readonly playerPropBooksObserved: string[];
 };
 
+// Delegates to the canonical resolver (audit F-012) so this surface and every
+// other odds-api reader share ONE ordered name list. Kept as a named wrapper
+// because callers pass an explicit env in tests.
 export function readOddsApiIoApiKey(env: NodeJS.ProcessEnv = process.env) {
-  return env.ODDSAPI_API_KEY ?? env.ODDS_API_KEY ?? env.ODDS_API_IO_KEY ?? null;
+  return resolveOddsApiKey(env);
 }
 
 export function redactOddsApiIoUrl(input: string) {

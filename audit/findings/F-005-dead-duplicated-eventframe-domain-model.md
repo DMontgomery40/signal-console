@@ -2,74 +2,73 @@
 
 - **Severity:** medium (contributor trap + latent dual-definition drift; not currently executed)
 - **Boundary crossed:** domain package public API ↔ (nothing) ; Zod schema ↔ hand-written TS type
-- **Status:** confirmed
+- **Status:** confirmed (finding); **fix DEFERRED — not shipped** (see resolution)
 - **Surfaces no error:** yes — it's exported, type-checks, and looks like the
   authoritative event model. It just has no producer or consumer.
 
 ## What it is
 
-`packages/domain/src/schemas/core.ts` (96 lines) defines a rich betting-event
-model as Zod schemas: `eventFrameSchema` composing `sportEventSchema`,
-`sourceQuoteSchema` (`probability` 0–1, `spread`, `volume`, `depthScore` 0–100,
-`reliabilityWeight` 0–1), `eventContextSchema` (`modelProbability`, `restEdge`,
-`formEdge`, `paceEdge`, `exposureScore`, `volatilityScore`, `liquidityRisk`),
-`auditEntrySchema`, `suggestedActionSchema`, `teamSchema`. It is re-exported from
-the package barrel (`packages/domain/src/index.ts`: `export * from "./schemas/core"`).
-
-`packages/domain/src/types.ts` **independently re-declares the same shapes** as
-hand-written TypeScript (`Team`, `SportEvent`, `EventFrame`, `SourceQuote`,
-`EventContext`, `SuggestedAction`, `AuditEntry`) — NOT via `z.infer`. So the same
-concept has two definitions that can only agree by manual discipline.
+`packages/domain/src/schemas/core.ts` defines a betting-event model as Zod schemas
+(`eventFrameSchema` composing `sportEventSchema`, `sourceQuoteSchema`,
+`eventContextSchema` with `modelProbability`/`restEdge`/`paceEdge`/`exposureScore`,
+`auditEntrySchema`, `suggestedActionSchema`, `teamSchema`). It is re-exported from the
+domain barrel. `packages/domain/src/types.ts` independently re-declares the SAME shapes
+as hand-written TS (`EventFrame`, `SourceQuote`, `EventContext`, …) — NOT via
+`z.infer`, so the two can only agree by manual discipline.
 
 ## Evidence it is dead
 
-Repo-wide (apps + packages, including tests and web mocks), excluding the two
-defining files:
+Repo-wide (apps + packages, incl. tests), excluding the two defining files:
+`eventFrameSchema`/`sportEventSchema`/`sourceQuoteSchema`/`eventContextSchema`/
+`suggestedActionSchema` and the `EventFrame`/`SourceQuote`/`EventContext`/
+`SuggestedAction`/`AuditEntry` types have **0 referencing files**. The distinctive
+fields (`restEdge`/`paceEdge`/`exposureScore`/`narrativeHints`) appear only in the
+`types.ts` duplicate. The real pipeline uses entirely different shapes (DB
+`quote_ticks`, sidecar `CanonicalGame*`, board observation models). The only LIVE
+exports in those two files are `severityBandSchema` (core.ts → `research.ts`) and
+`WatchlistRecord` (types.ts → `watchlist-repository.ts`).
 
-- `eventFrameSchema`, `sportEventSchema`, `sourceQuoteSchema`,
-  `eventContextSchema`, `suggestedActionSchema` → **0 referencing files**.
-- The `EventFrame`, `SourceQuote`, `EventContext`, `SuggestedAction`,
-  `AuditEntry` *types* → **0 referencing files** outside `types.ts`/`core.ts`.
-- The distinctive fields `restEdge` / `paceEdge` / `exposureScore` /
-  `narrativeHints` appear only in the `types.ts` duplicate.
-- `z.infer` is used in **neither** file, so the schema and the type are not bound.
+## Why it matters
 
-The real pipeline uses entirely different shapes: DB `quote_ticks`
-(`price_raw`, `implied_probability`, `best_bid`, `best_ask`, `volume`,
-`depth_score`), the sidecar `CanonicalGame`/`CanonicalGameState` (pydantic), and
-the board-anomaly/state-space observation models. None of `core.ts`'s
-`modelProbability`/`restEdge`/`exposureScore` exists anywhere in persistence or
-runtime.
-
-## Why it matters (the trap)
-
-It is the most authoritative-*looking* model in the codebase: it lives in the
-`domain` package, it is exported from the barrel, it composes a clean
-event→quotes→context→actions hierarchy with bounded units. A contributor asking
-"what's the canonical event/quote shape?" finds this first and builds against it —
-wiring a feature, a fixture, or a detector input to a model that nothing
-populates and nothing reads. Effort is wasted, or worse, two event models end up
-half-coexisting. And if anyone *does* start using it, the Zod-vs-TS dual
-definition (unbound by `z.infer`) is an F-001-class agree-by-accident surface.
+It is the most authoritative-_looking_ model in the codebase (domain package, barrel
+export, clean event→quotes→context→actions hierarchy with bounded units). A
+contributor builds against it and wires a feature to a model nothing populates or
+reads; and if anyone does adopt it, the unbound Zod-vs-TS duplication is an
+F-001-class agree-by-accident surface.
 
 ## Fix
 
-- If it's genuinely retired demo scaffolding: delete `core.ts` and the mirrored
-  shapes from `types.ts`, and drop the barrel re-export. Dead public API that
-  looks canonical is worse than absent API.
-- If any of it is meant to be the forward model: collapse the duplication
-  (`export type EventFrame = z.infer<typeof eventFrameSchema>`), and wire at least
-  one real producer/consumer — otherwise it's indistinguishable from dead.
-- Grep `rg "eventFrameSchema|EventFrame|sourceQuoteSchema"` before deleting to
-  reconfirm no late binding (none found 2026-05-30).
+Delete `core.ts`/`types.ts` down to their one live export each
+(`severityBandSchema`, `WatchlistRecord`); drop the dead schemas + mirror types. If
+any is meant to be the forward model, bind it (`export type X = z.infer<…>`) and wire
+a real producer/consumer.
 
-## Note (separately confirmed clean)
+## RESOLUTION — DEFERRED, not shipped (2026-05-30)
 
-The state-space `VolatilityHistoricalPrior {median, mad, sampleSize}` is NOT
-sourced from the `board_volatility_baselines` percentile table. Production builds
-it via `buildBoardMadHistoricalPriors` → `weightedMedian`/`weightedMad` on raw
-pooled intensities (a true MAD), correctly consumed by `volatility.py`'s
-`mad * madScale (1.4826)`. The percentile table (`p50..p99`) feeds only the
-separate board-anomaly residual detector. Two parallel baseline systems, each
-internally consistent — no lossy percentile→MAD conversion. Recorded so later
-slices don't re-investigate.
+The deletion was attempted, then **reverted; the dead model remains at HEAD.**
+`packages/domain/src/{schemas/core.ts,types.ts}` are unchanged from HEAD in this
+work (verified: `git diff` empty; `eventFrameSchema` still present).
+
+Why deferred: the full `pnpm verify` gate's strict step
+(`tsc -p scripts/tsconfig.json`, which compiles `packages/shared` under
+`exactOptionalPropertyTypes: true` even though shared's own tsconfig sets it `false`)
+reports **122 `exactOptionalPropertyTypes` errors in `packages/shared/src`**
+(board-anomaly cluster, `signal-quality.ts`, and unrelated `live-repository.ts`
+functions). Those errors are in files this work never edited, are pre-existing strict
+-mode debt of the branch (unchanged code under an unchanged stricter tsconfig), and
+made it impossible to get a clean, fast read on whether deleting the dead domain
+exports is gate-neutral — the typecheck repeatedly timed out under measurement, and I
+produced contradictory readings before settling on the structural conclusion above.
+
+Rather than ship a dead-code cleanup (the lowest-value finding: zero live consumers,
+no correctness or UX impact) while unable to verify the gate, I reverted it. Land
+F-005 only once the branch's pre-existing 122-error strict debt is resolved or the
+gate can be measured cleanly.
+
+> RETRACTED earlier drafts of this section: (a) "deleted & shipped, gate green" —
+> false; (b) "deletion unmasks 122 via an F-013 domain-barrel collision" — the
+> collision mechanism was DISPROVEN (reverting the domain files to HEAD still yields
+> 122), and the F-013 finding was deleted; (c) "live-repository `?? undefined` was the
+> root cause" — false. The honest, verified state is only what is written above:
+> dead model retained; 122 errors are pre-existing shared/strict debt independent of
+> this finding.

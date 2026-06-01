@@ -38,6 +38,11 @@ const relaxedTypeAwareRuleOverrides = Object.fromEntries(
   ].map((ruleName) => [ruleName, "off"]),
 );
 
+const scriptDefensiveGuardRuleOverrides = {
+  "@typescript-eslint/no-unnecessary-condition": "off",
+  "@typescript-eslint/strict-boolean-expressions": "off",
+};
+
 module.exports = tseslint.config(
   {
     ignores: [
@@ -83,6 +88,13 @@ module.exports = tseslint.config(
       "react-hooks/exhaustive-deps": "error",
       "react-hooks/rules-of-hooks": "error",
     },
+  },
+  {
+    // Scripts intentionally keep defensive guards around parsed CLI, JSON, and
+    // generated payload data even though the scripts compiler now matches package
+    // optional/indexed-access policy.
+    files: ["scripts/**/*.{ts,tsx}"],
+    rules: scriptDefensiveGuardRuleOverrides,
   },
   {
     // These runtime/research packages were historically outside the strict

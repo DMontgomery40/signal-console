@@ -91,18 +91,18 @@ Backtest has one primary threshold rotary, Innovation trigger for `kMad`, plus a
 - **Knob body:** 160 px diameter circle, `surface-1` fill.
 - **Inner bezel ring:** 1 px inset stroke, `text-lo` at 30% opacity, 4 px inside the knob edge. Implies machined metal lip; no drop shadow.
 - **Outer bezel:** 192 px diameter ring (16 px wider than knob), 1 px `text-lo` at 30% opacity. Holds the tick marks.
-- **Ticks:** every 1.0 sensitivity unit from 2 to 8 = 7 ticks across a 270° travel arc (2 at -135°, 5 at 0°, 8 at +135°). Each tick is a 12 px line, `text-lo`. Major ticks at sensitivity 3 and 6 (the snap detents) are 16 px and `accent-green`.
+- **Ticks:** every 1.0 sensitivity unit from `BOARD_MAD_K_MAD_MIN` to `BOARD_MAD_K_MAD_MAX` (currently 1 through 12) across a 270° travel arc. The minimum sits at -135°, the midpoint sits at 0°, and the maximum sits at +135°. Each tick is a 12 px line, `text-lo`. Major ticks at sensitivity 3 and 6 (the snap detents) are 16 px and `accent-green`.
 - **Indicator:** 3 px wide line from center to bezel edge (radius 88 px), `accent-yellow` stroke, rounded ends. Rotates with the knob. A 0.5 px lighter `accent-yellow` hairline along its leading edge suggests bevel depth without a shadow.
 - **Secondary value (inside the knob):** mono 32 px (`text-2xl`), `accent-yellow`, centered. The Sensitivity knob uses this space for a real output of the chosen setting, currently estimated fires per game from the last run.
 - **Primary value (large above):** mono 96 px (add `text-5xl 96 px` token if not present — used here and nowhere else), `accent-yellow`. Sits above the knob when the dial is the focal point; this is the bet365-style oversized headline number. Optional detail text sits below it, not beside it, so parenthetical durations do not collide with the 96 px headline.
 
 **Interaction:**
 
-- **Vertical drag:** mousedown anywhere inside the knob, then drag up to raise sensitivity, down to lower sensitivity. 200 px of vertical travel = full 270° rotation = sensitivity range 2.0 → 8.0. Drag is the primary interaction.
+- **Vertical drag:** mousedown anywhere inside the knob, then drag up to raise sensitivity, down to lower sensitivity. 200 px of vertical travel = full 270° rotation = the full deployable `kMad` range. Drag is the primary interaction.
 - **Click a tick mark:** snaps the dial to that sensitivity value (instant, no animation longer than the 50 ms snap-magnetize below).
 - **Click a snap chip** ("Sensitive" at 3, "Calm" at 6): snaps with an 80 ms `text-hi`→`accent-yellow` flash on the headline value.
 - **Wheel / scroll over knob:** each tick = ±0.25 sensitivity.
-- **Keyboard (when focused):** ← ↓ = -0.25, → ↑ = +0.25, PageUp/Down = ±1.0, Home/End = 2.0/8.0.
+- **Keyboard (when focused):** ← ↓ = -0.25, → ↑ = +0.25, PageUp/Down = ±1.0, Home/End = `BOARD_MAD_K_MAD_MIN`/`BOARD_MAD_K_MAD_MAX`.
 - Touch: vertical pan, same mapping. No haptic vibration.
 
 **Snap detents:**
@@ -130,7 +130,7 @@ That's it. Anything beyond these five — drop shadows, gradients, glow filters,
 
 ## Charts (Recharts theme)
 
-Strip Recharts to the bone. Custom theme exported from `packages/ui/src/chart-theme.ts`.
+Strip Recharts to the bone. Chart styling reads design tokens from `packages/ui/src/tokens.ts` (consumed by the web chart components, e.g. `apps/web/src/features/backtest/BacktestTimelines.tsx`); there is no separate `chart-theme.ts` module today.
 
 - **Lines:** 1 px stroke, `accent-green` for normal, `accent-yellow` for above-threshold buckets.
 - **Markers:** 6 px filled circle `accent-yellow` for fires; nothing else marked.
@@ -221,7 +221,7 @@ Many numbers and concepts in this app (`kMad`, `fires/game`, the various detecto
 **Voice guidelines (enforced by review):**
 
 - ELI5: second person OK, conversational, no jargon. "We watch how much every market on a game wiggles relative to its own recent calm" not "Robust dispersion of intra-game implied-probability deltas." Two or three short paragraphs. Tell them what the number means for _their job_ (deciding whether to suspend a market), not for the algorithm's job.
-- Formal: technical but not IMO-only. Define notation the first time it's used. Always say WHY this estimator vs the obvious alternative ("MAD over std because a single outlier from a vacated-position blip would otherwise dominate"). Cite the canonical source (e.g. `scripts/board_signal_v2.py:33`).
+- Formal: technical but not IMO-only. Define notation the first time it's used. Always say WHY this estimator vs the obvious alternative ("MAD over std because a single outlier from a vacated-position blip would otherwise dominate"). Cite the canonical source — an in-repo path that resolves (e.g. `packages/detectors/src/board-mad/config.ts` or `apps/nba-sidecar/src/nba_sidecar/volatility.py`); for external provenance say so explicitly (e.g. "ported from `nba-predict/...`").
 
 **Don't:**
 

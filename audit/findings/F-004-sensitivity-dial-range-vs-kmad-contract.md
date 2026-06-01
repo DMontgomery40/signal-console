@@ -10,14 +10,14 @@
 `kMad` (the "Innovation trigger" / sensitivity) has ONE documented range
 everywhere except the backtest dial:
 
-| Surface | kMad range | Source |
-|---|---|---|
-| Detector params schema | **[1, 12]** | `params.ts:68` `z.number().min(BOARD_MAD_K_MAD_MIN).max(BOARD_MAD_K_MAD_MAX)` → `config.ts` `1`/`12` |
-| Live defaults / promote | **[1, 12]** | `apps/api/src/services/detector-defaults.ts` `kMadLive` min/max |
-| **Settings page slider** | **[1, 12]** | `SettingsPage.tsx` imports `BOARD_MAD_K_MAD_MIN`/`MAX` |
-| **Backtest Sensitivity dial** | **[2, 8]** | `SensitivityDial.tsx:12-13` `SENSITIVITY_MIN = 2`, `SENSITIVITY_MAX = 8` — **hardcoded literals** |
+| Surface                       | kMad range  | Source                                                                                               |
+| ----------------------------- | ----------- | ---------------------------------------------------------------------------------------------------- |
+| Detector params schema        | **[1, 12]** | `params.ts:68` `z.number().min(BOARD_MAD_K_MAD_MIN).max(BOARD_MAD_K_MAD_MAX)` → `config.ts` `1`/`12` |
+| Live defaults / promote       | **[1, 12]** | `apps/api/src/services/detector-defaults.ts` `kMadLive` min/max                                      |
+| **Settings page slider**      | **[1, 12]** | `SettingsPage.tsx` imports `BOARD_MAD_K_MAD_MIN`/`MAX`                                               |
+| **Backtest Sensitivity dial** | **[2, 8]**  | `SensitivityDial.tsx:12-13` `SENSITIVITY_MIN = 2`, `SENSITIVITY_MAX = 8` — **hardcoded literals**    |
 
-So the tool whose entire job is to *find a good kMad* can only explore [2, 8],
+So the tool whose entire job is to _find a good kMad_ can only explore [2, 8],
 while the value you actually deploy can be anywhere in [1, 12]. You can run live
 at a sensitivity (e.g. K=10 "very calm", or K=1.5 "very hot") that the backtester
 structurally refuses to let you test or even display.
@@ -32,7 +32,7 @@ structurally refuses to let you test or even display.
    there is **no** other UI path to a value outside [2,8] on this page.
 
 2. **Misrepresent-then-truncate (when a kMad outside [2,8] reaches the dial).**
-   `RotaryDial` clamps only for *display*: `clamped = clampValue(value, min, max)`
+   `RotaryDial` clamps only for _display_: `clamped = clampValue(value, min, max)`
    (`RotaryDial.tsx:189`) and `latestValueRef.current = clamped` (`:206-207`), but
    it does **not** `onChange` on mount. So a form `kMad = 10` renders as
    **"8.00"** — the dial actively lies about the current value — and the first
@@ -53,7 +53,7 @@ stays at 8 with no test catching it — same "lockstep by accident" class as F-0
 ## Fix
 
 - Drive the dial from the contract: `valueMin = BOARD_MAD_K_MAD_MIN`,
-  `valueMax = BOARD_MAD_K_MAD_MAX` (import from `config.ts`). If a *friendlier*
+  `valueMax = BOARD_MAD_K_MAD_MAX` (import from `config.ts`). If a _friendlier_
   default arc is genuinely wanted, derive it from config (e.g. a documented
   `K_MAD_UI_SOFT_MIN/MAX`) and add a test asserting the soft range stays within
   and references the hard `[BOARD_MAD_K_MAD_MIN, MAX]` — never bare 2/8.
@@ -70,3 +70,27 @@ claim); `params.ts:68`, `config.ts` (`BOARD_MAD_K_MAD_MIN=1`/`MAX=12`);
 `detector-defaults.ts` + `SettingsPage.tsx` (both [1,12]);
 `RotaryDial.tsx:189, 206-207, 245, 251` (display-clamp, no mount write-back).
 Related: F-003 (frozen preview hides the truncation).
+
+---
+
+## RESOLUTION (fixed 2026-05-30 — owner chose "expose full [1,12]")
+
+Fabric-level fix (single source of truth + reconcile + enforcement), not a literal patch:
+
+- `SensitivityDial.tsx`: `SENSITIVITY_MIN/MAX` now derive from
+  `BOARD_MAD_K_MAD_MIN`/`BOARD_MAD_K_MAD_MAX` (the same constants the params
+  schema, Settings slider, and live-defaults use). The dial can no longer hold a
+  range that disagrees with the kMad contract — drift would require changing
+  config, which moves every surface together.
+- `RotaryDial.tsx`: added a reconcile effect — an out-of-range controlled `value`
+  is pushed back to the owner via `onChange(clamped)` instead of rendering a
+  clamped lie. A kMad outside the range can no longer display as the boundary
+  while the form keeps the real value (and then get truncated on first touch).
+- `SensitivityDial.test.tsx`: retired the hardcoded `[2,8]` assertions (they
+  encoded the bug); the geometry/keyboard/drag tests now read the range from
+  config, plus two new tests: full-range reachability (End/Home hit MAX/MIN) and
+  the reconcile guarantee (an out-of-range init calls `onChange(MAX)` and never
+  shows a lie).
+
+Verified: `vitest run SensitivityDial BacktestPage` → 50/50 pass. The `k-mad`
+explainer states no numeric range, so no copy drift.

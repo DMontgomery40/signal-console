@@ -6,6 +6,7 @@ import {
   recordAdapterRun,
   recordQuoteObservation,
   recordRawPayload,
+  resolveOddsApiKey,
   upsertMarketInstrument,
   upsertSourceMarket,
 } from "@signal-console/shared";
@@ -215,7 +216,9 @@ function getTargetLookbackMinutes() {
 }
 
 function getOddsApiKey(options?: { apiKey?: string }) {
-  return options?.apiKey ?? process.env.ODDS_API_KEY ?? process.env.ODDS_API_IO_KEY ?? null;
+  // Delegate to the canonical resolver so the documented-preferred
+  // ODDSAPI_API_KEY is honored here too (audit F-012).
+  return resolveOddsApiKey(process.env, { explicitKey: options?.apiKey ?? null });
 }
 
 function isLiveGameStatus(status: string | null | undefined) {
@@ -1119,7 +1122,9 @@ async function syncOddsApiBookmaker(options: {
   const apiKey = getOddsApiKey({ apiKey: options.apiKey });
 
   if (!apiKey) {
-    throw new Error(`Missing ODDS_API_KEY for ${options.bookmaker} backup ingestion.`);
+    throw new Error(
+      `Missing Odds-API.io key for ${options.bookmaker} backup ingestion. Set ODDSAPI_API_KEY (preferred), ODDS_API_KEY, or ODDS_API_IO_KEY.`,
+    );
   }
 
   try {

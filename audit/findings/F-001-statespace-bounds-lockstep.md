@@ -28,7 +28,7 @@ But **nothing enforces it**:
 - `packages/detectors/src/board-mad/__tests__/state-space-config.test.ts` tests
   only the Zod schema in isolation (default resolution, the `scaleFloor`/`scaleCeiling`
   refine). It never references `models.py`.
-- `apps/nba-sidecar/tests/test_volatility.py` independently *hardcodes* the same
+- `apps/nba-sidecar/tests/test_volatility.py` independently _hardcodes_ the same
   default numbers (0.9, 0.45, 0.05, 1.4826, 4, …). It never references the Zod schema.
 - There is no codegen, JSON-schema export, or shared fixture binding the two files.
   Each is a hand-maintained copy of the same 30-row table.
@@ -56,7 +56,7 @@ but obviously should" pattern, with money/training cost on the line.
 ## Fix options (in order of strength)
 
 1. **Single source of truth.** Export the Zod schema's bounds as JSON Schema (or a
-   plain JSON table) at build time and have the pydantic models *load* the bounds
+   plain JSON table) at build time and have the pydantic models _load_ the bounds
    from that artifact (or generate `models.py` from it). Then drift is impossible.
 2. **Cross-language contract test.** A test (CI step) that parses both files'
    numeric bounds and asserts equality — e.g. a Python test that reads a JSON
@@ -82,7 +82,7 @@ validators):
 
 - Added `packages/detectors/src/board-mad/state-space-bounds.json` — the single
   source of truth for all 30 `(field → min,max,int?)` bounds.
-- `packages/detectors/src/board-mad/__tests__/state-space-bounds.contract.test.ts`
+- `packages/shared/src/__tests__/state-space-bounds.contract.test.ts`
   introspects the live `BoardStateSpaceConfigSchema` (Zod `_def`) and asserts it
   equals the JSON.
 - `apps/nba-sidecar/tests/test_state_space_bounds_contract.py` introspects the

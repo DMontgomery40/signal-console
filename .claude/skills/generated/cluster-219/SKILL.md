@@ -1,9 +1,9 @@
 ---
-name: cluster-188
-description: "Skill for the Cluster_188 area of signal-console. 21 symbols across 1 files."
+name: cluster-219
+description: "Skill for the Cluster_219 area of signal-console. 21 symbols across 1 files."
 ---
 
-# Cluster_188
+# Cluster_219
 
 21 symbols | 1 files | Cohesion: 97%
 
@@ -11,7 +11,7 @@ description: "Skill for the Cluster_188 area of signal-console. 21 symbols acros
 
 - Working with code in `packages/`
 - Understanding how applyMigrations work
-- Modifying cluster_188-related functionality
+- Modifying cluster_219-related functionality
 
 ## Key Files
 
@@ -74,5 +74,5 @@ Start here when exploring this area:
 ## How to Explore
 
 1. `gitnexus_context({name: "applyMigrations"})` — see callers and callees
-2. `gitnexus_query({query: "cluster_188"})` — find related execution flows
+2. `gitnexus_query({query: "cluster_219"})` — find related execution flows
 3. Read key files listed above for implementation details

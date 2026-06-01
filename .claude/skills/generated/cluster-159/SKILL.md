@@ -1,9 +1,9 @@
 ---
-name: cluster-131
-description: "Skill for the Cluster_131 area of signal-console. 16 symbols across 1 files."
+name: cluster-159
+description: "Skill for the Cluster_159 area of signal-console. 16 symbols across 1 files."
 ---
 
-# Cluster_131
+# Cluster_159
 
 16 symbols | 1 files | Cohesion: 90%
 
@@ -11,7 +11,7 @@ description: "Skill for the Cluster_131 area of signal-console. 16 symbols acros
 
 - Working with code in `packages/`
 - Understanding how buildPolymarketSelectionRecords work
-- Modifying cluster_131-related functionality
+- Modifying cluster_159-related functionality
 
 ## Key Files
 
@@ -62,10 +62,10 @@ Start here when exploring this area:
 
 | Area | Connections |
 |------|-------------|
-| Cluster_109 | 4 calls |
+| Cluster_132 | 4 calls |
 
 ## How to Explore
 
 1. `gitnexus_context({name: "buildPolymarketSelectionRecords"})` — see callers and callees
-2. `gitnexus_query({query: "cluster_131"})` — find related execution flows
+2. `gitnexus_query({query: "cluster_159"})` — find related execution flows
 3. Read key files listed above for implementation details

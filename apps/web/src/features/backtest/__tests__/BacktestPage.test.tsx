@@ -924,6 +924,31 @@ describe("BacktestPage", () => {
     expect(screen.getByTestId("sensitivity-dial-inline-detail").textContent).toBe("fires/gm");
   });
 
+  it("shows the dial stale note only after the trigger changes since the last run (F-003)", async () => {
+    // The dial readout is the LAST RUN's fires/game (browser no longer recomputes
+    // locally). The honest-copy fix (F-003) adds a stale note beside the dial once
+    // the trigger/timing changes, so the frozen number is never read as live. It
+    // must be absent on a fresh run and present after a dial move.
+    mockDetectorsAndBacktest(buildKSensitiveBacktest());
+    render(<BacktestPage />, { wrapper: makeWrapper() });
+    await waitFor(() => {
+      expect(screen.getByTestId("backtest-detector-select")).not.toBeNull();
+    });
+
+    fireEvent.click(screen.getByTestId("backtest-run-button"));
+    await waitFor(() => {
+      expect(screen.getByTestId("backtest-run-id").textContent).toBe("99");
+    });
+    expect(screen.queryByTestId("backtest-sensitivity-stale-note")).toBeNull();
+
+    const dial = screen.getByTestId("sensitivity-dial");
+    act(() => {
+      fireEvent.keyDown(dial, { key: "ArrowRight" });
+    });
+    expect(dial.getAttribute("aria-valuenow")).not.toBe("3");
+    expect(screen.getByTestId("backtest-sensitivity-stale-note")).not.toBeNull();
+  });
+
   it("populates the knob center from the backtest response and tracks dial moves without an API call (US-037)", async () => {
     const backtest = buildKSensitiveBacktest();
     mockDetectorsAndBacktest(backtest);

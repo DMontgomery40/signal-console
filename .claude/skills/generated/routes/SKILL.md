@@ -1,16 +1,16 @@
 ---
 name: routes
-description: "Skill for the Routes area of signal-console. 16 symbols across 6 files."
+description: "Skill for the Routes area of signal-console. 17 symbols across 5 files."
 ---
 
 # Routes
 
-16 symbols | 6 files | Cohesion: 83%
+17 symbols | 5 files | Cohesion: 82%
 
 ## When to Use
 
 - Working with code in `apps/`
-- Understanding how discoverGameIdsInWindow, writeDetectorDefaults work
+- Understanding how discoverGameIdsInWindow work
 - Modifying routes-related functionality
 
 ## Key Files
@@ -19,35 +19,34 @@ description: "Skill for the Routes area of signal-console. 16 symbols across 6 f
 |------|---------|
 | `apps/api/src/routes/backtest.ts` | parseTimestamp, parseWindow, normalizeGameIds, backtestRoutes |
 | `apps/api/src/routes/detectors.ts` | isPlainObject, toJsonSchemaObject, buildRows, detectorsRoutes |
-| `apps/api/src/routes/settings.ts` | isRecord, readDefaultAppVersion, settingsRoutes |
+| `apps/api/src/routes/settings.ts` | isRecord, toJsonSchemaObject, readDefaultAppVersion, settingsRoutes |
 | `apps/api/src/routes/health.ts` | reasonFrom, verifyGoldReadSchema, healthRoutes |
-| `apps/api/src/services/backtest.ts` | discoverGameIdsInWindow |
-| `apps/api/src/services/detector-defaults.ts` | writeDetectorDefaults |
+| `apps/api/src/services/backtest.ts` | isRecord, discoverGameIdsInWindow |
 
 ## Entry Points
 
 Start here when exploring this area:
 
-- **`discoverGameIdsInWindow`** (Function) — `apps/api/src/services/backtest.ts:839`
-- **`writeDetectorDefaults`** (Function) — `apps/api/src/services/detector-defaults.ts:268`
+- **`discoverGameIdsInWindow`** (Function) — `apps/api/src/services/backtest.ts:219`
 
 ## Key Symbols
 
 | Symbol | Type | File | Line |
 |--------|------|------|------|
-| `discoverGameIdsInWindow` | Function | `apps/api/src/services/backtest.ts` | 839 |
-| `writeDetectorDefaults` | Function | `apps/api/src/services/detector-defaults.ts` | 268 |
-| `parseTimestamp` | Function | `apps/api/src/routes/backtest.ts` | 119 |
-| `parseWindow` | Function | `apps/api/src/routes/backtest.ts` | 123 |
-| `normalizeGameIds` | Function | `apps/api/src/routes/backtest.ts` | 135 |
-| `backtestRoutes` | Function | `apps/api/src/routes/backtest.ts` | 141 |
-| `isPlainObject` | Function | `apps/api/src/routes/detectors.ts` | 55 |
-| `toJsonSchemaObject` | Function | `apps/api/src/routes/detectors.ts` | 59 |
-| `buildRows` | Function | `apps/api/src/routes/detectors.ts` | 68 |
-| `detectorsRoutes` | Function | `apps/api/src/routes/detectors.ts` | 78 |
-| `isRecord` | Function | `apps/api/src/routes/settings.ts` | 80 |
-| `readDefaultAppVersion` | Function | `apps/api/src/routes/settings.ts` | 84 |
-| `settingsRoutes` | Function | `apps/api/src/routes/settings.ts` | 417 |
+| `discoverGameIdsInWindow` | Function | `apps/api/src/services/backtest.ts` | 219 |
+| `parseTimestamp` | Function | `apps/api/src/routes/backtest.ts` | 127 |
+| `parseWindow` | Function | `apps/api/src/routes/backtest.ts` | 131 |
+| `normalizeGameIds` | Function | `apps/api/src/routes/backtest.ts` | 143 |
+| `backtestRoutes` | Function | `apps/api/src/routes/backtest.ts` | 149 |
+| `isRecord` | Function | `apps/api/src/services/backtest.ts` | 18 |
+| `isPlainObject` | Function | `apps/api/src/routes/detectors.ts` | 57 |
+| `toJsonSchemaObject` | Function | `apps/api/src/routes/detectors.ts` | 61 |
+| `buildRows` | Function | `apps/api/src/routes/detectors.ts` | 70 |
+| `detectorsRoutes` | Function | `apps/api/src/routes/detectors.ts` | 87 |
+| `isRecord` | Function | `apps/api/src/routes/settings.ts` | 49 |
+| `toJsonSchemaObject` | Function | `apps/api/src/routes/settings.ts` | 53 |
+| `readDefaultAppVersion` | Function | `apps/api/src/routes/settings.ts` | 57 |
+| `settingsRoutes` | Function | `apps/api/src/routes/settings.ts` | 178 |
 | `reasonFrom` | Function | `apps/api/src/routes/health.ts` | 41 |
 | `verifyGoldReadSchema` | Function | `apps/api/src/routes/health.ts` | 78 |
 | `healthRoutes` | Function | `apps/api/src/routes/health.ts` | 84 |
@@ -56,13 +55,13 @@ Start here when exploring this area:
 
 | Flow | Type | Steps |
 |------|------|-------|
+| `BacktestRoutes → IsLeapYear` | cross_community | 6 |
 | `SettingsRoutes → SchedulePathFor` | cross_community | 5 |
 | `SettingsRoutes → WriteJsonAtomic` | cross_community | 5 |
 | `BacktestRoutes → ReadInt` | cross_community | 5 |
-| `BacktestRoutes → SchedulePathFor` | cross_community | 5 |
-| `BacktestRoutes → WriteJsonAtomic` | cross_community | 5 |
-| `BacktestRoutes → IsBaselineDefaults` | cross_community | 5 |
-| `BacktestRoutes → OrderedDefaults` | cross_community | 5 |
+| `BacktestRoutes → ReadFromDisk` | cross_community | 5 |
+| `BacktestRoutes → RunnerError` | cross_community | 5 |
+| `BacktestRoutes → IsRecord` | cross_community | 5 |
 | `SettingsRoutes → PragmaInt` | cross_community | 4 |
 | `SettingsRoutes → ReasonFrom` | cross_community | 4 |
 | `SettingsRoutes → ReadFromDisk` | cross_community | 4 |

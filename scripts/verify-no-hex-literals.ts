@@ -7,9 +7,9 @@
 // Allow-list:
 //   - filename matches tokens.ts | global.css | tailwind-preset.cjs
 //     (the canonical sources of token values; see US-043 ACs)
-//   - filename matches design-language.md | PRD.md (token spec docs that may
-//     live anywhere in the tree, including under packages/ or apps/ if ever
-//     moved; allow-listed defensively)
+//   - filename matches design-language.md (token spec docs that may live
+//     anywhere in the tree, including under packages/ or apps/ if ever moved;
+//     allow-listed defensively)
 //   - filename ends in .snap (vitest snapshot files that record token output)
 //   - filename ends in .d.cts | .d.ts (type-only files that may reference
 //     hex strings in JSDoc / comments without affecting runtime UI)
@@ -35,7 +35,6 @@ const ALLOWED_BASENAMES: readonly string[] = [
   "tailwind-preset.cjs",
   "tailwind-preset.d.cts",
   "design-language.md",
-  "PRD.md",
 ];
 
 const ALLOWED_SUFFIXES: readonly string[] = [".snap"];

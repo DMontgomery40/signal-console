@@ -1,8 +1,31 @@
+# Signal Console Core Purpose
+
+Signal Console is for one expensive NBA trading problem: a live data feed can credit the wrong player, or correct a play later, while player props and game props are still being priced. A rebound, assist, block, or point can land under the wrong name, and exposed markets may keep trading against that bad state. Signal Console watches market movement around those moments so bet365 can review or suspend affected markets before bad trades turn into bad payouts.
+
+The mistake rarely stays inside one bet. If a rebound is credited to the wrong player, it can touch that player's props, the player who should have received credit, combo markets, team rebounds, quarter markets, and game-level prices. Sometimes the official correction arrives late. Sometimes it never arrives in a way that changes settlement. The useful warning is simpler: the board is behaving as if something around the play deserves a closer look.
+
 # Codex memory — signal-console
 
 Per-repo persistent notes for the Codex agent. Update entries when they become stale; date entries when context decays fast.
 
 ---
+
+## Authority cleanup (2026-05-31)
+
+The root `PRD.md` and the PRD-driven Ralph loop are retired. Do not use the
+deleted PRD, `scripts/ralph/prd.json`, `scripts/ralph/progress.txt`,
+`scripts/ralph/ralph.log`, watchdog logs, or old Playwright captures as current
+Signal Console authority.
+
+Current authority is: closest repo `AGENTS.md` / `CLAUDE.md`, this file, the
+project-local memory index at
+`~/.codex/projects/-Users-davidmontgomery-signal-console/MEMORY.md`, active
+`docs/*.md` files not marked historical, current source code, tests, and live
+data.
+
+The global Codex `AGENTS.md` must remain project-agnostic. Sibling-project memory
+paths such as AnalogLabor, `nba-predict`, `signal-console-mlb`, or
+`signal-console-nfl` are not current Signal Console authority.
 
 ## Math home architecture (decided 2026-05-25, not yet implemented)
 

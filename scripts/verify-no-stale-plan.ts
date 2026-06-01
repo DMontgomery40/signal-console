@@ -1,5 +1,5 @@
-// Ripgreps the repo for forbidden plan-drift strings (PRD §FR-30) and exits
-// non-zero on any hit outside the allow-listed docs. The allow-list lives here.
+// Ripgreps the repo for forbidden plan-drift strings and exits non-zero on any
+// hit outside the allow-listed docs. The allow-list lives here.
 //
 // Forbidden strings (and their regex form):
 //   - nba-predict/data/signal-console.sqlite  (old gold-DB location)
@@ -10,7 +10,6 @@
 //   - old worker keeps writing                (forbidden migration pattern)
 //
 // Allow-list:
-//   - PRD.md (repo root) and docs/PRD.md
 //   - docs/gold-db-relocation.md
 //   - any file under docs/relocation/
 //   - any line containing the literal "(historical, do not use)"
@@ -68,7 +67,7 @@ const FORBIDDEN: readonly ForbiddenPattern[] = [
   },
 ];
 
-const ALLOW_LIST_PATHS: readonly string[] = ["PRD.md", "docs/PRD.md", "docs/gold-db-relocation.md"];
+const ALLOW_LIST_PATHS: readonly string[] = ["docs/gold-db-relocation.md"];
 
 const ALLOW_LIST_PREFIXES: readonly string[] = ["docs/relocation/"];
 

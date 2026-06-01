@@ -1,21 +1,25 @@
 // Cross-language bounds contract (audit fix F-001).
 //
-// state-space-bounds.json is the single source of truth for the inclusive
-// [min,max] of every board state-space config field. This test introspects the
-// REAL Zod validator (BoardStateSpaceConfigSchema) and asserts it matches that
-// file; test_state_space_bounds_contract.py does the same for the pydantic
-// models. Together they make it impossible to change a bound in one language
-// without the other (and the JSON) going red — closing the "kept in lockstep by
-// hand-discipline only" gap the two schemas previously relied on.
+// state-space-bounds.json (in the detectors package) is the single source of
+// truth for the inclusive [min,max] of every board state-space config field.
+// This test introspects the REAL Zod validator (BoardStateSpaceConfigSchema) and
+// asserts it matches that file; apps/nba-sidecar/.../test_state_space_bounds_contract.py
+// does the same for the pydantic models. Together they make it impossible to
+// change a bound in one language without the other (and the JSON) going red —
+// closing the "kept in lockstep by hand-discipline only" gap.
 //
-// It intentionally reads Zod internals (`_def`). If a Zod major bump changes
-// that shape this test fails loudly — which is the correct signal to re-confirm
-// the contract, not a false alarm to suppress.
+// Lives in `packages/shared/src/__tests__` rather than the detectors package
+// because introspecting Zod internals (`_def`) is inherently `any`-typed, which
+// the detectors package's strict type-aware lint gate forbids; the shared test
+// override (eslint.config.js) is the project's established home for such tests
+// (see detector-source-contract.test.ts, odds-api-key-resolver.test.ts). It
+// reads the JSON by repo-root path, mirroring the Python contract test.
 
 import { readFileSync } from "node:fs";
+
 import { describe, expect, it } from "vitest";
 
-import { BoardStateSpaceConfigSchema } from "../state-space-config";
+import { BoardStateSpaceConfigSchema } from "@signal-console/detectors/board-mad/state-space-config";
 
 interface Bound {
   readonly min: number;
@@ -23,7 +27,9 @@ interface Bound {
   readonly int?: true;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+// `any` is permitted in shared __tests__ (eslint relaxed override); Zod internals
+// (`_def`) are inherently untyped, which is why this contract test lives here and
+// not in the strict detectors package.
 function unwrap(schema: any): any {
   let s = schema;
   for (let i = 0; i < 20; i++) {
@@ -66,9 +72,11 @@ function extractBoundsFromZod(): Record<string, Bound> {
 }
 
 function loadContract(): Record<string, Bound> {
-  const raw: unknown = JSON.parse(
-    readFileSync(new URL("../state-space-bounds.json", import.meta.url), "utf8"),
+  const jsonUrl = new URL(
+    "../../../detectors/src/board-mad/state-space-bounds.json",
+    import.meta.url,
   );
+  const raw: unknown = JSON.parse(readFileSync(jsonUrl, "utf8"));
   if (typeof raw !== "object" || raw === null) throw new Error("bounds json is not an object");
   const out: Record<string, Bound> = {};
   for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {

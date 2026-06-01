@@ -1,11 +1,15 @@
-# Gold-DB Relocation Runbook (Phase 0, one-shot)
+# Historical Gold-DB Relocation Runbook
 
-> Owner-executed procedure. Ralph and other automation MUST NOT run this; this is
-> the cutover that moves the 54 GB gold SQLite tick store from its legacy location
-> at `~/nba-predict/data/signal-console.sqlite` (historical, do not use) into its
+This is a historical one-time cutover runbook from the old `nba-predict` layout.
+Do not treat it as current Signal Console architecture or run it without
+owner-directed revalidation against the current repo, services, and data paths.
+
+> Owner-executed procedure. Automation MUST NOT run this; this is the cutover
+> that moves the 54 GB gold SQLite tick store from its legacy location at
+> `~/nba-predict/data/signal-console.sqlite` (historical, do not use) into its
 > permanent home at `~/signal-console/data/signal-console.sqlite`.
 >
-> After this procedure completes successfully, the Signal Console v2 API/UI/cache
+> After this procedure completes successfully, the Signal Console API/UI/cache
 > opens the gold DB **read-only** via `openGoldDb()` and never writes to it again.
 > A future Phase 0.5 ingest writer (if ported) is the only authorised writer; it
 > lives in `~/signal-console/apps/worker/` and reviews under its own procedure.
@@ -14,7 +18,7 @@
 
 ## Hard rules for whoever runs this
 
-- **do not wrap in a single script; each Bash invocation is reviewed and approved individually; no bypass-permissions.** If you find yourself wanting to paste the whole runbook into one terminal, stop and re-read PRD §11.3. The point of the manual checkpoint structure is to catch a holder-of-DB or an unexpected `ps` row before it corrupts the move.
+- **do not wrap in a single script; each Bash invocation is reviewed and approved individually; no bypass-permissions.** If you find yourself wanting to paste the whole runbook into one terminal, stop and re-read this manual checkpoint rule. The point of the manual checkpoint structure is to catch a holder-of-DB or an unexpected `ps` row before it corrupts the move.
 - No shadow mode. No crossover. No "old worker keeps writing while new app boots."
   The hard cutover is the spec; any deviation needs a new proposal.
 - If step `f` (integrity check) fails, **halt immediately**. Do not proceed to
@@ -90,8 +94,7 @@ a process still has any of the three files open.
 > the forbidden literal `nba-predict/data/signal-console.sqlite` (historical, do
 > not use) — this file is explicitly allow-listed in
 > `scripts/verify-no-stale-plan.ts`, which is why the runbook can spell out the
-> legacy path verbatim. Outside this doc and `PRD.md`, no code or doc may write
-> that literal.
+> legacy path verbatim. Outside this doc, no code or doc may write that literal.
 
 ---
 

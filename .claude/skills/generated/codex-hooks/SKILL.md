@@ -64,10 +64,6 @@ Start here when exploring this area:
 | `ApplyStopEvent → ResolveRepoRoot` | cross_community | 4 |
 | `ApplyStopEvent → ResolveStateRoot` | cross_community | 4 |
 | `ApplyStopEvent → SlugPath` | cross_community | 4 |
-| `ApplyPostToolUseEvent → BuildEmptyState` | cross_community | 3 |
-| `ApplyPostToolUseEvent → ExtractPatchedFiles` | cross_community | 3 |
-| `ApplyPostToolUseEvent → PushUnique` | cross_community | 3 |
-| `ApplyPostToolUseEvent → IsTestPath` | cross_community | 3 |
 
 ## How to Explore
 
