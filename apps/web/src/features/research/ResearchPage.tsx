@@ -56,6 +56,7 @@ import {
   useResearchGold,
   useResearchAttribution,
   useResearchFarCalibration,
+  useResearchHarvestedLabels,
   useResearchLeaderboard,
   useResearchModels,
   useResearchPulls,
@@ -1812,6 +1813,80 @@ function FarCalibration({
   );
 }
 
+function HarvestedLabels({
+  harvestedLabels,
+}: {
+  readonly harvestedLabels: Record<string, unknown> | null;
+}): JSX.Element {
+  const hl = harvestedLabels ?? {};
+  const incidentsRaw = pick(hl, "incidents");
+  const incidents = Array.isArray(incidentsRaw) ? incidentsRaw : [];
+  const count = num(pick(hl, "incidentCount"));
+  const scanned = num(pick(hl, "gamesScanned"));
+  const generatedAt = str(pick(hl, "generatedAt"));
+  return (
+    <section data-testid="research-harvested-labels" className="space-y-3">
+      <SectionHeading>Harvested miscredit labels</SectionHeading>
+      <p className="max-w-[80ch] text-xs text-text-md" data-testid="research-harvested-labels-note">
+        Credited&rarr;rightful corrections recovered by diffing the versioned PBP-revision shadow
+        (NBA stat corrections are silent edits with no official feed, so the transition IS the
+        label). This is the label engine that relieves the binding N constraint; it accrues over
+        days as captures re-run, so an empty list here is expected early.
+      </p>
+      {harvestedLabels === null || incidents.length === 0 ? (
+        <EmptyLine testid="research-harvested-labels-empty">
+          {harvestedLabels === null
+            ? "No harvest report yet — run scripts/harvest-incident-labels.ts to populate this."
+            : `No corrections recovered yet (${scanned === undefined ? "0" : fmtNum(scanned)} games scanned). Labels accrue as capture-pbp-revisions.ts re-runs on a cadence.`}
+        </EmptyLine>
+      ) : (
+        <div role="table" aria-label="Harvested miscredit labels" className="bg-surface-1 text-sm">
+          <div
+            role="row"
+            className="grid grid-cols-[1fr_1fr_0.8fr] gap-x-5 px-5 pb-2 pt-4 font-mono text-xs uppercase tracking-[0.06em] text-text-lo"
+          >
+            <span role="columnheader">Credited</span>
+            <span role="columnheader">Rightful</span>
+            <span role="columnheader">Latency</span>
+          </div>
+          {incidents.map((inc, i) => {
+            const rec = isRecord(inc) ? inc : {};
+            const credited = str(pick(rec, "creditedPlayer"));
+            const rightful = str(pick(rec, "rightfulPlayer"));
+            const latency = num(pick(rec, "correctionLatencySec"));
+            const id = str(pick(rec, "id"));
+            return (
+              <div
+                key={id ?? String(i)}
+                role="row"
+                data-testid="research-harvested-labels-row"
+                className="grid grid-cols-[1fr_1fr_0.8fr] items-baseline gap-x-5 px-5 py-2"
+              >
+                <span role="cell" className="text-text-md">
+                  {credited ?? "—"}
+                </span>
+                <span role="cell" className="text-text-md">
+                  {rightful ?? "—"}
+                </span>
+                <span role="cell" className="font-mono text-xs tabular-nums text-text-md">
+                  {latency === undefined ? "—" : `${fmtNum(Math.round(latency / 60))}m`}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {harvestedLabels !== null ? (
+        <p className="font-mono text-xs text-text-lo" data-testid="research-harvested-labels-meta">
+          {count !== undefined ? `labels ${fmtNum(count)}` : ""}
+          {scanned !== undefined ? ` · games scanned ${fmtNum(scanned)}` : ""}
+          {generatedAt !== undefined ? ` · ${generatedAt}` : ""}
+        </p>
+      ) : null}
+    </section>
+  );
+}
+
 // ── (8) Casebook preview ──────────────────────────────────────────────────────
 
 function CasebookPreview({ hasSnapshot }: { readonly hasSnapshot: boolean }): JSX.Element {
@@ -1849,6 +1924,7 @@ export function ResearchPage(): JSX.Element {
   const pulls = useResearchPulls();
   const attribution = useResearchAttribution();
   const farCalibration = useResearchFarCalibration();
+  const harvestedLabels = useResearchHarvestedLabels();
 
   const goldData = gold.data;
   const snapshotData = snapshot.data?.snapshot ?? null;
@@ -1858,6 +1934,7 @@ export function ResearchPage(): JSX.Element {
   const modelRows = useMemo(() => models.data?.models ?? [], [models.data?.models]);
   const attributionData = attribution.data?.attribution ?? null;
   const farCalibrationData = farCalibration.data?.farCalibration ?? null;
+  const harvestedLabelsData = harvestedLabels.data?.harvestedLabels ?? null;
 
   const hasSnapshot = snapshotData !== null;
   // Once the polled snapshot lands, stop the interval.
@@ -1916,6 +1993,8 @@ export function ResearchPage(): JSX.Element {
       <AttributionReranker attribution={attributionData} />
 
       <FarCalibration farCalibration={farCalibrationData} />
+
+      <HarvestedLabels harvestedLabels={harvestedLabelsData} />
       <CasebookPreview hasSnapshot={hasSnapshot} />
 
       {pullDialogOpen ? (

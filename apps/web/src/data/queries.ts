@@ -831,6 +831,12 @@ const researchFarCalibrationSchema = z.object({
   farCalibration: z.record(z.unknown()).nullable(),
 });
 
+// /v1/research/harvested-labels — { harvestedLabels: object | null }. Free-form
+// report (generatedAt/source/incidentCount/incidents[]); read defensively.
+const researchHarvestedLabelsSchema = z.object({
+  harvestedLabels: z.record(z.unknown()).nullable(),
+});
+
 // /v1/research/models — registry- or static-backed model list.
 const researchModelSchema = z.object({
   id: z.string(),
@@ -866,6 +872,7 @@ export type ResearchSnapshot = z.infer<typeof researchSnapshotSchema>;
 export type ResearchLeaderboard = z.infer<typeof researchLeaderboardSchema>;
 export type ResearchAttribution = z.infer<typeof researchAttributionSchema>;
 export type ResearchFarCalibration = z.infer<typeof researchFarCalibrationSchema>;
+export type ResearchHarvestedLabels = z.infer<typeof researchHarvestedLabelsSchema>;
 export type ResearchModel = z.infer<typeof researchModelSchema>;
 export type ResearchModels = z.infer<typeof researchModelsSchema>;
 export type ResearchPulls = z.infer<typeof researchPullsSchema>;
@@ -926,6 +933,14 @@ export function useResearchFarCalibration(): UseQueryResult<ResearchFarCalibrati
     queryKey: ["research-far-calibration"],
     queryFn: ({ signal }) =>
       fetchJson(`/v1/research/far-calibration`, researchFarCalibrationSchema, signal),
+  });
+}
+
+export function useResearchHarvestedLabels(): UseQueryResult<ResearchHarvestedLabels, Error> {
+  return useQuery({
+    queryKey: ["research-harvested-labels"],
+    queryFn: ({ signal }) =>
+      fetchJson(`/v1/research/harvested-labels`, researchHarvestedLabelsSchema, signal),
   });
 }
 

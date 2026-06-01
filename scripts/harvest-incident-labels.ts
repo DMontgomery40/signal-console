@@ -33,15 +33,16 @@ function parseArgFlag(flag: string): string | undefined {
 function main(): void {
   const stat = (parseArgFlag("--stat") ?? "rebound").toLowerCase();
   const argGames = parseArgFlag("--games");
-  const gameIds = argGames
-    ? argGames
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean)
-        .map((g) => (g.startsWith("nba-") ? g : `nba-${g}`))
-    : undefined;
+  const gameIds =
+    argGames !== undefined && argGames !== ""
+      ? argGames
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean)
+          .map((g) => (g.startsWith("nba-") ? g : `nba-${g}`))
+      : undefined;
 
-  const result = harvestMiscreditLabels(gameIds ? { gameIds, stat } : { stat });
+  const result = harvestMiscreditLabels(gameIds !== undefined ? { gameIds, stat } : { stat });
   const report = {
     generatedAt: new Date().toISOString(),
     source: "pbp-revision-harvester",

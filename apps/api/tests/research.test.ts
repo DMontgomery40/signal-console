@@ -123,6 +123,26 @@ function seedArtifacts(): void {
     matched_recall: { n_incidents: 9, n_scored: 2, tpr_per_pair: { "0.02": 0.5 } },
     data_quality: { games: 163, games_bad_starters: 0 },
   });
+
+  // Harvested miscredit labels at the root.
+  writeJson(join(root, "harvested_incidents.json"), {
+    generatedAt: "2026-05-31T00:00:00.000Z",
+    source: "pbp-revision-harvester",
+    stat: "rebound",
+    gamesScanned: 9,
+    netTransitions: 1,
+    incidentCount: 1,
+    incidents: [
+      {
+        id: "harvested-nba-x-416",
+        gameId: "nba-x",
+        creditedPlayer: "S. Merrill",
+        rightfulPlayer: "J. Allen",
+        stat: "rebound",
+        correctionLatencySec: 840,
+      },
+    ],
+  });
 }
 
 beforeEach(() => {
@@ -325,6 +345,22 @@ describe("research routes — read endpoints (seeded artifact tree)", () => {
     expect(isRecord(far["matched_recall"])).toBe(true);
     expect(isRecord(far["all_control"])).toBe(true);
   });
+
+  it("GET /v1/research/harvested-labels returns the harvested-label report", async () => {
+    const app = await startApp(true);
+    const res = await app.inject({
+      method: "GET",
+      url: "/v1/research/harvested-labels",
+      headers: authHeaders(),
+    });
+    expect(res.statusCode).toBe(200);
+    const body: unknown = res.json();
+    if (!isRecord(body)) throw new Error("body not object");
+    const harvested = body["harvestedLabels"];
+    if (!isRecord(harvested)) throw new Error("harvestedLabels not object");
+    expect(harvested["incidentCount"]).toBe(1);
+    expect(Array.isArray(harvested["incidents"])).toBe(true);
+  });
 });
 
 describe("research routes — empty / absent artifact states (no seed)", () => {
@@ -388,6 +424,16 @@ describe("research routes — empty / absent artifact states (no seed)", () => {
     const farBody: unknown = farCal.json();
     if (!isRecord(farBody)) throw new Error("far-calibration body not object");
     expect(farBody["farCalibration"]).toBeNull();
+
+    const harvested = await app.inject({
+      method: "GET",
+      url: "/v1/research/harvested-labels",
+      headers: authHeaders(),
+    });
+    expect(harvested.statusCode).toBe(200);
+    const harvestedBody: unknown = harvested.json();
+    if (!isRecord(harvestedBody)) throw new Error("harvested-labels body not object");
+    expect(harvestedBody["harvestedLabels"]).toBeNull();
 
     // models falls back to the static list when no models.json exists.
     const models = await app.inject({

@@ -2845,7 +2845,9 @@ export function harvestMiscreditLabels(options?: {
       if (first === undefined || last === undefined) continue;
       // net credited (first.from) must differ from net rightful (last.to)
       const samePerson =
-        first.fromPersonId !== null && last.toPersonId !== null && first.fromPersonId === last.toPersonId;
+        first.fromPersonId !== null &&
+        last.toPersonId !== null &&
+        first.fromPersonId === last.toPersonId;
       const sameName =
         first.fromPersonId === null &&
         last.toPersonId === null &&

@@ -21,6 +21,7 @@ import {
   DEFAULT_RESEARCH_OUTPUT_ROOT,
   getLatestAttribution,
   getLatestFarCalibration,
+  getLatestHarvestedLabels,
   getLatestLeaderboard,
   getLatestSnapshot,
   getQuantGuide,
@@ -145,6 +146,14 @@ const farCalibrationResponseSchema = {
   required: ["farCalibration"],
   properties: {
     farCalibration: { type: ["object", "null"], additionalProperties: true },
+  },
+} as const;
+
+const harvestedLabelsResponseSchema = {
+  type: "object",
+  required: ["harvestedLabels"],
+  properties: {
+    harvestedLabels: { type: ["object", "null"], additionalProperties: true },
   },
 } as const;
 
@@ -384,6 +393,22 @@ const researchRoutes: FastifyPluginAsync<ResearchRoutesOptions> = (app, opts) =>
     },
     (_request: FastifyRequest, reply: FastifyReply) => {
       reply.send(getLatestFarCalibration({ outputRoot }));
+    },
+  );
+
+  app.get(
+    "/v1/research/harvested-labels",
+    {
+      schema: {
+        tags: ["research"],
+        summary: "Latest harvested miscredit labels",
+        description:
+          "Read-only. Returns the root-level harvested_incidents.json emitted by scripts/harvest-incident-labels.ts (credited->rightful corrections recovered by diffing the versioned PBP-revision shadow). Absent returns { harvestedLabels: null }; empty incidents is expected until captures accumulate over days.",
+        response: { 200: harvestedLabelsResponseSchema },
+      },
+    },
+    (_request: FastifyRequest, reply: FastifyReply) => {
+      reply.send(getLatestHarvestedLabels({ outputRoot }));
     },
   );
 

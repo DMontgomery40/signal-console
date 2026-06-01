@@ -331,6 +331,28 @@ export function getLatestFarCalibration(
   return { farCalibration: isRecord(parsed) ? parsed : null };
 }
 
+/* ----------------------------- harvested labels --------------------------- */
+
+export interface ResearchHarvestedLabelsPayload {
+  /** The latest harvested-miscredit-label report, or null when not yet emitted. */
+  readonly harvestedLabels: Record<string, unknown> | null;
+}
+
+/**
+ * Root-level harvested_incidents.json emitted by `pnpm tsx
+ * scripts/harvest-incident-labels.ts` — credited->rightful corrections recovered
+ * by diffing the versioned PBP-revision shadow (the label engine; NBA corrections
+ * are silent edits with no official feed). Absent/malformed -> { harvestedLabels:
+ * null }; never throws. Empty incidents is expected until captures accumulate.
+ */
+export function getLatestHarvestedLabels(
+  options: ResearchServiceOptions = {},
+): ResearchHarvestedLabelsPayload {
+  const outputRoot = options.outputRoot ?? DEFAULT_RESEARCH_OUTPUT_ROOT;
+  const parsed = safeReadJson(join(outputRoot, "harvested_incidents.json"));
+  return { harvestedLabels: isRecord(parsed) ? parsed : null };
+}
+
 /* --------------------------------- gold ----------------------------------- */
 
 export interface ResearchGoldPayload {

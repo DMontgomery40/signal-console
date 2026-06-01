@@ -185,6 +185,26 @@ const SEEDED_FAR = {
   },
 };
 
+const EMPTY_HARVESTED = { harvestedLabels: null };
+const SEEDED_HARVESTED = {
+  harvestedLabels: {
+    generatedAt: "2026-05-31T00:00:00.000Z",
+    source: "pbp-revision-harvester",
+    gamesScanned: 12,
+    incidentCount: 1,
+    incidents: [
+      {
+        id: "harvested-nba-x-416",
+        gameId: "nba-x",
+        creditedPlayer: "S. Merrill",
+        rightfulPlayer: "J. Allen",
+        stat: "rebound",
+        correctionLatencySec: 840,
+      },
+    ],
+  },
+};
+
 interface MockShape {
   readonly gold?: unknown;
   readonly sources?: unknown;
@@ -194,6 +214,7 @@ interface MockShape {
   readonly pulls?: unknown;
   readonly attribution?: unknown;
   readonly farCalibration?: unknown;
+  readonly harvestedLabels?: unknown;
 }
 
 describe("ResearchPage", () => {
@@ -219,6 +240,7 @@ describe("ResearchPage", () => {
     const pulls = shape.pulls ?? EMPTY_PULLS;
     const attribution = shape.attribution ?? EMPTY_ATTRIBUTION;
     const farCalibration = shape.farCalibration ?? EMPTY_FAR;
+    const harvestedLabels = shape.harvestedLabels ?? EMPTY_HARVESTED;
     fetchMock.mockImplementation(async (input, init) => {
       await Promise.resolve();
       const url = urlOf(input);
@@ -238,6 +260,7 @@ describe("ResearchPage", () => {
       if (url.includes("/v1/research/models")) return jsonResponse(models);
       if (url.includes("/v1/research/pulls")) return jsonResponse(pulls);
       if (url.includes("/v1/research/far-calibration")) return jsonResponse(farCalibration);
+      if (url.includes("/v1/research/harvested-labels")) return jsonResponse(harvestedLabels);
       if (url.includes("/v1/research/attribution")) return jsonResponse(attribution);
       return new Response("not found", { status: 404 });
     });
@@ -320,6 +343,25 @@ describe("ResearchPage", () => {
     render(<ResearchPage />, { wrapper: makeWrapper() });
     expect(await screen.findByTestId("research-far-calibration-empty")).not.toBeNull();
     expect(screen.queryByTestId("research-far-calibration-row")).toBeNull();
+  });
+
+  it("renders harvested miscredit labels (credited→rightful + latency) when present", async () => {
+    mockResearch({ harvestedLabels: SEEDED_HARVESTED });
+    render(<ResearchPage />, { wrapper: makeWrapper() });
+    expect(await screen.findByTestId("research-harvested-labels")).not.toBeNull();
+    const rows = await screen.findAllByTestId("research-harvested-labels-row");
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.textContent).toContain("S. Merrill");
+    expect(rows[0]?.textContent).toContain("J. Allen");
+    expect(rows[0]?.textContent).toContain("14m"); // 840s latency rendered in minutes
+    expect(screen.getByTestId("research-harvested-labels-meta").textContent).toContain("labels 1");
+  });
+
+  it("harvested labels shows the accruing-empty state when no corrections recovered", async () => {
+    mockResearch({ harvestedLabels: EMPTY_HARVESTED });
+    render(<ResearchPage />, { wrapper: makeWrapper() });
+    expect(await screen.findByTestId("research-harvested-labels-empty")).not.toBeNull();
+    expect(screen.queryByTestId("research-harvested-labels-row")).toBeNull();
   });
 
   it("renders the quant-guide panel with an honest Open link and a Copy CLI quickstart action", async () => {
