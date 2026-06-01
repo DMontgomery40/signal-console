@@ -67,15 +67,17 @@ Each player_swap incident pushed through the identical `rebound_candidates → m
 path on the same snapshot (300s match window between the registry event time and the credited
 rebound):
 
-- 10 player_swap scoreable incidents → **5 matched** (a credited rebound within 300s) →
-  5 rightful-on-court → **3 scored** (others abstain, illiquid rightful or no snapshot ticks).
-  (Matched/scored rose from 3/2 after ingesting the 2 absent regular-season incident games —
-  gap #2 below; the still-unmatched are TEAM-credited or have no credited rebound in the
-  event window — honestly unmatched, not silently dropped.)
-- `tpr_per_pair` at 0.02 = **0.333 (1 of 3)** after the gap-#2 ingest (was 0.5 of 2); 0 at ≥0.05.
-  **N_scored = 3 → CI ≈ [0,1].**
-- `rank_by_prior` = [2, 4, 1]; `rank_by_score` = [1, 2] (the original liquid pairs; the prior is
-  still not load-bearing).
+- **player_swap (2-legged, the headline path):** 10 scoreable → **5 matched** (a credited rebound
+  within 300s) → 5 rightful-on-court → **3 scored** (others abstain, illiquid rightful or no
+  snapshot ticks). Rose from 3/2 after ingesting the 2 absent regular-season incident games
+  (gap #2).
+- **TEAM-credited (gap #3, one-legged coverage):** +5 incidents, all now matchable, 3 scored —
+  but **all negative, none fire** (one-legged = the rightful's own drift, not the paired
+  signature). They grow the denominator without firing.
+- `tpr_per_pair` at 0.02 = **0.167 (1 of 6 scored, incl. TEAM)**; over the player_swap-only
+  denominator it is 0.333 (1 of 3). 0 at ≥0.05. **N tiny → CI ≈ [0,1] either way.**
+- `rank_by_prior` = [2, 4, 1]; `rank_by_score` = [1, 2] (the liquid player_swap pairs; the prior
+  is still not load-bearing).
 
 Two conclusions the run forces (both contradict prior assumptions, so they are recorded):
 
@@ -116,9 +118,14 @@ Two conclusions the run forces (both contradict prior assumptions, so they are r
    Barnes→Castle) lacked a `games` row** → no PBP (FK target), so they were silently dropped.
    `scripts/ingest-incident-games.ts` now creates the games row from the cdn boxscore and
    backfills PBP; both are recovered (matched-recall 3→5 matched, 2→3 scored).
-3. **TEAM-credited incidents** (`TEAM (offensive)` etc.) have no credited person to anchor the
-   teammate-pair path — they need a separate TEAM→player candidate mechanism (or are out of
-   scope for this re-ranker).
+3. **FIXED (coverage only) — TEAM-credited incidents** (`TEAM (offensive)` etc.). Added
+   `team_rebound_candidates` + a TEAM branch in `incident_recall_matched`: a TEAM rebound is
+   matched to the on-court players of the rebounding team and scored ONE-LEGGED (credited=TEAM
+   has no prop → abstains → just the rightful's own drift). All 5 TEAM-credited registry
+   incidents are now matchable (n_incidents 10→15, matched 5→10). But the one-legged scores are
+   noise — 3 scored, all NEGATIVE, none fire — so the denominator grows and TPR@0.02 drops
+   0.333→0.167 with the same single firing incident. **Confirms it does NOT move the headline**;
+   the paired signature is the whole point, and TEAM-credited cases cannot provide it.
 
 ## Reproduce
 
