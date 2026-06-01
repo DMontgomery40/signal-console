@@ -67,12 +67,15 @@ Each player_swap incident pushed through the identical `rebound_candidates → m
 path on the same snapshot (300s match window between the registry event time and the credited
 rebound):
 
-- 10 player_swap scoreable incidents → **3 matched** (a credited rebound within 300s) →
-  3 rightful-on-court → **2 scored** (1 abstains, illiquid rightful). (Count is 10 after the
-  `last_name` fix below; the 7 unmatched are TEAM-credited, missing-PBP, or have no
-  credited rebound in the event window — honestly unmatched, not silently dropped.)
-- `tpr_per_pair` at 0.02 = **0.5 (1 of 2)**; 0 at ≥0.05. **N_scored = 2 → CI ≈ [0,1].**
-- `rank_by_prior` = [2, 4, 1]; `rank_by_score` = [1, 2].
+- 10 player_swap scoreable incidents → **5 matched** (a credited rebound within 300s) →
+  5 rightful-on-court → **3 scored** (others abstain, illiquid rightful or no snapshot ticks).
+  (Matched/scored rose from 3/2 after ingesting the 2 absent regular-season incident games —
+  gap #2 below; the still-unmatched are TEAM-credited or have no credited rebound in the
+  event window — honestly unmatched, not silently dropped.)
+- `tpr_per_pair` at 0.02 = **0.333 (1 of 3)** after the gap-#2 ingest (was 0.5 of 2); 0 at ≥0.05.
+  **N_scored = 3 → CI ≈ [0,1].**
+- `rank_by_prior` = [2, 4, 1]; `rank_by_score` = [1, 2] (the original liquid pairs; the prior is
+  still not load-bearing).
 
 Two conclusions the run forces (both contradict prior assumptions, so they are recorded):
 
@@ -91,9 +94,9 @@ Two conclusions the run forces (both contradict prior assumptions, so they are r
   firing incident clears (0.02), per-rebound FAR is ~9–11% → ~7 false alarms/game across ~74
   rebounds. It only makes sense as a **precision-lift on a pre-gated stream** (board detector
   fired AND the rebound is confusability-flagged), which is the note-C thesis — now quantified.
-- **Recall is label-bound, not method-bound.** Only 3 of 9 player_swap incidents are even
-  recoverable here; the binding constraint is positives + credited-side liquidity, exactly the
-  gate identified in the negative-result memo. The versioned PBP-revision harvester
+- **Recall is label-bound, not method-bound.** Only 5 of 10 player_swap incidents are even
+  matchable and 3 scoreable here; the binding constraint is positives + credited-side liquidity,
+  exactly the gate identified in the negative-result memo. The versioned PBP-revision harvester
   (`scripts/capture-pbp-revisions.ts` → `listPbpAttributionTransitions`) is the path to more
   labels over real days.
 
@@ -106,8 +109,10 @@ Two conclusions the run forces (both contradict prior assumptions, so they are r
    leading "I. Lastname" token (commit "Fix last_name harness bug"), so towns/hart/champagnie
    resolve correctly and the denominator is honest. Remaining gap: carrying a `person_id` on
    incidents would remove name-matching fragility entirely.
-2. **2 regular-season incident games (`0022500986`, `0022500788`) lack a `games` row** → no PBP,
-   so they are unrecoverable until ingested ("add it to the db").
+2. **FIXED — 2 regular-season incident games (`0022500986` Hauser→Tatum, `0022500788`
+   Barnes→Castle) lacked a `games` row** → no PBP (FK target), so they were silently dropped.
+   `scripts/ingest-incident-games.ts` now creates the games row from the cdn boxscore and
+   backfills PBP; both are recovered (matched-recall 3→5 matched, 2→3 scored).
 3. **TEAM-credited incidents** (`TEAM (offensive)` etc.) have no credited person to anchor the
    teammate-pair path — they need a separate TEAM→player candidate mechanism (or are out of
    scope for this re-ranker).
