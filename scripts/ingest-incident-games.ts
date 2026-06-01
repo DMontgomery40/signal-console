@@ -28,7 +28,10 @@ function parseArgGames(): string[] {
   const i = process.argv.indexOf("--games");
   const raw = i >= 0 ? process.argv[i + 1] : undefined;
   if (raw !== undefined && raw !== "") {
-    return raw.split(",").map((s) => s.trim()).filter(Boolean);
+    return raw
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
   }
   return DEFAULT_GAMES;
 }
@@ -48,7 +51,9 @@ function participant(team: CdnTeam, side: "home" | "away"): GameParticipant {
 
 async function main(): Promise<void> {
   const games = parseArgGames();
-  console.log(`ingesting ${games.length} incident game(s) -> ${process.env.SIGNAL_CONSOLE_DB_PATH}`);
+  console.log(
+    `ingesting ${games.length} incident game(s) -> ${process.env.SIGNAL_CONSOLE_DB_PATH}`,
+  );
   for (const raw of games) {
     try {
       const box = await fetchCdnBoxscore(raw);
@@ -76,7 +81,7 @@ async function main(): Promise<void> {
           `withPersonId=${withPerson}`,
       );
     } catch (err) {
-      console.error(`  nba-${raw}: FAILED — ${(err as Error).message}`);
+      console.error(`  nba-${raw}: FAILED — ${err instanceof Error ? err.message : String(err)}`);
     }
   }
   console.log("done.");

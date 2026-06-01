@@ -52,6 +52,9 @@ export async function fetchCdnBoxscore(
     headers: { "User-Agent": "Mozilla/5.0", Referer: "https://www.nba.com/" },
   });
   if (!res.ok) throw new Error(`cdn boxscore ${rawGameId}: HTTP ${res.status}`);
+  // res.json() is Promise<unknown> under the scripts tsconfig; assert the shape
+  // (matches fetchCdnPbp). scripts/ trips eslint consistent-type-assertions
+  // repo-wide on this idiom; the assertion is tsc-required.
   const json = (await res.json()) as {
     game?: { homeTeam?: CdnTeam; awayTeam?: CdnTeam; gameTimeUTC?: string };
   };
@@ -85,9 +88,12 @@ export async function fetchCdnPbp(
  * actionNumber and normalizes personId (>0) + playerName (playerNameI || playerName). */
 export function mapCdnPbpActions(actions: CdnAction[]): MappedPbpAction[] {
   return actions
-    .filter((a) => a.actionNumber != null && Number.isFinite(a.actionNumber))
+    .filter(
+      (a): a is CdnAction & { actionNumber: number } =>
+        a.actionNumber != null && Number.isFinite(a.actionNumber),
+    )
     .map((a) => ({
-      actionNumber: a.actionNumber as number,
+      actionNumber: a.actionNumber,
       actionType: a.actionType ?? null,
       subType: a.subType ?? null,
       personId: typeof a.personId === "number" && a.personId > 0 ? a.personId : null,
