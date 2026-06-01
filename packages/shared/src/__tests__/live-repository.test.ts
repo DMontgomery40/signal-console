@@ -20,8 +20,13 @@ import {
   listPlayerPropDisagreementAlerts,
   listResearchDivergence,
   listSignalMismatches,
+  listPbpAttributionTransitions,
+  listNbaPbpRevisionGameIds,
+  harvestMiscreditLabels,
   recordGameStateObservation,
   recordMarketMicrostructureEvent,
+  recordNbaPlayByPlayActions,
+  recordNbaPlayByPlayRevisions,
   recordQuoteObservation,
   recordRawPayload,
   resetDatabase,
@@ -214,6 +219,270 @@ describe("live repository", () => {
     if (tempDir) {
       rmSync(tempDir, { recursive: true, force: true });
     }
+  });
+
+  it("persists structured PBP attribution (personId/playerName/subType) through migration 15", () => {
+    seedLiveRepositoryGame();
+    recordNbaPlayByPlayActions({
+      gameId: "nba-bos-nyk-2026-04-21",
+      capturedAt: "2026-04-21T23:41:00.000Z",
+      actions: [
+        {
+          actionNumber: 416,
+          actionType: "rebound",
+          subType: "offensive",
+          personId: 1641705,
+          playerName: "V. Wembanyama",
+          description: "V. Wembanyama REBOUND",
+        },
+        { actionNumber: 417, actionType: "timeout" },
+      ],
+    });
+    const db = getDatabase();
+    const row = db
+      .prepare(
+        "SELECT person_id, player_name, sub_type FROM nba_play_by_play_actions WHERE game_id = ? AND action_number = 416",
+      )
+      .get("nba-bos-nyk-2026-04-21") as {
+      person_id: number | null;
+      player_name: string | null;
+      sub_type: string | null;
+    };
+    expect(row.person_id).toBe(1641705);
+    expect(row.player_name).toBe("V. Wembanyama");
+    expect(row.sub_type).toBe("offensive");
+    // unattributed action -> null attribution, not an error
+    const bare = db
+      .prepare(
+        "SELECT person_id, player_name, sub_type FROM nba_play_by_play_actions WHERE action_number = 417",
+      )
+      .get() as { person_id: number | null; player_name: string | null; sub_type: string | null };
+    expect(bare.person_id).toBeNull();
+    expect(bare.player_name).toBeNull();
+    expect(bare.sub_type).toBeNull();
+  });
+
+  it("recovers a credited->rightful correction by diffing versioned PBP revisions", () => {
+    seedLiveRepositoryGame();
+    const gameId = "nba-bos-nyk-2026-04-21";
+    // snapshot 1: action 416 live-credited to Merrill (personId 100)
+    const snap1 = recordNbaPlayByPlayRevisions({
+      gameId,
+      capturedAt: "2026-04-21T23:41:00.000Z",
+      actions: [
+        {
+          actionNumber: 416,
+          actionType: "rebound",
+          subType: "offensive",
+          personId: 100,
+          playerName: "S. Merrill",
+        },
+        { actionNumber: 417, actionType: "rebound", personId: 300, playerName: "J. Tatum" },
+      ],
+    });
+    expect(snap1.revisionsWritten).toBe(2);
+    // re-running the SAME snapshot is idempotent (no new revisions)
+    expect(
+      recordNbaPlayByPlayRevisions({
+        gameId,
+        capturedAt: "2026-04-21T23:41:00.000Z",
+        actions: [
+          {
+            actionNumber: 416,
+            actionType: "rebound",
+            subType: "offensive",
+            personId: 100,
+            playerName: "S. Merrill",
+          },
+        ],
+      }).revisionsWritten,
+    ).toBe(0);
+    // snapshot 2 (later): action 416 corrected to Allen (personId 200); 417 unchanged
+    recordNbaPlayByPlayRevisions({
+      gameId,
+      capturedAt: "2026-04-21T23:55:00.000Z",
+      actions: [
+        {
+          actionNumber: 416,
+          actionType: "rebound",
+          subType: "offensive",
+          personId: 200,
+          playerName: "J. Allen",
+          timeActual: "2026-04-21T23:40:30.000Z",
+        },
+        { actionNumber: 417, actionType: "rebound", personId: 300, playerName: "J. Tatum" },
+      ],
+    });
+
+    const transitions = listPbpAttributionTransitions(gameId);
+    // exactly one transition: action 416 Merrill->Allen; 417 never changed
+    expect(transitions).toHaveLength(1);
+    const t = transitions[0];
+    expect(t.actionNumber).toBe(416);
+    expect(t.fromPersonId).toBe(100);
+    expect(t.toPersonId).toBe(200);
+    expect(t.fromPlayer).toBe("S. Merrill");
+    expect(t.toPlayer).toBe("J. Allen");
+    expect(t.firstSeenAt).toBe("2026-04-21T23:41:00.000Z");
+    expect(t.changedAt).toBe("2026-04-21T23:55:00.000Z");
+    // event context carried for the label bridge: rebound type + event time
+    expect(t.actionType).toBe("rebound");
+    expect(t.timeActual).toBe("2026-04-21T23:40:30.000Z");
+  });
+
+  it("harvestMiscreditLabels turns a rebound correction into an eval-ready label", () => {
+    seedLiveRepositoryGame();
+    const gameId = "nba-bos-nyk-2026-04-21";
+    // a rebound credited to Merrill, later corrected to Allen (the label) ...
+    recordNbaPlayByPlayRevisions({
+      gameId,
+      capturedAt: "2026-04-21T23:41:00.000Z",
+      actions: [
+        {
+          actionNumber: 416,
+          actionType: "rebound",
+          personId: 100,
+          playerName: "S. Merrill",
+          timeActual: "2026-04-21T23:40:30.000Z",
+        },
+        // ... and a non-rebound correction (a foul re-credit) that must be EXCLUDED for stat='rebound'
+        { actionNumber: 500, actionType: "foul", personId: 700, playerName: "X. Foulguy" },
+      ],
+    });
+    recordNbaPlayByPlayRevisions({
+      gameId,
+      capturedAt: "2026-04-21T23:55:00.000Z",
+      actions: [
+        {
+          actionNumber: 416,
+          actionType: "rebound",
+          personId: 200,
+          playerName: "J. Allen",
+          timeActual: "2026-04-21T23:40:30.000Z",
+        },
+        { actionNumber: 500, actionType: "foul", personId: 701, playerName: "Y. Otherguy" },
+      ],
+    });
+
+    expect(listNbaPbpRevisionGameIds()).toContain(gameId);
+    const result = harvestMiscreditLabels({ gameIds: [gameId], stat: "rebound" });
+    expect(result.netTransitions).toBe(2); // rebound 416 + foul 500
+    expect(result.nonStatTransitions).toBe(1); // the foul is counted but not emitted
+    expect(result.incidents).toHaveLength(1);
+    const label = result.incidents[0]!;
+    expect(label.creditedPlayer).toBe("S. Merrill");
+    expect(label.rightfulPlayer).toBe("J. Allen");
+    expect(label.stat).toBe("rebound");
+    expect(label.utcTime).toBe("2026-04-21T23:40:30.000Z");
+    expect(label.correctionLatencySec).toBe(14 * 60); // 23:41 -> 23:55
+    expect(label.id).toBe("harvested-nba-bos-nyk-2026-04-21-416");
+  });
+
+  it("harvestMiscreditLabels drops a flip that cancels back to the original credit", () => {
+    seedLiveRepositoryGame();
+    const gameId = "nba-bos-nyk-2026-04-21";
+    // Merrill -> Allen -> Merrill: net credit unchanged, so NOT a label
+    recordNbaPlayByPlayRevisions({
+      gameId,
+      capturedAt: "2026-04-21T23:41:00.000Z",
+      actions: [
+        { actionNumber: 416, actionType: "rebound", personId: 100, playerName: "S. Merrill" },
+      ],
+    });
+    recordNbaPlayByPlayRevisions({
+      gameId,
+      capturedAt: "2026-04-21T23:50:00.000Z",
+      actions: [
+        { actionNumber: 416, actionType: "rebound", personId: 200, playerName: "J. Allen" },
+      ],
+    });
+    recordNbaPlayByPlayRevisions({
+      gameId,
+      capturedAt: "2026-04-21T23:55:00.000Z",
+      actions: [
+        { actionNumber: 416, actionType: "rebound", personId: 100, playerName: "S. Merrill" },
+      ],
+    });
+    const result = harvestMiscreditLabels({ gameIds: [gameId], stat: "rebound" });
+    expect(result.incidents).toHaveLength(0);
+  });
+
+  it("harvestMiscreditLabels never emits a self-label when only the person_id disappears", () => {
+    seedLiveRepositoryGame();
+    const gameId = "nba-bos-nyk-2026-04-21";
+    // a feed glitch: same player NAME, person_id dropped to null. NOT a real
+    // correction — must not become creditedPlayer === rightfulPlayer.
+    recordNbaPlayByPlayRevisions({
+      gameId,
+      capturedAt: "2026-04-21T23:41:00.000Z",
+      actions: [
+        { actionNumber: 416, actionType: "rebound", personId: 100, playerName: "S. Merrill" },
+      ],
+    });
+    recordNbaPlayByPlayRevisions({
+      gameId,
+      capturedAt: "2026-04-21T23:55:00.000Z",
+      actions: [
+        { actionNumber: 416, actionType: "rebound", personId: null, playerName: "S. Merrill" },
+      ],
+    });
+    const result = harvestMiscreditLabels({ gameIds: [gameId], stat: "rebound" });
+    expect(result.incidents).toHaveLength(0);
+  });
+
+  it("harvestMiscreditLabels emits a TEAM->player correction with credited=TEAM", () => {
+    seedLiveRepositoryGame();
+    const gameId = "nba-bos-nyk-2026-04-21";
+    // live-credited to the TEAM (no person_id, no player_name), later corrected to a player.
+    recordNbaPlayByPlayRevisions({
+      gameId,
+      capturedAt: "2026-04-21T23:41:00.000Z",
+      actions: [
+        {
+          actionNumber: 416,
+          actionType: "rebound",
+          personId: null,
+          playerName: null,
+          timeActual: "2026-04-21T23:40:30.000Z",
+        },
+      ],
+    });
+    recordNbaPlayByPlayRevisions({
+      gameId,
+      capturedAt: "2026-04-21T23:55:00.000Z",
+      actions: [
+        {
+          actionNumber: 416,
+          actionType: "rebound",
+          personId: 200,
+          playerName: "J. Allen",
+          timeActual: "2026-04-21T23:40:30.000Z",
+        },
+      ],
+    });
+    const result = harvestMiscreditLabels({ gameIds: [gameId], stat: "rebound" });
+    expect(result.incidents).toHaveLength(1);
+    expect(result.incidents[0]!.creditedPlayer).toBe("TEAM");
+    expect(result.incidents[0]!.rightfulPlayer).toBe("J. Allen");
+  });
+
+  it("harvestMiscreditLabels drops a player->TEAM correction (no named rightful to score)", () => {
+    seedLiveRepositoryGame();
+    const gameId = "nba-bos-nyk-2026-04-21";
+    recordNbaPlayByPlayRevisions({
+      gameId,
+      capturedAt: "2026-04-21T23:41:00.000Z",
+      actions: [
+        { actionNumber: 416, actionType: "rebound", personId: 200, playerName: "J. Allen" },
+      ],
+    });
+    recordNbaPlayByPlayRevisions({
+      gameId,
+      capturedAt: "2026-04-21T23:55:00.000Z",
+      actions: [{ actionNumber: 416, actionType: "rebound", personId: null, playerName: null }],
+    });
+    const result = harvestMiscreditLabels({ gameIds: [gameId], stat: "rebound" });
+    expect(result.incidents).toHaveLength(0);
   });
 
   it("ignores scheduled regressions after a game has started or finished", () => {

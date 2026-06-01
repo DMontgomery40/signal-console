@@ -2537,6 +2537,9 @@ export function recordGameStateObservation(input: Omit<CanonicalGameState, "id">
 export type NbaPlayByPlayActionInput = {
   actionNumber: number;
   actionType?: string | null;
+  subType?: string | null;
+  personId?: number | null;
+  playerName?: string | null;
   clock?: string | null;
   description?: string | null;
   period?: number | null;
@@ -2562,6 +2565,9 @@ export function recordNbaPlayByPlayActions(input: {
             game_id,
             action_number,
             action_type,
+            sub_type,
+            person_id,
+            player_name,
             period,
             clock,
             description,
@@ -2572,9 +2578,12 @@ export function recordNbaPlayByPlayActions(input: {
             captured_at,
             raw_metadata_json
           )
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT(game_id, action_number) DO UPDATE SET
             action_type = excluded.action_type,
+            sub_type = excluded.sub_type,
+            person_id = excluded.person_id,
+            player_name = excluded.player_name,
             period = excluded.period,
             clock = excluded.clock,
             description = excluded.description,
@@ -2595,6 +2604,9 @@ export function recordNbaPlayByPlayActions(input: {
             input.gameId,
             action.actionNumber,
             action.actionType ?? null,
+            action.subType ?? null,
+            action.personId ?? null,
+            action.playerName ?? null,
             action.period ?? null,
             action.clock ?? null,
             action.description ?? null,
@@ -2619,6 +2631,266 @@ export function recordNbaPlayByPlayActions(input: {
       gameId: input.gameId,
     },
   );
+}
+
+/**
+ * Append a play-by-play snapshot revision to the versioned shadow table. Unlike
+ * recordNbaPlayByPlayActions (latest-only upsert), every (game_id, action_number,
+ * captured_at) is preserved, so re-snapshots accumulate and the credited->rightful
+ * correction can be recovered by diffing. Idempotent per snapshot (INSERT OR
+ * IGNORE on the triple key), so re-running the same snapshot is a no-op.
+ */
+export function recordNbaPlayByPlayRevisions(input: {
+  actions: NbaPlayByPlayActionInput[];
+  capturedAt: string;
+  gameId: string;
+}) {
+  return executeDatabaseOperation(
+    "nbaPlayByPlayRevisions.append",
+    () => {
+      const db = getDatabase();
+      const statement = db.prepare(
+        `
+          INSERT OR IGNORE INTO nba_pbp_revisions (
+            game_id,
+            action_number,
+            captured_at,
+            action_type,
+            sub_type,
+            person_id,
+            player_name,
+            period,
+            clock,
+            description,
+            time_actual
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `,
+      );
+      const run = db.transaction(() => {
+        let written = 0;
+        for (const action of input.actions) {
+          if (!Number.isFinite(action.actionNumber)) continue;
+          const result = statement.run(
+            input.gameId,
+            action.actionNumber,
+            input.capturedAt,
+            action.actionType ?? null,
+            action.subType ?? null,
+            action.personId ?? null,
+            action.playerName ?? null,
+            action.period ?? null,
+            action.clock ?? null,
+            action.description ?? null,
+            action.timeActual ?? null,
+          );
+          written += result.changes;
+        }
+        return written;
+      });
+      return { actionsSeen: input.actions.length, revisionsWritten: run() };
+    },
+    {
+      gameId: input.gameId,
+    },
+  );
+}
+
+export interface PbpAttributionTransition {
+  actionNumber: number;
+  fromPersonId: number | null;
+  toPersonId: number | null;
+  fromPlayer: string | null;
+  toPlayer: string | null;
+  firstSeenAt: string;
+  changedAt: string;
+  // Event context from the latest revision, so a transition can become an
+  // eval-ready incident label without re-joining: action_type lets the bridge
+  // keep only stat-bearing corrections (e.g. 'rebound'); time_actual is the
+  // event time (event_sec) the re-ranker windows around.
+  actionType: string | null;
+  timeActual: string | null;
+}
+
+/**
+ * Recover candidate miscredit-correction LABELS by diffing revisions of the same
+ * action across captured_at. An action whose credited person_id changes between
+ * consecutive snapshots (or player_name, when ids are absent) is a
+ * credited->rightful transition with latency = changedAt - firstSeenAt. This is
+ * the label engine for the attribution re-ranker; NBA stat corrections are silent
+ * edits with no official feed, so the transition IS the label.
+ */
+export function listPbpAttributionTransitions(gameId: string): PbpAttributionTransition[] {
+  return executeDatabaseOperation(
+    "nbaPlayByPlayRevisions.transitions",
+    () => {
+      const db = getDatabase();
+      const rows = db
+        .prepare(
+          `
+          SELECT action_number, captured_at, person_id, player_name, action_type, time_actual
+          FROM nba_pbp_revisions
+          WHERE game_id = ?
+          ORDER BY action_number ASC, captured_at ASC
+        `,
+        )
+        .all(gameId) as Array<{
+        action_number: number;
+        captured_at: string;
+        person_id: number | null;
+        player_name: string | null;
+        action_type: string | null;
+        time_actual: string | null;
+      }>;
+
+      const byAction = new Map<number, typeof rows>();
+      for (const row of rows) {
+        const list = byAction.get(row.action_number);
+        if (list) list.push(row);
+        else byAction.set(row.action_number, [row]);
+      }
+
+      const transitions: PbpAttributionTransition[] = [];
+      for (const [actionNumber, revs] of byAction) {
+        for (let k = 1; k < revs.length; k += 1) {
+          const a = revs[k - 1];
+          const b = revs[k];
+          const idChanged =
+            a.person_id !== b.person_id && (a.person_id !== null || b.person_id !== null);
+          const nameChanged =
+            a.person_id === null &&
+            b.person_id === null &&
+            (a.player_name ?? null) !== (b.player_name ?? null);
+          if (idChanged || nameChanged) {
+            transitions.push({
+              actionNumber,
+              fromPersonId: a.person_id,
+              toPersonId: b.person_id,
+              fromPlayer: a.player_name,
+              toPlayer: b.player_name,
+              firstSeenAt: a.captured_at,
+              changedAt: b.captured_at,
+              actionType: b.action_type,
+              timeActual: b.time_actual,
+            });
+          }
+        }
+      }
+      return transitions;
+    },
+    {
+      gameId,
+    },
+  );
+}
+
+/** Distinct game ids that have at least one captured PBP revision — the set the
+ * label bridge scans for credited->rightful transitions. */
+export function listNbaPbpRevisionGameIds(): string[] {
+  return executeDatabaseOperation("nbaPlayByPlayRevisions.gameIds", () => {
+    const db = getDatabase();
+    const rows = db
+      .prepare(`SELECT DISTINCT game_id FROM nba_pbp_revisions ORDER BY game_id ASC`)
+      .all() as Array<{ game_id: string }>;
+    return rows.map((r) => r.game_id);
+  });
+}
+
+export interface HarvestedMiscreditLabel {
+  id: string;
+  gameId: string;
+  creditedPlayer: string;
+  rightfulPlayer: string;
+  stat: string;
+  utcTime: string;
+  actionNumber: number;
+  firstSeenAt: string;
+  changedAt: string;
+  correctionLatencySec: number | null;
+}
+
+export interface HarvestMiscreditLabelsResult {
+  incidents: HarvestedMiscreditLabel[];
+  gamesScanned: number;
+  netTransitions: number;
+  nonStatTransitions: number;
+}
+
+/**
+ * The label bridge: turn captured PBP revisions into eval-ready miscredit labels.
+ * For each game, recover credited->rightful transitions, collapse consecutive
+ * flips on one action to the NET correction (earliest credited -> latest credited),
+ * keep the stat-bearing ones (default 'rebound') with BOTH a named credited and
+ * rightful, and shape them like the incident registry the re-ranker eval consumes.
+ * Lives here (not the script) so it is hermetically testable on an in-memory DB.
+ */
+export function harvestMiscreditLabels(options?: {
+  gameIds?: readonly string[];
+  stat?: string;
+}): HarvestMiscreditLabelsResult {
+  const stat = (options?.stat ?? "rebound").toLowerCase();
+  const games = options?.gameIds ?? listNbaPbpRevisionGameIds();
+  const incidents: HarvestedMiscreditLabel[] = [];
+  let netTransitions = 0;
+  let nonStatTransitions = 0;
+  for (const gameId of games) {
+    const byAction = new Map<number, PbpAttributionTransition[]>();
+    for (const t of listPbpAttributionTransitions(gameId)) {
+      const list = byAction.get(t.actionNumber);
+      if (list) list.push(t);
+      else byAction.set(t.actionNumber, [t]);
+    }
+    for (const list of byAction.values()) {
+      const first = list[0];
+      const last = list[list.length - 1];
+      if (first === undefined || last === undefined) continue;
+      // Resolve the net credited + rightful ENTITY. For a rebound, a row with no
+      // person_id AND no player_name is a TEAM rebound (gold invariant: rebound rows
+      // are either id+name present or both null=TEAM, description 'TEAM ... REBOUND'),
+      // represented by the "TEAM" sentinel so a TEAM->player correction is a real
+      // credited->rightful change instead of a dropped null. Crucially, a transition
+      // that keeps the SAME name while only the person_id flickers (e.g. 100/Merrill ->
+      // null/Merrill, a feed dropping the id) is the SAME entity and must NEVER become a
+      // creditedPlayer===rightfulPlayer self-label.
+      const creditedName =
+        first.fromPersonId === null && (first.fromPlayer ?? null) === null
+          ? "TEAM"
+          : first.fromPlayer;
+      const rightfulName = last.toPlayer;
+      const sameEntity =
+        (first.fromPersonId !== null && first.fromPersonId === last.toPersonId) ||
+        (creditedName !== null && creditedName === rightfulName);
+      if (sameEntity) continue;
+      netTransitions += 1;
+      if ((last.actionType ?? "").toLowerCase() !== stat) {
+        nonStatTransitions += 1;
+        continue;
+      }
+      // The rightful must be a NAMED player (the re-ranker scores its prop); a
+      // player->TEAM correction has no named rightful and is not re-ranker-scoreable.
+      // The credited may be "TEAM" (TEAM->player correction; the eval's TEAM branch
+      // consumes credited_last="").
+      if (!rightfulName || !creditedName) continue;
+      const firstMs = Date.parse(first.firstSeenAt);
+      const changedMs = Date.parse(last.changedAt);
+      incidents.push({
+        id: `harvested-${gameId}-${last.actionNumber}`,
+        gameId,
+        creditedPlayer: creditedName,
+        rightfulPlayer: rightfulName,
+        stat,
+        utcTime: last.timeActual ?? last.changedAt,
+        actionNumber: last.actionNumber,
+        firstSeenAt: first.firstSeenAt,
+        changedAt: last.changedAt,
+        correctionLatencySec:
+          Number.isFinite(firstMs) && Number.isFinite(changedMs)
+            ? Math.round((changedMs - firstMs) / 1000)
+            : null,
+      });
+    }
+  }
+  return { incidents, gamesScanned: games.length, netTransitions, nonStatTransitions };
 }
 
 export function upsertMarketInstrument(instrument: MarketInstrument) {
@@ -3341,6 +3613,14 @@ export function enqueueTimelineMaterializationRebuild(payload: AdminActionPayloa
 
 export function enqueueBoardVolatilityBaselineRebuild(payload: AdminActionPayload) {
   return enqueueAdminAction("board-volatility-baseline-rebuild", payload);
+}
+
+export function enqueueResearchPull(payload: AdminActionPayload) {
+  return enqueueAdminAction("research-pull", payload);
+}
+
+export function enqueueResearchExport(payload: AdminActionPayload) {
+  return enqueueAdminAction("research-export", payload);
 }
 
 export function claimNextQueuedAdminAction() {

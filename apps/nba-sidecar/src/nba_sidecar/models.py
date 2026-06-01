@@ -65,6 +65,13 @@ class BoxScoreResponse(BaseModel):
 class PlayByPlayAction(BaseModel):
     actionNumber: int | None = None
     actionType: str | None = None
+    # subType + the structured attribution (personId/playerName) are the live
+    # credit -- what a misattribution moves between players. Carried through so
+    # the credited<->rightful pairing is exact, not regex-parsed from
+    # `description`. (Restored after being dropped pre-persistence.)
+    subType: str | None = None
+    personId: int | None = None
+    playerName: str | None = None
     clock: str | None = None
     description: str | None = None
     period: int | None = None

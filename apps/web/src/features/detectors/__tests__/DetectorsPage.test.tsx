@@ -185,6 +185,11 @@ describe("DetectorsPage", () => {
       .getAllByTestId("detector-card")
       .map((el) => el.getAttribute("data-detector-id"));
     expect(ids).toEqual(["board-mad", "off-price-print"]);
+
+    // Secondary cross-link to the Research eval lab (in-app /research route).
+    const researchLink = screen.getByTestId("detectors-research-link");
+    expect(researchLink.getAttribute("href")).toBe("/research");
+    expect(researchLink.textContent).toContain("Compare in Research");
   });
 
   it("renders the board state-space displayName, version, and id", async () => {

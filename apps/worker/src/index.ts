@@ -1,3 +1,7 @@
+import { spawn, type ChildProcess } from "node:child_process";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
 import {
   KALSHI_NBA_HISTORICAL_PERIOD_INTERVAL_MINUTES,
   syncBet365Historical,
@@ -254,6 +258,113 @@ async function executeQueuedMarketsBackfill(
   }
 }
 
+// Repo root from this module (apps/worker/src/index.ts -> ../../..). Used as the
+// child-process cwd so `pnpm exec tsx scripts/...` resolves regardless of the
+// worker's own cwd (which is apps/worker under `pnpm --filter`).
+const WORKER_REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
+
+/** Minimal injectable spawn signature so tests can substitute a fake child. */
+export type SpawnProcessFn = (
+  command: string,
+  args: readonly string[],
+  options: { cwd: string; env: NodeJS.ProcessEnv },
+) => ChildProcess;
+
+/**
+ * Map a research-export admin-action payload to the exact CLI args for
+ * scripts/export-quant-snapshot.ts. PURE so the mapping is unit-testable.
+ *
+ *   scope "full"   -> no --sample (full corpus is the script default)
+ *   scope "sample" -> --sample <n>
+ *   snapshotId     -> --snapshot-id <id>
+ *   since/until    -> --since/--until <date>
+ *   gameIds        -> --games a,b
+ *
+ * Reads the export args out of payloadJson.request (the shape the API enqueues:
+ * { jobId, request }), falling back to the payload root for forward-compat.
+ */
+export function mapExportArgs(payloadJson: Record<string, unknown>): string[] {
+  const isRecord = (value: unknown): value is Record<string, unknown> =>
+    typeof value === "object" && value !== null && !Array.isArray(value);
+  const raw = isRecord(payloadJson["request"]) ? payloadJson["request"] : payloadJson;
+  const args: string[] = [];
+
+  const scope = raw["scope"];
+  if (scope === "sample") {
+    const sample = raw["sample"];
+    if (typeof sample === "number" && Number.isFinite(sample)) {
+      args.push("--sample", String(sample));
+    }
+  }
+  // scope "full" -> no --sample (full corpus is the script default).
+
+  const snapshotId = raw["snapshotId"];
+  if (typeof snapshotId === "string" && snapshotId.length > 0) {
+    args.push("--snapshot-id", snapshotId);
+  }
+
+  const since = raw["since"];
+  if (typeof since === "string" && since.length > 0) {
+    args.push("--since", since);
+  }
+
+  const until = raw["until"];
+  if (typeof until === "string" && until.length > 0) {
+    args.push("--until", until);
+  }
+
+  const gameIds = raw["gameIds"];
+  if (Array.isArray(gameIds)) {
+    const ids = gameIds.filter((id): id is string => typeof id === "string" && id.length > 0);
+    if (ids.length > 0) {
+      args.push("--games", ids.join(","));
+    }
+  }
+
+  return args;
+}
+
+/**
+ * Run the EXISTING snapshot exporter as a child process. Reuses the exact,
+ * tested export code path (scripts/export-quant-snapshot.ts via the repo's tsx);
+ * does NOT reimplement export logic. Resolves on exit 0; rejects with a
+ * stderr-tail-bearing error otherwise so the admin-action loop marks it errored.
+ * The exporter reads GOLD_DB_PATH from the inherited environment.
+ */
+export async function executeResearchExport(
+  payloadJson: Record<string, unknown>,
+  spawnProcess: SpawnProcessFn = spawn,
+): Promise<void> {
+  const args = mapExportArgs(payloadJson);
+  const child = spawnProcess("pnpm", ["exec", "tsx", "scripts/export-quant-snapshot.ts", ...args], {
+    cwd: WORKER_REPO_ROOT,
+    env: { ...process.env, NODE_OPTIONS: "--max-old-space-size=10240" },
+  });
+
+  const stderrChunks: string[] = [];
+  child.stderr?.on("data", (chunk: unknown) => {
+    stderrChunks.push(typeof chunk === "string" ? chunk : String(chunk));
+  });
+
+  await new Promise<void>((resolvePromise, rejectPromise) => {
+    child.on("error", (error: Error) => {
+      rejectPromise(error);
+    });
+    child.on("close", (code: number | null) => {
+      if (code === 0) {
+        resolvePromise();
+        return;
+      }
+      const tail = stderrChunks.join("").slice(-2000).trim();
+      rejectPromise(
+        new Error(
+          `export-quant-snapshot.ts exited with code ${String(code)}${tail ? `: ${tail}` : ""}`,
+        ),
+      );
+    });
+  });
+}
+
 async function drainQueuedAdminActions(options: {
   executeGamesBackfill: (
     payload: GamesBackfillPayload,
@@ -268,6 +379,7 @@ async function drainQueuedAdminActions(options: {
       syncPolymarketHistorical: typeof syncPolymarketNbaHistorical;
     },
   ) => Promise<void>;
+  executeResearchExport: (payloadJson: Record<string, unknown>) => Promise<void>;
   logger: AppLogger;
   now: Date;
   syncBet365Historical: typeof syncBet365Historical;
@@ -294,6 +406,8 @@ async function drainQueuedAdminActions(options: {
         });
       } else if (action.actionType === "board-volatility-baseline-rebuild") {
         rebuildBoardVolatilityBaselines();
+      } else if (action.actionType === "research-export") {
+        await options.executeResearchExport(action.payloadJson);
       } else {
         throw new Error(`Unsupported admin action type: ${action.actionType}.`);
       }
@@ -370,6 +484,7 @@ export async function runWorkerCycle(options?: {
       syncPolymarketHistorical: typeof syncPolymarketNbaHistorical;
     },
   ) => Promise<void>;
+  executeResearchExport?: (payloadJson: Record<string, unknown>) => Promise<void>;
   intervalMs?: number;
   logger?: AppLogger;
   maxBackoffMs?: number;
@@ -401,6 +516,8 @@ export async function runWorkerCycle(options?: {
   const syncPolymarketTrades = options?.syncPolymarketTrades ?? syncPolymarketNbaTrades;
   const queuedGamesBackfill = options?.executeGamesBackfill ?? executeQueuedGamesBackfill;
   const queuedMarketsBackfill = options?.executeMarketsBackfill ?? executeQueuedMarketsBackfill;
+  const queuedResearchExport =
+    options?.executeResearchExport ?? ((payloadJson) => executeResearchExport(payloadJson));
 
   try {
     let bet365GamesMatched = 0;
@@ -560,6 +677,7 @@ export async function runWorkerCycle(options?: {
     await drainQueuedAdminActions({
       executeGamesBackfill: queuedGamesBackfill,
       executeMarketsBackfill: queuedMarketsBackfill,
+      executeResearchExport: queuedResearchExport,
       logger,
       now: now(),
       syncBet365Historical: syncBet365HistoricalRange,

@@ -1,3 +1,4 @@
+import { EventEmitter } from "node:events";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,13 +9,28 @@ import { KALSHI_NBA_HISTORICAL_PERIOD_INTERVAL_MINUTES } from "@signal-console/a
 import {
   createAppLogger,
   enqueueMarketBackfill,
+  enqueueResearchExport,
   getDatabase,
   resetDatabase,
   upsertGame,
 } from "@signal-console/shared";
 
-import { buildWorkerHeartbeatSummary, calculateBackoffDelay, runWorkerCycle } from "../index";
+import {
+  buildWorkerHeartbeatSummary,
+  calculateBackoffDelay,
+  executeResearchExport,
+  mapExportArgs,
+  runWorkerCycle,
+  type SpawnProcessFn,
+} from "../index";
 import { writeHeartbeatJson } from "../heartbeat-emitter";
+
+/** A minimal fake child process: an EventEmitter with a stderr emitter. */
+function makeFakeChild(): EventEmitter & { stderr: EventEmitter } {
+  const child = new EventEmitter() as EventEmitter & { stderr: EventEmitter };
+  child.stderr = new EventEmitter();
+  return child;
+}
 
 let tempDir = "";
 
@@ -791,5 +807,187 @@ describe("worker runtime", () => {
     expect(calculateBackoffDelay(1_000, 0, 4_000)).toBe(1_000);
     expect(calculateBackoffDelay(1_000, 1, 4_000)).toBe(2_000);
     expect(calculateBackoffDelay(1_000, 3, 4_000)).toBe(4_000);
+  });
+
+  describe("research-export args mapping (pure)", () => {
+    it("maps a full-corpus export to NO --sample (script default)", () => {
+      expect(mapExportArgs({ request: { scope: "full" } })).toEqual([]);
+    });
+
+    it("maps scope=sample to --sample <n>", () => {
+      expect(mapExportArgs({ request: { scope: "sample", sample: 30 } })).toEqual([
+        "--sample",
+        "30",
+      ]);
+    });
+
+    it("maps snapshotId / since / until / gameIds to the exporter flags", () => {
+      expect(
+        mapExportArgs({
+          request: {
+            scope: "full",
+            snapshotId: "snap-x",
+            since: "2026-05-01",
+            until: "2026-05-25",
+            gameIds: ["nba-1", "nba-2"],
+          },
+        }),
+      ).toEqual([
+        "--snapshot-id",
+        "snap-x",
+        "--since",
+        "2026-05-01",
+        "--until",
+        "2026-05-25",
+        "--games",
+        "nba-1,nba-2",
+      ]);
+    });
+
+    it("reads args from the payload root when no nested request is present", () => {
+      expect(mapExportArgs({ scope: "sample", sample: 5 })).toEqual(["--sample", "5"]);
+    });
+  });
+
+  describe("research-export child-process executor (mocked spawn)", () => {
+    it("spawns pnpm exec tsx with mapped args, repo cwd, and heap NODE_OPTIONS", async () => {
+      const child = makeFakeChild();
+      const spawnSpy = vi.fn<SpawnProcessFn>(() => {
+        // Resolve on the next tick by emitting a clean close.
+        queueMicrotask(() => child.emit("close", 0));
+        return child as never;
+      });
+
+      await executeResearchExport({ request: { scope: "sample", sample: 7 } }, spawnSpy);
+
+      expect(spawnSpy).toHaveBeenCalledOnce();
+      const [command, args, options] = spawnSpy.mock.calls[0] ?? [];
+      expect(command).toBe("pnpm");
+      expect(args).toEqual(["exec", "tsx", "scripts/export-quant-snapshot.ts", "--sample", "7"]);
+      expect(options?.cwd.endsWith("signal-console-integration")).toBe(true);
+      expect(options?.env?.["NODE_OPTIONS"]).toBe("--max-old-space-size=10240");
+    });
+
+    it("rejects with a stderr tail on a nonzero exit", async () => {
+      const child = makeFakeChild();
+      const spawnSpy = vi.fn<SpawnProcessFn>(() => {
+        queueMicrotask(() => {
+          child.stderr.emit("data", "boom: export failed\n");
+          child.emit("close", 2);
+        });
+        return child as never;
+      });
+
+      await expect(executeResearchExport({ request: { scope: "full" } }, spawnSpy)).rejects.toThrow(
+        /boom: export failed/,
+      );
+    });
+  });
+
+  it("claims a queued research-export action and marks it completed via the injected executor", async () => {
+    enqueueResearchExport({
+      payloadJson: { jobId: "export-1", request: { scope: "full" } },
+      requestedBy: "research-api",
+      scope: "export-1",
+    });
+
+    const executeResearchExportSpy = vi.fn(async () => {});
+    const syncPolymarket = vi.fn(async () => ({
+      finishedAt: "2026-04-22T06:00:00.000Z",
+      gamesMatched: 0,
+      marketsSeen: 0,
+      ok: true as const,
+      quoteObservationsWritten: 0,
+      rawPayloadsWritten: 0,
+      recordsSeen: 0,
+      recordsWritten: 0,
+      sourceMarketsObserved: 0,
+      startedAt: "2026-04-22T06:00:00.000Z",
+    }));
+    const syncPolymarketTrades = vi.fn(async () => ({
+      errors: [],
+      eventsFetched: 0,
+      finishedAt: "2026-04-22T06:00:00.000Z",
+      marketsScanned: 0,
+      ok: true as const,
+      source: "polymarket" as const,
+      startedAt: "2026-04-22T06:00:00.000Z",
+      tradesSeen: 0,
+      tradesWritten: 0,
+    }));
+
+    const result = await runWorkerCycle({
+      executeResearchExport: executeResearchExportSpy,
+      logger: createAppLogger({ test: "worker" }),
+      now: () => new Date("2026-04-22T06:00:00.000Z"),
+      syncPolymarket,
+      syncPolymarketTrades,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(executeResearchExportSpy).toHaveBeenCalledOnce();
+    expect(executeResearchExportSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ request: expect.objectContaining({ scope: "full" }) }),
+    );
+    expect(
+      (
+        getDatabase().prepare("SELECT status FROM admin_actions WHERE id = 1").get() as {
+          status: string;
+        }
+      ).status,
+    ).toBe("completed");
+  });
+
+  it("marks a research-export action errored when the executor throws", async () => {
+    enqueueResearchExport({
+      payloadJson: { jobId: "export-2", request: { scope: "full" } },
+      requestedBy: "research-api",
+      scope: "export-2",
+    });
+
+    const executeResearchExportSpy = vi.fn(async () => {
+      throw new Error("export-quant-snapshot.ts exited with code 2: boom");
+    });
+
+    const result = await runWorkerCycle({
+      executeResearchExport: executeResearchExportSpy,
+      logger: createAppLogger({ test: "worker" }),
+      now: () => new Date("2026-04-22T06:00:00.000Z"),
+      syncPolymarket: vi.fn(async () => ({
+        finishedAt: "2026-04-22T06:00:00.000Z",
+        gamesMatched: 0,
+        marketsSeen: 0,
+        ok: true as const,
+        quoteObservationsWritten: 0,
+        rawPayloadsWritten: 0,
+        recordsSeen: 0,
+        recordsWritten: 0,
+        sourceMarketsObserved: 0,
+        startedAt: "2026-04-22T06:00:00.000Z",
+      })),
+      syncPolymarketTrades: vi.fn(async () => ({
+        errors: [],
+        eventsFetched: 0,
+        finishedAt: "2026-04-22T06:00:00.000Z",
+        marketsScanned: 0,
+        ok: true as const,
+        source: "polymarket" as const,
+        startedAt: "2026-04-22T06:00:00.000Z",
+        tradesSeen: 0,
+        tradesWritten: 0,
+      })),
+    });
+
+    // The cycle itself stays ok (a single admin-action failure is isolated by
+    // the drain loop's try/catch), but the action row is marked errored.
+    expect(result.ok).toBe(true);
+    expect(executeResearchExportSpy).toHaveBeenCalledOnce();
+    expect(
+      (
+        getDatabase().prepare("SELECT status FROM admin_actions WHERE id = 1").get() as {
+          status: string;
+        }
+      ).status,
+    ).toBe("error");
   });
 });

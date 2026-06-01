@@ -16,6 +16,8 @@
     "@fastify/swagger-ui": "^5.2.0",
     "@signal-console/db": "workspace:*",
     "@signal-console/detectors": "workspace:*",
+    "@signal-console/research-pull": "workspace:*",
+    "@signal-console/shared": "workspace:*",
     "better-sqlite3": "^12.4.0",
     "fastify": "^5.8.0",
     "fastify-plugin": "^5.1.0",

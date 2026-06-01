@@ -43,3 +43,8 @@ apps/worker/data/heartbeat.json
 .pytest_cache/
 __pycache__/
 *.pyc
+
+# NBA Quant Lab: generated snapshots/runs/pulls (parquet/duckdb/json artifacts)
+# and the bootstrap-generated starter notebook — regenerable via `pnpm quant:*`.
+outputs/nba-quant-lab/
+notebooks/

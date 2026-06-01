@@ -222,6 +222,54 @@ def test_normalize_live_playbyplay_payload_keeps_core_action_fields() -> None:
     assert normalized.actions[0].teamTricode == "BOS"
 
 
+def test_normalize_live_playbyplay_payload_carries_structured_attribution() -> None:
+    # personId / playerName (playerNameI) / subType are the live credit a
+    # misattribution moves between players; they must survive normalization so
+    # the credited<->rightful pairing is exact, not regex-parsed from description.
+    payload = {
+        "meta": {"time": "2026-05-21T02:00:44.000Z"},
+        "game": {
+            "actions": [
+                {
+                    "actionNumber": 416,
+                    "actionType": "rebound",
+                    "subType": "offensive",
+                    "personId": 1641705,
+                    "playerNameI": "V. Wembanyama",
+                    "clock": "PT10M01.00S",
+                    "description": "V. Wembanyama REBOUND (Off:3 Def:3)",
+                    "period": 3,
+                    "teamTricode": "SAS",
+                    "timeActual": "2026-05-21T02:00:43.6Z",
+                }
+            ]
+        },
+    }
+
+    action = normalize_live_playbyplay_payload("0042500312", payload).actions[0]
+    assert action.personId == 1641705
+    assert action.playerName == "V. Wembanyama"
+    assert action.subType == "offensive"
+    assert action.actionType == "rebound"
+
+
+def test_normalize_live_playbyplay_payload_attribution_falls_back_and_nulls() -> None:
+    payload = {
+        "meta": {"time": "2026-05-21T02:00:44.000Z"},
+        "game": {
+            "actions": [
+                # no playerNameI -> fall back to playerName; no personId -> None
+                {"actionNumber": 1, "actionType": "rebound", "playerName": "TEAM", "teamTricode": "SAS"},
+                {"actionNumber": 2, "actionType": "timeout"},
+            ]
+        },
+    }
+    actions = normalize_live_playbyplay_payload("0042500312", payload).actions
+    assert actions[0].playerName == "TEAM"
+    assert actions[0].personId is None
+    assert actions[1].personId is None and actions[1].playerName is None and actions[1].subType is None
+
+
 def test_play_by_play_cdn_403_returns_structured_upstream_error(
     monkeypatch,
 ) -> None:

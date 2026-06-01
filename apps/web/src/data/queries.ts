@@ -780,3 +780,283 @@ export function useScheduleDetectorDefaults(): UseMutationResult<
     },
   });
 }
+
+// ── Research artifact surface (read-only) ────────────────────────────────────
+//
+// Mirrors apps/api/src/routes/research.ts. Every GET is read-mostly over the
+// quant-lab artifact tree and resilient (absent/empty/malformed -> clean empty
+// payload). The single writer is POST /v1/research/pull, which validates via
+// the shared @signal-console/research-pull planner and ENQUEUES a job, never
+// running a backfill inline. The artifact bodies (snapshot manifest, pull
+// job.json, leaderboard rows) are free-form JSON on the server side
+// (additionalProperties:true), so the schemas below stay permissive
+// (passthrough) and the UI reads the fields it understands defensively.
+
+// /v1/research/sources — shared capability matrix (snapshot-eligible /
+// artifact-only / pending) with supported capture modes + limitations.
+const researchSourceSchema = z.object({
+  id: z.string(),
+  class: z.enum(["snapshot-eligible", "artifact-only", "pending"]),
+  supportedModes: z.array(z.string()),
+  limitations: z.array(z.string()),
+});
+const researchSourcesSchema = z.object({
+  sources: z.array(researchSourceSchema),
+});
+
+// /v1/research/snapshot/latest — { snapshot: object | null }. The manifest body
+// is free-form; we read named fields defensively in the component.
+const researchSnapshotSchema = z.object({
+  snapshot: z.record(z.unknown()).nullable(),
+});
+
+// /v1/research/leaderboard/latest — { runId, rows[] } where each row is a
+// free-form record (model/recall/firesPerGame/etc.).
+const researchLeaderboardSchema = z.object({
+  runId: z.string().nullable(),
+  rows: z.array(z.record(z.unknown())),
+});
+
+// /v1/research/attribution — { attribution: object | null }. The re-ranker report
+// body is free-form (overall/player_swap/team_dispute aggregates + line_select);
+// read named fields defensively in the component (same pattern as snapshot).
+const researchAttributionSchema = z.object({
+  attribution: z.record(z.unknown()).nullable(),
+});
+
+// /v1/research/far-calibration — { farCalibration: object | null }. Free-form
+// report (all_control/pure_control FAR tables + matched_recall + data_quality);
+// read named fields defensively in the component.
+const researchFarCalibrationSchema = z.object({
+  farCalibration: z.record(z.unknown()).nullable(),
+});
+
+// /v1/research/harvested-labels — { harvestedLabels: object | null }. Free-form
+// report (generatedAt/source/incidentCount/incidents[]); read defensively.
+const researchHarvestedLabelsSchema = z.object({
+  harvestedLabels: z.record(z.unknown()).nullable(),
+});
+
+// /v1/research/models — registry- or static-backed model list.
+const researchModelSchema = z.object({
+  id: z.string(),
+  label: z.string(),
+  description: z.string(),
+  source: z.enum(["registry", "static"]),
+});
+const researchModelsSchema = z.object({
+  models: z.array(researchModelSchema),
+});
+
+// /v1/research/pulls — newest-first list of pull job.json records (free-form).
+const researchPullsSchema = z.object({
+  pulls: z.array(z.record(z.unknown())),
+});
+
+// /v1/research/gold — read-only gold-DB status. The route reads GOLD_DB_PATH
+// via openGoldDb and NEVER throws on a missing/locked DB: it returns
+// present:false with zeroed numerics and gameCount:null instead. `gameCount`
+// is `SELECT count(*) FROM games` when the DB is present and readable, else null.
+const researchGoldSchema = z.object({
+  present: z.boolean(),
+  path: z.string(),
+  sizeBytes: z.number(),
+  lastModified: z.string(),
+  gameCount: z.number().nullable(),
+});
+
+export type ResearchSource = z.infer<typeof researchSourceSchema>;
+export type ResearchSources = z.infer<typeof researchSourcesSchema>;
+export type ResearchGold = z.infer<typeof researchGoldSchema>;
+export type ResearchSnapshot = z.infer<typeof researchSnapshotSchema>;
+export type ResearchLeaderboard = z.infer<typeof researchLeaderboardSchema>;
+export type ResearchAttribution = z.infer<typeof researchAttributionSchema>;
+export type ResearchFarCalibration = z.infer<typeof researchFarCalibrationSchema>;
+export type ResearchHarvestedLabels = z.infer<typeof researchHarvestedLabelsSchema>;
+export type ResearchModel = z.infer<typeof researchModelSchema>;
+export type ResearchModels = z.infer<typeof researchModelsSchema>;
+export type ResearchPulls = z.infer<typeof researchPullsSchema>;
+
+export function useResearchSources(): UseQueryResult<ResearchSources, Error> {
+  return useQuery({
+    queryKey: ["research-sources"],
+    queryFn: ({ signal }) => fetchJson(`/v1/research/sources`, researchSourcesSchema, signal),
+  });
+}
+
+export function useResearchGold(): UseQueryResult<ResearchGold, Error> {
+  return useQuery({
+    queryKey: ["research-gold"],
+    queryFn: ({ signal }) => fetchJson(`/v1/research/gold`, researchGoldSchema, signal),
+  });
+}
+
+// `refetchInterval` is opt-in so the Export dialog can poll /v1/research/snapshot/latest
+// while an export job is in flight (the snapshot appears once the worker
+// finishes); the page leaves it unset otherwise so it stays one-shot per visit.
+export function useResearchSnapshot(
+  opts?: { readonly refetchInterval?: number },
+): UseQueryResult<ResearchSnapshot, Error> {
+  return useQuery({
+    queryKey: ["research-snapshot"],
+    queryFn: ({ signal }) =>
+      fetchJson(`/v1/research/snapshot/latest`, researchSnapshotSchema, signal),
+    ...(opts?.refetchInterval !== undefined ? { refetchInterval: opts.refetchInterval } : {}),
+  });
+}
+
+export function useResearchLeaderboard(): UseQueryResult<ResearchLeaderboard, Error> {
+  return useQuery({
+    queryKey: ["research-leaderboard"],
+    queryFn: ({ signal }) =>
+      fetchJson(`/v1/research/leaderboard/latest`, researchLeaderboardSchema, signal),
+  });
+}
+
+export function useResearchModels(): UseQueryResult<ResearchModels, Error> {
+  return useQuery({
+    queryKey: ["research-models"],
+    queryFn: ({ signal }) => fetchJson(`/v1/research/models`, researchModelsSchema, signal),
+  });
+}
+
+export function useResearchAttribution(): UseQueryResult<ResearchAttribution, Error> {
+  return useQuery({
+    queryKey: ["research-attribution"],
+    queryFn: ({ signal }) =>
+      fetchJson(`/v1/research/attribution`, researchAttributionSchema, signal),
+  });
+}
+
+export function useResearchFarCalibration(): UseQueryResult<ResearchFarCalibration, Error> {
+  return useQuery({
+    queryKey: ["research-far-calibration"],
+    queryFn: ({ signal }) =>
+      fetchJson(`/v1/research/far-calibration`, researchFarCalibrationSchema, signal),
+  });
+}
+
+export function useResearchHarvestedLabels(): UseQueryResult<ResearchHarvestedLabels, Error> {
+  return useQuery({
+    queryKey: ["research-harvested-labels"],
+    queryFn: ({ signal }) =>
+      fetchJson(`/v1/research/harvested-labels`, researchHarvestedLabelsSchema, signal),
+  });
+}
+
+export function useResearchPulls(): UseQueryResult<ResearchPulls, Error> {
+  return useQuery({
+    queryKey: ["research-pulls"],
+    queryFn: ({ signal }) => fetchJson(`/v1/research/pulls`, researchPullsSchema, signal),
+  });
+}
+
+// POST /v1/research/pull — the only writer. Validates server-side via the same
+// shared planner the UI dry-runs with, then returns { job_id } (HTTP 202). On
+// success we invalidate ['research-pulls'] so the jobs table refreshes.
+const submitPullResponseSchema = z.object({ job_id: z.string() });
+const submitPullErrorSchema = z.object({
+  error: z.string(),
+  code: z.string().optional(),
+  details: z
+    .array(z.object({ code: z.string().optional(), message: z.string().optional() }).passthrough())
+    .optional(),
+});
+export type SubmitPullResponse = z.infer<typeof submitPullResponseSchema>;
+
+async function submitPullRequest(body: unknown): Promise<SubmitPullResponse> {
+  const res = await fetch(`${API_BASE_URL}/v1/research/pull`, {
+    method: "POST",
+    headers: { "X-Signal-Token": SIGNAL_TOKEN, "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const text = await res.text();
+  if (!res.ok) {
+    const parsed = (() => {
+      try {
+        return submitPullErrorSchema.safeParse(JSON.parse(text));
+      } catch {
+        return { success: false } as const;
+      }
+    })();
+    const detail = parsed.success
+      ? `${parsed.data.error}${
+          parsed.data.details && parsed.data.details.length > 0
+            ? `: ${parsed.data.details.map((d) => d.message ?? d.code ?? "").join("; ")}`
+            : ""
+        }`
+      : text || res.statusText;
+    throw new Error(`HTTP ${String(res.status)}: ${detail}`);
+  }
+  const json: unknown = JSON.parse(text);
+  return submitPullResponseSchema.parse(json);
+}
+
+export function useSubmitPull(): UseMutationResult<SubmitPullResponse, Error, unknown> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: submitPullRequest,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["research-pulls"] });
+    },
+  });
+}
+
+// POST /v1/research/export — the SECOND writer, mirrors POST /v1/research/pull
+// EXACTLY: validated server-side via a shared validator, then enqueues an
+// admin-action of type "research-export" and returns { jobId } (HTTP 202). The
+// worker runs the EXISTING scripts/export-quant-snapshot.ts against the gold DB
+// — no pull needed, the canonical sources are already persisted there. On
+// success we invalidate ['research-snapshot'] so the latest snapshot refreshes
+// once the export lands. Note the response key is `jobId` (camelCase), distinct
+// from pull's `job_id`.
+export interface ResearchExportRequest {
+  readonly snapshotId?: string;
+  readonly scope: "full" | "sample";
+  readonly sample?: number;
+  readonly since?: string;
+  readonly until?: string;
+  readonly gameIds?: readonly string[];
+}
+const submitExportResponseSchema = z.object({ jobId: z.string() });
+const submitExportErrorSchema = z.object({ error: z.string() });
+export type SubmitExportResponse = z.infer<typeof submitExportResponseSchema>;
+
+async function submitExportRequest(body: ResearchExportRequest): Promise<SubmitExportResponse> {
+  const res = await fetch(`${API_BASE_URL}/v1/research/export`, {
+    method: "POST",
+    headers: { "X-Signal-Token": SIGNAL_TOKEN, "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const text = await res.text();
+  if (!res.ok) {
+    const parsed = (() => {
+      try {
+        return submitExportErrorSchema.safeParse(JSON.parse(text));
+      } catch {
+        return { success: false } as const;
+      }
+    })();
+    const detail = parsed.success ? parsed.data.error : text || res.statusText;
+    throw new Error(`HTTP ${String(res.status)}: ${detail}`);
+  }
+  const json: unknown = JSON.parse(text);
+  return submitExportResponseSchema.parse(json);
+}
+
+export function useSubmitExport(): UseMutationResult<
+  SubmitExportResponse,
+  Error,
+  ResearchExportRequest
+> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: submitExportRequest,
+    onSuccess: () => {
+      // The export reads the gold DB and lands a new snapshot; nudge the latest
+      // snapshot query so it appears under Snapshot when done (the page also
+      // polls). Gold-DB status is unaffected by an export.
+      void queryClient.invalidateQueries({ queryKey: ["research-snapshot"] });
+    },
+  });
+}

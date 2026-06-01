@@ -23,9 +23,13 @@
     "cache:reset": "tsx scripts/cache-reset.ts",
     "backfill:nba-history": "pnpm --filter @signal-console/worker backfill nba-history --since 2026-04-22",
     "bakeoff:nba-detectors": "tsx scripts/run-nba-detector-bakeoff.ts",
+    "quant": "tsx scripts/quant.ts",
+    "quant:export": "tsx scripts/export-quant-snapshot.ts",
+    "quant:pull": "tsx scripts/research-pull.ts",
     "verify": "prettier --check . --ignore-unknown && eslint . --max-warnings=0 && tsc --noEmit -p scripts/tsconfig.json && tsx scripts/run-workspace-script.ts typecheck && tsx scripts/verify-product-purpose.ts && tsx scripts/verify-no-stale-plan.ts && tsx scripts/verify-no-hex-literals.ts && tsx scripts/verify-queries.ts && tsx scripts/verify-citations.ts && tsx scripts/run-workspace-script.ts verify"
   },
   "devDependencies": {
+    "@duckdb/node-api": "1.5.3-r.2",
     "@eslint/js": "^9.39.4",
     "@types/node": "^22.10.10",
     "eslint": "^9.39.4",

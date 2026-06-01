@@ -1,21 +1,6 @@
-# Signal Console Core Purpose
-
-Signal Console is for one expensive NBA trading problem: a live data feed can credit the wrong player, or correct a play later, while player props and game props are still being priced. A rebound, assist, block, or point can land under the wrong name, and exposed markets may keep trading against that bad state. Signal Console watches market movement around those moments so bet365 can review or suspend affected markets before bad trades turn into bad payouts.
-
-The mistake rarely stays inside one bet. If a rebound is credited to the wrong player, it can touch that player's props, the player who should have received credit, combo markets, team rebounds, quarter markets, and game-level prices. Sometimes the official correction arrives late. Sometimes it never arrives in a way that changes settlement. The useful warning is simpler: the board is behaving as if something around the play deserves a closer look.
-
 ## In-Flight Architectural Notes
 
 Before designing changes to numerical state (formulas, constants, baselines, thresholds, calibration data) or proposing a new package layout, read `.codex/memory.md`. It contains the current architectural direction being staged (math/calibration/detectors/domain split, provenance rules for empirical constants, enforcement plan) plus the staging rule that says these are not yet codified here. Update `.codex/memory.md` when the direction shifts; only promote framings to this file after at least one real concept has moved through the new boundaries.
-
-## Project Memory Policy
-
-Use only Signal Console memory as repo authority:
-
-- `.codex/memory.md`
-- `~/.codex/projects/-Users-davidmontgomery-signal-console/MEMORY.md`
-
-Do not use sibling-project memory paths, old `nba-predict` memory, or global memory summaries as current Signal Console authority.
 
 ## Odds-API.io Live Comparator Policy
 
@@ -38,7 +23,7 @@ Before making any product tweak, first write a short inventory of every surface 
 - **Runtime behavior:** detector math, params schema/defaults, recompute paths, cache keys, persisted DB reads/writes, migrations, API request/response schemas, route OpenAPI metadata, adapter/worker ingestion, health/readiness behavior, and source-watermark or cache invalidation logic.
 - **UI surfaces:** route/page copy, component labels, aria labels/value text, empty/loading/error states, control ranges/defaults/snap labels, keyboard behavior, visible units, hover explainer copy, settings rows, detector registry labels, timelines/charts, screenshots or visual snapshots, and responsive layout.
 - **Explainers:** every hover explainer entry in `packages/ui/src/explainers.ts` that names the concept, its units, defaults, math, tradeoff, or canonical code reference. These are product copy, not decorative tooltips.
-- **Docs:** `README.md`, `PLAN.md`, active `docs/*.md`, active `specs/*.md`, handoffs, and operator runbooks. Do not use `.docs-archive/` or the retired root `PRD.md` as live authority, but update active docs when behavior, commands, env, API, UX, or source coverage changes.
+- **Docs:** `README.md`, `PRD.md`, `PLAN.md`, active `docs/*.md`, active `specs/*.md`, handoffs, and operator runbooks. Do not use `.docs-archive/` as live authority, but update active docs when behavior, commands, env, API, UX, or source coverage changes.
 - **Tests:** add behavior-level coverage for the user-facing contract and the broader bug/change family. Prefer UI/API/integration or contract tests over line-coupled unit tests. Include stale-label searches with `rg` for old terms, labels, env names, endpoint names, and source names.
 - **Video/demo assets:** if the feature appears in the Signal Console video project, check `~/markdown-video-experiment/projects/signal-console-explainer/plan.json`, draft plans, narration text, generated still prompts, screenshots, clips, and final-render notes. Redo only the affected scenes/assets. Edit generated stills when that is honest; recapture screenshots/screen recordings when the actual UI is visible.
 - **Generated or built output:** if `dist`, generated OpenAPI, screenshots, reports, or packaged assets are regenerated, verify they still match source and do not reintroduce retired wording.
@@ -51,7 +36,7 @@ End every mutating turn by running the narrow changed-surface tests plus the rep
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **signal-console** (8562 symbols, 14051 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **signal-console** (10976 symbols, 17875 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 

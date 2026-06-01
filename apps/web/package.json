@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@signal-console/detectors": "workspace:*",
+    "@signal-console/research-pull": "workspace:*",
     "@signal-console/ui": "workspace:*",
     "@tanstack/react-query": "^5.100.11",
     "react": "^19.0.0",

@@ -17,6 +17,10 @@ outputs/odds-api-io-live-comparator/
 outputs/nba-detector-bakeoff/report.html
 outputs/nba-detector-bakeoff/research/*.json
 
+# NBA Quant Lab: generated snapshots/runs/pulls artifacts + generated starter notebook
+outputs/nba-quant-lab/
+notebooks/
+
 # Owner-maintained docs / Ralph runtime state
 AGENTS.md
 CLAUDE.md
