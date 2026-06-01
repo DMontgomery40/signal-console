@@ -1660,7 +1660,8 @@ function AttributionReranker({
       </p>
       {attribution === null ? (
         <EmptyLine testid="research-attribution-empty">
-          No attribution report yet — run pnpm quant attribution-eval &lt;snapshot&gt; to populate this.
+          No attribution report yet — run pnpm quant attribution-eval &lt;snapshot&gt; to populate
+          this.
         </EmptyLine>
       ) : (
         <div role="table" aria-label="Attribution re-ranker" className="bg-surface-1 text-sm">
@@ -1696,7 +1697,9 @@ function AttributionReranker({
                   {fmtNum(n)}
                 </span>
                 <span role="cell" className="font-mono text-xs tabular-nums text-text-md">
-                  {scored === undefined || n === undefined ? "—" : `${fmtNum(scored)} / ${fmtNum(n)}`}
+                  {scored === undefined || n === undefined
+                    ? "—"
+                    : `${fmtNum(scored)} / ${fmtNum(n)}`}
                 </span>
                 <span role="cell" className="font-mono text-xs tabular-nums text-text-md">
                   {abst === undefined ? "—" : `${fmtNum(abst * 100, 0)}%`}
@@ -1726,19 +1729,20 @@ function FarCalibration({
   readonly farCalibration: Record<string, unknown> | null;
 }): JSX.Element {
   const thresholds = ["0.01", "0.02", "0.05", "0.1", "0.2"] as const;
-  const allControl = farCalibration !== null && isRecord(pick(farCalibration, "all_control"))
-    ? (pick(farCalibration, "all_control") as Record<string, unknown>)
-    : {};
-  const recall = farCalibration !== null && isRecord(pick(farCalibration, "matched_recall"))
-    ? (pick(farCalibration, "matched_recall") as Record<string, unknown>)
-    : {};
-  const quality = farCalibration !== null && isRecord(pick(farCalibration, "data_quality"))
-    ? (pick(farCalibration, "data_quality") as Record<string, unknown>)
-    : {};
-  const perPair = isRecord(pick(allControl, "per_pair_far")) ? (pick(allControl, "per_pair_far") as Record<string, unknown>) : {};
-  const perReb = isRecord(pick(allControl, "per_rebound_far")) ? (pick(allControl, "per_rebound_far") as Record<string, unknown>) : {};
-  const tpr = isRecord(pick(recall, "tpr_per_pair")) ? (pick(recall, "tpr_per_pair") as Record<string, unknown>) : {};
-  const nControl = num(pick(farCalibration ?? {}, "n_control_games"));
+  const fc = farCalibration ?? {};
+  const acRaw = pick(fc, "all_control");
+  const allControl = isRecord(acRaw) ? acRaw : {};
+  const mrRaw = pick(fc, "matched_recall");
+  const recall = isRecord(mrRaw) ? mrRaw : {};
+  const dqRaw = pick(fc, "data_quality");
+  const quality = isRecord(dqRaw) ? dqRaw : {};
+  const ppRaw = pick(allControl, "per_pair_far");
+  const perPair = isRecord(ppRaw) ? ppRaw : {};
+  const prRaw = pick(allControl, "per_rebound_far");
+  const perReb = isRecord(prRaw) ? prRaw : {};
+  const tprRaw = pick(recall, "tpr_per_pair");
+  const tpr = isRecord(tprRaw) ? tprRaw : {};
+  const nControl = num(pick(fc, "n_control_games"));
   const nScoredInc = num(pick(recall, "n_scored"));
   const nInc = num(pick(recall, "n_incidents"));
   const badStarters = num(pick(quality, "games_bad_starters"));
@@ -1749,10 +1753,11 @@ function FarCalibration({
       <SectionHeading>Re-ranker FAR calibration</SectionHeading>
       <p className="max-w-[80ch] text-xs text-text-md" data-testid="research-far-calibration-note">
         False-alarm rate of the signed-paired re-ranker on non-incident control games (the score is
-        not zero-centred, so a fire threshold must be read off this empirical distribution). Per-pair
-        is one candidate; per-rebound is the max over a rebound&apos;s ~4 on-court teammates (the
-        multiple-testing cost). Matched TPR runs the labeled incidents through the same candidate
-        path — recall is label-starved, so read it with its N, never as a point estimate.
+        not zero-centred, so a fire threshold must be read off this empirical distribution).
+        Per-pair is one candidate; per-rebound is the max over a rebound&apos;s ~4 on-court
+        teammates (the multiple-testing cost). Matched TPR runs the labeled incidents through the
+        same candidate path — recall is label-starved, so read it with its N, never as a point
+        estimate.
       </p>
       {farCalibration === null ? (
         <EmptyLine testid="research-far-calibration-empty">
@@ -1777,10 +1782,18 @@ function FarCalibration({
               data-threshold={th}
               className="grid grid-cols-[0.8fr_1fr_1fr_1fr] items-baseline gap-x-5 px-5 py-2"
             >
-              <span role="cell" className="font-mono text-xs tabular-nums text-text-md">{th}</span>
-              <span role="cell" className="font-mono text-xs tabular-nums text-text-md">{pct(num(pick(perPair, th)))}</span>
-              <span role="cell" className="font-mono text-xs tabular-nums text-text-md">{pct(num(pick(perReb, th)))}</span>
-              <span role="cell" className="font-mono text-xs tabular-nums text-text-md">{pct(num(pick(tpr, th)))}</span>
+              <span role="cell" className="font-mono text-xs tabular-nums text-text-md">
+                {th}
+              </span>
+              <span role="cell" className="font-mono text-xs tabular-nums text-text-md">
+                {pct(num(pick(perPair, th)))}
+              </span>
+              <span role="cell" className="font-mono text-xs tabular-nums text-text-md">
+                {pct(num(pick(perReb, th)))}
+              </span>
+              <span role="cell" className="font-mono text-xs tabular-nums text-text-md">
+                {pct(num(pick(tpr, th)))}
+              </span>
             </div>
           ))}
         </div>
@@ -1788,7 +1801,9 @@ function FarCalibration({
       {farCalibration !== null ? (
         <p className="font-mono text-xs text-text-lo" data-testid="research-far-calibration-meta">
           {nControl !== undefined ? `control games ${fmtNum(nControl)}` : ""}
-          {nScoredInc !== undefined && nInc !== undefined ? ` · matched recall n ${fmtNum(nScoredInc)} / ${fmtNum(nInc)}` : ""}
+          {nScoredInc !== undefined && nInc !== undefined
+            ? ` · matched recall n ${fmtNum(nScoredInc)} / ${fmtNum(nInc)}`
+            : ""}
           {badStarters !== undefined ? ` · bad-starter games ${fmtNum(badStarters)}` : ""}
           {ne5 !== undefined ? ` · on-court≠5 ${pct(ne5)}` : ""}
         </p>

@@ -894,7 +894,12 @@ function buildPlayerPropTickRows(
       const capturedAt = typeof rec["captured_at"] === "string" ? rec["captured_at"] : null;
       const impliedProbability =
         typeof rec["implied_probability"] === "number" ? rec["implied_probability"] : null;
-      if (playerKey === null || source === null || capturedAt === null || impliedProbability === null) {
+      if (
+        playerKey === null ||
+        source === null ||
+        capturedAt === null ||
+        impliedProbability === null
+      ) {
         continue;
       }
       rows.push({
@@ -1164,7 +1169,8 @@ const FEATURE_CATALOG: readonly FeatureCatalogEntry[] = [
   {
     file: "player_prop_ticks.parquet",
     name: "source",
-    meaning: "Book/exchange for the prop (kalshi/bet365/polymarket); lets the re-ranker pick a per-source series + measure cross-source divergence",
+    meaning:
+      "Book/exchange for the prop (kalshi/bet365/polymarket); lets the re-ranker pick a per-source series + measure cross-source divergence",
     units: "categorical",
     causalOrNoncausal: "causal",
     leakageSafeForOnlineScoring: true,
@@ -1173,7 +1179,8 @@ const FEATURE_CATALOG: readonly FeatureCatalogEntry[] = [
   {
     file: "player_prop_ticks.parquet",
     name: "line",
-    meaning: "Over/under threshold for the prop (e.g. 5.5, 9.5); lets the re-ranker select ONE coherent line per player/source rather than blending levels",
+    meaning:
+      "Over/under threshold for the prop (e.g. 5.5, 9.5); lets the re-ranker select ONE coherent line per player/source rather than blending levels",
     units: "rebounds",
     causalOrNoncausal: "causal",
     leakageSafeForOnlineScoring: true,

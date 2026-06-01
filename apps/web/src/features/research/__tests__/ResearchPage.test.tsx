@@ -308,7 +308,7 @@ describe("ResearchPage", () => {
     const rows = await screen.findAllByTestId("research-far-calibration-row");
     // one row per threshold (0.01, 0.02, 0.05, 0.1, 0.2)
     expect(rows.map((r) => r.getAttribute("data-threshold"))).toEqual(["0.01", "0.02", "0.05", "0.1", "0.2"]);
-    const meta = screen.getByTestId("research-far-calibration-meta").textContent ?? "";
+    const meta = screen.getByTestId("research-far-calibration-meta").textContent;
     expect(meta).toContain("control games 163");
     // matched recall is surfaced WITH its N (2 of 9), never as a bare point estimate
     expect(meta).toContain("matched recall n 2 / 9");
