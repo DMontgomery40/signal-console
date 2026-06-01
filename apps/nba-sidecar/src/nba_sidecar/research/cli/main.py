@@ -6,6 +6,7 @@ import argparse
 import json
 import os
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 from ..evaluation import (
@@ -184,6 +185,9 @@ def cmd_attribution_eval(args: argparse.Namespace) -> int:
     report = evaluate_snapshot(args.snapshot, incidents, line_select=args.line_select)
     report["line_select"] = args.line_select
     report["n_incidents"] = len(incidents)
+    # Provenance so a quant reading this JSON can verify freshness + the source snapshot.
+    report["generatedAt"] = datetime.now(timezone.utc).isoformat()
+    report["snapshot"] = args.snapshot
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(report, indent=2, default=str))
@@ -279,6 +283,9 @@ def cmd_far_calibration(args: argparse.Namespace) -> int:
     pure = summarize_far([r for r in scored if r["game_id"] not in epi_games])
     recall = incident_recall_matched(ticks, incident_pbp, specs, line_select=args.line_select)
     report = {
+        # Provenance so a quant reading this JSON in a notebook can verify freshness
+        # + which snapshot produced it (a failed re-run leaves the prior file in place).
+        "generatedAt": datetime.now(timezone.utc).isoformat(),
         "snapshot": snap,
         "line_select": args.line_select,
         "n_control_games": len(pbp),
@@ -297,6 +304,16 @@ def cmd_far_calibration(args: argparse.Namespace) -> int:
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(report, indent=2, default=str))
     print(f"wrote {out} ({len(pbp)} control games, {recall['n_scored']}/{recall['n_incidents']} scoreable incidents)")
+    # A valid snapshot can still yield a degenerate run (no control coverage / nothing
+    # scored). It is not an exception, so say so LOUDLY on stderr rather than leaving a
+    # quant to infer it from zeros buried in the JSON.
+    if len(pbp) == 0 or all_summary["n_scored_pairs"] == 0:
+        print(
+            f"WARNING: degenerate FAR run — {len(pbp)} control games, "
+            f"{all_summary['n_scored_pairs']} scored pairs. Check the snapshot has rebound "
+            "prop ticks + control-game PBP before trusting these numbers.",
+            file=sys.stderr,
+        )
     _print_json(
         {
             "all_control": {k: all_summary[k] for k in ("n_scored_pairs", "abstention_rate", "per_rebound_far")},
