@@ -19,18 +19,20 @@ snapshot such as
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import nbformat
 from nbformat.v4 import new_code_cell, new_markdown_cell, new_notebook
 
-# Resolve the repo root from this file: research/cli/bootstrap.py ->
-# .../apps/nba-sidecar/src/nba_sidecar/research/cli/ ; the repo root is six
-# parents up (cli -> research -> nba_sidecar -> src -> nba-sidecar -> apps -> root).
-_REPO_ROOT = Path(__file__).resolve().parents[6]
-DEFAULT_NOTEBOOK_PATH = _REPO_ROOT / "notebooks" / "quant-lab-starter.ipynb"
+# Repo-relative defaults (the pnpm-quant wrapper runs the sidecar with cwd=repo-root);
+# no depth-counted parents[N] or machine-specific path. The snapshot default comes
+# from the NBA_RESEARCH_SNAPSHOT_PATH config env (the repo's hermetic-snapshot
+# convention, see test_separation.py) when set.
+DEFAULT_NOTEBOOK_PATH = Path("notebooks", "quant-lab-starter.ipynb")
+_ENV_SNAPSHOT = os.environ.get("NBA_RESEARCH_SNAPSHOT_PATH")
 DEFAULT_SNAPSHOT_PATH = (
-    _REPO_ROOT / "outputs" / "nba-quant-lab" / "snapshots" / "sample-fixed"
+    Path(_ENV_SNAPSHOT) if _ENV_SNAPSHOT else Path("outputs", "nba-quant-lab", "snapshots", "sample-fixed")
 )
 
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -427,8 +428,14 @@ def build_parser() -> argparse.ArgumentParser:
     p_far.add_argument("snapshot")
     p_far.add_argument(
         "--gold",
-        default=str(Path.home() / "signal-console" / "data" / "signal-console.sqlite"),
-        help="gold DB path (read-only) for control-game PBP",
+        # Config-driven: the GOLD_DB_PATH / SIGNAL_CONSOLE_DB_PATH env (the same the
+        # TS scripts + packages/db use), else the canonical home-relative gold DB.
+        default=(
+            os.environ.get("GOLD_DB_PATH")
+            or os.environ.get("SIGNAL_CONSOLE_DB_PATH")
+            or str(Path.home() / "signal-console" / "data" / "signal-console.sqlite")
+        ),
+        help="gold DB path (read-only) for control-game PBP; overrides GOLD_DB_PATH env",
     )
     p_far.add_argument("--out", default="outputs/nba-quant-lab/far_calibration.json")
     p_far.add_argument(
