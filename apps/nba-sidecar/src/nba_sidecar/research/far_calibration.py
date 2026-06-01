@@ -190,4 +190,129 @@ def oncourt_quality(pbp_by_game: dict[str, list[dict[str, Any]]]) -> dict[str, A
     }
 
 
-__all__ = ["DEFAULT_THRESHOLDS", "score_control_pairs", "summarize_far", "oncourt_quality"]
+def incident_recall_matched(
+    ticks_df: pd.DataFrame,
+    pbp_by_game: dict[str, list[dict[str, Any]]],
+    incidents: list[dict[str, Any]],
+    *,
+    params: AttributionParams | None = None,
+    thresholds: tuple[float, ...] = DEFAULT_THRESHOLDS,
+    match_window_sec: float = 300.0,
+) -> dict[str, Any]:
+    """Push each known incident through the SAME candidate path used for FAR, so
+    recall (TPR) and false-alarm rate share an operating point (advisor).
+
+    For each incident {id, game_id, credited_last, rightful_last, event_epoch}:
+    locate the rebound credited to ``credited_last`` nearest ``event_epoch`` (within
+    ``match_window_sec``), score all its (credited, teammate) candidates, and record
+    whether the rightful is on court, its score, its rank among candidates BY SCORE
+    and BY the rebounds_so_far prior, and whether it is the score-argmax. The
+    by-prior vs by-score ranks directly test whether prior-pruning would keep or
+    discard the true rightful.
+
+    Honest denominators are all reported separately (n_incidents >= n_matched >=
+    n_rightful_oncourt >= n_scored); with a handful of incidents every rate has a
+    CI spanning most of [0,1] — the caller MUST surface N alongside any TPR."""
+    p = params or AttributionParams()
+    by_game = {gid: sub for gid, sub in ticks_df.groupby("game_id", sort=False)} if not ticks_df.empty else {}
+    out_rows: list[dict[str, Any]] = []
+    for inc in incidents:
+        gid = inc["game_id"]
+        row: dict[str, Any] = {
+            "id": inc.get("id"),
+            "game_id": gid,
+            "credited_last": inc.get("credited_last"),
+            "rightful_last": inc.get("rightful_last"),
+            "matched": False,
+            "rightful_oncourt": None,
+            "rightful_score": None,
+            "max_score": None,
+            "rank_by_score": None,
+            "rank_by_prior": None,
+            "is_score_argmax": None,
+        }
+        actions = pbp_by_game.get(gid)
+        cl, rl, ev = inc.get("credited_last") or "", inc.get("rightful_last") or "", inc.get("event_epoch")
+        if not actions or not cl or not rl or ev is None:
+            row["reason"] = "missing pbp/credited/rightful/event"
+            out_rows.append(row)
+            continue
+        by_action: dict[int, list] = {}
+        for c in rebound_candidates(actions, game_id=gid):
+            by_action.setdefault(c.action_number, []).append(c)
+        best_action, best_dt = None, match_window_sec
+        for action_number, cs in by_action.items():
+            if last_name(cs[0].credited_name or "") != cl:
+                continue
+            t = _epoch(cs[0].time_actual)
+            if t is None:
+                continue
+            dt = abs(t - ev)
+            if dt <= best_dt:
+                best_dt, best_action = dt, action_number
+        if best_action is None:
+            row["reason"] = "no credited rebound within match window"
+            out_rows.append(row)
+            continue
+        row["matched"] = True
+        row["match_dt_sec"] = round(best_dt)
+        cs = by_action[best_action]
+        scorer = _make_aggregate_scorer(by_game.get(gid, ticks_df.iloc[0:0]), p)
+        scored = []
+        for c in cs:
+            ps, _ = scorer(c.credited_name or "", c.candidate_name or "", c.time_actual or "")
+            scored.append(
+                {
+                    "last": last_name(c.candidate_name or ""),
+                    "score": None if ps is None else ps.score,
+                    "prior": c.candidate_rebounds_so_far,
+                }
+            )
+        rightful = next((s for s in scored if s["last"] == rl), None)
+        row["rightful_oncourt"] = rightful is not None
+        if rightful is None:
+            out_rows.append(row)
+            continue
+        scored_vals = [s["score"] for s in scored if s["score"] is not None]
+        row["rank_by_prior"] = sorted(scored, key=lambda s: -s["prior"]).index(rightful) + 1
+        if rightful["score"] is not None:
+            row["rightful_score"] = rightful["score"]
+            row["max_score"] = max(scored_vals) if scored_vals else None
+            row["rank_by_score"] = sorted(scored_vals, reverse=True).index(rightful["score"]) + 1
+            row["is_score_argmax"] = rightful["score"] == max(scored_vals)
+        out_rows.append(row)
+
+    matched = [r for r in out_rows if r["matched"]]
+    oncourt = [r for r in matched if r["rightful_oncourt"]]
+    scored = [r for r in oncourt if r["rightful_score"] is not None]
+    tpr_per_pair = {
+        th: (sum(1 for r in scored if r["rightful_score"] >= th) / len(scored)) if scored else None
+        for th in thresholds
+    }
+    tpr_argmax = {
+        th: (sum(1 for r in scored if r["is_score_argmax"] and r["max_score"] >= th) / len(scored)) if scored else None
+        for th in thresholds
+    }
+    return {
+        "n_incidents": len(out_rows),
+        "n_matched": len(matched),
+        "n_rightful_oncourt": len(oncourt),
+        "n_scored": len(scored),
+        "thresholds": list(thresholds),
+        # TPR over the n_scored denominator (NOT n_incidents) — recall conditional
+        # on a recoverable, liquid rebound. With n_scored tiny the CI ~= [0,1].
+        "tpr_per_pair": tpr_per_pair,
+        "tpr_correct_argmax": tpr_argmax,
+        "rank_by_prior": [r["rank_by_prior"] for r in oncourt if r["rank_by_prior"] is not None],
+        "rank_by_score": [r["rank_by_score"] for r in scored if r["rank_by_score"] is not None],
+        "incidents": out_rows,
+    }
+
+
+__all__ = [
+    "DEFAULT_THRESHOLDS",
+    "score_control_pairs",
+    "summarize_far",
+    "oncourt_quality",
+    "incident_recall_matched",
+]

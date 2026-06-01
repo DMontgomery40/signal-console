@@ -201,7 +201,13 @@ def cmd_far_calibration(args: argparse.Namespace) -> int:
 
     import pyarrow.parquet as pq
 
-    from ..far_calibration import oncourt_quality, score_control_pairs, summarize_far
+    from ..attribution_snapshot import _epoch, last_name
+    from ..far_calibration import (
+        incident_recall_matched,
+        oncourt_quality,
+        score_control_pairs,
+        summarize_far,
+    )
     from ..loader import read_player_prop_ticks
 
     snap = args.snapshot
@@ -212,24 +218,49 @@ def cmd_far_calibration(args: argparse.Namespace) -> int:
     epi_games = set(epi["game_id"].dropna())
     control = sorted(set(ticks["game_id"].unique()) - inc_games)
 
+    pbp_cols = (
+        "SELECT action_number, action_type, sub_type, person_id, team_tricode, "
+        "player_name, period, clock, time_actual FROM nba_play_by_play_actions "
+        "WHERE game_id=? ORDER BY action_number"
+    )
     conn = sqlite3.connect(f"file:{args.gold}?mode=ro", uri=True)
     conn.row_factory = sqlite3.Row
-    pbp: dict[str, list[dict]] = {}
-    for gid in control:
-        rows = conn.execute(
-            "SELECT action_number, action_type, sub_type, person_id, team_tricode, "
-            "player_name, period, clock, time_actual FROM nba_play_by_play_actions "
-            "WHERE game_id=? ORDER BY action_number",
-            (gid,),
-        ).fetchall()
-        if rows:
-            pbp[gid] = [dict(r) for r in rows]
+
+    def load_pbp(game_ids: list[str]) -> dict[str, list[dict]]:
+        out: dict[str, list[dict]] = {}
+        for gid in game_ids:
+            rows = conn.execute(pbp_cols, (gid,)).fetchall()
+            if rows:
+                out[gid] = [dict(r) for r in rows]
+        return out
+
+    pbp = load_pbp(control)
+
+    # Matched recall: push player_swap incidents through the SAME candidate path so
+    # TPR and FAR share an operating point. Incident games' prop ticks are in the
+    # snapshot (truth-bearing is always exported); PBP comes from gold.
+    specs = []
+    for _, r in inc[inc["scoreable"] == True].iterrows():  # noqa: E712 (pandas mask)
+        cl, rl = last_name(str(r["credited_player"])), last_name(str(r["rightful_player"]))
+        ev = r.get("event_sec")
+        if cl and rl and ev is not None:
+            specs.append(
+                {
+                    "id": r.get("incident_id"),
+                    "game_id": r["canonical_game_id"],
+                    "credited_last": cl,
+                    "rightful_last": rl,
+                    "event_epoch": float(ev),
+                }
+            )
+    incident_pbp = load_pbp(sorted({s["game_id"] for s in specs}))
     conn.close()
 
     quality = oncourt_quality(pbp)
     scored = score_control_pairs(ticks, pbp, line_select=args.line_select)
     all_summary = summarize_far(scored)
     pure = summarize_far([r for r in scored if r["game_id"] not in epi_games])
+    recall = incident_recall_matched(ticks, incident_pbp, specs)
     report = {
         "snapshot": snap,
         "line_select": args.line_select,
@@ -238,15 +269,20 @@ def cmd_far_calibration(args: argparse.Namespace) -> int:
         "data_quality": quality,
         "all_control": all_summary,
         "pure_control": pure,
+        "matched_recall": recall,
     }
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(report, indent=2, default=str))
-    print(f"wrote {out} ({len(pbp)} control games, line_select={args.line_select})")
+    print(f"wrote {out} ({len(pbp)} control games, {recall['n_scored']}/{recall['n_incidents']} scoreable incidents)")
     _print_json(
         {
             "all_control": {k: all_summary[k] for k in ("n_scored_pairs", "abstention_rate", "per_rebound_far")},
             "pure_control": {k: pure[k] for k in ("n_scored_pairs", "per_rebound_far")},
+            "matched_recall": {
+                k: recall[k]
+                for k in ("n_incidents", "n_matched", "n_rightful_oncourt", "n_scored", "tpr_per_pair", "rank_by_prior", "rank_by_score")
+            },
             "data_quality": quality,
         }
     )

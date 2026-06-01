@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import pandas as pd
 
+from nba_sidecar.research.attribution_snapshot import _epoch
 from nba_sidecar.research.far_calibration import (
+    incident_recall_matched,
     oncourt_quality,
     score_control_pairs,
     summarize_far,
@@ -78,6 +80,33 @@ def test_scored_pair_fires_above_threshold():
     summary = summarize_far(scored, thresholds=(0.0,))
     assert summary["n_scored_pairs"] >= 1
     assert summary["per_pair_far"][0.0] is not None
+
+
+def test_incident_recall_matched_locates_ranks_and_scores_rightful():
+    # anchored signature: credited (A. One) falls, rightful teammate (B. Two) rises
+    pre0, pre1 = "2026-01-01T00:08:30Z", "2026-01-01T00:09:00Z"
+    post0, post1 = "2026-01-01T00:13:30Z", "2026-01-01T00:14:00Z"
+    rows = []
+    for cap, p in ((pre0, 0.60), (pre1, 0.60), (post0, 0.40), (post1, 0.40)):
+        rows.append(("nba-x", "a-one", "bet365", 8.5, "rebounds", cap, p, 100))
+    for cap, p in ((pre0, 0.40), (pre1, 0.40), (post0, 0.60), (post1, 0.60)):
+        rows.append(("nba-x", "b-two", "bet365", 6.5, "rebounds", cap, p, 100))
+    inc = [{"id": "i1", "game_id": "nba-x", "credited_last": "one", "rightful_last": "two",
+            "event_epoch": _epoch("2026-01-01T00:10:00Z")}]
+    res = incident_recall_matched(_ticks(rows), PBP, inc, thresholds=(0.0, 0.02))
+    assert (res["n_incidents"], res["n_matched"], res["n_rightful_oncourt"], res["n_scored"]) == (1, 1, 1, 1)
+    r = res["incidents"][0]
+    assert r["rightful_oncourt"] and r["rightful_score"] > 0 and r["is_score_argmax"] is True
+    assert res["tpr_per_pair"][0.0] == 1.0
+    assert res["tpr_correct_argmax"][0.0] == 1.0
+
+
+def test_incident_recall_matched_unmatched_when_no_credited_rebound():
+    inc = [{"id": "i2", "game_id": "nba-x", "credited_last": "nobody", "rightful_last": "two",
+            "event_epoch": _epoch("2026-01-01T00:10:00Z")}]
+    res = incident_recall_matched(_ticks([]), PBP, inc)
+    assert res["n_incidents"] == 1 and res["n_matched"] == 0
+    assert res["incidents"][0]["reason"] == "no credited rebound within match window"
 
 
 def test_oncourt_quality_clean_game():
