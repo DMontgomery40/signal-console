@@ -331,6 +331,28 @@ export function getLatestFarCalibration(
   return { farCalibration: isRecord(parsed) ? parsed : null };
 }
 
+/* --------------------------- confluence eval ------------------------------ */
+
+export interface ResearchConfluenceEvalPayload {
+  /** The latest whole-board confluence gate + operating-point report, or null. */
+  readonly confluenceEval: Record<string, unknown> | null;
+}
+
+/**
+ * Root-level confluence_eval.json emitted by `pnpm quant confluence-eval` (the
+ * third-model eval-first: a falsification gate — do incidents stand out vs their
+ * own game? — plus the operating-point bar of >=70% recall at <=3:1 false alarms).
+ * The gate can pass while the bar fails; the UI shows both. Absent/malformed ->
+ * { confluenceEval: null }; never throws.
+ */
+export function getLatestConfluenceEval(
+  options: ResearchServiceOptions = {},
+): ResearchConfluenceEvalPayload {
+  const outputRoot = options.outputRoot ?? DEFAULT_RESEARCH_OUTPUT_ROOT;
+  const parsed = safeReadJson(join(outputRoot, "confluence_eval.json"));
+  return { confluenceEval: isRecord(parsed) ? parsed : null };
+}
+
 /* ----------------------------- harvested labels --------------------------- */
 
 export interface ResearchHarvestedLabelsPayload {

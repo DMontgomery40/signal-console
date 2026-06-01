@@ -831,6 +831,13 @@ const researchFarCalibrationSchema = z.object({
   farCalibration: z.record(z.unknown()).nullable(),
 });
 
+// /v1/research/confluence-eval — { confluenceEval: object | null }. Free-form
+// report (gate_verdict/meets_bar + gate + operating_point with baseline_comparison);
+// read named fields defensively in the component.
+const researchConfluenceEvalSchema = z.object({
+  confluenceEval: z.record(z.unknown()).nullable(),
+});
+
 // /v1/research/harvested-labels — { harvestedLabels: object | null }. Free-form
 // report (generatedAt/source/incidentCount/incidents[]); read defensively.
 const researchHarvestedLabelsSchema = z.object({
@@ -872,6 +879,7 @@ export type ResearchSnapshot = z.infer<typeof researchSnapshotSchema>;
 export type ResearchLeaderboard = z.infer<typeof researchLeaderboardSchema>;
 export type ResearchAttribution = z.infer<typeof researchAttributionSchema>;
 export type ResearchFarCalibration = z.infer<typeof researchFarCalibrationSchema>;
+export type ResearchConfluenceEval = z.infer<typeof researchConfluenceEvalSchema>;
 export type ResearchHarvestedLabels = z.infer<typeof researchHarvestedLabelsSchema>;
 export type ResearchModel = z.infer<typeof researchModelSchema>;
 export type ResearchModels = z.infer<typeof researchModelsSchema>;
@@ -933,6 +941,14 @@ export function useResearchFarCalibration(): UseQueryResult<ResearchFarCalibrati
     queryKey: ["research-far-calibration"],
     queryFn: ({ signal }) =>
       fetchJson(`/v1/research/far-calibration`, researchFarCalibrationSchema, signal),
+  });
+}
+
+export function useResearchConfluenceEval(): UseQueryResult<ResearchConfluenceEval, Error> {
+  return useQuery({
+    queryKey: ["research-confluence-eval"],
+    queryFn: ({ signal }) =>
+      fetchJson(`/v1/research/confluence-eval`, researchConfluenceEvalSchema, signal),
   });
 }
 

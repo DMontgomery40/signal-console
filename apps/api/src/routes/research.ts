@@ -20,6 +20,7 @@ import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from "fastify";
 import {
   DEFAULT_RESEARCH_OUTPUT_ROOT,
   getLatestAttribution,
+  getLatestConfluenceEval,
   getLatestFarCalibration,
   getLatestHarvestedLabels,
   getLatestLeaderboard,
@@ -146,6 +147,14 @@ const farCalibrationResponseSchema = {
   required: ["farCalibration"],
   properties: {
     farCalibration: { type: ["object", "null"], additionalProperties: true },
+  },
+} as const;
+
+const confluenceEvalResponseSchema = {
+  type: "object",
+  required: ["confluenceEval"],
+  properties: {
+    confluenceEval: { type: ["object", "null"], additionalProperties: true },
   },
 } as const;
 
@@ -393,6 +402,22 @@ const researchRoutes: FastifyPluginAsync<ResearchRoutesOptions> = (app, opts) =>
     },
     (_request: FastifyRequest, reply: FastifyReply) => {
       reply.send(getLatestFarCalibration({ outputRoot }));
+    },
+  );
+
+  app.get(
+    "/v1/research/confluence-eval",
+    {
+      schema: {
+        tags: ["research"],
+        summary: "Latest whole-board confluence gate + operating-point eval",
+        description:
+          "Read-only. Returns the root-level confluence_eval.json emitted by `pnpm quant confluence-eval` (the third-model eval-first: a falsification gate plus the operating-point bar of >=70% recall at <=3:1 false alarms). The gate can pass while the bar fails. Absent returns { confluenceEval: null }.",
+        response: { 200: confluenceEvalResponseSchema },
+      },
+    },
+    (_request: FastifyRequest, reply: FastifyReply) => {
+      reply.send(getLatestConfluenceEval({ outputRoot }));
     },
   );
 

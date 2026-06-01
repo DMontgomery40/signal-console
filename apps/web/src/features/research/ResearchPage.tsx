@@ -55,6 +55,7 @@ import { QueryErrorBanner } from "../../components/QueryErrorBanner";
 import {
   useResearchGold,
   useResearchAttribution,
+  useResearchConfluenceEval,
   useResearchFarCalibration,
   useResearchHarvestedLabels,
   useResearchLeaderboard,
@@ -1816,6 +1817,131 @@ function FarCalibration({
   );
 }
 
+function ConfluenceEval({
+  confluenceEval,
+}: {
+  readonly confluenceEval: Record<string, unknown> | null;
+}): JSX.Element {
+  const ce = confluenceEval ?? {};
+  const gateRaw = pick(ce, "gate");
+  const gate = isRecord(gateRaw) ? gateRaw : {};
+  const opRaw = pick(ce, "operating_point");
+  const op = isRecord(opRaw) ? opRaw : {};
+  const gateVerdict = str(pick(ce, "gate_verdict")) ?? str(pick(gate, "verdict"));
+  const meetsBarRaw = pick(ce, "meets_bar");
+  const meetsBar = typeof meetsBarRaw === "boolean" ? meetsBarRaw : undefined;
+  const fpAtBar = num(pick(op, "fp_ratio_at_target_recall"));
+  const auc = num(pick(gate, "secondary_rank_auc"));
+  const successes = num(pick(gate, "successes"));
+  const nEval = num(pick(gate, "n_evaluated"));
+  const mrRaw = pick(op, "max_recall_point");
+  const maxRecall = isRecord(mrRaw) ? mrRaw : {};
+  const ceiling = num(pick(maxRecall, "caught"));
+  const bcRaw = pick(op, "baseline_comparison");
+  const baselines = bcRaw !== undefined && Array.isArray(bcRaw) ? bcRaw : [];
+  const gateOk = gateVerdict === "VIABLE";
+  return (
+    <section data-testid="research-confluence-eval" className="space-y-3">
+      <SectionHeading>Whole-board confluence eval</SectionHeading>
+      <p className="max-w-[80ch] text-xs text-text-md" data-testid="research-confluence-eval-note">
+        Two-part eval-first of the whole-board confluence signal (distinct props moving together in
+        a 60s window). The <span className="text-text-hi">gate</span> asks if labeled
+        misattributions stand out against their OWN game; the{" "}
+        <span className="text-text-hi">bar</span> is the deployable operating point: catch ≥70% of
+        incidents at ≤3:1 false alarms. The gate can pass while the bar fails — a real signal can
+        still be too noisy to ship as a standalone classifier. With only ~15 labeled incidents the
+        false-alarm ratio is a LOWER BOUND (an unlabeled-but-real anomaly counts as a false
+        positive), so read it as a screen, not a verdict on the concept.
+      </p>
+      {confluenceEval === null ? (
+        <EmptyLine testid="research-confluence-eval-empty">
+          No confluence eval yet — run pnpm quant confluence-eval to populate this.
+        </EmptyLine>
+      ) : (
+        <>
+          <div className="flex flex-wrap gap-x-8 gap-y-2 bg-surface-1 px-5 py-4">
+            <span
+              className="font-mono text-sm tabular-nums"
+              data-testid="research-confluence-eval-gate"
+              data-verdict={gateVerdict ?? "—"}
+            >
+              <span className="text-text-lo">gate </span>
+              <span className={gateOk ? "text-accent-green" : "text-accent-yellow"}>
+                {gateVerdict ?? "—"}
+              </span>
+              {successes !== undefined && nEval !== undefined ? (
+                <span className="text-text-md">
+                  {" "}
+                  ({fmtNum(successes)}/{fmtNum(nEval)} standout
+                  {auc !== undefined ? `, AUC ${fmtNum(auc, 3)}` : ""})
+                </span>
+              ) : null}
+            </span>
+            <span
+              className="font-mono text-sm tabular-nums"
+              data-testid="research-confluence-eval-bar"
+              data-meets-bar={meetsBar === undefined ? "—" : String(meetsBar)}
+            >
+              <span className="text-text-lo">bar </span>
+              <span className={meetsBar === true ? "text-accent-green" : "text-accent-yellow"}>
+                {meetsBar === undefined ? "—" : meetsBar ? "PASS" : "FAIL"}
+              </span>
+              {fpAtBar !== undefined ? (
+                <span className="text-text-md"> (best ~{fmtNum(fpAtBar, 1)}:1 FP at target)</span>
+              ) : null}
+            </span>
+          </div>
+          {baselines.length > 0 ? (
+            <div
+              role="table"
+              aria-label="Confluence baseline comparison"
+              className="bg-surface-1 text-sm"
+            >
+              <div
+                role="row"
+                className="grid grid-cols-[1.2fr_1fr_1fr] gap-x-5 px-5 pb-2 pt-4 font-mono text-xs uppercase tracking-[0.06em] text-text-lo"
+              >
+                <span role="columnheader">Baseline</span>
+                <span role="columnheader">FP @ target recall</span>
+                <span role="columnheader">Recall ceiling</span>
+              </div>
+              {baselines.map((b, i) => {
+                const row = isRecord(b) ? b : {};
+                const name = str(pick(row, "baseline")) ?? `#${String(i)}`;
+                const fp = num(pick(row, "fp_ratio_at_target_recall"));
+                const rc = num(pick(row, "recall_ceiling"));
+                return (
+                  <div
+                    key={name}
+                    role="row"
+                    data-testid="research-confluence-eval-row"
+                    data-baseline={name}
+                    className="grid grid-cols-[1.2fr_1fr_1fr] items-baseline gap-x-5 px-5 py-2"
+                  >
+                    <span role="cell" className="font-mono text-xs tabular-nums text-text-md">
+                      {name}
+                    </span>
+                    <span role="cell" className="font-mono text-xs tabular-nums text-text-md">
+                      {fp === undefined ? "—" : `${fmtNum(fp, 1)}:1`}
+                    </span>
+                    <span role="cell" className="font-mono text-xs tabular-nums text-text-md">
+                      {rc === undefined ? "—" : fmtNum(rc)}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          ) : null}
+          <p className="font-mono text-xs text-text-lo" data-testid="research-confluence-eval-meta">
+            {ceiling !== undefined ? `recall ceiling ${fmtNum(ceiling)}/15` : ""}
+            {fpAtBar !== undefined ? ` · target FP ${fmtNum(fpAtBar, 1)}:1 (bar ≤3:1)` : ""}
+          </p>
+        </>
+      )}
+    </section>
+  );
+}
+
 function HarvestedLabels({
   harvestedLabels,
 }: {
@@ -1927,6 +2053,7 @@ export function ResearchPage(): JSX.Element {
   const pulls = useResearchPulls();
   const attribution = useResearchAttribution();
   const farCalibration = useResearchFarCalibration();
+  const confluenceEval = useResearchConfluenceEval();
   const harvestedLabels = useResearchHarvestedLabels();
 
   const goldData = gold.data;
@@ -1937,6 +2064,7 @@ export function ResearchPage(): JSX.Element {
   const modelRows = useMemo(() => models.data?.models ?? [], [models.data?.models]);
   const attributionData = attribution.data?.attribution ?? null;
   const farCalibrationData = farCalibration.data?.farCalibration ?? null;
+  const confluenceEvalData = confluenceEval.data?.confluenceEval ?? null;
   const harvestedLabelsData = harvestedLabels.data?.harvestedLabels ?? null;
 
   const hasSnapshot = snapshotData !== null;
@@ -1972,6 +2100,7 @@ export function ResearchPage(): JSX.Element {
     pulls,
     attribution,
     farCalibration,
+    confluenceEval,
     harvestedLabels,
   ];
   const networkErr = queries.find((q) => q.isError && isNetworkError(q.error));
@@ -2010,6 +2139,8 @@ export function ResearchPage(): JSX.Element {
       <AttributionReranker attribution={attributionData} />
 
       <FarCalibration farCalibration={farCalibrationData} />
+
+      <ConfluenceEval confluenceEval={confluenceEvalData} />
 
       <HarvestedLabels harvestedLabels={harvestedLabelsData} />
       <CasebookPreview hasSnapshot={hasSnapshot} />

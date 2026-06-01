@@ -329,6 +329,65 @@ def cmd_far_calibration(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_confluence_eval(args: argparse.Namespace) -> int:
+    # Third-model eval-first: run BOTH read-only confluence experiments over the gold
+    # corpus and emit confluence_eval.json at the output-tree root (the /research
+    # portal reads it alongside far_calibration.json + attribution_reranker.json).
+    #   1. killtest  -> falsification gate (do incidents stand out vs their OWN game?)
+    #   2. operating -> the real bar (>=70% recall at <=3:1 FP, deployable threshold)
+    # Front<->back fabric: python -> confluence_eval.json -> GET /v1/research/confluence-eval -> UI.
+    from ..experiments import confluence_killtest as ck
+    from ..experiments import confluence_operating_point as cop
+
+    db_path = args.gold
+    registry = args.registry
+    killtest = ck.run(db_path, registry)
+    operating = cop.run(db_path, registry)
+
+    report = {
+        # Provenance so a quant reading this in-app/in-notebook can verify freshness
+        # and which inputs produced it (a failed re-run leaves the prior file in place).
+        "generatedAt": datetime.now(timezone.utc).isoformat(),
+        "db_path": db_path,
+        "registry": registry,
+        # Headline the UI/operator reads first: the gate can pass while the bar fails.
+        "gate_verdict": killtest["verdict"],
+        "meets_bar": operating["meets_bar"],
+        "gate": killtest,
+        "operating_point": operating,
+    }
+    out = Path(args.out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(report, indent=2, default=str))
+    fp_bar = operating.get("fp_ratio_at_target_recall")
+    print(
+        f"wrote {out} (gate={killtest['verdict']} "
+        f"{killtest['successes']}/{killtest['n_evaluated']} standout; "
+        f"bar meets={operating['meets_bar']} fp@target={fp_bar}:1)"
+    )
+    # A passing gate with a failing bar is the expected, important state -- say it
+    # LOUDLY rather than letting an operator infer viability from the gate alone.
+    if killtest["verdict"] == "VIABLE" and not operating["meets_bar"]:
+        print(
+            "NOTE: confluence signal is REAL (gate passed) but the standalone count "
+            f"FAILS the bar (best ~{fp_bar}:1 FP at target recall vs <=3:1). It is a "
+            "screen, not a classifier -- needs richer features and/or Stage-2 attribution.",
+            file=sys.stderr,
+        )
+    _print_json(
+        {
+            "gate": {k: report["gate"][k] for k in ("verdict", "n_evaluated", "successes", "binomial_p_value", "secondary_rank_auc")},
+            "operating_point": {
+                "meets_bar": operating["meets_bar"],
+                "fp_ratio_at_target_recall": fp_bar,
+                "max_recall_point": operating.get("max_recall_point"),
+                "baseline_comparison": operating.get("baseline_comparison"),
+            },
+        }
+    )
+    return 0
+
+
 def cmd_emit_models(args: argparse.Namespace) -> int:
     # Emit outputs/nba-quant-lab/models.json from the registry so the /research
     # "Model lab" surfaces the REAL registered models (the API's getResearchModels
@@ -465,6 +524,32 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["most_active", "closest_to_half", "aggregate_drift"],
     )
     p_far.set_defaults(func=cmd_far_calibration)
+
+    p_conf = sub.add_parser(
+        "confluence-eval",
+        help="whole-board confluence falsification gate + operating-point bar; emit confluence_eval.json",
+    )
+    p_conf.add_argument(
+        "--gold",
+        # Config-driven, identical to far-calibration: GOLD_DB_PATH / SIGNAL_CONSOLE_DB_PATH
+        # env (the same the TS scripts + packages/db use), else the canonical gold DB.
+        default=(
+            os.environ.get("SIGNAL_CONSOLE_DB_PATH")
+            or os.environ.get("GOLD_DB_PATH")
+            or str(Path.home() / "signal-console" / "data" / "signal-console.sqlite")
+        ),
+        help="gold DB path (read-only); overrides SIGNAL_CONSOLE_DB_PATH/GOLD_DB_PATH env",
+    )
+    p_conf.add_argument(
+        "--registry",
+        default=(
+            os.environ.get("INCIDENT_REGISTRY_PATH")
+            or "outputs/nba-detector-bakeoff/research/incident-registry-expanded.json"
+        ),
+        help="labeled-incident registry; overrides INCIDENT_REGISTRY_PATH env",
+    )
+    p_conf.add_argument("--out", default="outputs/nba-quant-lab/confluence_eval.json")
+    p_conf.set_defaults(func=cmd_confluence_eval)
 
     p_em = sub.add_parser(
         "emit-models",
