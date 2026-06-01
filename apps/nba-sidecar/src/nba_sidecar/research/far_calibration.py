@@ -27,12 +27,63 @@ from typing import Any
 
 import pandas as pd
 
-from .attribution import AttributionParams
-from .attribution_snapshot import score_incident_snapshot
+from .attribution import AttributionParams, LegResult, leg_drift, paired_from_legs
+from .attribution_snapshot import _epoch, last_name, score_incident_snapshot
 from .candidates import rebound_candidates
 from .oncourt import infer_starters, oncourt_by_action, player_teams
 
 DEFAULT_THRESHOLDS: tuple[float, ...] = (0.0, 0.01, 0.02, 0.05, 0.1, 0.2)
+
+
+def _agg_from_series(series_list: list[list[tuple[float, float]]], t: float, params: AttributionParams) -> LegResult:
+    """Mean of the non-abstaining per-(source,line) drifts — the aggregate_drift
+    leg, computed from PRE-GROUPED series (identical to attribution_snapshot.
+    aggregate_leg_drift, but the grouping is hoisted out of the per-pair loop)."""
+    drifts: list[float] = []
+    total = 0
+    for ser in series_list:
+        lr = leg_drift(ser, t, params)
+        total += lr.n_ticks
+        if not lr.abstain and lr.drift is not None:
+            drifts.append(lr.drift)
+    if not drifts:
+        return LegResult(drift=None, n_ticks=total, abstain=True)
+    return LegResult(drift=sum(drifts) / len(drifts), n_ticks=total, abstain=False)
+
+
+def _make_aggregate_scorer(game_ticks: pd.DataFrame, params: AttributionParams):
+    """Closure scoring (credited, rightful) NAME pairs for ONE game, caching each
+    player's (source,line) series so repeated candidates don't re-group the slice."""
+    empty = game_ticks.empty
+    cache: dict[str, list[list[tuple[float, float]]]] = {}
+
+    def series_for(player_last: str) -> list[list[tuple[float, float]]]:
+        if player_last in cache:
+            return cache[player_last]
+        out: list[list[tuple[float, float]]] = []
+        if player_last and not empty:
+            sub = game_ticks[game_ticks["player_key"].str.lower().str.endswith(player_last, na=False)]
+            for _, g in sub.groupby(["source", "line"], dropna=False):
+                ser: list[tuple[float, float]] = []
+                for captured_at, prob in zip(g["captured_at"], g["implied_probability"]):
+                    e = _epoch(captured_at)
+                    if e is not None and pd.notna(prob):
+                        ser.append((e, float(prob)))
+                out.append(ser)
+        cache[player_last] = out
+        return out
+
+    def score(credited_name: str, rightful_name: str, event_iso: str):
+        cl, rl = last_name(credited_name), last_name(rightful_name)
+        stratum = "player_swap" if (cl and rl) else "team_dispute"
+        t = _epoch(event_iso)
+        if t is None:
+            return None, stratum
+        c_leg = _agg_from_series(series_for(cl), t, params)
+        r_leg = _agg_from_series(series_for(rl), t, params)
+        return paired_from_legs(c_leg, r_leg), stratum
+
+    return score
 
 
 def score_control_pairs(
@@ -42,14 +93,18 @@ def score_control_pairs(
     params: AttributionParams | None = None,
     line_select: str = "aggregate_drift",
 ) -> list[dict[str, Any]]:
-    """Score every (credited, teammate) candidate pair on the given games."""
+    """Score every (credited, teammate) candidate pair on the given games.
+
+    Pre-slices ticks per game ONCE (the full df is millions of rows). For the
+    default aggregate_drift mode it also caches each player's (source,line) series
+    per game, so scoring is O(players + pairs) instead of O(pairs * groupby) while
+    staying numerically identical to attribution_snapshot.aggregate_leg_drift."""
+    p = params or AttributionParams()
     rows: list[dict[str, Any]] = []
-    # Pre-slice ticks per game ONCE (the full df can be millions of rows; filtering
-    # it per candidate pair would be O(pairs * rows)). Each per-game slice is small,
-    # so score_incident_snapshot's internal game_id filter is then cheap.
     by_game = {gid: sub for gid, sub in ticks_df.groupby("game_id", sort=False)} if not ticks_df.empty else {}
     for game_id, actions in pbp_by_game.items():
         game_ticks = by_game.get(game_id, ticks_df.iloc[0:0])
+        fast = _make_aggregate_scorer(game_ticks, p) if line_select == "aggregate_drift" else None
         for c in rebound_candidates(actions, game_id=game_id):
             base = {
                 "game_id": game_id,
@@ -60,15 +115,18 @@ def score_control_pairs(
             if not c.time_actual or not c.credited_name or not c.candidate_name:
                 rows.append({**base, "stratum": "player_swap", "support": "insufficient_inputs", "score": None})
                 continue
-            ps, stratum = score_incident_snapshot(
-                game_ticks,
-                game_id=game_id,
-                credited_player=c.credited_name,
-                rightful_player=c.candidate_name,
-                event_iso=c.time_actual,
-                params=params,
-                line_select=line_select,
-            )
+            if fast is not None:
+                ps, stratum = fast(c.credited_name, c.candidate_name, c.time_actual)
+            else:
+                ps, stratum = score_incident_snapshot(
+                    game_ticks,
+                    game_id=game_id,
+                    credited_player=c.credited_name,
+                    rightful_player=c.candidate_name,
+                    event_iso=c.time_actual,
+                    params=p,
+                    line_select=line_select,
+                )
             rows.append(
                 {
                     **base,

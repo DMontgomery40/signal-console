@@ -191,6 +191,68 @@ def cmd_attribution_eval(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_far_calibration(args: argparse.Namespace) -> int:
+    # Falsification test for the signed-paired re-ranker: fire-rate on assumed-
+    # negative (non-incident) games. Reads prop ticks from the snapshot + PBP from
+    # the gold DB (read-only) to generate candidate pairs, scores them through the
+    # SAME path incidents use, and writes far_calibration.json (the /research
+    # portal reads it alongside attribution_reranker.json). Front<->back fabric.
+    import sqlite3
+
+    import pyarrow.parquet as pq
+
+    from ..far_calibration import oncourt_quality, score_control_pairs, summarize_far
+    from ..loader import read_player_prop_ticks
+
+    snap = args.snapshot
+    ticks = read_player_prop_ticks(snap)
+    inc = pq.read_table(str(Path(snap) / "incidents.parquet")).to_pandas()
+    inc_games = set(inc["canonical_game_id"].dropna())
+    epi = pq.read_table(str(Path(snap) / "market_outlier_episodes.parquet")).to_pandas()
+    epi_games = set(epi["game_id"].dropna())
+    control = sorted(set(ticks["game_id"].unique()) - inc_games)
+
+    conn = sqlite3.connect(f"file:{args.gold}?mode=ro", uri=True)
+    conn.row_factory = sqlite3.Row
+    pbp: dict[str, list[dict]] = {}
+    for gid in control:
+        rows = conn.execute(
+            "SELECT action_number, action_type, sub_type, person_id, team_tricode, "
+            "player_name, period, clock, time_actual FROM nba_play_by_play_actions "
+            "WHERE game_id=? ORDER BY action_number",
+            (gid,),
+        ).fetchall()
+        if rows:
+            pbp[gid] = [dict(r) for r in rows]
+    conn.close()
+
+    quality = oncourt_quality(pbp)
+    scored = score_control_pairs(ticks, pbp, line_select=args.line_select)
+    all_summary = summarize_far(scored)
+    pure = summarize_far([r for r in scored if r["game_id"] not in epi_games])
+    report = {
+        "snapshot": snap,
+        "line_select": args.line_select,
+        "n_control_games": len(pbp),
+        "n_pure_control_games": len(set(pbp) - epi_games),
+        "data_quality": quality,
+        "all_control": all_summary,
+        "pure_control": pure,
+    }
+    out = Path(args.out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(report, indent=2, default=str))
+    print(f"wrote {out} ({len(pbp)} control games, line_select={args.line_select})")
+    _print_json(
+        {
+            "all_control": {k: all_summary[k] for k in ("n_scored_pairs", "abstention_rate", "per_rebound_far")},
+            "pure_control": {k: pure[k] for k in ("n_scored_pairs", "per_rebound_far")},
+            "data_quality": quality,
+        }
+    )
+    return 0
+
+
 def cmd_emit_models(args: argparse.Namespace) -> int:
     # Emit outputs/nba-quant-lab/models.json from the registry so the /research
     # "Model lab" surfaces the REAL registered models (the API's getResearchModels
@@ -299,6 +361,23 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["most_active", "closest_to_half", "aggregate_drift"],
     )
     p_attr.set_defaults(func=cmd_attribution_eval)
+
+    p_far = sub.add_parser(
+        "far-calibration",
+        help="false-alarm-rate of the re-ranker on non-incident control games; emit far_calibration.json",
+    )
+    p_far.add_argument("snapshot")
+    p_far.add_argument(
+        "--gold",
+        default=str(Path.home() / "signal-console" / "data" / "signal-console.sqlite"),
+        help="gold DB path (read-only) for control-game PBP",
+    )
+    p_far.add_argument("--out", default="outputs/nba-quant-lab/far_calibration.json")
+    p_far.add_argument(
+        "--line-select", default="aggregate_drift",
+        choices=["most_active", "closest_to_half", "aggregate_drift"],
+    )
+    p_far.set_defaults(func=cmd_far_calibration)
 
     p_em = sub.add_parser(
         "emit-models",
