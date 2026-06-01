@@ -319,8 +319,12 @@ describe("ResearchPage", () => {
       "team_dispute",
     ]);
     // the line-select footnote surfaces the chosen strategy; not the live signal
-    expect(screen.getByTestId("research-attribution-meta").textContent).toContain("aggregate_drift");
-    expect(screen.getByTestId("research-attribution-note").textContent).toContain("not the live suspend signal");
+    expect(screen.getByTestId("research-attribution-meta").textContent).toContain(
+      "aggregate_drift",
+    );
+    expect(screen.getByTestId("research-attribution-note").textContent).toContain(
+      "not the live suspend signal",
+    );
   });
 
   it("renders the FAR calibration section (per-pair/per-rebound FAR + matched recall) with honest N", async () => {
@@ -330,12 +334,20 @@ describe("ResearchPage", () => {
     expect(await screen.findByTestId("research-far-calibration")).not.toBeNull();
     const rows = await screen.findAllByTestId("research-far-calibration-row");
     // one row per threshold (0.01, 0.02, 0.05, 0.1, 0.2)
-    expect(rows.map((r) => r.getAttribute("data-threshold"))).toEqual(["0.01", "0.02", "0.05", "0.1", "0.2"]);
+    expect(rows.map((r) => r.getAttribute("data-threshold"))).toEqual([
+      "0.01",
+      "0.02",
+      "0.05",
+      "0.1",
+      "0.2",
+    ]);
     const meta = screen.getByTestId("research-far-calibration-meta").textContent;
     expect(meta).toContain("control games 163");
     // matched recall is surfaced WITH its N (2 of 9), never as a bare point estimate
     expect(meta).toContain("matched recall n 2 / 9");
-    expect(screen.getByTestId("research-far-calibration-note").textContent).toContain("label-starved");
+    expect(screen.getByTestId("research-far-calibration-note").textContent).toContain(
+      "label-starved",
+    );
   });
 
   it("FAR calibration shows the empty state when no report is present", async () => {

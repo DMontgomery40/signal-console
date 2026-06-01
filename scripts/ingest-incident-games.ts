@@ -54,6 +54,7 @@ async function main(): Promise<void> {
   console.log(
     `ingesting ${games.length} incident game(s) -> ${process.env.SIGNAL_CONSOLE_DB_PATH}`,
   );
+  let failed = 0;
   for (const raw of games) {
     try {
       const box = await fetchCdnBoxscore(raw);
@@ -82,9 +83,14 @@ async function main(): Promise<void> {
       );
     } catch (err) {
       console.error(`  nba-${raw}: FAILED — ${err instanceof Error ? err.message : String(err)}`);
+      failed += 1;
     }
   }
-  console.log("done.");
+  console.log(`done (${games.length - failed}/${games.length} ok, ${failed} failed).`);
+  if (failed > 0) process.exitCode = 1;
 }
 
-void main();
+main().catch((err: unknown) => {
+  console.error(err instanceof Error ? err.message : String(err));
+  process.exitCode = 1;
+});

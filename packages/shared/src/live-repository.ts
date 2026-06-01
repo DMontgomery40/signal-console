@@ -2852,7 +2852,9 @@ export function harvestMiscreditLabels(options?: {
       // null/Merrill, a feed dropping the id) is the SAME entity and must NEVER become a
       // creditedPlayer===rightfulPlayer self-label.
       const creditedName =
-        first.fromPersonId === null && (first.fromPlayer ?? null) === null ? "TEAM" : first.fromPlayer;
+        first.fromPersonId === null && (first.fromPlayer ?? null) === null
+          ? "TEAM"
+          : first.fromPlayer;
       const rightfulName = last.toPlayer;
       const sameEntity =
         (first.fromPersonId !== null && first.fromPersonId === last.toPersonId) ||

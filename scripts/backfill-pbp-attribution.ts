@@ -38,15 +38,21 @@ const DEFAULT_GAMES = [
 function parseArgGames(): string[] {
   const i = process.argv.indexOf("--games");
   const raw = i >= 0 ? process.argv[i + 1] : undefined;
-  if (raw) {
-    return raw.split(",").map((s) => s.trim()).filter(Boolean);
+  if (raw !== undefined && raw !== "") {
+    return raw
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
   }
   return DEFAULT_GAMES;
 }
 
 async function main(): Promise<void> {
   const games = parseArgGames();
-  console.log(`backfilling PBP attribution for ${games.length} games -> ${process.env.SIGNAL_CONSOLE_DB_PATH}`);
+  console.log(
+    `backfilling PBP attribution for ${games.length} games -> ${process.env.SIGNAL_CONSOLE_DB_PATH}`,
+  );
+  let failed = 0;
   for (const raw of games) {
     try {
       const { actions, generatedAt } = await fetchCdnPbp(raw);
@@ -61,10 +67,15 @@ async function main(): Promise<void> {
         `  nba-${raw}: seen=${result.actionsSeen} written=${result.actionsWritten} withPersonId=${withPerson}`,
       );
     } catch (err) {
-      console.error(`  nba-${raw}: FAILED — ${(err as Error).message}`);
+      console.error(`  nba-${raw}: FAILED — ${err instanceof Error ? err.message : String(err)}`);
+      failed += 1;
     }
   }
-  console.log("done.");
+  console.log(`done (${games.length - failed}/${games.length} ok, ${failed} failed).`);
+  if (failed > 0) process.exitCode = 1;
 }
 
-void main();
+main().catch((err: unknown) => {
+  console.error(err instanceof Error ? err.message : String(err));
+  process.exitCode = 1;
+});

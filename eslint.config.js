@@ -96,6 +96,13 @@ module.exports = tseslint.config(
       // research-pull is orchestration infra (like adapters/shared); held to the
       // same relaxed type-aware bar, not the detectors strict/functional bar.
       "packages/research-pull/**/*.{ts,tsx}",
+      // scripts/ are operational/orchestration infra and their typecheck compiles
+      // transitive package SOURCE under the relaxed package flags (scripts/tsconfig
+      // sets noUncheckedIndexedAccess/exactOptionalPropertyTypes false to match the
+      // packages, see audit F-012). Holding the scripts to a STRICTER type-aware bar
+      // than the source they compile makes no-unnecessary-condition misfire on
+      // defensive index-access guards; relax them to the same bar as that source.
+      "scripts/**/*.{ts,tsx}",
     ],
     rules: relaxedTypeAwareRuleOverrides,
   },

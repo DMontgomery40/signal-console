@@ -13,13 +13,13 @@ real gold-DB snapshot. N is small and is disclosed throughout (see §5).
 
 Only surfaces where detector math touches runtime behavior were read.
 
-| Surface | Files | Why |
-|---|---|---|
-| Live filter math (only runtime) | `apps/nba-sidecar/src/nba_sidecar/volatility.py`, `models.py` | The canonical detector. Establishes latent state, observation, fire rule. |
-| Detector config/params + bounds | `packages/detectors/src/board-mad/state-space-config.ts`, `params.ts`, `config.ts`, `state-space-bounds.json` | The tunable surface contract a new covariate must satisfy. |
-| Board-intensity construction | `apps/api/src/services/board-volatility-model.ts`, `board.ts`, `board-mad-context.ts` | Where raw quotes collapse to the scalar series; the granularity question. |
-| Defaults/API/backtest/cache | `data/detector-defaults.json`, `detector-defaults.ts`, `detector-runner.ts`, routes | Cache identity + version mechanics. |
-| UI + explainers | `SensitivityDial.tsx`, `state-space-guided-fields.ts`, `packages/ui/src/explainers.ts` | What the product tells the operator the signal *means*. |
+| Surface                                   | Files                                                                                                                                                                                                                                                                                                                                    | Why                                                                                                       |
+| ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| Live filter math (only runtime)           | `apps/nba-sidecar/src/nba_sidecar/volatility.py`, `models.py`                                                                                                                                                                                                                                                                            | The canonical detector. Establishes latent state, observation, fire rule.                                 |
+| Detector config/params + bounds           | `packages/detectors/src/board-mad/state-space-config.ts`, `params.ts`, `config.ts`, `state-space-bounds.json`                                                                                                                                                                                                                            | The tunable surface contract a new covariate must satisfy.                                                |
+| Board-intensity construction              | `apps/api/src/services/board-volatility-model.ts`, `board.ts`, `board-mad-context.ts`                                                                                                                                                                                                                                                    | Where raw quotes collapse to the scalar series; the granularity question.                                 |
+| Defaults/API/backtest/cache               | `data/detector-defaults.json`, `detector-defaults.ts`, `detector-runner.ts`, routes                                                                                                                                                                                                                                                      | Cache identity + version mechanics.                                                                       |
+| UI + explainers                           | `SensitivityDial.tsx`, `state-space-guided-fields.ts`, `packages/ui/src/explainers.ts`                                                                                                                                                                                                                                                   | What the product tells the operator the signal _means_.                                                   |
 | **NBA Quant Lab** (the home of the slice) | `apps/nba-sidecar/src/nba_sidecar/research/**` (models/base, robust_mad, state_space_current, template; evaluation/scorer, truth, doctor, casebook; loader; contracts/schemas, columns), `packages/research-truth/**`, `scripts/export-quant-snapshot.ts`, `scripts/quant.ts`, `docs/nba-quant-lab.md`, `docs/quant-researcher-guide.md` | The offline, leakage-aware test-bed where candidate models plug in and are scored against incident truth. |
 
 ---
@@ -39,7 +39,7 @@ Baked-in assumptions:
 
 1. **The board is one process.** A player-prop spike and a moneyline spike are
    interchangeable contributions to one scalar.
-2. **A miscredit produces a *distinctive, detectable* board shock** — i.e. magnitude
+2. **A miscredit produces a _distinctive, detectable_ board shock** — i.e. magnitude
    surprise is a sufficient statistic for "something around a play deserves review."
 3. **Confidence is a deterministic function of magnitude** (`regimeScore = z⁺/enter_z`);
    there is no floor coupling confidence to evidence breadth. A single-source spike can
@@ -52,12 +52,12 @@ Baked-in assumptions:
 
 The expensive error in this product is the **false positive** (every fire = an operator
 reviews/suspends markets) and the **missed incident** (bad state keeps trading). A
-miscredit is a *structural* event — probability mass that should sit on player B's market
+miscredit is a _structural_ event — probability mass that should sit on player B's market
 is being priced as if it belongs to player A — and its market footprint need not be a large
-*board-wide* move at all. It can be:
+_board-wide_ move at all. It can be:
 
 - **moderate** (a single prop repricing), not a board-wide shock;
-- **feed-shared** — every book consumes the same wrong official feed and all move *together*
+- **feed-shared** — every book consumes the same wrong official feed and all move _together_
   (low cross-source disagreement), so "disagreement" is the wrong tell for the common case;
 - **near-zero** — the correction never moved the snapshot-eligible board enough to see.
 
@@ -66,26 +66,26 @@ A pooled-scalar magnitude detector is geometrically blind to all three.
 ### 2.3 Three candidate directions (meaningfully different)
 
 - **(A) Evidence-breadth-bounded confidence / fail-closed-on-narrow-support.** Keep a robust
-  surprise score but *bound confidence* by a support vector (source_count, active_market_count,
+  surprise score but _bound confidence_ by a support vector (source_count, active_market_count,
   1−dominance); a narrow single-source spike cannot earn high confidence and is suppressed.
   This is the "Nash-style uncertainty" inspiration done as a hard geometric floor rather than
   an entropy penalty.
 - **(B) Attribution-transfer / bipartite player-pair coupling.** Model the miscredit as a
-  *transfer*: expected production leaving one player's markets and arriving at another's (or at
+  _transfer_: expected production leaving one player's markets and arriving at another's (or at
   team/"nobody"). Requires per-player (or at least per-market-family) signed decomposition.
 - **(C) Disagreement-conjunction / regime model.** Fire only on the conjunction of magnitude
-  surprise *and* elevated cross-source disagreement.
+  surprise _and_ elevated cross-source disagreement.
 
 ### 2.4 Strongest objection to each
 
-- **Against A:** breadth-awareness is *already* in the production model (the `sourceTrust`
+- **Against A:** breadth-awareness is _already_ in the production model (the `sourceTrust`
   block). "Introduce breadth" is not novel; the only novel part is a hard fail-closed floor —
-  and if real incidents are narrow/single-source, that floor *removes recall*. (Confirmed
+  and if real incidents are narrow/single-source, that floor _removes recall_. (Confirmed
   below — fatal for A-as-detector.)
 - **Against B:** the discriminating per-player data is collapsed at snapshot-export time
   (`loader.py:37-47` whitelists 9 board-level columns); a model never sees a player axis.
   Building the full bipartite model now would be theater on absent data.
-- **Against C:** a *feed-shared* miscredit makes all books move together → disagreement is
+- **Against C:** a _feed-shared_ miscredit makes all books move together → disagreement is
   **low, not high**. Requiring high disagreement would miss the most common regime.
 
 ### 2.5 Empirical adjudication (the experiment that decides it)
@@ -98,30 +98,30 @@ feature space.
 
 **Baseline eval (incident recall over truth-bearing games):**
 
-| Model | incident_recall | caught | fires/game | burden | tape_outlier_recall |
-|---|---|---|---|---|---|
-| `robust_mad` | 0.267 | 4/15 | 16.2 | 389 | 0.629 |
-| `state_space_current` (production) | **0.000** | **0/15** | 2.25 | 54 | 0.220 |
+| Model                              | incident_recall | caught   | fires/game | burden | tape_outlier_recall |
+| ---------------------------------- | --------------- | -------- | ---------- | ------ | ------------------- |
+| `robust_mad`                       | 0.267           | 4/15     | 16.2       | 389    | 0.629               |
+| `state_space_current` (production) | **0.000**       | **0/15** | 2.25       | 54     | 0.220               |
 
 **The production state-space detector catches 0 of 15 labeled miscredit incidents.**
-`robust_mad` catches 4/15 only by firing ~6× as much. `robust_mad` catching 4 on the *same*
+`robust_mad` catches 4/15 only by firing ~6× as much. `robust_mad` catching 4 on the _same_
 windows proves the catch/overlap machinery works and catching is possible, so 0/15 is real
 selectivity-misalignment, not a window artifact.
 
 **Feature characterization — does any pooled feature separate incident-window buckets from
-*equally-large non-incident* buckets?** (control = out-of-window buckets at/above the 90th
+_equally-large non-incident_ buckets?** (control = out-of-window buckets at/above the 90th
 intensity percentile; single-feature AUC, ~0.5 ⇒ no separating signal):
 
-| Feature | AUC vs all out-of-window | AUC vs high-intensity control |
-|---|---|---|
-| intensity | 0.694 | **0.061** |
-| source_count | 0.599 | **0.519** |
-| source_dominance | 0.383 | **0.487** |
-| source_disagreement | 0.557 | **0.528** |
-| active_market_count | 0.727 | **0.323** |
+| Feature             | AUC vs all out-of-window | AUC vs high-intensity control |
+| ------------------- | ------------------------ | ----------------------------- |
+| intensity           | 0.694                    | **0.061**                     |
+| source_count        | 0.599                    | **0.519**                     |
+| source_dominance    | 0.383                    | **0.487**                     |
+| source_disagreement | 0.557                    | **0.528**                     |
+| active_market_count | 0.727                    | **0.323**                     |
 
 - intensity AUC 0.06 vs the high-intensity control ⇒ **incidents are not the big moves**; the
-  biggest board moves happen *outside* incident windows.
+  biggest board moves happen _outside_ incident windows.
 - breadth / dominance / disagreement all ≈ 0.5 ⇒ **no separating signal** beyond magnitude,
   which is itself anti-aligned.
 - **55.7% of incident-window buckets are single-source** (`source_count==1`), and ~half the
@@ -130,28 +130,28 @@ intensity percentile; single-feature AUC, ~0.5 ⇒ no separating signal):
 - several incident windows have `max_intensity ≈ 0` (e.g. `nba-0022500986`, `nba-0022500788`,
   `nba-0042500224`) ⇒ for a meaningful share of incidents the snapshot-eligible board barely
   moved — nothing for any board-volatility model to detect.
-- `active_market_count`'s deviation (AUC 0.323, *lower* in-window) is partly circular — it
+- `active_market_count`'s deviation (AUC 0.323, _lower_ in-window) is partly circular — it
   co-varies with `intensity`, the variable the control is selected on — so it is not read as a
   real structural signal.
 
 **Dilution rebuttal (the obvious objection, pre-empted).** The AUCs pool ~6.5 buckets per window,
-so a signal living in a single *peak* bucket would be diluted toward 0.5. But detection only needs
-*one* bucket in the window to fire (the scorer catches on any overlap), so the decision-relevant
-question is whether the *best* bucket per window separates. It does not: per-window **max**
+so a signal living in a single _peak_ bucket would be diluted toward 0.5. But detection only needs
+_one_ bucket in the window to fire (the scorer catches on any overlap), so the decision-relevant
+question is whether the _best_ bucket per window separates. It does not: per-window **max**
 `source_count` is 1–2 and per-window **max** `source_disagreement` ≈ 0 for most windows — the peak
 buckets are as structureless as the averages. The clincher is dilution-immune: `state_space_current`
 fires on the **peak-surprise** bucket (not an average) and still lands in **zero** of 15 windows, so
 the conclusion does not depend on pooling at all.
 
-**Verdict on the candidates:** A is *falsified* (breadth-gating would cut recall; and
+**Verdict on the candidates:** A is _falsified_ (breadth-gating would cut recall; and
 production already has breadth-awareness via `sourceTrust` and still scores 0/15). C is mostly
 dead (disagreement ≈ 0 in most windows — the feed-shared regime dominates). The pooled
 board-level features do not carry the separating signal.
 
 ### 2.6 The direction I would actually pursue first, and why
 
-**The honest, evidence-led answer to the core question** — *what observable market behavior
-should make an operator believe a play deserves review?* — is that, **on this corpus, the
+**The honest, evidence-led answer to the core question** — _what observable market behavior
+should make an operator believe a play deserves review?_ — is that, **on this corpus, the
 board-volatility magnitude signal the platform is built on is the wrong observable.** The
 separating signal is not in pooled board features; it lives in **per-player / per-market-family
 attribution structure** (Candidate B), which is collapsed before any model sees it.
@@ -161,8 +161,8 @@ Because B is a multi-layer data-plumbing investment that should not be undertake
 finding into a permanent platform guard**: a registered **incident-alignment / feature-separation
 diagnostic** in the Quant Lab. It quantifies, for any feature (current pooled features today,
 per-player features tomorrow), whether it separates incident-window buckets from equally-large
-non-incident buckets — the exact bar a future attribution feature must clear — and it *fails
-closed* (reports insufficient support, not a bogus number) when a feature is absent or the board
+non-incident buckets — the exact bar a future attribution feature must clear — and it _fails
+closed_ (reports insufficient support, not a bogus number) when a feature is absent or the board
 did not move. This is the slice implemented below.
 
 This deliberately does **not** claim a better detector. Its value is a measured negative result
@@ -186,7 +186,7 @@ The selected slice is correct iff:
 ## 3. Implementation summary
 
 The slice is the **incident-alignment / feature-separation diagnostic** — a new, registered
-Quant Lab evaluation capability that grades whether *any* feature separates incident-window
+Quant Lab evaluation capability that grades whether _any_ feature separates incident-window
 buckets from equally-large non-incident buckets. It is the falsification instrument for §2.5–2.7
 and the bar a future per-player feature (Candidate B) must clear.
 
@@ -195,7 +195,7 @@ this is the smallest honest slice):**
 
 - **NEW `apps/nba-sidecar/src/nba_sidecar/research/evaluation/separation.py`** — the diagnostic.
   - `feature_separation(board_obs, truth, *, control_percentile, control_feature, features,
-    movement_floor) -> SeparationReport` and snapshot entry `run_separation(snapshot_path, …)`.
+movement_floor) -> SeparationReport` and snapshot entry `run_separation(snapshot_path, …)`.
   - Reuses `evaluation.truth.load_truth` (the same pre-materialized, validated, no-recompute
     truth the scorer joins to — so "scoreable incident window" means exactly what the eval
     means) and `loader.read_board_observations`.
@@ -204,7 +204,7 @@ this is the smallest honest slice):**
     `control_percentile` of out-of-window buckets by `control_feature`** (default `intensity`).
   - The control-defining feature is reported but **excluded from the verdict** (its
     AUC-vs-control is circular). The verdict is **direction-aware**: a feature only supports a
-    detector if it is *elevated* in incidents (positive separation).
+    detector if it is _elevated_ in incidents (positive separation).
   - Also reports `in_window_single_source_share` (would a hard breadth gate kill recall?) and
     `windows_with_negligible_movement` (incidents the board barely reacted to).
   - **Fail-closed by construction:** an absent or all-null feature → `insufficient_support`,
@@ -223,7 +223,7 @@ path; zero snapshot/loader/schema touch):** `control_percentile` (90), `control_
 and overridable per run (`--control-percentile`, `--movement-floor`). A test asserts the knob
 changes the reported output. Because the diagnostic reads only existing causal columns, it does
 not need the Path-B cross-language column chain (export → loader → `columns.py` → `schemas.py`);
-a future per-player feature *would*, and that chain is documented in `docs/nba-quant-lab.md` §7.
+a future per-player feature _would_, and that chain is documented in `docs/nba-quant-lab.md` §7.
 
 **Real-snapshot output (reproduces §2.5; the negative result):**
 
@@ -252,16 +252,16 @@ pytest`):**
 - `tests/test_separation.py` — **10 passed, 1 skipped** (the optional real-snapshot regression,
   gated on `NBA_RESEARCH_SNAPSHOT_PATH`); with that env var set to the `slice-eval` snapshot the
   regression also **passes** (11/11). Properties pinned:
-  - *Negative control:* a synthetic feature built to separate incident from non-incident buckets
+  - _Negative control:_ a synthetic feature built to separate incident from non-incident buckets
     scores `auc_vs_control == 1.0` (proves the metric detects separation when it exists, so the
     ≈0.5 readings on real features are a finding, not a broken metric).
-  - *Null control:* a flat feature scores exactly `0.5`.
-  - *Fail-closed:* absent feature column and all-null feature → `insufficient_support`, `auc=None`,
+  - _Null control:_ a flat feature scores exactly `0.5`.
+  - _Fail-closed:_ absent feature column and all-null feature → `insufficient_support`, `auc=None`,
     never a number; a snapshot with no scoreable window / no control bucket → whole report
     `insufficient_support`.
-  - *Declared knob:* lowering `control_percentile` enlarges the control set and lowers the
+  - _Declared knob:_ lowering `control_percentile` enlarges the control set and lowers the
     threshold (knob → output).
-  - *Control feature excluded:* `intensity`'s circular AUC (|AUC−0.5|>0.3) does not move the
+  - _Control feature excluded:_ `intensity`'s circular AUC (|AUC−0.5|>0.3) does not move the
     verdict; `max_abs_separation()` over non-control features is 0 → verdict is negative.
   - `rank_auc` unit behavior (perfect / inverse / ties→0.5 / empty→None).
 - **Typecheck gate:** `python -m compileall src/.../separation.py cli/main.py tests/test_separation.py` → OK.
@@ -283,27 +283,27 @@ path or the gold DB.
 gate is already red on pre-existing, unrelated debt that this Python-only change does not touch:
 Prettier formatting on `audit/*.md`, a mainline detector-contract lint violation, and the
 stale-path `test_research.py` above (all established by the concurrent integration pass). Running
-it would re-surface that debt, not exercise this slice. The changed-surface gates that *do* cover
+it would re-surface that debt, not exercise this slice. The changed-surface gates that _do_ cover
 this slice were run and are green: `pytest tests/test_separation.py` (11/11 with the snapshot
 env var; 10 + 1-skipped without), `compileall`, and CLI dispatch.
 
 ## 5. Remaining uncertainty (what is not yet calibrated; what the model must not claim)
 
 - **N = 15 scoreable incidents is the entire labeled corpus, not a sample.** The exporter
-  unions every incident game; a larger `--sample` only adds *negatives* (background/tape), not
+  unions every incident game; a larger `--sample` only adds _negatives_ (background/tape), not
   incidents. So the recall denominator is fixed at 15. The negative result is **directional and
-  bounded by 15 incidents** — the highest-value next investment is *more labels*, not more
+  bounded by 15 incidents** — the highest-value next investment is _more labels_, not more
   features or more background.
 - **Catch-window timing is untested.** If real market reaction lags beyond `CATCH_WINDOW_AFTER`,
   a genuine reaction could fall outside the scored window and inflate the "no separation"
-  reading. `robust_mad`'s 4 catches argue against *universal* misalignment, but the window
+  reading. `robust_mad`'s 4 catches argue against _universal_ misalignment, but the window
   width has not been sensitivity-tested.
 - **Single snapshot, single source set** (Kalshi/Polymarket/Bet365/NBA — snapshot-eligible).
   A miscredit might move a non-eligible book (DraftKings/FanDuel via Odds-API.io are
   `artifact_only`, not gold) and be invisible here.
 - At N=15, `robust_mad`'s 4 catches (27%) could be partly coincidental — do not over-read it.
 - **The slice must not claim** to improve incident recall, to be a better detector, or that
-  per-player attribution *will* separate incidents — only that it *can be measured* whether it
+  per-player attribution _will_ separate incidents — only that it _can be measured_ whether it
   does. The negative result says pooled features do not separate; it does **not** prove the
   signal is unrecoverable, only that it is not in the currently-exported features.
 

@@ -44,7 +44,7 @@ a `credited→rightful` transition = a miscredit label.
    ```
 
    Append-only + idempotent (`INSERT OR IGNORE` on `(game_id, action_number,
-   captured_at)`); a new `captured_at` preserves history. **VERIFY the correction
+captured_at)`); a new `captured_at` preserves history. **VERIFY the correction
    horizon before hard-coding a cron** — re-run for ~7 days post-game, then drop the
    game. cdn returns 403 for some game ids (not all are served); failures are per-game
    and non-fatal.

@@ -15,7 +15,7 @@ The re-ranker scores a `(credited, rightful)` pair, but at inference there is no
 
 1. **On-court reconstruction** (`research/oncourt.py`) — infers starters (no boxscore) and
    replays PBP substitutions to know the 5-man unit at every action. Correction-invariant:
-   subs/ordering are never re-scored by a stat correction, only the *name on the rebound* is.
+   subs/ordering are never re-scored by a stat correction, only the _name on the rebound_ is.
    Verified at scale: **0/163 control games** with starters≠5/team; on-court==5 at **98.85%**
    of 14,345 rebounds (the 1.15% residual is dead-ball substitution bursts, never a live
    rebound).
@@ -42,19 +42,19 @@ this empirical control distribution, not against 0.** That requirement vindicate
 control-corpus-calibration design (note C) and is the headline use of this table.
 
 **Caveat on the skew (advisor):** a clean null would be ~symmetric around 0; 85.6%>0 almost
-certainly reflects a mechanical confound — the credited player *just recorded a rebound*, which
+certainly reflects a mechanical confound — the credited player _just recorded a rebound_, which
 moves their own prop regardless of any miscredit, and the score is `rightful_drift −
 credited_drift`. The empirical FAR calibration absorbs this correctly (the threshold is read off
 the skewed control distribution), so the conclusions hold — but the raw score is NOT a clean
 "miscredit signature" and cross-player magnitude comparisons of it are meaningless.
 
 | threshold | per-PAIR FAR (all) | per-PAIR FAR (pure) | per-REBOUND FAR (all) | per-REBOUND FAR (pure) |
-|-----------|--------------------|---------------------|------------------------|-------------------------|
-| 0.01 | 7.6% | 6.8% | 14.1% | 12.2% |
-| 0.02 | 5.7% | 5.0% | 11.1% | 9.3% |
-| 0.05 | 3.6% | 3.2% | 7.4% | 6.5% |
-| 0.10 | 2.6% | 2.4% | 5.1% | 4.8% |
-| 0.20 | 1.6% | 1.5% | 3.1% | 3.1% |
+| --------- | ------------------ | ------------------- | --------------------- | ---------------------- |
+| 0.01      | 7.6%               | 6.8%                | 14.1%                 | 12.2%                  |
+| 0.02      | 5.7%               | 5.0%                | 11.1%                 | 9.3%                   |
+| 0.05      | 3.6%               | 3.2%                | 7.4%                  | 6.5%                   |
+| 0.10      | 2.6%               | 2.4%                | 5.1%                  | 4.8%                   |
+| 0.20      | 1.6%               | 1.5%                | 3.1%                  | 3.1%                   |
 
 Abstention ~25% on control (illiquid players), notably lower than the ~40% on incidents — the
 hard, abstaining cases are exactly the illiquid-rightful incidents. **Per-rebound FAR (max over
@@ -83,7 +83,7 @@ Two conclusions the run forces (both contradict prior assumptions, so they are r
 
 1. **The `rebounds_so_far` prior is NOT load-bearing.** It does not preferentially rank the
    rightful — in the one clean firing case (`hartenstein→wallace`, score-argmax rank 1) the
-   rightful was rank **4** by prior. Pruning candidates to top-1-by-prior would *discard* the
+   rightful was rank **4** by prior. Pruning candidates to top-1-by-prior would _discard_ the
    only clean hit. Any future prune must rank by something else (role/position/contest
    proximity), not raw rebound count.
 2. **The directed SCORE itself ranks the rightful better than the prior** (#1 in one case, #2 in

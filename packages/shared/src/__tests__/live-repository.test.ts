@@ -253,7 +253,9 @@ describe("live repository", () => {
     expect(row.sub_type).toBe("offensive");
     // unattributed action -> null attribution, not an error
     const bare = db
-      .prepare("SELECT person_id, player_name, sub_type FROM nba_play_by_play_actions WHERE action_number = 417")
+      .prepare(
+        "SELECT person_id, player_name, sub_type FROM nba_play_by_play_actions WHERE action_number = 417",
+      )
       .get() as { person_id: number | null; player_name: string | null; sub_type: string | null };
     expect(bare.person_id).toBeNull();
     expect(bare.player_name).toBeNull();
@@ -268,7 +270,13 @@ describe("live repository", () => {
       gameId,
       capturedAt: "2026-04-21T23:41:00.000Z",
       actions: [
-        { actionNumber: 416, actionType: "rebound", subType: "offensive", personId: 100, playerName: "S. Merrill" },
+        {
+          actionNumber: 416,
+          actionType: "rebound",
+          subType: "offensive",
+          personId: 100,
+          playerName: "S. Merrill",
+        },
         { actionNumber: 417, actionType: "rebound", personId: 300, playerName: "J. Tatum" },
       ],
     });
@@ -279,7 +287,13 @@ describe("live repository", () => {
         gameId,
         capturedAt: "2026-04-21T23:41:00.000Z",
         actions: [
-          { actionNumber: 416, actionType: "rebound", subType: "offensive", personId: 100, playerName: "S. Merrill" },
+          {
+            actionNumber: 416,
+            actionType: "rebound",
+            subType: "offensive",
+            personId: 100,
+            playerName: "S. Merrill",
+          },
         ],
       }).revisionsWritten,
     ).toBe(0);
@@ -324,7 +338,13 @@ describe("live repository", () => {
       gameId,
       capturedAt: "2026-04-21T23:41:00.000Z",
       actions: [
-        { actionNumber: 416, actionType: "rebound", personId: 100, playerName: "S. Merrill", timeActual: "2026-04-21T23:40:30.000Z" },
+        {
+          actionNumber: 416,
+          actionType: "rebound",
+          personId: 100,
+          playerName: "S. Merrill",
+          timeActual: "2026-04-21T23:40:30.000Z",
+        },
         // ... and a non-rebound correction (a foul re-credit) that must be EXCLUDED for stat='rebound'
         { actionNumber: 500, actionType: "foul", personId: 700, playerName: "X. Foulguy" },
       ],
@@ -333,7 +353,13 @@ describe("live repository", () => {
       gameId,
       capturedAt: "2026-04-21T23:55:00.000Z",
       actions: [
-        { actionNumber: 416, actionType: "rebound", personId: 200, playerName: "J. Allen", timeActual: "2026-04-21T23:40:30.000Z" },
+        {
+          actionNumber: 416,
+          actionType: "rebound",
+          personId: 200,
+          playerName: "J. Allen",
+          timeActual: "2026-04-21T23:40:30.000Z",
+        },
         { actionNumber: 500, actionType: "foul", personId: 701, playerName: "Y. Otherguy" },
       ],
     });
@@ -356,9 +382,27 @@ describe("live repository", () => {
     seedLiveRepositoryGame();
     const gameId = "nba-bos-nyk-2026-04-21";
     // Merrill -> Allen -> Merrill: net credit unchanged, so NOT a label
-    recordNbaPlayByPlayRevisions({ gameId, capturedAt: "2026-04-21T23:41:00.000Z", actions: [{ actionNumber: 416, actionType: "rebound", personId: 100, playerName: "S. Merrill" }] });
-    recordNbaPlayByPlayRevisions({ gameId, capturedAt: "2026-04-21T23:50:00.000Z", actions: [{ actionNumber: 416, actionType: "rebound", personId: 200, playerName: "J. Allen" }] });
-    recordNbaPlayByPlayRevisions({ gameId, capturedAt: "2026-04-21T23:55:00.000Z", actions: [{ actionNumber: 416, actionType: "rebound", personId: 100, playerName: "S. Merrill" }] });
+    recordNbaPlayByPlayRevisions({
+      gameId,
+      capturedAt: "2026-04-21T23:41:00.000Z",
+      actions: [
+        { actionNumber: 416, actionType: "rebound", personId: 100, playerName: "S. Merrill" },
+      ],
+    });
+    recordNbaPlayByPlayRevisions({
+      gameId,
+      capturedAt: "2026-04-21T23:50:00.000Z",
+      actions: [
+        { actionNumber: 416, actionType: "rebound", personId: 200, playerName: "J. Allen" },
+      ],
+    });
+    recordNbaPlayByPlayRevisions({
+      gameId,
+      capturedAt: "2026-04-21T23:55:00.000Z",
+      actions: [
+        { actionNumber: 416, actionType: "rebound", personId: 100, playerName: "S. Merrill" },
+      ],
+    });
     const result = harvestMiscreditLabels({ gameIds: [gameId], stat: "rebound" });
     expect(result.incidents).toHaveLength(0);
   });
@@ -368,8 +412,20 @@ describe("live repository", () => {
     const gameId = "nba-bos-nyk-2026-04-21";
     // a feed glitch: same player NAME, person_id dropped to null. NOT a real
     // correction — must not become creditedPlayer === rightfulPlayer.
-    recordNbaPlayByPlayRevisions({ gameId, capturedAt: "2026-04-21T23:41:00.000Z", actions: [{ actionNumber: 416, actionType: "rebound", personId: 100, playerName: "S. Merrill" }] });
-    recordNbaPlayByPlayRevisions({ gameId, capturedAt: "2026-04-21T23:55:00.000Z", actions: [{ actionNumber: 416, actionType: "rebound", personId: null, playerName: "S. Merrill" }] });
+    recordNbaPlayByPlayRevisions({
+      gameId,
+      capturedAt: "2026-04-21T23:41:00.000Z",
+      actions: [
+        { actionNumber: 416, actionType: "rebound", personId: 100, playerName: "S. Merrill" },
+      ],
+    });
+    recordNbaPlayByPlayRevisions({
+      gameId,
+      capturedAt: "2026-04-21T23:55:00.000Z",
+      actions: [
+        { actionNumber: 416, actionType: "rebound", personId: null, playerName: "S. Merrill" },
+      ],
+    });
     const result = harvestMiscreditLabels({ gameIds: [gameId], stat: "rebound" });
     expect(result.incidents).toHaveLength(0);
   });
@@ -378,8 +434,32 @@ describe("live repository", () => {
     seedLiveRepositoryGame();
     const gameId = "nba-bos-nyk-2026-04-21";
     // live-credited to the TEAM (no person_id, no player_name), later corrected to a player.
-    recordNbaPlayByPlayRevisions({ gameId, capturedAt: "2026-04-21T23:41:00.000Z", actions: [{ actionNumber: 416, actionType: "rebound", personId: null, playerName: null, timeActual: "2026-04-21T23:40:30.000Z" }] });
-    recordNbaPlayByPlayRevisions({ gameId, capturedAt: "2026-04-21T23:55:00.000Z", actions: [{ actionNumber: 416, actionType: "rebound", personId: 200, playerName: "J. Allen", timeActual: "2026-04-21T23:40:30.000Z" }] });
+    recordNbaPlayByPlayRevisions({
+      gameId,
+      capturedAt: "2026-04-21T23:41:00.000Z",
+      actions: [
+        {
+          actionNumber: 416,
+          actionType: "rebound",
+          personId: null,
+          playerName: null,
+          timeActual: "2026-04-21T23:40:30.000Z",
+        },
+      ],
+    });
+    recordNbaPlayByPlayRevisions({
+      gameId,
+      capturedAt: "2026-04-21T23:55:00.000Z",
+      actions: [
+        {
+          actionNumber: 416,
+          actionType: "rebound",
+          personId: 200,
+          playerName: "J. Allen",
+          timeActual: "2026-04-21T23:40:30.000Z",
+        },
+      ],
+    });
     const result = harvestMiscreditLabels({ gameIds: [gameId], stat: "rebound" });
     expect(result.incidents).toHaveLength(1);
     expect(result.incidents[0]!.creditedPlayer).toBe("TEAM");
@@ -389,8 +469,18 @@ describe("live repository", () => {
   it("harvestMiscreditLabels drops a player->TEAM correction (no named rightful to score)", () => {
     seedLiveRepositoryGame();
     const gameId = "nba-bos-nyk-2026-04-21";
-    recordNbaPlayByPlayRevisions({ gameId, capturedAt: "2026-04-21T23:41:00.000Z", actions: [{ actionNumber: 416, actionType: "rebound", personId: 200, playerName: "J. Allen" }] });
-    recordNbaPlayByPlayRevisions({ gameId, capturedAt: "2026-04-21T23:55:00.000Z", actions: [{ actionNumber: 416, actionType: "rebound", personId: null, playerName: null }] });
+    recordNbaPlayByPlayRevisions({
+      gameId,
+      capturedAt: "2026-04-21T23:41:00.000Z",
+      actions: [
+        { actionNumber: 416, actionType: "rebound", personId: 200, playerName: "J. Allen" },
+      ],
+    });
+    recordNbaPlayByPlayRevisions({
+      gameId,
+      capturedAt: "2026-04-21T23:55:00.000Z",
+      actions: [{ actionNumber: 416, actionType: "rebound", personId: null, playerName: null }],
+    });
     const result = harvestMiscreditLabels({ gameIds: [gameId], stat: "rebound" });
     expect(result.incidents).toHaveLength(0);
   });
