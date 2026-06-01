@@ -47,4 +47,6 @@ __pycache__/
 # NBA Quant Lab: generated snapshots/runs/pulls (parquet/duckdb/json artifacts)
 # and the bootstrap-generated starter notebook — regenerable via `pnpm quant:*`.
 outputs/nba-quant-lab/
+# Backfill driver logs/scripts (generated per-run; stray *.sh here is not source).
+outputs/backfill-nba-history/
 notebooks/
