@@ -743,6 +743,14 @@ function applyNbaPlayByPlayAttributionColumns(db: Database.Database) {
     // players). Previously stripped pre-persistence, leaving only free-text
     // `description`. Additive + nullable so existing rows are unaffected;
     // populated going forward + on re-ingest.
+    // The table is created by migration 11, which SKIPS creation on partial-schema
+    // DBs lacking a `games` table (the FK target). Mirror that guard: if the table
+    // is absent, record this migration and skip the ALTERs (migration 11 will have
+    // created it with these columns absent only when `games` exists).
+    if (!tableExists(db, "nba_play_by_play_actions")) {
+      insertMigration(db, 15, "nba-play-by-play-attribution-columns");
+      return;
+    }
     const columns = db.prepare(`PRAGMA table_info('nba_play_by_play_actions')`).all() as Array<{
       name: string;
     }>;
