@@ -41,12 +41,22 @@ def _epoch(iso: object) -> float | None:
 
 
 def last_name(player: str) -> str:
-    """'V. Wembanyama' / 'Victor Wembanyama' -> 'wembanyama'; '' / 'TEAM ...' -> ''."""
+    """'V. Wembanyama' / 'Victor Wembanyama' -> 'wembanyama'; '' / 'TEAM ...' -> ''.
+
+    The incident registry's credited/rightful are sometimes descriptive PHRASES
+    ('J. Champagnie live rebound display', 'K. Towns (suspected; foul dispute)'),
+    where the player NAME leads and prose trails. Prefer a leading 'I. Lastname'
+    token so the name wins over the trailing word; only fall back to the trailing
+    word for plain names ('Sam Hauser', 'Victor Wembanyama'). Without this, those
+    incidents silently mis-parse and drop out of the eval denominator."""
     if not player or "team" in player.lower():
         return ""
-    m = re.search(r"([A-Z]\.\s*)?([A-Z][a-zA-Z'\-]+)\s*$", player.strip())
+    lead = re.search(r"\b[A-Z]\.\s*([A-Z][a-zA-Z'\-]+)", player.strip())
+    if lead:
+        return lead.group(1).lower()
+    m = re.search(r"([A-Z][a-zA-Z'\-]+)\s*$", player.strip())
     if m:
-        return m.group(2).lower()
+        return m.group(1).lower()
     m2 = re.search(r"([A-Za-z'\-]+)\s*$", player.strip())
     return m2.group(1).lower() if m2 else ""
 

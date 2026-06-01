@@ -52,6 +52,18 @@ def test_last_name_handles_initials_full_and_team():
     assert last_name("") == ""
 
 
+def test_last_name_prefers_leading_token_over_trailing_prose():
+    # Registry credited/rightful are sometimes descriptive phrases — the player
+    # name LEADS and prose trails. The leading 'I. Lastname' must win so these
+    # incidents are not silently dropped from the eval denominator.
+    assert last_name("J. Champagnie live rebound display") == "champagnie"
+    assert last_name("K. Towns (suspected; foul/rebound dispute)") == "towns"
+    assert last_name("J. Hart rebound/RA leg (suspected)") == "hart"
+    # plain names with no leading initial still resolve via the trailing word
+    assert last_name("Sam Hauser") == "hauser"
+    assert last_name("Stephon Castle") == "castle"
+
+
 def test_select_picks_most_active_line(tmp_path):
     rows = _ticks("g", "victor-wembanyama", "bet365", 9.5, [(-100, 0.30), (-40, 0.30), (200, 0.55), (280, 0.55)])
     rows += _ticks("g", "victor-wembanyama", "bet365", 5.5, [(-100, 0.90), (280, 0.90)])  # fewer ticks
