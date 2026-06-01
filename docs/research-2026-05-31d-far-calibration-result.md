@@ -41,6 +41,13 @@ under the null — 85.6% of control pairs score >0 — so a fire threshold MUST 
 this empirical control distribution, not against 0.** That requirement vindicates the
 control-corpus-calibration design (note C) and is the headline use of this table.
 
+**Caveat on the skew (advisor):** a clean null would be ~symmetric around 0; 85.6%>0 almost
+certainly reflects a mechanical confound — the credited player *just recorded a rebound*, which
+moves their own prop regardless of any miscredit, and the score is `rightful_drift −
+credited_drift`. The empirical FAR calibration absorbs this correctly (the threshold is read off
+the skewed control distribution), so the conclusions hold — but the raw score is NOT a clean
+"miscredit signature" and cross-player magnitude comparisons of it are meaningless.
+
 | threshold | per-PAIR FAR (all) | per-PAIR FAR (pure) | per-REBOUND FAR (all) | per-REBOUND FAR (pure) |
 |-----------|--------------------|---------------------|------------------------|-------------------------|
 | 0.01 | 7.6% | 6.8% | 14.1% | 12.2% |
@@ -60,8 +67,10 @@ Each player_swap incident pushed through the identical `rebound_candidates → m
 path on the same snapshot (300s match window between the registry event time and the credited
 rebound):
 
-- 9 player_swap scoreable incidents → **3 matched** (a credited rebound within 300s) →
-  3 rightful-on-court → **2 scored** (1 abstains, illiquid rightful).
+- 10 player_swap scoreable incidents → **3 matched** (a credited rebound within 300s) →
+  3 rightful-on-court → **2 scored** (1 abstains, illiquid rightful). (Count is 10 after the
+  `last_name` fix below; the 7 unmatched are TEAM-credited, missing-PBP, or have no
+  credited rebound in the event window — honestly unmatched, not silently dropped.)
 - `tpr_per_pair` at 0.02 = **0.5 (1 of 2)**; 0 at ≥0.05. **N_scored = 2 → CI ≈ [0,1].**
 - `rank_by_prior` = [2, 4, 1]; `rank_by_score` = [1, 2].
 
@@ -90,10 +99,13 @@ Two conclusions the run forces (both contradict prior assumptions, so they are r
 
 ## Concrete pipeline gaps found (future work, all real)
 
-1. **`last_name` parses descriptive credited strings wrong.** The registry's `credited_player`
-   is sometimes a phrase ("J. Champagnie live rebound display") so `last_name` returned
-   "display", dropping 2 incidents (game `0042500312`). Fix: normalize registry credited/rightful
-   to clean player tokens, or carry a `person_id` on incidents.
+1. **FIXED — `last_name` mis-parsed descriptive credited strings.** The registry's
+   `credited_player` is sometimes a phrase ("J. Champagnie live rebound display", "K. Towns
+   (suspected; foul/rebound dispute)") so `last_name` returned the trailing word
+   ("display"/"dispute"), silently under-counting the eval denominator. `last_name` now prefers a
+   leading "I. Lastname" token (commit "Fix last_name harness bug"), so towns/hart/champagnie
+   resolve correctly and the denominator is honest. Remaining gap: carrying a `person_id` on
+   incidents would remove name-matching fragility entirely.
 2. **2 regular-season incident games (`0022500986`, `0022500788`) lack a `games` row** → no PBP,
    so they are unrecoverable until ingested ("add it to the db").
 3. **TEAM-credited incidents** (`TEAM (offensive)` etc.) have no credited person to anchor the
