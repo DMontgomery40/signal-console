@@ -114,6 +114,15 @@ function seedArtifacts(): void {
     line_select: "aggregate_drift",
     n_incidents: 15,
   });
+
+  // FAR-on-control + matched-recall report at the root.
+  writeJson(join(root, "far_calibration.json"), {
+    n_control_games: 163,
+    line_select: "aggregate_drift",
+    all_control: { n_scored_pairs: 42887, per_pair_far: { "0.02": 0.0567 } },
+    matched_recall: { n_incidents: 9, n_scored: 2, tpr_per_pair: { "0.02": 0.5 } },
+    data_quality: { games: 163, games_bad_starters: 0 },
+  });
 }
 
 beforeEach(() => {
@@ -299,6 +308,23 @@ describe("research routes — read endpoints (seeded artifact tree)", () => {
     expect(attribution["line_select"]).toBe("aggregate_drift");
     expect(isRecord(attribution["player_swap"])).toBe(true);
   });
+
+  it("GET /v1/research/far-calibration returns the FAR + matched-recall report", async () => {
+    const app = await startApp(true);
+    const res = await app.inject({
+      method: "GET",
+      url: "/v1/research/far-calibration",
+      headers: authHeaders(),
+    });
+    expect(res.statusCode).toBe(200);
+    const body: unknown = res.json();
+    if (!isRecord(body)) throw new Error("body not object");
+    const far = body["farCalibration"];
+    if (!isRecord(far)) throw new Error("farCalibration not object");
+    expect(far["n_control_games"]).toBe(163);
+    expect(isRecord(far["matched_recall"])).toBe(true);
+    expect(isRecord(far["all_control"])).toBe(true);
+  });
 });
 
 describe("research routes — empty / absent artifact states (no seed)", () => {
@@ -352,6 +378,16 @@ describe("research routes — empty / absent artifact states (no seed)", () => {
     if (!isRecord(attrBody)) throw new Error("attribution body not object");
     expect(attrBody["attribution"]).toBeNull();
     expect(lbBody["rows"]).toEqual([]);
+
+    const farCal = await app.inject({
+      method: "GET",
+      url: "/v1/research/far-calibration",
+      headers: authHeaders(),
+    });
+    expect(farCal.statusCode).toBe(200);
+    const farBody: unknown = farCal.json();
+    if (!isRecord(farBody)) throw new Error("far-calibration body not object");
+    expect(farBody["farCalibration"]).toBeNull();
 
     // models falls back to the static list when no models.json exists.
     const models = await app.inject({

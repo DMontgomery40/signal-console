@@ -310,6 +310,27 @@ export function getLatestAttribution(
   return { attribution: isRecord(parsed) ? parsed : null };
 }
 
+/* --------------------------- FAR calibration ------------------------------ */
+
+export interface ResearchFarCalibrationPayload {
+  /** The latest FAR-on-control + matched-recall report, or null when not emitted. */
+  readonly farCalibration: Record<string, unknown> | null;
+}
+
+/**
+ * Root-level far_calibration.json emitted by `pnpm quant far-calibration` (the
+ * re-ranker's false-alarm rate on non-incident control games, with matched
+ * incident recall at the same operating point). Absent/malformed ->
+ * { farCalibration: null }; never throws.
+ */
+export function getLatestFarCalibration(
+  options: ResearchServiceOptions = {},
+): ResearchFarCalibrationPayload {
+  const outputRoot = options.outputRoot ?? DEFAULT_RESEARCH_OUTPUT_ROOT;
+  const parsed = safeReadJson(join(outputRoot, "far_calibration.json"));
+  return { farCalibration: isRecord(parsed) ? parsed : null };
+}
+
 /* --------------------------------- gold ----------------------------------- */
 
 export interface ResearchGoldPayload {

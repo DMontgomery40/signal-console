@@ -55,6 +55,7 @@ import { QueryErrorBanner } from "../../components/QueryErrorBanner";
 import {
   useResearchGold,
   useResearchAttribution,
+  useResearchFarCalibration,
   useResearchLeaderboard,
   useResearchModels,
   useResearchPulls,
@@ -1719,6 +1720,83 @@ function AttributionReranker({
   );
 }
 
+function FarCalibration({
+  farCalibration,
+}: {
+  readonly farCalibration: Record<string, unknown> | null;
+}): JSX.Element {
+  const thresholds = ["0.01", "0.02", "0.05", "0.1", "0.2"] as const;
+  const allControl = farCalibration !== null && isRecord(pick(farCalibration, "all_control"))
+    ? (pick(farCalibration, "all_control") as Record<string, unknown>)
+    : {};
+  const recall = farCalibration !== null && isRecord(pick(farCalibration, "matched_recall"))
+    ? (pick(farCalibration, "matched_recall") as Record<string, unknown>)
+    : {};
+  const quality = farCalibration !== null && isRecord(pick(farCalibration, "data_quality"))
+    ? (pick(farCalibration, "data_quality") as Record<string, unknown>)
+    : {};
+  const perPair = isRecord(pick(allControl, "per_pair_far")) ? (pick(allControl, "per_pair_far") as Record<string, unknown>) : {};
+  const perReb = isRecord(pick(allControl, "per_rebound_far")) ? (pick(allControl, "per_rebound_far") as Record<string, unknown>) : {};
+  const tpr = isRecord(pick(recall, "tpr_per_pair")) ? (pick(recall, "tpr_per_pair") as Record<string, unknown>) : {};
+  const nControl = num(pick(farCalibration ?? {}, "n_control_games"));
+  const nScoredInc = num(pick(recall, "n_scored"));
+  const nInc = num(pick(recall, "n_incidents"));
+  const badStarters = num(pick(quality, "games_bad_starters"));
+  const ne5 = num(pick(quality, "rebounds_oncourt_ne5_frac"));
+  const pct = (v: number | undefined): string => (v === undefined ? "—" : `${fmtNum(v * 100, 1)}%`);
+  return (
+    <section data-testid="research-far-calibration" className="space-y-3">
+      <SectionHeading>Re-ranker FAR calibration</SectionHeading>
+      <p className="max-w-[80ch] text-xs text-text-md" data-testid="research-far-calibration-note">
+        False-alarm rate of the signed-paired re-ranker on non-incident control games (the score is
+        not zero-centred, so a fire threshold must be read off this empirical distribution). Per-pair
+        is one candidate; per-rebound is the max over a rebound&apos;s ~4 on-court teammates (the
+        multiple-testing cost). Matched TPR runs the labeled incidents through the same candidate
+        path — recall is label-starved, so read it with its N, never as a point estimate.
+      </p>
+      {farCalibration === null ? (
+        <EmptyLine testid="research-far-calibration-empty">
+          No FAR report yet — run pnpm quant far-calibration &lt;snapshot&gt; to populate this.
+        </EmptyLine>
+      ) : (
+        <div role="table" aria-label="FAR calibration" className="bg-surface-1 text-sm">
+          <div
+            role="row"
+            className="grid grid-cols-[0.8fr_1fr_1fr_1fr] gap-x-5 px-5 pb-2 pt-4 font-mono text-xs uppercase tracking-[0.06em] text-text-lo"
+          >
+            <span role="columnheader">Threshold</span>
+            <span role="columnheader">FAR / pair</span>
+            <span role="columnheader">FAR / rebound</span>
+            <span role="columnheader">TPR (matched)</span>
+          </div>
+          {thresholds.map((th) => (
+            <div
+              key={th}
+              role="row"
+              data-testid="research-far-calibration-row"
+              data-threshold={th}
+              className="grid grid-cols-[0.8fr_1fr_1fr_1fr] items-baseline gap-x-5 px-5 py-2"
+            >
+              <span role="cell" className="font-mono text-xs tabular-nums text-text-md">{th}</span>
+              <span role="cell" className="font-mono text-xs tabular-nums text-text-md">{pct(num(pick(perPair, th)))}</span>
+              <span role="cell" className="font-mono text-xs tabular-nums text-text-md">{pct(num(pick(perReb, th)))}</span>
+              <span role="cell" className="font-mono text-xs tabular-nums text-text-md">{pct(num(pick(tpr, th)))}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      {farCalibration !== null ? (
+        <p className="font-mono text-xs text-text-lo" data-testid="research-far-calibration-meta">
+          {nControl !== undefined ? `control games ${fmtNum(nControl)}` : ""}
+          {nScoredInc !== undefined && nInc !== undefined ? ` · matched recall n ${fmtNum(nScoredInc)} / ${fmtNum(nInc)}` : ""}
+          {badStarters !== undefined ? ` · bad-starter games ${fmtNum(badStarters)}` : ""}
+          {ne5 !== undefined ? ` · on-court≠5 ${pct(ne5)}` : ""}
+        </p>
+      ) : null}
+    </section>
+  );
+}
+
 // ── (8) Casebook preview ──────────────────────────────────────────────────────
 
 function CasebookPreview({ hasSnapshot }: { readonly hasSnapshot: boolean }): JSX.Element {
@@ -1755,6 +1833,7 @@ export function ResearchPage(): JSX.Element {
   const models = useResearchModels();
   const pulls = useResearchPulls();
   const attribution = useResearchAttribution();
+  const farCalibration = useResearchFarCalibration();
 
   const goldData = gold.data;
   const snapshotData = snapshot.data?.snapshot ?? null;
@@ -1763,6 +1842,7 @@ export function ResearchPage(): JSX.Element {
   const sourceRows = useMemo(() => sources.data?.sources ?? [], [sources.data?.sources]);
   const modelRows = useMemo(() => models.data?.models ?? [], [models.data?.models]);
   const attributionData = attribution.data?.attribution ?? null;
+  const farCalibrationData = farCalibration.data?.farCalibration ?? null;
 
   const hasSnapshot = snapshotData !== null;
   // Once the polled snapshot lands, stop the interval.
@@ -1819,6 +1899,8 @@ export function ResearchPage(): JSX.Element {
       <ModelLab models={modelRows} hasSnapshot={hasSnapshot} />
       <Leaderboard runId={leaderboard.data?.runId ?? null} rows={leaderboardRows} />
       <AttributionReranker attribution={attributionData} />
+
+      <FarCalibration farCalibration={farCalibrationData} />
       <CasebookPreview hasSnapshot={hasSnapshot} />
 
       {pullDialogOpen ? (

@@ -172,6 +172,19 @@ const SEEDED_ATTRIBUTION = {
   },
 };
 
+const EMPTY_FAR = { farCalibration: null };
+const SEEDED_FAR = {
+  farCalibration: {
+    n_control_games: 163,
+    all_control: {
+      per_pair_far: { "0.02": 0.0567, "0.05": 0.0356 },
+      per_rebound_far: { "0.02": 0.111, "0.05": 0.0737 },
+    },
+    matched_recall: { n_incidents: 9, n_scored: 2, tpr_per_pair: { "0.02": 0.5, "0.05": 0 } },
+    data_quality: { games_bad_starters: 0, rebounds_oncourt_ne5_frac: 0.0115 },
+  },
+};
+
 interface MockShape {
   readonly gold?: unknown;
   readonly sources?: unknown;
@@ -180,6 +193,7 @@ interface MockShape {
   readonly models?: unknown;
   readonly pulls?: unknown;
   readonly attribution?: unknown;
+  readonly farCalibration?: unknown;
 }
 
 describe("ResearchPage", () => {
@@ -204,6 +218,7 @@ describe("ResearchPage", () => {
     const models = shape.models ?? MODELS_RESPONSE;
     const pulls = shape.pulls ?? EMPTY_PULLS;
     const attribution = shape.attribution ?? EMPTY_ATTRIBUTION;
+    const farCalibration = shape.farCalibration ?? EMPTY_FAR;
     fetchMock.mockImplementation(async (input, init) => {
       await Promise.resolve();
       const url = urlOf(input);
@@ -222,6 +237,7 @@ describe("ResearchPage", () => {
       if (url.includes("/v1/research/leaderboard/latest")) return jsonResponse(leaderboard);
       if (url.includes("/v1/research/models")) return jsonResponse(models);
       if (url.includes("/v1/research/pulls")) return jsonResponse(pulls);
+      if (url.includes("/v1/research/far-calibration")) return jsonResponse(farCalibration);
       if (url.includes("/v1/research/attribution")) return jsonResponse(attribution);
       return new Response("not found", { status: 404 });
     });
@@ -282,6 +298,28 @@ describe("ResearchPage", () => {
     // the line-select footnote surfaces the chosen strategy; not the live signal
     expect(screen.getByTestId("research-attribution-meta").textContent).toContain("aggregate_drift");
     expect(screen.getByTestId("research-attribution-note").textContent).toContain("not the live suspend signal");
+  });
+
+  it("renders the FAR calibration section (per-pair/per-rebound FAR + matched recall) with honest N", async () => {
+    mockResearch({ farCalibration: SEEDED_FAR });
+    render(<ResearchPage />, { wrapper: makeWrapper() });
+
+    expect(await screen.findByTestId("research-far-calibration")).not.toBeNull();
+    const rows = await screen.findAllByTestId("research-far-calibration-row");
+    // one row per threshold (0.01, 0.02, 0.05, 0.1, 0.2)
+    expect(rows.map((r) => r.getAttribute("data-threshold"))).toEqual(["0.01", "0.02", "0.05", "0.1", "0.2"]);
+    const meta = screen.getByTestId("research-far-calibration-meta").textContent ?? "";
+    expect(meta).toContain("control games 163");
+    // matched recall is surfaced WITH its N (2 of 9), never as a bare point estimate
+    expect(meta).toContain("matched recall n 2 / 9");
+    expect(screen.getByTestId("research-far-calibration-note").textContent).toContain("label-starved");
+  });
+
+  it("FAR calibration shows the empty state when no report is present", async () => {
+    mockResearch({ farCalibration: EMPTY_FAR });
+    render(<ResearchPage />, { wrapper: makeWrapper() });
+    expect(await screen.findByTestId("research-far-calibration-empty")).not.toBeNull();
+    expect(screen.queryByTestId("research-far-calibration-row")).toBeNull();
   });
 
   it("renders the quant-guide panel with an honest Open link and a Copy CLI quickstart action", async () => {

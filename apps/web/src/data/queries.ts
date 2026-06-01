@@ -824,6 +824,13 @@ const researchAttributionSchema = z.object({
   attribution: z.record(z.unknown()).nullable(),
 });
 
+// /v1/research/far-calibration — { farCalibration: object | null }. Free-form
+// report (all_control/pure_control FAR tables + matched_recall + data_quality);
+// read named fields defensively in the component.
+const researchFarCalibrationSchema = z.object({
+  farCalibration: z.record(z.unknown()).nullable(),
+});
+
 // /v1/research/models — registry- or static-backed model list.
 const researchModelSchema = z.object({
   id: z.string(),
@@ -858,6 +865,7 @@ export type ResearchGold = z.infer<typeof researchGoldSchema>;
 export type ResearchSnapshot = z.infer<typeof researchSnapshotSchema>;
 export type ResearchLeaderboard = z.infer<typeof researchLeaderboardSchema>;
 export type ResearchAttribution = z.infer<typeof researchAttributionSchema>;
+export type ResearchFarCalibration = z.infer<typeof researchFarCalibrationSchema>;
 export type ResearchModel = z.infer<typeof researchModelSchema>;
 export type ResearchModels = z.infer<typeof researchModelsSchema>;
 export type ResearchPulls = z.infer<typeof researchPullsSchema>;
@@ -910,6 +918,14 @@ export function useResearchAttribution(): UseQueryResult<ResearchAttribution, Er
     queryKey: ["research-attribution"],
     queryFn: ({ signal }) =>
       fetchJson(`/v1/research/attribution`, researchAttributionSchema, signal),
+  });
+}
+
+export function useResearchFarCalibration(): UseQueryResult<ResearchFarCalibration, Error> {
+  return useQuery({
+    queryKey: ["research-far-calibration"],
+    queryFn: ({ signal }) =>
+      fetchJson(`/v1/research/far-calibration`, researchFarCalibrationSchema, signal),
   });
 }
 

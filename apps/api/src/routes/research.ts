@@ -20,6 +20,7 @@ import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from "fastify";
 import {
   DEFAULT_RESEARCH_OUTPUT_ROOT,
   getLatestAttribution,
+  getLatestFarCalibration,
   getLatestLeaderboard,
   getLatestSnapshot,
   getQuantGuide,
@@ -136,6 +137,14 @@ const attributionResponseSchema = {
   required: ["attribution"],
   properties: {
     attribution: { type: ["object", "null"], additionalProperties: true },
+  },
+} as const;
+
+const farCalibrationResponseSchema = {
+  type: "object",
+  required: ["farCalibration"],
+  properties: {
+    farCalibration: { type: ["object", "null"], additionalProperties: true },
   },
 } as const;
 
@@ -359,6 +368,22 @@ const researchRoutes: FastifyPluginAsync<ResearchRoutesOptions> = (app, opts) =>
     },
     (_request: FastifyRequest, reply: FastifyReply) => {
       reply.send(getLatestAttribution({ outputRoot }));
+    },
+  );
+
+  app.get(
+    "/v1/research/far-calibration",
+    {
+      schema: {
+        tags: ["research"],
+        summary: "Latest FAR-on-control + matched-recall report",
+        description:
+          "Read-only. Returns the root-level far_calibration.json emitted by `pnpm quant far-calibration` (re-ranker false-alarm rate on non-incident control games, with matched incident recall at the same operating point). Absent returns { farCalibration: null }.",
+        response: { 200: farCalibrationResponseSchema },
+      },
+    },
+    (_request: FastifyRequest, reply: FastifyReply) => {
+      reply.send(getLatestFarCalibration({ outputRoot }));
     },
   );
 
