@@ -161,6 +161,52 @@ def detect_prop_anomalies(
     return events
 
 
+def detect_prop_anomaly_magnitudes(
+    epochs: list[float],
+    probs: list[float],
+    vols_interval: list[Optional[float]],
+    p: Params,
+) -> list[tuple[float, float]]:
+    """Like detect_prop_anomalies, but return (epoch, MAGNITUDE) for each anomaly.
+
+    Magnitude is unitless "how many times its own threshold" the move was — the
+    EXCESS beyond what would already trip the binary detector. price ratio =
+    |Δprob| / price_threshold; volume ratio = v / (vol_ratio × trailing median).
+    An event's magnitude is the max of whichever channel fired (both are >= 1 at
+    the trip point), so a 6σ coincident move counts for more than a bare 3σ one.
+    Causal: tick i is judged only against ticks 0..i-1 (same as the binary form).
+    """
+    n = len(epochs)
+    events: list[tuple[float, float]] = []
+    price_deltas: list[float] = []
+    pos_vols: list[float] = []
+    prev_prob: Optional[float] = None
+    for i in range(n):
+        mag = 0.0
+        if prev_prob is not None:
+            d = abs(probs[i] - prev_prob)
+            if len(price_deltas) >= p.price_min_hist:
+                thr = max(p.price_floor, p.price_k * MAD_SCALE * _mad(price_deltas))
+            else:
+                thr = p.price_nohist_floor
+            if thr > 0 and d >= thr:
+                mag = max(mag, d / thr)
+            price_deltas.append(d)
+        prev_prob = probs[i]
+
+        v = vols_interval[i]
+        if v is not None and v >= p.vol_floor and len(pos_vols) >= p.vol_min_hist:
+            med = statistics.median(pos_vols)
+            if med > 0 and v >= p.vol_ratio * med:
+                mag = max(mag, v / (p.vol_ratio * med))
+        if v is not None and v > 0:
+            pos_vols.append(v)
+
+        if mag > 0:
+            events.append((epochs[i], mag))
+    return events
+
+
 def floor_win(epoch: float, window_sec: int) -> int:
     return int(math.floor(epoch / window_sec) * window_sec)
 
