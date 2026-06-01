@@ -152,6 +152,41 @@ def test_merge_incident_specs_dedups_registry_wins():
     assert nba_x["id"] == "r1" and nba_x["source"] == "registry"
 
 
+def test_incident_recall_matched_team_credited_one_legged():
+    # TEAM-credited (inverse miscredit): a TEAM rebound that should have been a player.
+    team_pbp = {
+        "nba-tm": [
+            _a(1, "2pt", pid=1, team="SAS", name="A. One"),
+            _a(2, "2pt", pid=2, team="SAS", name="B. Two"),
+            _a(3, "2pt", pid=3, team="SAS", name="C. Three"),
+            _a(4, "2pt", pid=4, team="SAS", name="D. Four"),
+            _a(5, "2pt", pid=5, team="SAS", name="E. Five"),
+            _a(11, "2pt", pid=11, team="OKC", name="Z. Eleven"),
+            _a(12, "2pt", pid=12, team="OKC", name="Y. Twelve"),
+            _a(13, "2pt", pid=13, team="OKC", name="X. Thirteen"),
+            _a(14, "2pt", pid=14, team="OKC", name="W. Fourteen"),
+            _a(15, "2pt", pid=15, team="OKC", name="V. Fifteen"),
+            # TEAM rebound (no person_id) credited to SAS at the event time
+            _a(6, "rebound", "defensive", pid=None, team="SAS", t="2026-01-01T00:10:00Z"),
+        ]
+    }
+    # rightful (B. Two) drifts up around the event; credited is TEAM (no prop -> abstains)
+    pre0, pre1 = "2026-01-01T00:08:30Z", "2026-01-01T00:09:00Z"
+    post0, post1 = "2026-01-01T00:13:30Z", "2026-01-01T00:14:00Z"
+    rows = [("nba-tm", "b-two", "bet365", 6.5, "rebounds", c, p, 100) for c, p in
+            ((pre0, 0.40), (pre1, 0.40), (post0, 0.60), (post1, 0.60))]
+    inc = [{"id": "team1", "game_id": "nba-tm", "credited_last": "", "rightful_last": "two",
+            "event_epoch": _epoch("2026-01-01T00:10:00Z")}]
+    res = incident_recall_matched(_ticks(rows), team_pbp, inc, thresholds=(0.0,))
+    r = res["incidents"][0]
+    assert r["matched"] is True and r["match_dt_sec"] == 0
+    assert r["rightful_oncourt"] is True
+    assert r["stratum"] == "team_dispute"
+    # one-legged: the rightful's own drift is scored (rightful-only), positive here
+    assert r["rightful_score"] is not None and r["rightful_score"] > 0
+    assert res["n_matched"] == 1 and res["n_scored"] == 1
+
+
 def test_oncourt_quality_clean_game():
     q = oncourt_quality(PBP)
     assert q["games"] == 1

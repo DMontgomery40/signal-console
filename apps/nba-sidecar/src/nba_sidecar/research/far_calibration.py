@@ -29,7 +29,7 @@ import pandas as pd
 
 from .attribution import AttributionParams, LegResult, leg_drift, paired_from_legs
 from .attribution_snapshot import _epoch, last_name, score_incident_snapshot
-from .candidates import rebound_candidates
+from .candidates import rebound_candidates, team_rebound_candidates
 from .oncourt import infer_starters, oncourt_by_action, player_teams
 
 DEFAULT_THRESHOLDS: tuple[float, ...] = (0.0, 0.01, 0.02, 0.05, 0.1, 0.2)
@@ -210,6 +210,11 @@ def incident_recall_matched(
     by-prior vs by-score ranks directly test whether prior-pruning would keep or
     discard the true rightful.
 
+    TEAM-credited incidents (credited_last == "") are the inverse miscredit (the box
+    score credited the team, not a player): matched against a TEAM rebound and scored
+    ONE-LEGGED (no TEAM prop). Structural coverage only — the one-legged score is the
+    rightful's own drift, not the paired signature, so it does not move the headline.
+
     Honest denominators are all reported separately (n_incidents >= n_matched >=
     n_rightful_oncourt >= n_scored); with a handful of incidents every rate has a
     CI spanning most of [0,1] — the caller MUST surface N alongside any TPR."""
@@ -234,8 +239,54 @@ def incident_recall_matched(
         }
         actions = pbp_by_game.get(gid)
         cl, rl, ev = inc.get("credited_last") or "", inc.get("rightful_last") or "", inc.get("event_epoch")
-        if not actions or not cl or not rl or ev is None:
-            row["reason"] = "missing pbp/credited/rightful/event"
+        if not actions or not rl or ev is None:
+            row["reason"] = "missing pbp/rightful/event"
+            out_rows.append(row)
+            continue
+        if not cl:
+            # TEAM-credited (inverse miscredit): match a TEAM rebound near the event
+            # where the rightful is on-court for the rebounding team, score one-legged
+            # (credited=TEAM has no prop -> abstains -> just the rightful's own drift).
+            # Structural coverage; the score is NOT the paired signature.
+            row["stratum"] = "team_dispute"
+            by_team: dict[int, list] = {}
+            for tc in team_rebound_candidates(actions, game_id=gid):
+                by_team.setdefault(tc.action_number, []).append(tc)
+            best_team_action, best_team_dt = None, match_window_sec
+            for action_number, tcs in by_team.items():
+                t = _epoch(tcs[0].time_actual)
+                if t is None:
+                    continue
+                if rl not in {last_name(tc.candidate_name or "") for tc in tcs}:
+                    continue  # rightful must be on-court for this TEAM rebound
+                dt = abs(t - ev)
+                if dt <= best_team_dt:
+                    best_team_dt, best_team_action = dt, action_number
+            if best_team_action is None:
+                row["reason"] = "no team rebound within match window"
+                out_rows.append(row)
+                continue
+            row["matched"] = True
+            row["match_dt_sec"] = round(best_team_dt)
+            tcs = by_team[best_team_action]
+            scorer = _make_aggregate_scorer(by_game.get(gid, ticks_df.iloc[0:0]), p)
+            tscored = [
+                {
+                    "last": last_name(tc.candidate_name or ""),
+                    "score": (lambda ps: None if ps is None else ps.score)(
+                        scorer("", tc.candidate_name or "", tc.time_actual or "")[0]
+                    ),
+                }
+                for tc in tcs
+            ]
+            trightful = next((s for s in tscored if s["last"] == rl), None)
+            row["rightful_oncourt"] = trightful is not None
+            if trightful is not None and trightful["score"] is not None:
+                tvals = [s["score"] for s in tscored if s["score"] is not None]
+                row["rightful_score"] = trightful["score"]
+                row["max_score"] = max(tvals) if tvals else None
+                row["rank_by_score"] = sorted(tvals, reverse=True).index(trightful["score"]) + 1
+                row["is_score_argmax"] = trightful["score"] == max(tvals)
             out_rows.append(row)
             continue
         by_action: dict[int, list] = {}

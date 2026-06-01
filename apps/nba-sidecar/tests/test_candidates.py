@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
-from nba_sidecar.research.candidates import ReboundCandidate, rebound_candidates
+from nba_sidecar.research.candidates import (
+    ReboundCandidate,
+    TeamReboundCandidate,
+    rebound_candidates,
+    team_rebound_candidates,
+)
 
 
 def _a(num, at, st=None, pid=None, team=None, name=None):
@@ -59,8 +64,20 @@ def test_rebounds_so_far_is_causal():
     assert {c.candidate_name for c in first} == {"A. One", "B. Two", "D. Four", "E. Five"}
 
 
-def test_team_rebound_has_no_candidates():
+def test_team_rebound_has_no_player_credited_candidates():
     actions = ACTIONS + [_a(9, "rebound", "defensive", pid=None, team="SAS")]
     cands = rebound_candidates(actions, game_id="nba-test")
-    # the person-less team rebound adds nothing
+    # the person-less team rebound adds nothing to the player-credited path
     assert len(cands) == 8
+
+
+def test_team_rebound_candidates_emit_oncourt_players():
+    actions = ACTIONS + [_a(9, "rebound", "defensive", pid=None, team="SAS")]
+    cands = team_rebound_candidates(actions, game_id="nba-test")
+    assert all(isinstance(c, TeamReboundCandidate) for c in cands)
+    # all 5 on-court SAS players are rightful candidates for the TEAM rebound
+    assert {c.candidate_person_id for c in cands} == {1, 2, 3, 4, 5}
+    assert all(c.team_tricode == "SAS" and c.action_number == 9 for c in cands)
+    assert all(c.rebound_type == "defensive" for c in cands)
+    # OKC TEAM rebound on the other team is unaffected; no candidates without a TEAM rebound
+    assert team_rebound_candidates(ACTIONS, game_id="nba-test") == []

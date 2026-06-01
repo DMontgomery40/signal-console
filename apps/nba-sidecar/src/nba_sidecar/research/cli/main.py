@@ -243,9 +243,16 @@ def cmd_far_calibration(args: argparse.Namespace) -> int:
     # snapshot (truth-bearing is always exported); PBP comes from gold.
     registry_specs = []
     for _, r in inc[inc["scoreable"] == True].iterrows():  # noqa: E712 (pandas mask)
-        cl, rl = last_name(str(r["credited_player"])), last_name(str(r["rightful_player"]))
+        credited_str = str(r["credited_player"])
+        cl, rl = last_name(credited_str), last_name(str(r["rightful_player"]))
         ev = r.get("event_sec")
-        if cl and rl and ev is not None:
+        stat = str(r.get("stat", "")).lower()
+        if not rl or ev is None:
+            continue
+        # player_swap (cl present) OR TEAM-credited rebound (cl == "" but credited is
+        # a TEAM rebound string) — the latter gets the one-legged TEAM branch.
+        is_team_rebound = not cl and "team" in credited_str.lower() and "rebound" in stat
+        if cl or is_team_rebound:
             registry_specs.append(
                 {
                     "id": r.get("incident_id"),

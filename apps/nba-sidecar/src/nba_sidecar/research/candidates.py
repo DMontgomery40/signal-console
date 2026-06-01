@@ -107,4 +107,52 @@ def rebound_candidates(actions: list[dict[str, Any]], *, game_id: str) -> list[R
     return out
 
 
-__all__ = ["ReboundCandidate", "rebound_candidates"]
+@dataclass(frozen=True)
+class TeamReboundCandidate:
+    """A candidate rightful recipient for a TEAM-credited rebound (no person was
+    credited). credited is the whole team, so there is no credited person to pair
+    against — the re-ranker scores these one-legged (rightful-only)."""
+
+    game_id: str
+    action_number: int
+    time_actual: str | None
+    rebound_type: str | None
+    team_tricode: str
+    candidate_person_id: int
+    candidate_name: str | None
+
+
+def team_rebound_candidates(actions: list[dict[str, Any]], *, game_id: str) -> list[TeamReboundCandidate]:
+    """For every TEAM-credited rebound (action_type='rebound' with NO person_id),
+    emit the on-court players of the rebounding team as rightful candidates. This is
+    the inverse miscredit: the box score credited the team, the rightful is a player.
+    Structural coverage only — the score is one-legged (no TEAM prop to anchor)."""
+    oncourt = oncourt_by_action(actions)
+    name_by_pid = _names(actions)
+    out: list[TeamReboundCandidate] = []
+    for a in actions:
+        if a.get("action_type") != "rebound":
+            continue
+        if isinstance(a.get("person_id"), int):
+            continue  # player-credited rebound — handled by rebound_candidates
+        team = a.get("team_tricode")
+        num = a.get("action_number")
+        if not isinstance(team, str) or not isinstance(num, int):
+            continue
+        on_court = oncourt.get(num, {}).get(team, frozenset())
+        for pid in sorted(on_court):
+            out.append(
+                TeamReboundCandidate(
+                    game_id=game_id,
+                    action_number=num,
+                    time_actual=a.get("time_actual") if isinstance(a.get("time_actual"), str) else None,
+                    rebound_type=a.get("sub_type") if isinstance(a.get("sub_type"), str) else None,
+                    team_tricode=team,
+                    candidate_person_id=pid,
+                    candidate_name=name_by_pid.get(pid),
+                )
+            )
+    return out
+
+
+__all__ = ["ReboundCandidate", "rebound_candidates", "TeamReboundCandidate", "team_rebound_candidates"]
