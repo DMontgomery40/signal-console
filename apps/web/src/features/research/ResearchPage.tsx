@@ -1350,7 +1350,7 @@ function SnapshotBlock({
   if (snapshot === null) {
     return (
       <section data-testid="research-snapshot" className="space-y-3">
-        <SectionHeading>Snapshot</SectionHeading>
+        <SectionHeading explainerId="research-snapshot">Snapshot</SectionHeading>
         <EmptyLine testid="research-snapshot-empty">
           No snapshot exported yet from the gold DB. Export one to begin (no pull needed — the
           canonical sources are already persisted).
@@ -1391,7 +1391,7 @@ function SnapshotBlock({
 
   return (
     <section data-testid="research-snapshot" className="space-y-3">
-      <SectionHeading>Snapshot</SectionHeading>
+      <SectionHeading explainerId="research-snapshot">Snapshot</SectionHeading>
       <div className="bg-surface-1 px-5 py-4">
         <div className="grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-3">
           <div className="space-y-1">
@@ -1450,9 +1450,14 @@ function SnapshotBlock({
           </p>
         ) : null}
         {Array.isArray(files) && files.length > 0 ? (
-          <p className="mt-3 font-mono text-xs text-text-md" data-testid="research-snapshot-files">
-            files: {files.filter((f): f is string => typeof f === "string").join(" · ")}
-          </p>
+          <details className="mt-3" data-testid="research-snapshot-files">
+            <summary className="cursor-pointer font-mono text-xs text-text-lo hover:text-text-md">
+              {files.filter((f): f is string => typeof f === "string").length} snapshot files
+            </summary>
+            <p className="mt-2 font-mono text-xs text-text-md">
+              {files.filter((f): f is string => typeof f === "string").join(" · ")}
+            </p>
+          </details>
         ) : null}
         {doctorText !== undefined ? (
           <p
@@ -1482,7 +1487,7 @@ function ModelLab({
   if (!hasSnapshot) {
     return (
       <section data-testid="research-model-lab" className="space-y-3">
-        <SectionHeading>Model lab</SectionHeading>
+        <SectionHeading explainerId="research-model-lab">Model lab</SectionHeading>
         <EmptyLine testid="research-model-lab-empty">
           No snapshot exported yet from the gold DB. Export one to begin (no pull needed — the
           canonical sources are already persisted), then score these baseline models against it.
@@ -1492,12 +1497,7 @@ function ModelLab({
   }
   return (
     <section data-testid="research-model-lab" className="space-y-3">
-      <SectionHeading>Model lab</SectionHeading>
-      <p className="max-w-[80ch] text-xs text-text-md" data-testid="research-model-lab-note">
-        These are baseline research models, not tuned production detectors. They exist so a snapshot
-        can be scored repeatably; treat them as humble reference points, not the live suspend
-        signal.
-      </p>
+      <SectionHeading explainerId="research-model-lab">Model lab</SectionHeading>
       <div role="table" aria-label="Model lab" className="bg-surface-1 text-sm">
         <div
           role="row"
@@ -1546,7 +1546,7 @@ function Leaderboard({
 }): JSX.Element {
   return (
     <section data-testid="research-leaderboard" className="space-y-3">
-      <SectionHeading>Leaderboard</SectionHeading>
+      <SectionHeading explainerId="research-leaderboard">Leaderboard</SectionHeading>
       <p className="font-mono text-xs text-text-lo" data-testid="research-leaderboard-disclaimer">
         Research snapshot result, not live production behavior.
       </p>
@@ -1656,13 +1656,7 @@ function AttributionReranker({
   const nIncidents = attribution !== null ? num(pick(attribution, "n_incidents")) : undefined;
   return (
     <section data-testid="research-attribution" className="space-y-3">
-      <SectionHeading>Attribution re-ranker</SectionHeading>
-      <p className="max-w-[80ch] text-xs text-text-md" data-testid="research-attribution-note">
-        Directed signed-paired prop drift over labeled incidents (the rightful player&apos;s over
-        rises while the credited player&apos;s falls), stratified by candidate type. Research
-        diagnostic, not the live suspend signal; &ldquo;score&rdquo; is unitless directed drift and
-        abstentions are shown, never scored as misses.
-      </p>
+      <SectionHeading explainerId="research-attribution">Attribution re-ranker</SectionHeading>
       {attribution === null ? (
         <EmptyLine testid="research-attribution-empty">
           No attribution report yet — run pnpm quant attribution-eval &lt;snapshot&gt; to populate
@@ -1755,15 +1749,7 @@ function FarCalibration({
   const pct = (v: number | undefined): string => (v === undefined ? "—" : `${fmtNum(v * 100, 1)}%`);
   return (
     <section data-testid="research-far-calibration" className="space-y-3">
-      <SectionHeading>Re-ranker FAR calibration</SectionHeading>
-      <p className="max-w-[80ch] text-xs text-text-md" data-testid="research-far-calibration-note">
-        False-alarm rate of the signed-paired re-ranker on non-incident control games (the score is
-        not zero-centred, so a fire threshold must be read off this empirical distribution).
-        Per-pair is one candidate; per-rebound is the max over a rebound&apos;s ~4 on-court
-        teammates (the multiple-testing cost). Matched TPR runs the labeled incidents through the
-        same candidate path — recall is label-starved, so read it with its N, never as a point
-        estimate.
-      </p>
+      <SectionHeading explainerId="research-far">Re-ranker FAR calibration</SectionHeading>
       {farCalibration === null ? (
         <EmptyLine testid="research-far-calibration-empty">
           No FAR report yet — run pnpm quant far-calibration &lt;snapshot&gt; to populate this.
@@ -1842,17 +1828,7 @@ function ConfluenceEval({
   const gateOk = gateVerdict === "VIABLE";
   return (
     <section data-testid="research-confluence-eval" className="space-y-3">
-      <SectionHeading>Whole-board confluence eval</SectionHeading>
-      <p className="max-w-[80ch] text-xs text-text-md" data-testid="research-confluence-eval-note">
-        Two-part eval-first of the whole-board confluence signal (distinct props moving together in
-        a 60s window). The <span className="text-text-hi">gate</span> asks if labeled
-        misattributions stand out against their OWN game; the{" "}
-        <span className="text-text-hi">bar</span> is the deployable operating point: catch ≥70% of
-        incidents at ≤3:1 false alarms. The gate can pass while the bar fails — a real signal can
-        still be too noisy to ship as a standalone classifier. With only ~15 labeled incidents the
-        false-alarm ratio is a LOWER BOUND (an unlabeled-but-real anomaly counts as a false
-        positive), so read it as a screen, not a verdict on the concept.
-      </p>
+      <SectionHeading explainerId="research-confluence">Whole-board confluence eval</SectionHeading>
       {confluenceEval === null ? (
         <EmptyLine testid="research-confluence-eval-empty">
           No confluence eval yet — run pnpm quant confluence-eval to populate this.
@@ -1955,13 +1931,9 @@ function HarvestedLabels({
   const generatedAt = str(pick(hl, "generatedAt"));
   return (
     <section data-testid="research-harvested-labels" className="space-y-3">
-      <SectionHeading>Harvested miscredit labels</SectionHeading>
-      <p className="max-w-[80ch] text-xs text-text-md" data-testid="research-harvested-labels-note">
-        Credited&rarr;rightful corrections recovered by diffing the versioned PBP-revision shadow
-        (NBA stat corrections are silent edits with no official feed, so the transition IS the
-        label). This is the label engine that relieves the binding N constraint; it accrues over
-        days as captures re-run, so an empty list here is expected early.
-      </p>
+      <SectionHeading explainerId="research-harvested-labels">
+        Harvested miscredit labels
+      </SectionHeading>
       {harvestedLabels === null || incidents.length === 0 ? (
         <EmptyLine testid="research-harvested-labels-empty">
           {harvestedLabels === null

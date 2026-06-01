@@ -666,6 +666,70 @@ On the leaderboard this column tells you how a model leaned on those off-price p
 It is a sanity check on a model's extra fires. A model can post great recall by firing constantly — but if most of its un-labelled fires are junk, the desk drowns. High residual coverage means the leftover fires still tend to sit on genuine board moves, so the operator's time spent checking them is not wasted. Low residual coverage is a warning that the model is padding its catches with chatter.`,
     formal: String.raw`Residual coverage is computed over the fires NOT matched to a labelled incident (the residual set). It is the fraction of that residual set whose buckets still clear an independent board-activity criterion (e.g. a positive standardized innovation in the state-space filter), versus fires that sit on quiet buckets. It complements recall@fires/game: recall measures hits against the known corpus; residual coverage characterizes the quality of the remaining fire budget. A research-snapshot metric only — it is not a live production gate. Canonical source: the run's \`leaderboard.json\` under \`outputs/nba-quant-lab/runs/<id>/\`.`,
   },
+  // ──────────────────────────────────────────────────────────────────────────
+  //  Research lab (the /research tab — keep these blocks de-crowded; the verbose
+  //  explanation lives HERE, not as inline paragraphs on the page)
+  // ──────────────────────────────────────────────────────────────────────────
+
+  "research-snapshot": {
+    title: "Research snapshot",
+    eli5: String.raw`A snapshot is a frozen, reproducible copy of the slice of the gold database the research lab scores against. It is frozen on purpose: two models can only be compared fairly if they see the exact same data, and a frozen snapshot means today's leaderboard still means the same thing next week, even as new live data keeps arriving.
+
+Inside it are the games, the whole-board observations, the labeled incident truth, and the per-player prop ticks — everything a model or the attribution re-ranker needs to be scored, packaged once so the run is repeatable.`,
+    formal: String.raw`Materialized by \`pnpm quant:export\` from the READ-ONLY gold DB plus the committed incident registry, using the shared truth functions so snapshot truth equals the bakeoff truth. Parquet tables: \`games\`, \`board_observations\` (live board lane shape), \`market_outlier_episodes\` (bakeoff path), \`incidents\`, \`score_windows\`, \`player_prop_ticks\`, plus \`manifest.json\` and \`snapshot.duckdb\`. Selection modes: \`full-corpus\` (default — every board-eligible game), \`explicit-games\` (\`--games\`), or \`incident-plus-sample\` (\`--sample N\` = all incident games + N deterministic controls). Output: \`outputs/nba-quant-lab/snapshots/<id>/\`.`,
+  },
+
+  "research-model-lab": {
+    title: "Model lab",
+    eli5: String.raw`These are baseline research models, not tuned production detectors. They exist so a snapshot can be scored repeatably — humble reference points to compare new candidates against, not the live suspend signal.`,
+    formal: String.raw`Registered \`BoardModel\`s from the python registry (emitted to \`models.json\` via \`pnpm quant emit-models\`, read by \`GET /v1/research/models\`). Each scores a snapshot through the same contract, so a candidate's leaderboard line is directly comparable to these incumbents.`,
+  },
+
+  "research-leaderboard": {
+    title: "Research leaderboard",
+    eli5: String.raw`How each model did on one snapshot: of the incidents we know about, how many it caught (recall), how often it fired per game (burden), and how its catches split between whole-board volatility and single off-price prints. This is a research-snapshot result, not live production behavior — read it as a bakeoff scorecard, not a promise about tomorrow's games.`,
+    formal: String.raw`Per-model rows from \`outputs/nba-quant-lab/runs/<id>/leaderboard.json\`: \`incident_recall\` (caught / total labeled), \`fires_per_game\`, \`tape_outlier_recall\` vs board-volatility attribution, and \`residual_coverage\` (quality of the un-labeled fire budget). Produced by \`pnpm quant compare <models> --snapshot <snap>\`.`,
+  },
+
+  "research-attribution": {
+    title: "Attribution re-ranker",
+    eli5: String.raw`When a stat is credited to the wrong player, the market often splits in a tell-tale way: the rightful player's "over" drifts UP (he really did the thing) while the credited player's "over" drifts DOWN. This re-ranker scores that directed split for each labeled incident and tries to pick the rightful player out of the players who were on the court.
+
+It is a research diagnostic — a directed-drift score, not the live suspend signal. It abstains when there is no clean candidate rather than guessing, so always read its number together with how many incidents it actually scored (its N), never as a single point estimate.`,
+    formal: String.raw`Signed-paired directed drift over labeled incidents, stratified into \`player_swap\` (a specific wrong player) vs \`team_dispute\` (credited to TEAM), with \`line_select=aggregate_drift\`. The score is the directed gap between the rightful player's over-side drift and the credited player's over-side drift around the event; abstentions (no on-court candidate / no usable prop line) are reported, never scored as misses. Emitted to \`attribution_reranker.json\` by \`pnpm quant attribution-eval <snap>\`; surfaced at \`GET /v1/research/attribution\`.`,
+  },
+
+  "research-far": {
+    title: "Re-ranker FAR calibration",
+    eli5: String.raw`How often the attribution re-ranker would fire on a NORMAL, non-incident game — its false-alarm rate. The re-ranker's score is not centered at zero, so you cannot just fire on "positive"; you read the fire threshold off this empirical distribution of what it does on clean games.
+
+Per-pair counts one candidate. Per-rebound takes the worst of a rebound's roughly four on-court teammates — that is the multiple-testing cost of having to pick among several plausible players. Matched recall runs the labeled incidents through the exact same path so the true-positive rate and the false-alarm rate share one operating point — but it is label-starved, so read it with its N, never as a point estimate.`,
+    formal: String.raw`False-alarm rate of the signed-paired re-ranker on non-incident control games, reported per-pair and per-rebound (per-rebound = $\max$ over the $\sim4$ on-court teammates). Matched TPR pushes the labeled incidents through the same candidate path at the same threshold. Degenerate (all-null / zero scored pairs) when the control games lack on-court starter data or rebound prop ticks — a coverage problem, not a result. Emitted to \`far_calibration.json\` by \`pnpm quant far-calibration <snap>\`.`,
+  },
+
+  "research-confluence": {
+    title: "Whole-board confluence eval",
+    eli5: String.raw`A two-part eval of the whole-board confluence signal (distinct props moving together in a 60-second window). The GATE asks whether labeled misattributions stand out against their OWN game's background. The BAR is the deployable operating point: catch at least 70% of incidents at no worse than 3 false alarms per real catch.
+
+The gate can pass while the bar fails — a signal can be unmistakably real and still be too noisy to ship as a standalone classifier. And with only about 15 labeled incidents, the false-alarm ratio here is a LOWER BOUND (an unlabeled-but-real anomaly counts against us), so read this as a screen worth zooming in from, not a final verdict on the idea.`,
+    formal: String.raw`Gate = per-incident standout: does the incident's $\pm60\text{s}$ window beat its own game's control distribution? (binomial across incidents). Bar = global-threshold operating point on a causal per-game trailing-z of the confluence count, with a clustered-alert false-positive unit; reported with a baseline comparison (expanding vs rolling trailing window). Read-only over the gold DB; emitted by \`pnpm quant confluence-eval\`; surfaced at \`GET /v1/research/confluence-eval\`.`,
+  },
+
+  "research-harvested-labels": {
+    title: "Harvested labels vs known cases",
+    eli5: String.raw`Two different things both sound like "misattributions" — this is the difference.
+
+KNOWN CASES (the incident registry) are hand-curated, human-verified misattributions: the ones we already know happened and checked by hand. That is a small, fixed set (about 15).
+
+HARVESTED LABELS are NEW misattributions discovered automatically, with no human in the loop. The NBA silently fixes stat-credit errors after a game — no announcement, no feed; the box score just quietly changes. We re-snapshot each game's play-by-play repeatedly over the days after it ends, and when a play's credited player CHANGES between two snapshots, that change itself IS the label: the original credit was the misattribution, the corrected one is the truth.
+
+Why it matters: hand-labeling is the bottleneck — you can only study about 15 incidents. Harvested labels grow that set on their own over time, which is what eventually lets the models be measured properly.
+
+Why it's empty right now: it only produces a label once it has caught a correction in the act — at least two snapshots of the same game with a real change between them. Early on the revision shadow is thin, so an empty list here is expected and honest, not a bug.
+
+How to harvest history WITHOUT ingesting live games: you do not need live games at all. Run the capture script over a list of PAST game ids — it re-pulls their play-by-play from the NBA CDN and appends to the versioned shadow (append-only and idempotent, so re-running is safe). Re-run it on a cadence for about 7 days after each game, because corrections land minutes to days late. Then run the harvest script to diff those snapshots into labels.`,
+    formal: String.raw`Engine: \`capture-pbp-revisions.ts\` snapshots cdn.nba.com PBP into the versioned \`nba_pbp_revisions\` shadow (\`INSERT OR IGNORE\` on \`(game_id, action_number, captured_at)\` — append-only, idempotent). \`harvest-incident-labels.ts\` diffs credited-person transitions between snapshots into an incident-registry-shaped artifact (\`harvested_incidents.json\`) consumed by \`attribution-eval\` / \`far-calibration\` and surfaced at \`GET /v1/research/harvested-labels\`. Historical, no live worker needed: run \`pnpm tsx scripts/capture-pbp-revisions.ts --games <ids>\` with \`GOLD_DB_PATH\` set, re-run on a cadence for ~7 days post-game, then \`pnpm tsx scripts/harvest-incident-labels.ts --stat rebound\`. A label requires $\ge 2$ snapshots of an action with a real credited-person change between them, so the set accrues over days.`,
+  },
 } as const satisfies Record<string, Explainer>;
 
 export type ExplainerId = keyof typeof explainers;

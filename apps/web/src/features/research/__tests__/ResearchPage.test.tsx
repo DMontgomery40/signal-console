@@ -26,6 +26,7 @@ import type { JSX, ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { ResearchPage } from "../ResearchPage";
+import { explainers } from "@signal-console/ui";
 
 function makeWrapper(): (props: { children: ReactNode }) => JSX.Element {
   const client = new QueryClient({
@@ -344,9 +345,9 @@ describe("ResearchPage", () => {
     expect(screen.getByTestId("research-attribution-meta").textContent).toContain(
       "aggregate_drift",
     );
-    expect(screen.getByTestId("research-attribution-note").textContent).toContain(
-      "not the live suspend signal",
-    );
+    // The verbose description now lives in the dotted-underline hover explainer, not
+    // an inline paragraph (de-crowding). Verify the content moved there, not vanished.
+    expect(explainers["research-attribution"].eli5).toContain("not the live suspend signal");
   });
 
   it("renders the FAR calibration section (per-pair/per-rebound FAR + matched recall) with honest N", async () => {
@@ -367,9 +368,8 @@ describe("ResearchPage", () => {
     expect(meta).toContain("control games 163");
     // matched recall is surfaced WITH its N (2 of 9), never as a bare point estimate
     expect(meta).toContain("matched recall n 2 / 9");
-    expect(screen.getByTestId("research-far-calibration-note").textContent).toContain(
-      "label-starved",
-    );
+    // "label-starved" caveat now lives in the hover explainer (de-crowded heading).
+    expect(explainers["research-far"].eli5).toContain("label-starved");
   });
 
   it("FAR calibration shows the empty state when no report is present", async () => {
@@ -394,10 +394,8 @@ describe("ResearchPage", () => {
     // one row per baseline compared
     const rows = await screen.findAllByTestId("research-confluence-eval-row");
     expect(rows.map((r) => r.getAttribute("data-baseline"))).toEqual(["expanding", "rolling-60"]);
-    // the lower-bound caveat is stated, not hidden
-    expect(screen.getByTestId("research-confluence-eval-note").textContent).toContain(
-      "LOWER BOUND",
-    );
+    // the lower-bound caveat is stated in the hover explainer, not hidden
+    expect(explainers["research-confluence"].eli5).toContain("LOWER BOUND");
   });
 
   it("confluence eval shows the empty state when no report is present", async () => {
