@@ -203,7 +203,9 @@ def cmd_far_calibration(args: argparse.Namespace) -> int:
 
     from ..attribution_snapshot import _epoch, last_name
     from ..far_calibration import (
+        harvested_label_specs,
         incident_recall_matched,
+        merge_incident_specs,
         oncourt_quality,
         score_control_pairs,
         summarize_far,
@@ -239,12 +241,12 @@ def cmd_far_calibration(args: argparse.Namespace) -> int:
     # Matched recall: push player_swap incidents through the SAME candidate path so
     # TPR and FAR share an operating point. Incident games' prop ticks are in the
     # snapshot (truth-bearing is always exported); PBP comes from gold.
-    specs = []
+    registry_specs = []
     for _, r in inc[inc["scoreable"] == True].iterrows():  # noqa: E712 (pandas mask)
         cl, rl = last_name(str(r["credited_player"])), last_name(str(r["rightful_player"]))
         ev = r.get("event_sec")
         if cl and rl and ev is not None:
-            specs.append(
+            registry_specs.append(
                 {
                     "id": r.get("incident_id"),
                     "game_id": r["canonical_game_id"],
@@ -253,6 +255,13 @@ def cmd_far_calibration(args: argparse.Namespace) -> int:
                     "event_epoch": float(ev),
                 }
             )
+    # Close the label loop: merge harvested labels (credited->rightful corrections
+    # recovered by the revision harvester) so they flow into recall as they accrue.
+    harvested_path = Path(args.harvested)
+    harvested_report = json.loads(harvested_path.read_text()) if harvested_path.exists() else {}
+    harvested = harvested_label_specs(harvested_report)
+    merge = merge_incident_specs(registry_specs, harvested)
+    specs = merge["specs"]
     incident_pbp = load_pbp(sorted({s["game_id"] for s in specs}))
     conn.close()
 
@@ -269,6 +278,11 @@ def cmd_far_calibration(args: argparse.Namespace) -> int:
         "data_quality": quality,
         "all_control": all_summary,
         "pure_control": pure,
+        "incident_sources": {
+            "n_registry": merge["n_registry"],
+            "n_harvested_added": merge["n_harvested_added"],
+            "n_harvested_duplicate": merge["n_harvested_duplicate"],
+        },
         "matched_recall": recall,
     }
     out = Path(args.out)
@@ -283,6 +297,7 @@ def cmd_far_calibration(args: argparse.Namespace) -> int:
                 k: recall[k]
                 for k in ("n_incidents", "n_matched", "n_rightful_oncourt", "n_scored", "tpr_per_pair", "rank_by_prior", "rank_by_score")
             },
+            "incident_sources": report["incident_sources"],
             "data_quality": quality,
         }
     )
@@ -409,6 +424,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="gold DB path (read-only) for control-game PBP",
     )
     p_far.add_argument("--out", default="outputs/nba-quant-lab/far_calibration.json")
+    p_far.add_argument(
+        "--harvested",
+        default="outputs/nba-quant-lab/harvested_incidents.json",
+        help="harvested-label file merged into matched-recall incidents (closes the label loop)",
+    )
     p_far.add_argument(
         "--line-select", default="aggregate_drift",
         choices=["most_active", "closest_to_half", "aggregate_drift"],

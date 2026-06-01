@@ -223,6 +223,7 @@ def incident_recall_matched(
             "game_id": gid,
             "credited_last": inc.get("credited_last"),
             "rightful_last": inc.get("rightful_last"),
+            "source": inc.get("source", "registry"),
             "matched": False,
             "rightful_oncourt": None,
             "rightful_score": None,
@@ -309,10 +310,61 @@ def incident_recall_matched(
     }
 
 
+def harvested_label_specs(report: Any, stat: str = "rebound") -> list[dict[str, Any]]:
+    """Convert a parsed harvested_incidents.json report into incident specs for
+    incident_recall_matched. Keeps stat-bearing labels with a parseable credited,
+    rightful, and event time. Closes the loop: capture -> harvest -> eval."""
+    out: list[dict[str, Any]] = []
+    incidents = report.get("incidents", []) if isinstance(report, dict) else []
+    if not isinstance(incidents, list):
+        return out
+    for inc in incidents:
+        if not isinstance(inc, dict):
+            continue
+        if str(inc.get("stat", "")).lower() != stat:
+            continue
+        cl = last_name(str(inc.get("creditedPlayer", "")))
+        rl = last_name(str(inc.get("rightfulPlayer", "")))
+        ev = _epoch(inc.get("utcTime"))
+        gid = str(inc.get("gameId", ""))
+        if cl and rl and ev is not None and gid:
+            out.append(
+                {"id": inc.get("id"), "game_id": gid, "credited_last": cl, "rightful_last": rl, "event_epoch": ev}
+            )
+    return out
+
+
+def merge_incident_specs(
+    registry: list[dict[str, Any]], harvested: list[dict[str, Any]]
+) -> dict[str, Any]:
+    """Merge curated registry incidents with harvested labels, deduped by
+    (game_id, credited_last, rightful_last). Registry wins (same miscredit). Tags
+    each spec with its source so recall can report the harvested contribution."""
+    seen = {(s["game_id"], s["credited_last"], s["rightful_last"]) for s in registry}
+    merged: list[dict[str, Any]] = [{**s, "source": "registry"} for s in registry]
+    added = duplicate = 0
+    for s in harvested:
+        key = (s["game_id"], s["credited_last"], s["rightful_last"])
+        if key in seen:
+            duplicate += 1
+            continue
+        seen.add(key)
+        merged.append({**s, "source": "harvested"})
+        added += 1
+    return {
+        "specs": merged,
+        "n_registry": len(registry),
+        "n_harvested_added": added,
+        "n_harvested_duplicate": duplicate,
+    }
+
+
 __all__ = [
     "DEFAULT_THRESHOLDS",
     "score_control_pairs",
     "summarize_far",
     "oncourt_quality",
     "incident_recall_matched",
+    "harvested_label_specs",
+    "merge_incident_specs",
 ]

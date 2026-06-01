@@ -6,7 +6,9 @@ import pandas as pd
 
 from nba_sidecar.research.attribution_snapshot import _epoch
 from nba_sidecar.research.far_calibration import (
+    harvested_label_specs,
     incident_recall_matched,
+    merge_incident_specs,
     oncourt_quality,
     score_control_pairs,
     summarize_far,
@@ -107,6 +109,47 @@ def test_incident_recall_matched_unmatched_when_no_credited_rebound():
     res = incident_recall_matched(_ticks([]), PBP, inc)
     assert res["n_incidents"] == 1 and res["n_matched"] == 0
     assert res["incidents"][0]["reason"] == "no credited rebound within match window"
+
+
+def test_harvested_label_specs_parses_rebound_labels_only():
+    report = {
+        "incidents": [
+            {"id": "h1", "gameId": "nba-x", "creditedPlayer": "S. Merrill", "rightfulPlayer": "J. Allen",
+             "stat": "rebound", "utcTime": "2026-01-01T00:10:00Z"},
+            # a non-rebound (assist) label is dropped
+            {"id": "h2", "gameId": "nba-y", "creditedPlayer": "A. One", "rightfulPlayer": "B. Two",
+             "stat": "assist", "utcTime": "2026-01-01T00:10:00Z"},
+            # missing rightful -> dropped
+            {"id": "h3", "gameId": "nba-z", "creditedPlayer": "C. Three", "rightfulPlayer": "",
+             "stat": "rebound", "utcTime": "2026-01-01T00:10:00Z"},
+        ]
+    }
+    specs = harvested_label_specs(report)
+    assert len(specs) == 1
+    assert specs[0]["game_id"] == "nba-x"
+    assert (specs[0]["credited_last"], specs[0]["rightful_last"]) == ("merrill", "allen")
+    assert harvested_label_specs({}) == []  # absent/empty report is safe
+
+
+def test_merge_incident_specs_dedups_registry_wins():
+    registry = [
+        {"id": "r1", "game_id": "nba-x", "credited_last": "merrill", "rightful_last": "allen", "event_epoch": 1.0},
+    ]
+    harvested = [
+        # duplicate of r1 (same game + names) -> skipped, registry wins
+        {"id": "h1", "game_id": "nba-x", "credited_last": "merrill", "rightful_last": "allen", "event_epoch": 2.0},
+        # genuinely new label -> added
+        {"id": "h2", "game_id": "nba-q", "credited_last": "smith", "rightful_last": "jones", "event_epoch": 3.0},
+    ]
+    merged = merge_incident_specs(registry, harvested)
+    assert merged["n_registry"] == 1
+    assert merged["n_harvested_added"] == 1
+    assert merged["n_harvested_duplicate"] == 1
+    assert len(merged["specs"]) == 2
+    assert {s["source"] for s in merged["specs"]} == {"registry", "harvested"}
+    # registry spec retained over the duplicate harvested one
+    nba_x = next(s for s in merged["specs"] if s["game_id"] == "nba-x")
+    assert nba_x["id"] == "r1" and nba_x["source"] == "registry"
 
 
 def test_oncourt_quality_clean_game():
