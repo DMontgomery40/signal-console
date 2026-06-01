@@ -266,8 +266,10 @@ only.
 
 ### 3.5 `source_coverage.parquet` — provenance (non-causal)
 
-278 rows (game × source × market_family × window). Sources in this snapshot:
-polymarket 101, bet365 96, kalshi 81.
+One row per game × source × market_family × window for sources that are present, PLUS
+one explicit `class = missing` row per game for each eligible source ENTIRELY absent
+from that game — so missing coverage is recorded, not invisible. Per-snapshot
+present-source counts vary (e.g. polymarket / bet365 / kalshi).
 
 | column                                         | type            | meaning                                                                  |
 | ---------------------------------------------- | --------------- | ------------------------------------------------------------------------ |

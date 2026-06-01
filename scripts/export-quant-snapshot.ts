@@ -480,7 +480,9 @@ async function run(): Promise<number> {
     //                             single mapped market with no usable quotes
     //       artifact_only       - present only in source_markets with
     //                             mapping_status != 'mapped' (no real coverage)
-    //       missing             - eligible source absent for this game/family
+    //       missing             - eligible source ENTIRELY absent for this game
+    //                             (one row per absent eligible source; makes absence
+    //                             explicit rather than invisible)
     const coverageRows = buildSourceCoverageRows(db, selectedIds);
 
     // 11. player_prop_ticks.parquet — per-player rebound-prop microstructure for
@@ -805,7 +807,9 @@ function buildSourceCoverageRows(
         tickCount: (prev?.tickCount ?? 0) + tickCount,
       });
     }
+    const presentSources = new Set<string>();
     for (const entry of byKey.values()) {
+      presentSources.add(entry.source);
       const eligible = SNAPSHOT_ELIGIBLE_SOURCES.has(entry.source);
       const klass = classifyCoverage(eligible, entry);
       rows.push({
@@ -817,6 +821,24 @@ function buildSourceCoverageRows(
         market_count: entry.marketCount,
         tick_count: entry.tickCount,
         eligible,
+      });
+    }
+    // Record eligible sources ENTIRELY absent for this game as explicit `missing`
+    // rows. Without this the promised `missing` class never appears — the query
+    // groups only source_markets rows that EXIST, so classifyCoverage's missing
+    // branch is unreachable and absence is invisible rather than recorded. Driven
+    // by the SNAPSHOT_ELIGIBLE_SOURCES config set (not a hardcoded source list).
+    for (const source of SNAPSHOT_ELIGIBLE_SOURCES) {
+      if (presentSources.has(source)) continue;
+      rows.push({
+        game_id: gameId,
+        source,
+        market_family: "",
+        window: "full-game",
+        class: "missing",
+        market_count: 0,
+        tick_count: 0,
+        eligible: true,
       });
     }
   }
