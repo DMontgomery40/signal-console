@@ -35,6 +35,34 @@ export interface MappedPbpAction {
   timeActual: string | null;
 }
 
+export interface CdnTeam {
+  teamId?: number;
+  teamTricode?: string;
+  teamCity?: string;
+  teamName?: string;
+}
+
+/** Minimal cdn boxscore fetch for the team + scheduled-start needed to upsert a
+ * games row before backfilling PBP (the FK target). */
+export async function fetchCdnBoxscore(
+  rawGameId: string,
+): Promise<{ homeTeam: CdnTeam; awayTeam: CdnTeam; gameTimeUTC: string | null }> {
+  const url = `https://cdn.nba.com/static/json/liveData/boxscore/boxscore_${rawGameId}.json`;
+  const res = await fetch(url, {
+    headers: { "User-Agent": "Mozilla/5.0", Referer: "https://www.nba.com/" },
+  });
+  if (!res.ok) throw new Error(`cdn boxscore ${rawGameId}: HTTP ${res.status}`);
+  const json = (await res.json()) as {
+    game?: { homeTeam?: CdnTeam; awayTeam?: CdnTeam; gameTimeUTC?: string };
+  };
+  const game = json.game ?? {};
+  return {
+    homeTeam: game.homeTeam ?? {},
+    awayTeam: game.awayTeam ?? {},
+    gameTimeUTC: game.gameTimeUTC ?? null,
+  };
+}
+
 export async function fetchCdnPbp(
   rawGameId: string,
 ): Promise<{ actions: CdnAction[]; generatedAt: string }> {
