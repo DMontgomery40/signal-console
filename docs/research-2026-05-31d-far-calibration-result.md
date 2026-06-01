@@ -97,8 +97,11 @@ Two conclusions the run forces (both contradict prior assumptions, so they are r
 - **Recall is label-bound, not method-bound.** Only 5 of 10 player_swap incidents are even
   matchable and 3 scoreable here; the binding constraint is positives + credited-side liquidity,
   exactly the gate identified in the negative-result memo. The versioned PBP-revision harvester
-  (`scripts/capture-pbp-revisions.ts` → `listPbpAttributionTransitions`) is the path to more
-  labels over real days.
+  (`scripts/capture-pbp-revisions.ts` → `listPbpAttributionTransitions` →
+  `scripts/harvest-incident-labels.ts`) is the path to more labels over real days, and
+  far-calibration now **auto-merges** `harvested_incidents.json` into matched-recall (deduped vs
+  the registry, `incident_sources` reports the split) — so accrued labels tighten the recall CI
+  with no manual step. See `docs/nba-miscredit-label-harvester.md`.
 
 ## Concrete pipeline gaps found (future work, all real)
 

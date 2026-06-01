@@ -64,12 +64,16 @@ with a real correction between them** — the shadow is append-only and grows ov
 Consecutive flips on one action collapse to the net correction; cancelled flips
 (A→B→A) are dropped.
 
-## Feeding the eval
+## Feeding the eval (closed-loop)
 
-Merge `harvested_incidents.json` incidents into the registry the re-ranker eval reads,
-then re-run `pnpm quant far-calibration` (matched recall) / `attribution-eval`. Each new
-real label tightens the recall CI; the FAR-on-control side is already calibrated and
-does not need labels.
+`pnpm quant far-calibration` **automatically merges** `harvested_incidents.json` into its
+matched-recall incidents (`--harvested` overrides the path) — rebound labels are deduped
+against the snapshot registry by `(game_id, credited_last, rightful_last)`, registry wins,
+and each spec is tagged `source: registry | harvested`. The report's `incident_sources`
+block reports `{n_registry, n_harvested_added, n_harvested_duplicate}`. So once the harvest
+runs, every new real label flows into recall on the next far-calibration run with no manual
+merge — `capture → harvest → eval` is closed-loop. Each new label tightens the recall CI;
+the FAR-on-control side is already calibrated and does not need labels.
 
 ## Current state (2026-05-31)
 
