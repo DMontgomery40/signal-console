@@ -16,6 +16,7 @@ Every run lands under
 from __future__ import annotations
 
 import json
+import os
 import platform
 import sys
 from dataclasses import dataclass
@@ -27,8 +28,17 @@ import pandas as pd
 from .casebook import Casebook
 from .scorer import ScoreResultBundle
 
-DEFAULT_RUNS_ROOT = Path(
-    "/Users/davidmontgomery/signal-console-quant-lab/outputs/nba-quant-lab/runs"
+# Repo-relative default so `pnpm quant run-model/compare/score-predictions` (which
+# omit --runs-root) write where the /research API reads leaderboards from. Mirrors
+# apps/api/src/services/research.ts (RESEARCH_OUTPUT_ROOT env, else repo-relative
+# outputs/nba-quant-lab). artifacts.py lives at
+# apps/nba-sidecar/src/nba_sidecar/research/evaluation/artifacts.py -> parents[6] is
+# the worktree root. The old hardcoded /signal-console-quant-lab path was a dead
+# sibling worktree, so runs silently landed outside the repo and never appeared in
+# the portal (review P1).
+_REPO_ROOT = Path(__file__).resolve().parents[6]
+DEFAULT_RUNS_ROOT = (
+    Path(os.environ.get("RESEARCH_OUTPUT_ROOT", str(_REPO_ROOT / "outputs" / "nba-quant-lab"))) / "runs"
 )
 
 # Leaderboard column order (the headline contract the task asks for).

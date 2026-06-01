@@ -1,13 +1,17 @@
 """Unit tests for the research package (registry, models, loader, contracts).
 
-These run against the real exported snapshot at
-``outputs/nba-quant-lab/snapshots/sample-fixed`` so the models are exercised on
-real board observations, not synthetic toys. To keep them fast we slice to a
-couple of small games.
+These run against a real exported snapshot pointed to by the
+``NBA_RESEARCH_SNAPSHOT_PATH`` env var (the repo's hermetic-snapshot convention,
+see test_separation.py) so the models are exercised on real board observations,
+not synthetic toys. The snapshot is a gitignored generated artifact, so when the
+env var is unset/absent the module SKIPS rather than erroring on a dead path
+(it formerly hardcoded a /signal-console-quant-lab/.../sample-fixed sibling
+worktree path — review P1). To keep them fast we slice to a couple of small games.
 """
 
 from __future__ import annotations
 
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -24,8 +28,14 @@ from nba_sidecar.research.loader import build_game_series, load_game_series
 from nba_sidecar.research.models import get_model, list_models
 from nba_sidecar.research.models.base import ScoreRequest
 
-SNAPSHOT = Path(
-    "/Users/davidmontgomery/signal-console-quant-lab/outputs/nba-quant-lab/snapshots/sample-fixed"
+SNAPSHOT = Path(os.environ.get("NBA_RESEARCH_SNAPSHOT_PATH", ""))
+
+# The model/loader fixtures below need a real exported snapshot. It is a gitignored
+# artifact, so skip the whole module (rather than error) when the env var is not set
+# to an existing snapshot dir — matching test_separation.py's hermetic convention.
+pytestmark = pytest.mark.skipif(
+    not os.environ.get("NBA_RESEARCH_SNAPSHOT_PATH") or not SNAPSHOT.is_dir(),
+    reason="set NBA_RESEARCH_SNAPSHOT_PATH to an exported snapshot to run the research model suite",
 )
 
 # Small games (by bucket count) keep the suite fast while still real.
