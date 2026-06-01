@@ -406,6 +406,11 @@ describe("ResearchPage", () => {
     expect(copied).toContain("pnpm quant compare robust_mad state_space_current");
     expect(copied).toContain("--snapshot");
     expect(copied).not.toContain("<snapshot>");
+    // SNAP must resolve to a real snapshot PATH (the snapshots dir + id), not a bare
+    // dir name — `ls` alone yields just the id and --snapshot would point at nothing.
+    expect(copied).toContain(
+      'SNAP="outputs/nba-quant-lab/snapshots/$(ls -t outputs/nba-quant-lab/snapshots',
+    );
   });
 
   it("renders the gold dataset status: ready dot, path, humanized size, game count", async () => {

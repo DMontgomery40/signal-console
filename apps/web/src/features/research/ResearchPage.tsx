@@ -323,9 +323,12 @@ function GoldStatus({ gold }: { readonly gold: ResearchGold | undefined }): JSX.
 
 const QUANT_GUIDE_PATH = "docs/quant-researcher-guide.md";
 const QUANT_GUIDE_HREF = "/v1/research/guide";
+// `ls` yields a bare dir name; --snapshot needs the path the CLI opens (pnpm quant
+// runs from the repo root), so SNAP must include the snapshots dir, not just the id.
+const QUANT_SNAPSHOTS_DIR = "outputs/nba-quant-lab/snapshots";
 const QUANT_CLI_QUICKSTART = [
   "pnpm quant:export",
-  "SNAP=$(ls -t outputs/nba-quant-lab/snapshots | head -1)",
+  `SNAP="${QUANT_SNAPSHOTS_DIR}/$(ls -t ${QUANT_SNAPSHOTS_DIR} | head -1)"`,
   'pnpm quant compare robust_mad state_space_current --snapshot "$SNAP"',
 ].join("\n");
 
