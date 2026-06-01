@@ -101,6 +101,12 @@ interface CliOptions {
   readonly seed: number;
   readonly outRoot: string;
   readonly snapshotId: string | null;
+  // Max number of NON-truth-bearing (assumed-negative) games to include in
+  // player_prop_ticks so the attribution re-ranker's false-alarm rate can be
+  // calibrated on a real control universe. 0/null = truth-bearing games only
+  // (the original tight slice). Sampled deterministically from the selected
+  // scope by seed; games lacking rebound prop ticks contribute no rows.
+  readonly controlTicks: number;
 }
 
 function parseArgs(argv: readonly string[]): CliOptions {
@@ -113,6 +119,7 @@ function parseArgs(argv: readonly string[]): CliOptions {
   let seed = 42;
   let outRoot = resolve("outputs", "nba-quant-lab", "snapshots");
   let snapshotId: string | null = null;
+  let controlTicks = 0;
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     const next = (): string => {
@@ -133,8 +140,9 @@ function parseArgs(argv: readonly string[]): CliOptions {
     else if (arg === "--seed") seed = Number.parseInt(next(), 10);
     else if (arg === "--out") outRoot = resolve(next());
     else if (arg === "--snapshot-id") snapshotId = next();
+    else if (arg === "--control-ticks") controlTicks = Number.parseInt(next(), 10);
   }
-  return { games, limit, sample, since, until, seed, outRoot, snapshotId };
+  return { games, limit, sample, since, until, seed, outRoot, snapshotId, controlTicks };
 }
 
 // Deterministic mulberry32 PRNG so the sampled-game set is reproducible from the
@@ -482,7 +490,28 @@ async function run(): Promise<number> {
     const truthBearingIds = selectedIds.filter(
       (id) => incidentGameIdSet.has(id) || (episodesByGame.get(id)?.length ?? 0) > 0,
     );
-    const playerPropTickRows = buildPlayerPropTickRows(db, truthBearingIds);
+    // FAR-on-control: also include a deterministic sample of NON-truth-bearing
+    // (assumed-negative) games so the re-ranker's false-alarm rate can be
+    // calibrated against a real control universe instead of only the incident
+    // slice. Capped by --control-ticks (0 = truth-bearing only). Sampled by a
+    // seed-offset PRNG; games without rebound prop ticks yield no rows.
+    const controlPoolIds =
+      opts.controlTicks > 0
+        ? selectedIds.filter(
+            (id) => !incidentGameIdSet.has(id) && (episodesByGame.get(id)?.length ?? 0) === 0,
+          )
+        : [];
+    const controlSampleIds = deterministicShuffle(controlPoolIds, mulberry32(opts.seed + 7)).slice(
+      0,
+      opts.controlTicks,
+    );
+    const playerPropTickGameIds = [...truthBearingIds, ...controlSampleIds];
+    const playerPropTickRows = buildPlayerPropTickRows(db, playerPropTickGameIds);
+    const controlTickGameCount = new Set(
+      playerPropTickRows
+        .map((r) => r["game_id"])
+        .filter((id): id is string => typeof id === "string" && !truthBearingIds.includes(id)),
+    ).size;
 
     // --- write parquet via duckdb ----------------------------------------
     const instance = await DuckDBInstance.create(resolve(snapshotDir, "snapshot.duckdb"));
@@ -616,6 +645,14 @@ async function run(): Promise<number> {
         incidentGameCount: incidentSelected.length,
         regularGameCount: nonIncidentSelected.length,
         games: selectedIds,
+      },
+      // Scope of player_prop_ticks: truth-bearing games always included; a
+      // capped deterministic control sample is added when --control-ticks > 0
+      // so the re-ranker's false-alarm rate is calibrated on assumed-negatives.
+      playerPropTickScope: {
+        controlTicksRequested: opts.controlTicks,
+        truthBearingGameCount: truthBearingIds.length,
+        controlGameCount: controlTickGameCount,
       },
       liveBoardConfig: LIVE_BOARD_CONFIG,
       eligibleSources: [...SNAPSHOT_ELIGIBLE_SOURCES].sort(),
