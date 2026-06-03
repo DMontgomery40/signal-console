@@ -1,0 +1,4 @@
+f4a9e0f9dfdc6dec005c615f447b5d329d9f42861805d7ffabba7897131f7210  signal-console-gold-sidecars-20260603T142044Z.zip.part-000
+e64a4ed56f209c4925e0ba0e55dbdd7495f29dd19d3dcbcfa8b3ed641254d512  signal-console-gold-sidecars-20260603T142044Z.zip.part-001
+5fee4f24b171b361819c526d98deaab656c98bde8ced8a59d1d59733776dfc7b  signal-console-gold-sidecars-20260603T142044Z.zip.part-002
+a2101dacf43a980210e0cb4ae63494b35efefef3932e7e0e29bb54950dc01ffe  signal-console-gold-sidecars-20260603T142044Z.zip.part-003

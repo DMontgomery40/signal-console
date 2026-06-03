@@ -1,0 +1,16 @@
+# Signal Console Gold DB + Sidecar Archive
+
+Created: 2026-06-03T14:20:44Z
+Format: regular ZIP split into binary parts for GitHub LFS.
+
+Reassemble from this directory:
+  cat signal-console-gold-sidecars-20260603T142044Z.zip.part-* > signal-console-gold-sidecars-20260603T142044Z.zip
+
+Verify:
+  shasum -a 256 -c COMBINED_SHA256.txt
+  unzip -t signal-console-gold-sidecars-20260603T142044Z.zip
+
+Extract:
+  unzip signal-console-gold-sidecars-20260603T142044Z.zip
+
+Inputs are listed in INPUTS.txt. The original zip passed unzip -t before splitting; see UNZIP_TEST.txt.
