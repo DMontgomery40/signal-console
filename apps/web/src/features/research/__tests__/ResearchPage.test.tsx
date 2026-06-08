@@ -26,6 +26,7 @@ import type { JSX, ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { ResearchPage } from "../ResearchPage";
+import { explainers } from "@signal-console/ui";
 
 function makeWrapper(): (props: { children: ReactNode }) => JSX.Element {
   const client = new QueryClient({
@@ -161,6 +162,69 @@ const PULLS_RESPONSE = {
   ],
 };
 
+const EMPTY_ATTRIBUTION = { attribution: null };
+const SEEDED_ATTRIBUTION = {
+  attribution: {
+    overall: { n: 15, n_scored: 9, abstention_rate: 0.4, median_score: 0 },
+    player_swap: { n: 8, n_scored: 6, abstention_rate: 0.25, median_score: 0.022 },
+    team_dispute: { n: 7, n_scored: 3, abstention_rate: 0.57, median_score: -0.015 },
+    line_select: "aggregate_drift",
+    n_incidents: 15,
+  },
+};
+
+const EMPTY_FAR = { farCalibration: null };
+const SEEDED_FAR = {
+  farCalibration: {
+    n_control_games: 163,
+    all_control: {
+      per_pair_far: { "0.02": 0.0567, "0.05": 0.0356 },
+      per_rebound_far: { "0.02": 0.111, "0.05": 0.0737 },
+    },
+    matched_recall: { n_incidents: 9, n_scored: 2, tpr_per_pair: { "0.02": 0.5, "0.05": 0 } },
+    data_quality: { games_bad_starters: 0, rebounds_oncourt_ne5_frac: 0.0115 },
+  },
+};
+
+const EMPTY_CONFLUENCE = { confluenceEval: null };
+const SEEDED_CONFLUENCE = {
+  confluenceEval: {
+    generatedAt: "2026-06-01T08:00:00.000Z",
+    gate_verdict: "VIABLE",
+    meets_bar: false,
+    gate: { verdict: "VIABLE", n_evaluated: 14, successes: 13, secondary_rank_auc: 0.972 },
+    operating_point: {
+      meets_bar: false,
+      fp_ratio_at_target_recall: 17.417,
+      max_recall_point: { caught: 14, threshold: -1.0, fp_ratio: 129.214 },
+      baseline_comparison: [
+        { baseline: "expanding", fp_ratio_at_target_recall: 17.417, recall_ceiling: 14 },
+        { baseline: "rolling-60", fp_ratio_at_target_recall: 137.643, recall_ceiling: 14 },
+      ],
+    },
+  },
+};
+
+const EMPTY_HARVESTED = { harvestedLabels: null };
+const SEEDED_HARVESTED = {
+  harvestedLabels: {
+    generatedAt: "2026-05-31T00:00:00.000Z",
+    source: "pbp-revision-harvester",
+    gamesScanned: 12,
+    incidentCount: 1,
+    incidents: [
+      {
+        id: "harvested-nba-x-416",
+        gameId: "nba-x",
+        creditedPlayer: "S. Merrill",
+        rightfulPlayer: "J. Allen",
+        stat: "rebound",
+        correctionLatencySec: 840,
+      },
+    ],
+  },
+};
+
 interface MockShape {
   readonly gold?: unknown;
   readonly sources?: unknown;
@@ -168,6 +232,10 @@ interface MockShape {
   readonly leaderboard?: unknown;
   readonly models?: unknown;
   readonly pulls?: unknown;
+  readonly attribution?: unknown;
+  readonly farCalibration?: unknown;
+  readonly confluenceEval?: unknown;
+  readonly harvestedLabels?: unknown;
 }
 
 describe("ResearchPage", () => {
@@ -191,6 +259,10 @@ describe("ResearchPage", () => {
     const leaderboard = shape.leaderboard ?? EMPTY_LEADERBOARD;
     const models = shape.models ?? MODELS_RESPONSE;
     const pulls = shape.pulls ?? EMPTY_PULLS;
+    const attribution = shape.attribution ?? EMPTY_ATTRIBUTION;
+    const farCalibration = shape.farCalibration ?? EMPTY_FAR;
+    const confluenceEval = shape.confluenceEval ?? EMPTY_CONFLUENCE;
+    const harvestedLabels = shape.harvestedLabels ?? EMPTY_HARVESTED;
     fetchMock.mockImplementation(async (input, init) => {
       await Promise.resolve();
       const url = urlOf(input);
@@ -209,6 +281,10 @@ describe("ResearchPage", () => {
       if (url.includes("/v1/research/leaderboard/latest")) return jsonResponse(leaderboard);
       if (url.includes("/v1/research/models")) return jsonResponse(models);
       if (url.includes("/v1/research/pulls")) return jsonResponse(pulls);
+      if (url.includes("/v1/research/far-calibration")) return jsonResponse(farCalibration);
+      if (url.includes("/v1/research/confluence-eval")) return jsonResponse(confluenceEval);
+      if (url.includes("/v1/research/harvested-labels")) return jsonResponse(harvestedLabels);
+      if (url.includes("/v1/research/attribution")) return jsonResponse(attribution);
       return new Response("not found", { status: 404 });
     });
   }
@@ -244,12 +320,108 @@ describe("ResearchPage", () => {
     expect(screen.getByTestId("research-leaderboard-empty")).not.toBeNull();
     expect(screen.queryByTestId("research-leaderboard-row")).toBeNull();
     expect(screen.queryByTestId("research-pull-job-row")).toBeNull();
+    expect(screen.getByTestId("research-attribution-empty")).not.toBeNull();
+    expect(screen.queryByTestId("research-attribution-row")).toBeNull();
 
     // Model lab shows the export-first empty state, not a pull prompt.
     expect(screen.getByTestId("research-model-lab-empty").textContent).toContain("no pull needed");
 
     // No fabricated fires/game number anywhere in the empty page.
     expect(screen.queryByText(/fires\/game/i)).toBeNull();
+  });
+
+  it("renders the attribution re-ranker section stratified (overall/player_swap/team_dispute)", async () => {
+    mockResearch({ attribution: SEEDED_ATTRIBUTION });
+    render(<ResearchPage />, { wrapper: makeWrapper() });
+
+    expect(await screen.findByTestId("research-attribution")).not.toBeNull();
+    const rows = await screen.findAllByTestId("research-attribution-row");
+    expect(rows.map((r) => r.getAttribute("data-stratum"))).toEqual([
+      "overall",
+      "player_swap",
+      "team_dispute",
+    ]);
+    // the line-select footnote surfaces the chosen strategy; not the live signal
+    expect(screen.getByTestId("research-attribution-meta").textContent).toContain(
+      "aggregate_drift",
+    );
+    // The verbose description now lives in the dotted-underline hover explainer, not
+    // an inline paragraph (de-crowding). Verify the content moved there, not vanished.
+    expect(explainers["research-attribution"].eli5).toContain("not the live suspend signal");
+  });
+
+  it("renders the FAR calibration section (per-pair/per-rebound FAR + matched recall) with honest N", async () => {
+    mockResearch({ farCalibration: SEEDED_FAR });
+    render(<ResearchPage />, { wrapper: makeWrapper() });
+
+    expect(await screen.findByTestId("research-far-calibration")).not.toBeNull();
+    const rows = await screen.findAllByTestId("research-far-calibration-row");
+    // one row per threshold (0.01, 0.02, 0.05, 0.1, 0.2)
+    expect(rows.map((r) => r.getAttribute("data-threshold"))).toEqual([
+      "0.01",
+      "0.02",
+      "0.05",
+      "0.1",
+      "0.2",
+    ]);
+    const meta = screen.getByTestId("research-far-calibration-meta").textContent;
+    expect(meta).toContain("control games 163");
+    // matched recall is surfaced WITH its N (2 of 9), never as a bare point estimate
+    expect(meta).toContain("matched recall n 2 / 9");
+    // "label-starved" caveat now lives in the hover explainer (de-crowded heading).
+    expect(explainers["research-far"].eli5).toContain("label-starved");
+  });
+
+  it("FAR calibration shows the empty state when no report is present", async () => {
+    mockResearch({ farCalibration: EMPTY_FAR });
+    render(<ResearchPage />, { wrapper: makeWrapper() });
+    expect(await screen.findByTestId("research-far-calibration-empty")).not.toBeNull();
+    expect(screen.queryByTestId("research-far-calibration-row")).toBeNull();
+  });
+
+  it("renders the confluence eval showing a PASSING gate with a FAILING bar (honest split)", async () => {
+    mockResearch({ confluenceEval: SEEDED_CONFLUENCE });
+    render(<ResearchPage />, { wrapper: makeWrapper() });
+
+    // The whole point: gate VIABLE but bar FAIL must both be visible, never collapsed
+    // into a single green "viable" verdict. Await the gate (query is async).
+    const gate = await screen.findByTestId("research-confluence-eval-gate");
+    expect(gate.getAttribute("data-verdict")).toBe("VIABLE");
+    const bar = screen.getByTestId("research-confluence-eval-bar");
+    expect(bar.getAttribute("data-meets-bar")).toBe("false");
+    expect(bar.textContent).toContain("FAIL");
+    expect(bar.textContent).toContain("17.4:1");
+    // one row per baseline compared
+    const rows = await screen.findAllByTestId("research-confluence-eval-row");
+    expect(rows.map((r) => r.getAttribute("data-baseline"))).toEqual(["expanding", "rolling-60"]);
+    // the lower-bound caveat is stated in the hover explainer, not hidden
+    expect(explainers["research-confluence"].eli5).toContain("LOWER BOUND");
+  });
+
+  it("confluence eval shows the empty state when no report is present", async () => {
+    mockResearch({ confluenceEval: EMPTY_CONFLUENCE });
+    render(<ResearchPage />, { wrapper: makeWrapper() });
+    expect(await screen.findByTestId("research-confluence-eval-empty")).not.toBeNull();
+    expect(screen.queryByTestId("research-confluence-eval-row")).toBeNull();
+  });
+
+  it("renders harvested miscredit labels (credited→rightful + latency) when present", async () => {
+    mockResearch({ harvestedLabels: SEEDED_HARVESTED });
+    render(<ResearchPage />, { wrapper: makeWrapper() });
+    expect(await screen.findByTestId("research-harvested-labels")).not.toBeNull();
+    const rows = await screen.findAllByTestId("research-harvested-labels-row");
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.textContent).toContain("S. Merrill");
+    expect(rows[0]?.textContent).toContain("J. Allen");
+    expect(rows[0]?.textContent).toContain("14m"); // 840s latency rendered in minutes
+    expect(screen.getByTestId("research-harvested-labels-meta").textContent).toContain("labels 1");
+  });
+
+  it("harvested labels shows the accruing-empty state when no corrections recovered", async () => {
+    mockResearch({ harvestedLabels: EMPTY_HARVESTED });
+    render(<ResearchPage />, { wrapper: makeWrapper() });
+    expect(await screen.findByTestId("research-harvested-labels-empty")).not.toBeNull();
+    expect(screen.queryByTestId("research-harvested-labels-row")).toBeNull();
   });
 
   it("renders the quant-guide panel with an honest Open link and a Copy CLI quickstart action", async () => {
@@ -282,6 +454,11 @@ describe("ResearchPage", () => {
     expect(copied).toContain("pnpm quant compare robust_mad state_space_current");
     expect(copied).toContain("--snapshot");
     expect(copied).not.toContain("<snapshot>");
+    // SNAP must resolve to a real snapshot PATH (the snapshots dir + id), not a bare
+    // dir name — `ls` alone yields just the id and --snapshot would point at nothing.
+    expect(copied).toContain(
+      'SNAP="outputs/nba-quant-lab/snapshots/$(ls -t outputs/nba-quant-lab/snapshots',
+    );
   });
 
   it("renders the gold dataset status: ready dot, path, humanized size, game count", async () => {
@@ -972,6 +1149,59 @@ describe("ResearchPage", () => {
       if (url.includes("/v1/research/leaderboard/latest")) return jsonResponse(EMPTY_LEADERBOARD);
       if (url.includes("/v1/research/models")) return jsonResponse(MODELS_RESPONSE);
       if (url.includes("/v1/research/pulls")) return jsonResponse(EMPTY_PULLS);
+      return new Response("not found", { status: 404 });
+    });
+    render(<ResearchPage />, { wrapper: makeWrapper() });
+    const banner = await screen.findByTestId("query-error-banner");
+    expect(banner.textContent).toContain("Failed to load research artifacts");
+  });
+
+  it("surfaces a FAILED far-calibration request as an error banner, not a silent empty state", async () => {
+    fetchMock.mockImplementation(async (input) => {
+      await Promise.resolve();
+      const url = urlOf(input);
+      // Only far-calibration fails; everything else (incl. harvested-labels) succeeds.
+      if (url.includes("/v1/research/far-calibration")) {
+        return new Response("boom", { status: 500, statusText: "Internal Server Error" });
+      }
+      if (url.includes("/v1/research/gold")) return jsonResponse(GOLD_RESPONSE);
+      if (url.includes("/v1/research/sources")) return jsonResponse(SOURCES_RESPONSE);
+      if (url.includes("/v1/research/snapshot/latest")) return jsonResponse(EMPTY_SNAPSHOT);
+      if (url.includes("/v1/research/leaderboard/latest")) return jsonResponse(EMPTY_LEADERBOARD);
+      if (url.includes("/v1/research/models")) return jsonResponse(MODELS_RESPONSE);
+      if (url.includes("/v1/research/pulls")) return jsonResponse(EMPTY_PULLS);
+      if (url.includes("/v1/research/confluence-eval")) return jsonResponse(EMPTY_CONFLUENCE);
+      if (url.includes("/v1/research/harvested-labels")) return jsonResponse(EMPTY_HARVESTED);
+      if (url.includes("/v1/research/attribution")) return jsonResponse(EMPTY_ATTRIBUTION);
+      return new Response("not found", { status: 404 });
+    });
+    render(<ResearchPage />, { wrapper: makeWrapper() });
+    // Only far-calibration fails + every other read succeeds, so the error banner can
+    // only come from far-calibration being in the error aggregation — before the fix
+    // its failure was omitted and produced NO banner (a silent empty state instead).
+    const banner = await screen.findByTestId("query-error-banner");
+    expect(banner.textContent).toContain("Failed to load research artifacts");
+  });
+
+  it("surfaces a FAILED confluence-eval request as an error banner, not a silent empty state", async () => {
+    fetchMock.mockImplementation(async (input) => {
+      await Promise.resolve();
+      const url = urlOf(input);
+      // Only confluence-eval fails; everything else succeeds. An ABSENT artifact
+      // returns null successfully (empty state, no banner); a FAILED request must
+      // banner — proving confluence-eval is in the error aggregation.
+      if (url.includes("/v1/research/confluence-eval")) {
+        return new Response("boom", { status: 500, statusText: "Internal Server Error" });
+      }
+      if (url.includes("/v1/research/gold")) return jsonResponse(GOLD_RESPONSE);
+      if (url.includes("/v1/research/sources")) return jsonResponse(SOURCES_RESPONSE);
+      if (url.includes("/v1/research/snapshot/latest")) return jsonResponse(EMPTY_SNAPSHOT);
+      if (url.includes("/v1/research/leaderboard/latest")) return jsonResponse(EMPTY_LEADERBOARD);
+      if (url.includes("/v1/research/models")) return jsonResponse(MODELS_RESPONSE);
+      if (url.includes("/v1/research/pulls")) return jsonResponse(EMPTY_PULLS);
+      if (url.includes("/v1/research/far-calibration")) return jsonResponse(EMPTY_FAR);
+      if (url.includes("/v1/research/harvested-labels")) return jsonResponse(EMPTY_HARVESTED);
+      if (url.includes("/v1/research/attribution")) return jsonResponse(EMPTY_ATTRIBUTION);
       return new Response("not found", { status: 404 });
     });
     render(<ResearchPage />, { wrapper: makeWrapper() });

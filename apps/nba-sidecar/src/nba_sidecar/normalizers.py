@@ -388,7 +388,12 @@ def normalize_live_playbyplay_payload(
             actionType=action.get("actionType"),
             subType=_coerce_optional_str(action.get("subType")),
             personId=_coerce_int(action.get("personId")),
-            playerName=_coerce_optional_str(action.get("playerName")),
+            # cdn play-by-play uses playerNameI ("V. Wembanyama"); fall back to it
+            # so CDN-fed actions keep a player name for attribution. Coerced like
+            # the rest (main PR#8) so non-string values normalize to None.
+            playerName=_coerce_optional_str(
+                action.get("playerNameI") or action.get("playerName")
+            ),
             clock=action.get("clock"),
             description=action.get("description"),
             period=_coerce_int(action.get("period")),

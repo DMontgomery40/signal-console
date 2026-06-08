@@ -16,6 +16,7 @@ Every run lands under
 from __future__ import annotations
 
 import json
+import os
 import platform
 import sys
 from dataclasses import dataclass
@@ -27,8 +28,24 @@ import pandas as pd
 from .casebook import Casebook
 from .scorer import ScoreResultBundle
 
-_REPO_ROOT = Path(__file__).resolve().parents[6]
-DEFAULT_RUNS_ROOT = _REPO_ROOT / "outputs" / "nba-quant-lab" / "runs"
+# Run-artifact output root is CONFIG, not a hardcoded path: it comes from the
+# RESEARCH_OUTPUT_ROOT env var — the SAME config the /research API reads
+# (apps/api/src/services/research.ts) — so runs land where the portal looks. The
+# pnpm-quant wrapper (scripts/quant.ts) injects it from the repo root and runs the
+# sidecar with cwd=repo-root, so the fallback is the repo-relative output dir. No
+# machine-specific path and no depth-counted parents[N] (the old hardcoded
+# /signal-console-quant-lab default was a dead sibling worktree — review P1).
+RESEARCH_OUTPUT_ROOT_ENV = "RESEARCH_OUTPUT_ROOT"
+_RESEARCH_OUTPUT_DIR = Path("outputs", "nba-quant-lab")
+
+
+def resolve_runs_root(runs_root: str | Path | None) -> Path:
+    """Resolve the runs/ output root: explicit --runs-root wins, else the
+    RESEARCH_OUTPUT_ROOT config env, else the repo-relative output dir."""
+    if runs_root:
+        return Path(runs_root)
+    configured = os.environ.get(RESEARCH_OUTPUT_ROOT_ENV)
+    return (Path(configured) if configured else _RESEARCH_OUTPUT_DIR) / "runs"
 
 # Leaderboard column order (the headline contract the task asks for).
 LEADERBOARD_COLUMNS = (
@@ -289,7 +306,7 @@ def write_run(
     command: str = "",
 ) -> RunArtifacts:
     """Write the full artifact set for a run; return the run directory."""
-    root = Path(runs_root) if runs_root else DEFAULT_RUNS_ROOT
+    root = resolve_runs_root(runs_root)
     rid = run_id or new_run_id()
     run_dir = root / rid
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -366,7 +383,8 @@ def write_run(
 
 
 __all__ = [
-    "DEFAULT_RUNS_ROOT",
+    "RESEARCH_OUTPUT_ROOT_ENV",
+    "resolve_runs_root",
     "LEADERBOARD_COLUMNS",
     "new_run_id",
     "build_leaderboard",

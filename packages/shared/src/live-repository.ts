@@ -2755,6 +2755,11 @@ export interface PbpAttributionTransition {
   toSubType: string | null;
   firstSeenAt: string;
   changedAt: string;
+  // Event context from the latest revision so the harvest bridge can keep only
+  // stat-bearing corrections (action_type) and window the re-ranker on the event
+  // time (time_actual) without re-joining nba_pbp_revisions.
+  actionType: string | null;
+  timeActual: string | null;
 }
 
 export function listPbpAttributionTransitions(gameId: string): PbpAttributionTransition[] {
@@ -2765,7 +2770,7 @@ export function listPbpAttributionTransitions(gameId: string): PbpAttributionTra
       const rows = db
         .prepare(
           `
-          SELECT action_number, captured_at, person_id, player_name, sub_type
+          SELECT action_number, captured_at, person_id, player_name, sub_type, action_type, time_actual
           FROM nba_pbp_revisions
           WHERE game_id = ?
           ORDER BY action_number ASC, captured_at ASC
@@ -2777,6 +2782,8 @@ export function listPbpAttributionTransitions(gameId: string): PbpAttributionTra
         person_id: number | null;
         player_name: string | null;
         sub_type: string | null;
+        action_type: string | null;
+        time_actual: string | null;
       }>;
 
       const byAction = new Map<number, typeof rows>();
@@ -2813,6 +2820,8 @@ export function listPbpAttributionTransitions(gameId: string): PbpAttributionTra
               toPersonId: current.person_id,
               toPlayer: current.player_name,
               toSubType: current.sub_type,
+              actionType: current.action_type,
+              timeActual: current.time_actual,
             });
             segmentStart = current;
           }
@@ -2824,6 +2833,113 @@ export function listPbpAttributionTransitions(gameId: string): PbpAttributionTra
       gameId,
     },
   );
+}
+
+export function listNbaPbpRevisionGameIds(): string[] {
+  return executeDatabaseOperation("nbaPlayByPlayRevisions.gameIds", () => {
+    const db = getDatabase();
+    const rows = db
+      .prepare(`SELECT DISTINCT game_id FROM nba_pbp_revisions ORDER BY game_id ASC`)
+      .all() as Array<{ game_id: string }>;
+    return rows.map((r) => r.game_id);
+  });
+}
+
+export interface HarvestedMiscreditLabel {
+  id: string;
+  gameId: string;
+  creditedPlayer: string;
+  rightfulPlayer: string;
+  stat: string;
+  utcTime: string;
+  actionNumber: number;
+  firstSeenAt: string;
+  changedAt: string;
+  correctionLatencySec: number | null;
+}
+
+export interface HarvestMiscreditLabelsResult {
+  incidents: HarvestedMiscreditLabel[];
+  gamesScanned: number;
+  netTransitions: number;
+  nonStatTransitions: number;
+}
+
+/**
+ * The label bridge: turn captured PBP revisions into eval-ready miscredit labels.
+ * For each game, recover credited->rightful transitions, collapse consecutive
+ * flips on one action to the NET correction (earliest credited -> latest credited),
+ * keep the stat-bearing ones (default 'rebound') with BOTH a named credited and
+ * rightful, and shape them like the incident registry the re-ranker eval consumes.
+ * Lives here (not the script) so it is hermetically testable on an in-memory DB.
+ */
+export function harvestMiscreditLabels(options?: {
+  gameIds?: readonly string[];
+  stat?: string;
+}): HarvestMiscreditLabelsResult {
+  const stat = (options?.stat ?? "rebound").toLowerCase();
+  const games = options?.gameIds ?? listNbaPbpRevisionGameIds();
+  const incidents: HarvestedMiscreditLabel[] = [];
+  let netTransitions = 0;
+  let nonStatTransitions = 0;
+  for (const gameId of games) {
+    const byAction = new Map<number, PbpAttributionTransition[]>();
+    for (const t of listPbpAttributionTransitions(gameId)) {
+      const list = byAction.get(t.actionNumber);
+      if (list) list.push(t);
+      else byAction.set(t.actionNumber, [t]);
+    }
+    for (const list of byAction.values()) {
+      const first = list[0];
+      const last = list[list.length - 1];
+      if (first === undefined || last === undefined) continue;
+      // Resolve the net credited + rightful ENTITY. For a rebound, a row with no
+      // person_id AND no player_name is a TEAM rebound (gold invariant: rebound rows
+      // are either id+name present or both null=TEAM, description 'TEAM ... REBOUND'),
+      // represented by the "TEAM" sentinel so a TEAM->player correction is a real
+      // credited->rightful change instead of a dropped null. Crucially, a transition
+      // that keeps the SAME name while only the person_id flickers (e.g. 100/Merrill ->
+      // null/Merrill, a feed dropping the id) is the SAME entity and must NEVER become a
+      // creditedPlayer===rightfulPlayer self-label.
+      const creditedName =
+        first.fromPersonId === null && (first.fromPlayer ?? null) === null
+          ? "TEAM"
+          : first.fromPlayer;
+      const rightfulName = last.toPlayer;
+      const sameEntity =
+        (first.fromPersonId !== null && first.fromPersonId === last.toPersonId) ||
+        (creditedName !== null && creditedName === rightfulName);
+      if (sameEntity) continue;
+      netTransitions += 1;
+      if ((last.actionType ?? "").toLowerCase() !== stat) {
+        nonStatTransitions += 1;
+        continue;
+      }
+      // The rightful must be a NAMED player (the re-ranker scores its prop); a
+      // player->TEAM correction has no named rightful and is not re-ranker-scoreable.
+      // The credited may be "TEAM" (TEAM->player correction; the eval's TEAM branch
+      // consumes credited_last="").
+      if (!rightfulName || !creditedName) continue;
+      const firstMs = Date.parse(first.firstSeenAt);
+      const changedMs = Date.parse(last.changedAt);
+      incidents.push({
+        id: `harvested-${gameId}-${last.actionNumber}`,
+        gameId,
+        creditedPlayer: creditedName,
+        rightfulPlayer: rightfulName,
+        stat,
+        utcTime: last.timeActual ?? last.changedAt,
+        actionNumber: last.actionNumber,
+        firstSeenAt: first.firstSeenAt,
+        changedAt: last.changedAt,
+        correctionLatencySec:
+          Number.isFinite(firstMs) && Number.isFinite(changedMs)
+            ? Math.round((changedMs - firstMs) / 1000)
+            : null,
+      });
+    }
+  }
+  return { incidents, gamesScanned: games.length, netTransitions, nonStatTransitions };
 }
 
 export function upsertMarketInstrument(instrument: MarketInstrument) {

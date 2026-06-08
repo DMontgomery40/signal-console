@@ -19,6 +19,10 @@ import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from "fastify";
 
 import {
   DEFAULT_RESEARCH_OUTPUT_ROOT,
+  getLatestAttribution,
+  getLatestConfluenceEval,
+  getLatestFarCalibration,
+  getLatestHarvestedLabels,
   getLatestLeaderboard,
   getLatestSnapshot,
   getQuantGuide,
@@ -128,6 +132,38 @@ const leaderboardResponseSchema = {
   properties: {
     runId: { type: ["string", "null"] },
     rows: { type: "array", items: { type: "object", additionalProperties: true } },
+  },
+} as const;
+
+const attributionResponseSchema = {
+  type: "object",
+  required: ["attribution"],
+  properties: {
+    attribution: { type: ["object", "null"], additionalProperties: true },
+  },
+} as const;
+
+const farCalibrationResponseSchema = {
+  type: "object",
+  required: ["farCalibration"],
+  properties: {
+    farCalibration: { type: ["object", "null"], additionalProperties: true },
+  },
+} as const;
+
+const confluenceEvalResponseSchema = {
+  type: "object",
+  required: ["confluenceEval"],
+  properties: {
+    confluenceEval: { type: ["object", "null"], additionalProperties: true },
+  },
+} as const;
+
+const harvestedLabelsResponseSchema = {
+  type: "object",
+  required: ["harvestedLabels"],
+  properties: {
+    harvestedLabels: { type: ["object", "null"], additionalProperties: true },
   },
 } as const;
 
@@ -345,6 +381,70 @@ const researchRoutes: FastifyPluginAsync<ResearchRoutesOptions> = (app, opts) =>
     },
     (_request: FastifyRequest, reply: FastifyReply) => {
       reply.send(getLatestLeaderboard({ outputRoot }));
+    },
+  );
+
+  app.get(
+    "/v1/research/attribution",
+    {
+      schema: {
+        tags: ["research"],
+        summary: "Latest attribution re-ranker report",
+        description:
+          "Read-only. Returns the root-level attribution_reranker.json emitted by `pnpm quant attribution-eval` (signed-paired re-ranker over incident truth, stratified player_swap vs team_dispute). Absent returns { attribution: null }.",
+        response: { 200: attributionResponseSchema },
+      },
+    },
+    (_request: FastifyRequest, reply: FastifyReply) => {
+      reply.send(getLatestAttribution({ outputRoot }));
+    },
+  );
+
+  app.get(
+    "/v1/research/far-calibration",
+    {
+      schema: {
+        tags: ["research"],
+        summary: "Latest FAR-on-control + matched-recall report",
+        description:
+          "Read-only. Returns the root-level far_calibration.json emitted by `pnpm quant far-calibration` (re-ranker false-alarm rate on non-incident control games, with matched incident recall at the same operating point). Absent returns { farCalibration: null }.",
+        response: { 200: farCalibrationResponseSchema },
+      },
+    },
+    (_request: FastifyRequest, reply: FastifyReply) => {
+      reply.send(getLatestFarCalibration({ outputRoot }));
+    },
+  );
+
+  app.get(
+    "/v1/research/confluence-eval",
+    {
+      schema: {
+        tags: ["research"],
+        summary: "Latest whole-board confluence gate + operating-point eval",
+        description:
+          "Read-only. Returns the root-level confluence_eval.json emitted by `pnpm quant confluence-eval` (the third-model eval-first: a falsification gate plus the operating-point bar of >=70% recall at <=3:1 false alarms). The gate can pass while the bar fails. Absent returns { confluenceEval: null }.",
+        response: { 200: confluenceEvalResponseSchema },
+      },
+    },
+    (_request: FastifyRequest, reply: FastifyReply) => {
+      reply.send(getLatestConfluenceEval({ outputRoot }));
+    },
+  );
+
+  app.get(
+    "/v1/research/harvested-labels",
+    {
+      schema: {
+        tags: ["research"],
+        summary: "Latest harvested miscredit labels",
+        description:
+          "Read-only. Returns the root-level harvested_incidents.json emitted by scripts/harvest-incident-labels.ts (credited->rightful corrections recovered by diffing the versioned PBP-revision shadow). Absent returns { harvestedLabels: null }; empty incidents is expected until captures accumulate over days.",
+        response: { 200: harvestedLabelsResponseSchema },
+      },
+    },
+    (_request: FastifyRequest, reply: FastifyReply) => {
+      reply.send(getLatestHarvestedLabels({ outputRoot }));
     },
   );
 

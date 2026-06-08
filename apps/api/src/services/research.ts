@@ -290,6 +290,91 @@ export function getResearchModels(options: ResearchServiceOptions = {}): Researc
   return { models: STATIC_MODELS };
 }
 
+/* ----------------------------- attribution -------------------------------- */
+
+export interface ResearchAttributionPayload {
+  /** The latest attribution re-ranker report, or null when not yet emitted. */
+  readonly attribution: Record<string, unknown> | null;
+}
+
+/**
+ * Root-level attribution_reranker.json emitted by `pnpm quant attribution-eval`
+ * (the signed-paired re-ranker over incident truth, stratified player_swap vs
+ * team_dispute). Absent/malformed -> { attribution: null }; never throws.
+ */
+export function getLatestAttribution(
+  options: ResearchServiceOptions = {},
+): ResearchAttributionPayload {
+  const outputRoot = options.outputRoot ?? DEFAULT_RESEARCH_OUTPUT_ROOT;
+  const parsed = safeReadJson(join(outputRoot, "attribution_reranker.json"));
+  return { attribution: isRecord(parsed) ? parsed : null };
+}
+
+/* --------------------------- FAR calibration ------------------------------ */
+
+export interface ResearchFarCalibrationPayload {
+  /** The latest FAR-on-control + matched-recall report, or null when not emitted. */
+  readonly farCalibration: Record<string, unknown> | null;
+}
+
+/**
+ * Root-level far_calibration.json emitted by `pnpm quant far-calibration` (the
+ * re-ranker's false-alarm rate on non-incident control games, with matched
+ * incident recall at the same operating point). Absent/malformed ->
+ * { farCalibration: null }; never throws.
+ */
+export function getLatestFarCalibration(
+  options: ResearchServiceOptions = {},
+): ResearchFarCalibrationPayload {
+  const outputRoot = options.outputRoot ?? DEFAULT_RESEARCH_OUTPUT_ROOT;
+  const parsed = safeReadJson(join(outputRoot, "far_calibration.json"));
+  return { farCalibration: isRecord(parsed) ? parsed : null };
+}
+
+/* --------------------------- confluence eval ------------------------------ */
+
+export interface ResearchConfluenceEvalPayload {
+  /** The latest whole-board confluence gate + operating-point report, or null. */
+  readonly confluenceEval: Record<string, unknown> | null;
+}
+
+/**
+ * Root-level confluence_eval.json emitted by `pnpm quant confluence-eval` (the
+ * third-model eval-first: a falsification gate — do incidents stand out vs their
+ * own game? — plus the operating-point bar of >=70% recall at <=3:1 false alarms).
+ * The gate can pass while the bar fails; the UI shows both. Absent/malformed ->
+ * { confluenceEval: null }; never throws.
+ */
+export function getLatestConfluenceEval(
+  options: ResearchServiceOptions = {},
+): ResearchConfluenceEvalPayload {
+  const outputRoot = options.outputRoot ?? DEFAULT_RESEARCH_OUTPUT_ROOT;
+  const parsed = safeReadJson(join(outputRoot, "confluence_eval.json"));
+  return { confluenceEval: isRecord(parsed) ? parsed : null };
+}
+
+/* ----------------------------- harvested labels --------------------------- */
+
+export interface ResearchHarvestedLabelsPayload {
+  /** The latest harvested-miscredit-label report, or null when not yet emitted. */
+  readonly harvestedLabels: Record<string, unknown> | null;
+}
+
+/**
+ * Root-level harvested_incidents.json emitted by `pnpm tsx
+ * scripts/harvest-incident-labels.ts` — credited->rightful corrections recovered
+ * by diffing the versioned PBP-revision shadow (the label engine; NBA corrections
+ * are silent edits with no official feed). Absent/malformed -> { harvestedLabels:
+ * null }; never throws. Empty incidents is expected until captures accumulate.
+ */
+export function getLatestHarvestedLabels(
+  options: ResearchServiceOptions = {},
+): ResearchHarvestedLabelsPayload {
+  const outputRoot = options.outputRoot ?? DEFAULT_RESEARCH_OUTPUT_ROOT;
+  const parsed = safeReadJson(join(outputRoot, "harvested_incidents.json"));
+  return { harvestedLabels: isRecord(parsed) ? parsed : null };
+}
+
 /* --------------------------------- gold ----------------------------------- */
 
 export interface ResearchGoldPayload {

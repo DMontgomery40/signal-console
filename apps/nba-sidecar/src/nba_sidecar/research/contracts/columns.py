@@ -285,6 +285,31 @@ SOURCE_COVERAGE_COLUMNS = ParquetTableSpec(
     ),
 )
 
+# Per-player rebound-prop microstructure (re-ranker input). Raw causal ticks the
+# signed-paired attribution re-ranker windows around candidate events; leakage-safe.
+PLAYER_PROP_TICKS_COLUMNS = ParquetTableSpec(
+    name="player_prop_ticks",
+    columns=(
+        ColumnSpec("game_id", "string", meaning="Game identifier."),
+        ColumnSpec("player_key", "string", meaning="Player participant key (e.g. victor-wembanyama)."),
+        ColumnSpec("source", "string", meaning="Book/exchange (kalshi/bet365/polymarket) for per-source series + cross-source divergence."),
+        ColumnSpec("line", "float", nullable=True, meaning="Over/under threshold (e.g. 5.5); select one coherent line per player/source."),
+        ColumnSpec("stat", "string", meaning="Prop stat family (currently 'rebounds')."),
+        ColumnSpec("captured_at", "datetime", meaning="Tick wall-clock instant (ISO-8601 Z). Causal."),
+        ColumnSpec(
+            "implied_probability",
+            "float",
+            meaning="Per-player rebound-prop implied probability at the tick (0..1). Causal.",
+        ),
+        ColumnSpec(
+            "volume",
+            "float",
+            nullable=True,
+            meaning="Traded volume at the tick (source-native; for signed-flow/BVC features).",
+        ),
+    ),
+)
+
 
 # ---------------------------------------------------------------------------
 # Model output contract: predictions.parquet
@@ -350,6 +375,7 @@ __all__ = [
     "SCORE_WINDOW_COLUMNS",
     "MARKET_OUTLIER_EPISODE_COLUMNS",
     "SOURCE_COVERAGE_COLUMNS",
+    "PLAYER_PROP_TICKS_COLUMNS",
     "PREDICTION_COLUMNS",
     "EVAL_GAME_COLUMNS",
     "EVAL_SUMMARY_COLUMNS",

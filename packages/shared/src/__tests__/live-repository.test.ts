@@ -19,6 +19,7 @@ import {
   listResearchGames,
   listPlayerPropDisagreementAlerts,
   listPbpAttributionTransitions,
+  harvestMiscreditLabels,
   listResearchDivergence,
   listSignalMismatches,
   recordGameStateObservation,
@@ -354,6 +355,8 @@ describe("live repository", () => {
         toPersonId: 200,
         toPlayer: "J. Allen",
         toSubType: "offensive",
+        actionType: "rebound",
+        timeActual: null,
       },
       {
         actionNumber: 417,
@@ -365,8 +368,56 @@ describe("live repository", () => {
         toPersonId: 300,
         toPlayer: "J. Tatum",
         toSubType: "offensive",
+        actionType: "rebound",
+        timeActual: null,
       },
     ]);
+  });
+
+  it("harvests credited-to-rightful miscredit labels from PBP revisions", () => {
+    seedLiveRepositoryGame();
+    const gameId = "nba-bos-nyk-2026-04-21";
+
+    recordNbaPlayByPlayRevisions({
+      gameId,
+      capturedAt: "2026-04-21T23:41:00.000Z",
+      actions: [
+        {
+          actionNumber: 416,
+          actionType: "rebound",
+          personId: 100,
+          playerName: "S. Merrill",
+          subType: "offensive",
+          timeActual: "2026-04-21T23:40:30.000Z",
+        },
+      ],
+    });
+    recordNbaPlayByPlayRevisions({
+      gameId,
+      capturedAt: "2026-04-21T23:55:00.000Z",
+      actions: [
+        {
+          actionNumber: 416,
+          actionType: "rebound",
+          personId: 200,
+          playerName: "J. Allen",
+          subType: "offensive",
+          timeActual: "2026-04-21T23:40:30.000Z",
+        },
+      ],
+    });
+
+    const result = harvestMiscreditLabels({ gameIds: [gameId] });
+
+    expect(result.incidents).toHaveLength(1);
+    expect(result.incidents[0]).toMatchObject({
+      gameId,
+      actionNumber: 416,
+      creditedPlayer: "S. Merrill",
+      rightfulPlayer: "J. Allen",
+      stat: "rebound",
+      utcTime: "2026-04-21T23:40:30.000Z",
+    });
   });
 
   it("ignores scheduled regressions after a game has started or finished", () => {

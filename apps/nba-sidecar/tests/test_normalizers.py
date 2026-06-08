@@ -228,6 +228,32 @@ def test_normalize_live_playbyplay_payload_keeps_core_and_attribution_fields() -
     assert normalized.actions[0].teamTricode == "BOS"
 
 
+def test_normalize_live_playbyplay_payload_falls_back_to_cdn_player_name() -> None:
+    # CDN play-by-play omits `playerName` and carries `playerNameI` instead;
+    # attribution must still recover the player name from the CDN field.
+    payload = {
+        "meta": {"time": "2026-04-22T05:55:15.000Z"},
+        "game": {
+            "actions": [
+                {
+                    "actionNumber": 1,
+                    "actionType": "rebound",
+                    "subType": "offensive",
+                    "personId": "1641705",
+                    "playerNameI": "V. Wembanyama",
+                    "period": 1,
+                    "teamTricode": "BOS",
+                    "timeActual": "2026-04-22T02:01:00Z",
+                }
+            ]
+        },
+    }
+
+    normalized = normalize_live_playbyplay_payload("0022600001", payload)
+
+    assert normalized.actions[0].playerName == "V. Wembanyama"
+
+
 def test_play_by_play_cdn_403_returns_structured_upstream_error(
     monkeypatch,
 ) -> None:

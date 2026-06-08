@@ -38,6 +38,11 @@ const relaxedTypeAwareRuleOverrides = Object.fromEntries(
   ].map((ruleName) => [ruleName, "off"]),
 );
 
+const scriptDefensiveGuardRuleOverrides = {
+  "@typescript-eslint/no-unnecessary-condition": "off",
+  "@typescript-eslint/strict-boolean-expressions": "off",
+};
+
 module.exports = tseslint.config(
   {
     ignores: [
@@ -85,6 +90,13 @@ module.exports = tseslint.config(
     },
   },
   {
+    // Scripts intentionally keep defensive guards around parsed CLI, JSON, and
+    // generated payload data even though the scripts compiler now matches package
+    // optional/indexed-access policy.
+    files: ["scripts/**/*.{ts,tsx}"],
+    rules: scriptDefensiveGuardRuleOverrides,
+  },
+  {
     // These runtime/research packages were historically outside the strict
     // type-aware lint gate. Keep baseline TS linting active, but do not let the
     // root gate fail on rules they were never migrated to satisfy.
@@ -96,6 +108,14 @@ module.exports = tseslint.config(
       // research-pull is orchestration infra (like adapters/shared); held to the
       // same relaxed type-aware bar, not the detectors strict/functional bar.
       "packages/research-pull/**/*.{ts,tsx}",
+      // scripts/ are operational/orchestration infra and their typecheck compiles
+      // transitive package SOURCE under the relaxed package flags (scripts/tsconfig
+      // sets noUncheckedIndexedAccess/exactOptionalPropertyTypes false to match the
+      // packages, the verify-gate strictness landmine). Holding the scripts to a
+      // STRICTER type-aware bar than the source they compile makes
+      // no-unnecessary-condition misfire on defensive index-access guards; relax
+      // them to the same bar as that source.
+      "scripts/**/*.{ts,tsx}",
     ],
     rules: relaxedTypeAwareRuleOverrides,
   },

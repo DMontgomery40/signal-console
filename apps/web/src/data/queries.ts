@@ -889,6 +889,33 @@ const researchLeaderboardSchema = z.object({
   rows: z.array(z.record(z.unknown())),
 });
 
+// /v1/research/attribution — { attribution: object | null }. The re-ranker report
+// body is free-form (overall/player_swap/team_dispute aggregates + line_select);
+// read named fields defensively in the component (same pattern as snapshot).
+const researchAttributionSchema = z.object({
+  attribution: z.record(z.unknown()).nullable(),
+});
+
+// /v1/research/far-calibration — { farCalibration: object | null }. Free-form
+// report (all_control/pure_control FAR tables + matched_recall + data_quality);
+// read named fields defensively in the component.
+const researchFarCalibrationSchema = z.object({
+  farCalibration: z.record(z.unknown()).nullable(),
+});
+
+// /v1/research/confluence-eval — { confluenceEval: object | null }. Free-form
+// report (gate_verdict/meets_bar + gate + operating_point with baseline_comparison);
+// read named fields defensively in the component.
+const researchConfluenceEvalSchema = z.object({
+  confluenceEval: z.record(z.unknown()).nullable(),
+});
+
+// /v1/research/harvested-labels — { harvestedLabels: object | null }. Free-form
+// report (generatedAt/source/incidentCount/incidents[]); read defensively.
+const researchHarvestedLabelsSchema = z.object({
+  harvestedLabels: z.record(z.unknown()).nullable(),
+});
+
 // /v1/research/models — registry- or static-backed model list.
 const researchModelSchema = z.object({
   id: z.string(),
@@ -922,6 +949,10 @@ export type ResearchSources = z.infer<typeof researchSourcesSchema>;
 export type ResearchGold = z.infer<typeof researchGoldSchema>;
 export type ResearchSnapshot = z.infer<typeof researchSnapshotSchema>;
 export type ResearchLeaderboard = z.infer<typeof researchLeaderboardSchema>;
+export type ResearchAttribution = z.infer<typeof researchAttributionSchema>;
+export type ResearchFarCalibration = z.infer<typeof researchFarCalibrationSchema>;
+export type ResearchConfluenceEval = z.infer<typeof researchConfluenceEvalSchema>;
+export type ResearchHarvestedLabels = z.infer<typeof researchHarvestedLabelsSchema>;
 export type ResearchModel = z.infer<typeof researchModelSchema>;
 export type ResearchModels = z.infer<typeof researchModelsSchema>;
 export type ResearchPulls = z.infer<typeof researchPullsSchema>;
@@ -966,6 +997,38 @@ export function useResearchModels(): UseQueryResult<ResearchModels, Error> {
   return useQuery({
     queryKey: ["research-models"],
     queryFn: ({ signal }) => fetchJson(`/v1/research/models`, researchModelsSchema, signal),
+  });
+}
+
+export function useResearchAttribution(): UseQueryResult<ResearchAttribution, Error> {
+  return useQuery({
+    queryKey: ["research-attribution"],
+    queryFn: ({ signal }) =>
+      fetchJson(`/v1/research/attribution`, researchAttributionSchema, signal),
+  });
+}
+
+export function useResearchFarCalibration(): UseQueryResult<ResearchFarCalibration, Error> {
+  return useQuery({
+    queryKey: ["research-far-calibration"],
+    queryFn: ({ signal }) =>
+      fetchJson(`/v1/research/far-calibration`, researchFarCalibrationSchema, signal),
+  });
+}
+
+export function useResearchConfluenceEval(): UseQueryResult<ResearchConfluenceEval, Error> {
+  return useQuery({
+    queryKey: ["research-confluence-eval"],
+    queryFn: ({ signal }) =>
+      fetchJson(`/v1/research/confluence-eval`, researchConfluenceEvalSchema, signal),
+  });
+}
+
+export function useResearchHarvestedLabels(): UseQueryResult<ResearchHarvestedLabels, Error> {
+  return useQuery({
+    queryKey: ["research-harvested-labels"],
+    queryFn: ({ signal }) =>
+      fetchJson(`/v1/research/harvested-labels`, researchHarvestedLabelsSchema, signal),
   });
 }
 
