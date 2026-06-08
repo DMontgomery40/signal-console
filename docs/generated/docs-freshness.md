@@ -26,18 +26,11 @@ Scope: `staged`
 
 Source/config changes:
 
-- `apps/worker/src/index.ts`
-- `package.json`
-- `packages/adapters/src/bet365-historical.ts`
-- `packages/adapters/src/odds-api.ts`
-- `packages/shared/src/__tests__/odds-api-key-resolver.test.ts`
-- `packages/shared/src/env.ts`
-- `packages/shared/src/live-repository.ts`
-- `scripts/verify-citations.ts`
+- None detected.
 
 Normal docs, repo-memory, or instruction refresh changes:
 
-- `docs/design-language.md`
+- `README.md`
 
 ## Issues
 
@@ -52,6 +45,7 @@ Normal docs, repo-memory, or instruction refresh changes:
 | `CLAUDE.md`                                                      | agent-instructions | ok     | 2026-06-07    |        1 |            0 |                  0 |
 | `HANDOFF-2026-05-23.md`                                          | docs               | ok     |               |          |            0 |                  0 |
 | `PRD.md`                                                         | docs               | ok     |               |          |            0 |                  0 |
+| `README.md`                                                      | docs               | ok     |               |          |            0 |                  0 |
 | `docs/adding-a-source.md`                                        | docs               | ok     |               |          |            0 |                  0 |
 | `docs/agent-context.md`                                          | memory             | ok     | 2026-06-07    |        1 |            0 |                  0 |
 | `docs/audit/codex-math-failure-ledger.md`                        | docs               | ok     |               |          |            0 |                  0 |
