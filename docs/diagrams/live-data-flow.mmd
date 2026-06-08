@@ -1,0 +1,18 @@
+flowchart LR
+    Sidecar["NBA sidecar scoreboards and PBP"] --> Worker["apps/worker nba-sidecar sync"]
+    Providers["Kalshi, Polymarket, Bet365 live adapters"] --> Worker
+    Worker --> Games["games and game_states"]
+    Worker --> CurrentPbp["nba_play_by_play_actions current rows"]
+    Worker --> PbpRevisions["nba_pbp_revisions versioned rows"]
+    Worker --> Ticks["source_markets and quote_ticks"]
+    Worker --> Runs["adapter_runs with capture_mode"]
+    Runs --> Heartbeat["heartbeat.json and Settings freshness"]
+    Games --> LiveApi["GET /v1/live/:gameId"]
+    PbpRevisions --> LiveApi
+    Ticks --> LiveApi
+    Ticks --> EnsembleApi["GET /v1/ensemble-or/:gameId"]
+    Ticks --> TradeApis["GET /v1/microstructure and /v1/off-price-print"]
+    LiveApi --> LivePage["Live page official activity panel"]
+    EnsembleApi --> LivePage
+    TradeApis --> LivePage
+

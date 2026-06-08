@@ -156,12 +156,9 @@ const fanoutSchema = z
   }));
 
 // /v1/live/:gameId — PRD §15: bounded quote_ticks window joined to
-// source_markets for instrument metadata. Default live calls use five minutes;
-// historical replay can pass at= plus capped window_ms. Schema matches the
-// shipped route (US-028 services/live.ts): { gameId, windowStart, windowEnd,
-// ticks } with each tick carrying source/impliedProbability/volume/heartbeat
-// plus the joined instrumentId/rawFamily/rawLabel (no separate sourceMarkets
-// array).
+// source_markets for instrument metadata plus latest game/PBP activity.
+// Default live calls use five minutes; historical replay can pass at= plus
+// capped window_ms.
 const quoteTickSchema = z.object({
   sourceMarketId: z.string(),
   source: z.string().optional(),
@@ -173,7 +170,38 @@ const quoteTickSchema = z.object({
   rawFamily: z.string().nullable(),
   rawLabel: z.string().nullable(),
 });
+const liveGameStateSchema = z.object({
+  awayScore: z.number().int().nullable(),
+  capturedAt: z.string(),
+  clock: z.string().nullable(),
+  finalAt: z.string().nullable(),
+  homeScore: z.number().int().nullable(),
+  isFinal: z.boolean(),
+  period: z.number().int().nullable(),
+  startedAt: z.string().nullable(),
+  status: z.string(),
+});
+const livePlayByPlayActionSchema = z.object({
+  actionNumber: z.number().int(),
+  actionType: z.string().nullable(),
+  clock: z.string().nullable(),
+  description: z.string().nullable(),
+  period: z.number().int().nullable(),
+  personId: z.number().int().nullable(),
+  playerName: z.string().nullable(),
+  scoreAway: z.string().nullable(),
+  scoreHome: z.string().nullable(),
+  subType: z.string().nullable(),
+  teamTricode: z.string().nullable(),
+  timeActual: z.string().nullable(),
+});
+const liveActivitySchema = z.object({
+  gameState: liveGameStateSchema.nullable(),
+  playByPlayActionCount: z.number().int(),
+  recentPlayByPlay: z.array(livePlayByPlayActionSchema),
+});
 const liveSchema = z.object({
+  activity: liveActivitySchema,
   gameId: z.string(),
   windowStart: z.string(),
   windowEnd: z.string(),
@@ -208,6 +236,21 @@ const microstructureSchema = z.object({
   gameId: z.string(),
   theta: z.number(),
   events: z.array(microstructureEventSchema),
+});
+
+// /v1/off-price-print/:gameId — point-event detector fires from Polymarket
+// trade prints. Unlike board-mad/ensemble-or, this model has no per-minute
+// buckets.
+const offPricePrintFireSchema = z.object({
+  bucketStart: z.string(),
+  bucketEnd: z.string(),
+  intensity: z.number(),
+  sourceMarketId: z.string().optional(),
+});
+const offPricePrintSchema = z.object({
+  gameId: z.string(),
+  runId: z.number().int(),
+  fires: z.array(offPricePrintFireSchema),
 });
 
 // /v1/ensemble-or/:gameId — mirrors apps/api/src/routes/ensemble-or.ts
@@ -352,6 +395,8 @@ export type QuoteTick = z.infer<typeof quoteTickSchema>;
 export type Live = z.infer<typeof liveSchema>;
 export type MicrostructureEvent = z.infer<typeof microstructureEventSchema>;
 export type Microstructure = z.infer<typeof microstructureSchema>;
+export type OffPricePrintLive = z.infer<typeof offPricePrintSchema>;
+export type OffPricePrintFire = z.infer<typeof offPricePrintFireSchema>;
 export type EnsembleOrLive = z.infer<typeof ensembleOrSchema>;
 export type EnsembleOrBoardObservation = z.infer<typeof ensembleOrBoardObservationSchema>;
 export type EnsembleOrFire = z.infer<typeof ensembleOrFireSchema>;
@@ -463,6 +508,14 @@ export interface PollOptions {
   readonly windowMs?: number;
 }
 
+export interface QueryEnabledOptions {
+  readonly enabled?: boolean;
+}
+
+interface MicrostructureOptions extends PollOptions, QueryEnabledOptions {
+  readonly theta?: number;
+}
+
 function liveQuery(opts: PollOptions | undefined): string {
   const params = new URLSearchParams();
   if (opts?.at !== undefined && opts.at.length > 0) {
@@ -514,14 +567,32 @@ export function useFanout(
 
 export function useMicrostructure(
   gameId: string,
-  opts?: PollOptions,
+  opts?: MicrostructureOptions,
 ): UseQueryResult<Microstructure, Error> {
+  const theta = opts?.theta;
+  const path = `/v1/microstructure/${encodeURIComponent(gameId)}`;
+  const query =
+    theta === undefined
+      ? path
+      : `${path}?${new URLSearchParams({ theta: String(theta) }).toString()}`;
   return useQuery({
-    queryKey: ["microstructure", gameId],
+    queryKey: ["microstructure", gameId, theta ?? null],
+    queryFn: ({ signal }) => fetchJson(query, microstructureSchema, signal),
+    enabled: gameId.length > 0 && (opts?.enabled ?? true),
+    ...(opts?.refetchInterval !== undefined ? { refetchInterval: opts.refetchInterval } : {}),
+  });
+}
+
+export function useOffPricePrint(
+  gameId: string,
+  opts?: PollOptions,
+): UseQueryResult<OffPricePrintLive, Error> {
+  return useQuery({
+    queryKey: ["off-price-print", gameId],
     queryFn: ({ signal }) =>
       fetchJson(
-        `/v1/microstructure/${encodeURIComponent(gameId)}`,
-        microstructureSchema,
+        `/v1/off-price-print/${encodeURIComponent(gameId)}`,
+        offPricePrintSchema,
         signal,
       ),
     enabled: gameId.length > 0,
@@ -561,10 +632,11 @@ export function useDetectors(): UseQueryResult<DetectorsResponse, Error> {
   });
 }
 
-export function useSettings(): UseQueryResult<Settings, Error> {
+export function useSettings(opts?: QueryEnabledOptions): UseQueryResult<Settings, Error> {
   return useQuery({
     queryKey: ["settings"],
     queryFn: ({ signal }) => fetchJson(`/v1/settings`, settingsSchema, signal),
+    enabled: opts?.enabled ?? true,
   });
 }
 

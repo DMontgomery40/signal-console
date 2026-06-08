@@ -65,6 +65,9 @@ class BoxScoreResponse(BaseModel):
 class PlayByPlayAction(BaseModel):
     actionNumber: int | None = None
     actionType: str | None = None
+    subType: str | None = None
+    personId: int | None = None
+    playerName: str | None = None
     clock: str | None = None
     description: str | None = None
     period: int | None = None

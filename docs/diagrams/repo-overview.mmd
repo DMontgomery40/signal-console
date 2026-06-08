@@ -1,0 +1,9 @@
+flowchart LR
+    Agent["Agent work"] --> Instructions["AGENTS.md / CLAUDE.md"]
+    Instructions --> Context["docs/agent-context.md"]
+    Context --> Map["docs/generated/repo-map.md"]
+    Context --> Diagrams["docs/diagrams/*.mmd"]
+    Diagrams --> Rendered["docs/generated/diagrams/*.png"]
+    Agent --> Source["Source tree"]
+    Source --> Verify["pnpm verify, pnpm lint, pnpm typecheck"]
+    Verify --> Context

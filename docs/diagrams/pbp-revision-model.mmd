@@ -1,0 +1,15 @@
+sequenceDiagram
+    participant Sidecar as NBA sidecar
+    participant Worker as Worker sync
+    participant Current as nba_play_by_play_actions
+    participant Revisions as nba_pbp_revisions
+    participant Api as /v1/live/:gameId
+    participant Ui as Live page
+
+    Sidecar->>Worker: Scoreboard and play-by-play payloads
+    Worker->>Current: Upsert latest action by game and action number
+    Worker->>Revisions: Append changed action snapshot at generatedAt
+    Api->>Revisions: Select latest revision where captured_at <= windowEnd
+    Api->>Revisions: Filter visible actions where time_actual <= windowEnd
+    Api->>Ui: activity.gameState, recentPlayByPlay, count
+

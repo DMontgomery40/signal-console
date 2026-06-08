@@ -1,12 +1,13 @@
 // Live route (US-028 / PRD §FR-20, §15).
 //
 // GET /v1/live/:gameId — bounded quote_ticks window for one game, joined to
-// source_markets for instrument metadata. Default live calls use five minutes;
-// historical replay can pass at= plus a capped window_ms.
+// source_markets for instrument metadata, plus cheap game-state/PBP context.
+// Default live calls use five minutes; historical replay can pass at= plus a
+// capped window_ms.
 //
-// Live is raw ticks only — detector fires layer in via the separate
-// /v1/board/:gameId call. No baseline-rebuild table is read by this
-// route; the US-028 grep guard pins that.
+// Detector fires layer in via the separate /v1/board/:gameId call. No
+// baseline-rebuild table is read by this route; the US-028 grep guard pins
+// that.
 
 import { GOLD_DB_PATH } from "@signal-console/db";
 import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from "fastify";
@@ -75,10 +76,79 @@ const tickJsonSchema = {
   },
 } as const;
 
+const gameStateJsonSchema = {
+  type: "object",
+  required: [
+    "awayScore",
+    "capturedAt",
+    "clock",
+    "finalAt",
+    "homeScore",
+    "isFinal",
+    "period",
+    "startedAt",
+    "status",
+  ],
+  properties: {
+    awayScore: { type: ["integer", "null"] },
+    capturedAt: { type: "string" },
+    clock: { type: ["string", "null"] },
+    finalAt: { type: ["string", "null"] },
+    homeScore: { type: ["integer", "null"] },
+    isFinal: { type: "boolean" },
+    period: { type: ["integer", "null"] },
+    startedAt: { type: ["string", "null"] },
+    status: { type: "string" },
+  },
+} as const;
+
+const playByPlayActionJsonSchema = {
+  type: "object",
+  required: [
+    "actionNumber",
+    "actionType",
+    "clock",
+    "description",
+    "period",
+    "personId",
+    "playerName",
+    "scoreAway",
+    "scoreHome",
+    "subType",
+    "teamTricode",
+    "timeActual",
+  ],
+  properties: {
+    actionNumber: { type: "integer" },
+    actionType: { type: ["string", "null"] },
+    clock: { type: ["string", "null"] },
+    description: { type: ["string", "null"] },
+    period: { type: ["integer", "null"] },
+    personId: { type: ["integer", "null"] },
+    playerName: { type: ["string", "null"] },
+    scoreAway: { type: ["string", "null"] },
+    scoreHome: { type: ["string", "null"] },
+    subType: { type: ["string", "null"] },
+    teamTricode: { type: ["string", "null"] },
+    timeActual: { type: ["string", "null"] },
+  },
+} as const;
+
+const activityJsonSchema = {
+  type: "object",
+  required: ["gameState", "playByPlayActionCount", "recentPlayByPlay"],
+  properties: {
+    gameState: { anyOf: [gameStateJsonSchema, { type: "null" }] },
+    playByPlayActionCount: { type: "integer" },
+    recentPlayByPlay: { type: "array", items: playByPlayActionJsonSchema },
+  },
+} as const;
+
 const responseSchema = {
   type: "object",
-  required: ["gameId", "windowStart", "windowEnd", "ticks"],
+  required: ["activity", "gameId", "windowStart", "windowEnd", "ticks"],
   properties: {
+    activity: activityJsonSchema,
     gameId: { type: "string" },
     windowStart: { type: "string" },
     windowEnd: { type: "string" },
@@ -114,7 +184,7 @@ const liveRoutes: FastifyPluginAsync<LiveRoutesOptions> = (app, opts) => {
         tags: ["desk-stable"],
         summary: "Bounded quote_ticks window for one game",
         description:
-          "Returns ticks captured within a bounded time window for the given game, joined to source_markets for instrument metadata. Defaults to the last 5 minutes; historical replay may pass at= plus capped window_ms. Bounded by the quote_ticks (source_market_id, captured_at) index.",
+          "Returns ticks captured within a bounded time window for the given game, joined to source_markets for instrument metadata, plus game state and official play-by-play context scoped to the window end. Defaults to the last 5 minutes; historical replay may pass at= plus capped window_ms. Bounded by the quote_ticks (source_market_id, captured_at) index.",
         params: paramsJsonSchema,
         querystring: queryJsonSchema,
         response: {

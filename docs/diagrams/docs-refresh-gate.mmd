@@ -1,0 +1,11 @@
+flowchart TB
+    Change["Staged source or config change"] --> Hook["pre-commit hook"]
+    Hook --> Script["agents-context-bootstrap script"]
+    Script --> Coverage{"Normal docs, memory, or instructions staged?"}
+    Coverage -- "No" --> Fail["Fail commit before stale context ships"]
+    Coverage -- "Yes" --> Evidence["Refresh docs/generated evidence"]
+    Script --> Mermaid["Render Mermaid sources to PNG"]
+    Mermaid --> Decode["Decode PNG bytes and nonblank pixels"]
+    Decode --> Pass["Commit can proceed"]
+    Evidence --> Pass
+

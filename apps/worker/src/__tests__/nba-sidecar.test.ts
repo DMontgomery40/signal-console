@@ -170,6 +170,9 @@ describe("nba sidecar worker integration", () => {
                   {
                     actionNumber: 1,
                     actionType: "rebound",
+                    subType: "offensive",
+                    personId: 1641705,
+                    playerName: "V. Wembanyama",
                     clock: "PT05M07.00S",
                     description: "TEAM offensive REBOUND",
                     period: 2,
@@ -218,6 +221,232 @@ describe("nba sidecar worker integration", () => {
         .prepare("SELECT COUNT(*) AS count FROM nba_play_by_play_actions WHERE game_id = ?")
         .get("nba-0022600001"),
     ).toEqual({ count: 1 });
+    expect(
+      getDatabase()
+        .prepare("SELECT COUNT(*) AS count FROM nba_pbp_revisions WHERE game_id = ?")
+        .get("nba-0022600001"),
+    ).toEqual({ count: 1 });
+    expect(
+      getDatabase()
+        .prepare(
+          "SELECT person_id, player_name, sub_type FROM nba_play_by_play_actions WHERE game_id = ? AND action_number = ?",
+        )
+        .get("nba-0022600001", 1),
+    ).toEqual({
+      person_id: 1641705,
+      player_name: "V. Wembanyama",
+      sub_type: "offensive",
+    });
+  });
+
+  it("does not hydrate play-by-play for scheduled future lookahead games", async () => {
+    const fetchImpl = vi.fn(async (url: string) => {
+      if (url.includes("/play-by-play")) {
+        return {
+          json: async () => ({ error: "not ready" }),
+          ok: false,
+          status: 424,
+        };
+      }
+
+      return {
+        json: async () => ({
+          data: {
+            generatedAt: "2026-04-22T06:00:00.000Z",
+            requestedDate: new URL(url).searchParams.get("date"),
+            games: [
+              {
+                ...scoreboardPayload.games[0],
+                game: {
+                  ...scoreboardPayload.games[0].game,
+                  id: "nba-0042500403",
+                  scheduledStart: "2026-04-24T02:00:00.000Z",
+                  sourceGameKeyNba: "0042500403",
+                },
+                gameState: {
+                  awayScore: null,
+                  capturedAt: "2026-04-22T06:00:00.000Z",
+                  clock: null,
+                  finalAt: null,
+                  homeScore: null,
+                  isFinal: false,
+                  period: 0,
+                  startedAt: null,
+                  status: "scheduled",
+                },
+                outcome: null,
+              },
+            ],
+          },
+        }),
+        ok: true,
+        status: 200,
+      };
+    });
+
+    const summary = await syncNbaSidecarWindow({
+      baseUrl: "http://127.0.0.1:9393",
+      fetchImpl: fetchImpl as never,
+      lookaheadDays: 1,
+      lookbackDays: 0,
+      now: () => new Date("2026-04-22T06:00:00.000Z"),
+    });
+
+    expect(summary.ok).toBe(true);
+    expect(summary.dateErrors).toEqual([]);
+    expect(fetchImpl.mock.calls.some(([url]) => String(url).includes("/play-by-play"))).toBe(false);
+    expect(listAdapterRuns(5)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          recordsSeen: 2,
+          source: "nba",
+          status: "ok",
+        }),
+      ]),
+    );
+  });
+
+  it("hydrates scheduled games when historical backfill disables future suppression", async () => {
+    const fetchImpl = vi.fn(async (url: string) => {
+      if (url.includes("/play-by-play")) {
+        return {
+          json: async () => ({
+            data: {
+              actions: [
+                {
+                  actionNumber: 1,
+                  actionType: "period",
+                  clock: "PT12M00.00S",
+                  description: "Period Start",
+                  period: 1,
+                  timeActual: "2026-04-22T23:05:00.000Z",
+                },
+              ],
+              gameId: "0042600002",
+              generatedAt: "2026-04-23T04:00:00.000Z",
+            },
+          }),
+          ok: true,
+          status: 200,
+        };
+      }
+
+      return {
+        json: async () => ({
+          data: {
+            generatedAt: "2026-04-22T12:00:00.000Z",
+            requestedDate: "2026-04-22",
+            games: [
+              {
+                ...scoreboardPayload.games[0],
+                game: {
+                  ...scoreboardPayload.games[0].game,
+                  id: "nba-0042600002",
+                  scheduledStart: "2026-04-22T23:00:00.000Z",
+                  sourceGameKeyNba: "0042600002",
+                },
+                gameState: {
+                  awayScore: null,
+                  capturedAt: "2026-04-22T12:00:00.000Z",
+                  clock: null,
+                  finalAt: null,
+                  homeScore: null,
+                  isFinal: false,
+                  period: 0,
+                  startedAt: null,
+                  status: "scheduled",
+                },
+                outcome: null,
+              },
+            ],
+          },
+        }),
+        ok: true,
+        status: 200,
+      };
+    });
+
+    const summary = await syncNbaSidecarWindow({
+      baseUrl: "http://127.0.0.1:9393",
+      captureMode: "historical",
+      fetchImpl: fetchImpl as never,
+      lookaheadDays: 0,
+      lookbackDays: 0,
+      now: () => new Date("2026-04-22T12:00:00.000Z"),
+      skipFutureScheduledGames: false,
+    });
+
+    expect(summary.ok).toBe(true);
+    expect(fetchImpl.mock.calls.some(([url]) => String(url).includes("/play-by-play"))).toBe(true);
+    expect(
+      getDatabase()
+        .prepare("SELECT COUNT(*) AS count FROM nba_play_by_play_actions WHERE game_id = ?")
+        .get("nba-0042600002"),
+    ).toEqual({ count: 1 });
+    expect(listAdapterRuns(5)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          captureMode: "historical",
+          source: "nba",
+          status: "ok",
+        }),
+      ]),
+    );
+  });
+
+  it("uses the separate PBP reference time when suppressing future scheduled games", async () => {
+    const fetchImpl = vi.fn(async (url: string) => {
+      if (url.includes("/play-by-play")) {
+        throw new Error("unexpected play-by-play fetch before tipoff");
+      }
+
+      return {
+        json: async () => ({
+          data: {
+            generatedAt: "2026-06-06T06:00:00.000Z",
+            requestedDate: "2026-06-06",
+            games: [
+              {
+                ...scoreboardPayload.games[0],
+                game: {
+                  ...scoreboardPayload.games[0].game,
+                  id: "nba-0042600003",
+                  scheduledStart: "2026-06-06T08:00:00.000Z",
+                  sourceGameKeyNba: "0042600003",
+                },
+                gameState: {
+                  awayScore: null,
+                  capturedAt: "2026-06-06T06:00:00.000Z",
+                  clock: null,
+                  finalAt: null,
+                  homeScore: null,
+                  isFinal: false,
+                  period: 0,
+                  startedAt: null,
+                  status: "scheduled",
+                },
+                outcome: null,
+              },
+            ],
+          },
+        }),
+        ok: true,
+        status: 200,
+      };
+    });
+
+    const summary = await syncNbaSidecarWindow({
+      baseUrl: "http://127.0.0.1:9393",
+      fetchImpl: fetchImpl as never,
+      lookaheadDays: 0,
+      lookbackDays: 0,
+      now: () => new Date("2026-06-06T12:00:00.000Z"),
+      playByPlayReferenceNow: () => new Date("2026-06-06T06:00:00.000Z"),
+      skipFutureScheduledGames: true,
+    });
+
+    expect(summary.ok).toBe(true);
+    expect(fetchImpl.mock.calls.some(([url]) => String(url).includes("/play-by-play"))).toBe(false);
   });
 
   it("cancels vanished if-necessary games when a successful scoreboard date no longer lists them", async () => {

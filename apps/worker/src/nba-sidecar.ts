@@ -1,8 +1,10 @@
 import {
+  type AdapterCaptureMode,
   getDatabase,
   recordAdapterRun,
   recordGameStateObservation,
   recordNbaPlayByPlayActions,
+  recordNbaPlayByPlayRevisions,
   upsertGame,
   upsertGameOutcome,
 } from "@signal-console/shared";
@@ -47,6 +49,9 @@ type SidecarGameOutcome = {
 type SidecarPlayByPlayAction = {
   actionNumber?: number | null;
   actionType?: string | null;
+  subType?: string | null;
+  personId?: number | null;
+  playerName?: string | null;
   clock?: string | null;
   description?: string | null;
   period?: number | null;
@@ -176,6 +181,33 @@ function deriveFinalSidecarResultFromPlayByPlay(input: {
       winnerKey,
     },
   };
+}
+
+function shouldFetchSidecarPlayByPlay(input: {
+  game: SidecarGame;
+  gameState: SidecarGameState;
+  skipFutureScheduledGames: boolean;
+  referenceTimeMs: number;
+}) {
+  if (input.gameState.status === "cancelled" || input.gameState.status === "postponed") {
+    return false;
+  }
+  if (!input.skipFutureScheduledGames) {
+    return true;
+  }
+  if (input.gameState.status === "in-play" || input.gameState.status === "final") {
+    return true;
+  }
+  if (input.gameState.isFinal || input.gameState.startedAt) {
+    return true;
+  }
+
+  const scheduledMs = Date.parse(input.game.scheduledStart);
+  if (!Number.isFinite(scheduledMs) || !Number.isFinite(input.referenceTimeMs)) {
+    return true;
+  }
+
+  return scheduledMs <= input.referenceTimeMs;
 }
 
 export function buildNbaSidecarDateWindow(options?: {
@@ -356,16 +388,24 @@ export function ingestNbaSidecarPlayByPlay(options: {
   canonicalGameId: string;
   payload: NbaSidecarPlayByPlayPayload;
 }) {
+  const actions = options.payload.actions
+    .filter(
+      (action): action is SidecarPlayByPlayAction & { actionNumber: number } =>
+        action.actionNumber != null && Number.isFinite(action.actionNumber),
+    )
+    .map((action) => ({
+      ...action,
+      rawMetadata: action as unknown as Record<string, unknown>,
+    }));
+
   const result = recordNbaPlayByPlayActions({
-    actions: options.payload.actions
-      .filter(
-        (action): action is SidecarPlayByPlayAction & { actionNumber: number } =>
-          action.actionNumber != null && Number.isFinite(action.actionNumber),
-      )
-      .map((action) => ({
-        ...action,
-        rawMetadata: action as unknown as Record<string, unknown>,
-      })),
+    actions,
+    capturedAt: options.payload.generatedAt,
+    gameId: options.canonicalGameId,
+  });
+
+  const revisions = recordNbaPlayByPlayRevisions({
+    actions,
     capturedAt: options.payload.generatedAt,
     gameId: options.canonicalGameId,
   });
@@ -373,6 +413,7 @@ export function ingestNbaSidecarPlayByPlay(options: {
   return {
     actionsSeen: result.actionsSeen,
     actionsWritten: result.actionsWritten,
+    revisionsWritten: revisions.revisionsWritten,
   };
 }
 
@@ -432,13 +473,19 @@ export async function syncNbaSidecarScoreboard(options?: {
 
 export async function syncNbaSidecarWindow(options?: {
   baseUrl?: string;
+  captureMode?: AdapterCaptureMode;
   fetchImpl?: FetchLike;
   lookaheadDays?: number;
   lookbackDays?: number;
   now?: () => Date;
+  playByPlayReferenceNow?: () => Date;
+  skipFutureScheduledGames?: boolean;
 }) {
   const now = options?.now ?? (() => new Date());
   const startedAt = now().toISOString();
+  const captureMode = options?.captureMode ?? "live";
+  const referenceTimeMs = Date.parse((options?.playByPlayReferenceNow ?? now)().toISOString());
+  const skipFutureScheduledGames = options?.skipFutureScheduledGames ?? true;
   const dates = buildNbaSidecarDateWindow({
     lookaheadDays: options?.lookaheadDays,
     lookbackDays: options?.lookbackDays,
@@ -474,6 +521,16 @@ export async function syncNbaSidecarWindow(options?: {
         for (const entry of payload.games) {
           const nbaGameId = entry.game.sourceGameKeyNba;
           if (!nbaGameId) continue;
+          if (
+            !shouldFetchSidecarPlayByPlay({
+              game: entry.game,
+              gameState: entry.gameState,
+              skipFutureScheduledGames,
+              referenceTimeMs,
+            })
+          ) {
+            continue;
+          }
           try {
             const playByPlay = await fetchNbaSidecarPlayByPlay({
               baseUrl: options?.baseUrl,
@@ -540,6 +597,7 @@ export async function syncNbaSidecarWindow(options?: {
       finishedAt,
       recordsSeen: gamesSeen,
       recordsWritten: statesWritten + outcomesWritten + playByPlayActionsWritten,
+      captureMode,
       source: "nba",
       startedAt,
       status: ok ? "ok" : "error",
@@ -563,6 +621,7 @@ export async function syncNbaSidecarWindow(options?: {
       finishedAt,
       recordsSeen: 0,
       recordsWritten: 0,
+      captureMode,
       source: "nba",
       startedAt,
       status: "error",

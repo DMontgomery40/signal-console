@@ -32,7 +32,7 @@ Meanwhile `quote_ticks` demonstrably holds multiple families:
 - `appendQuoteTick` (`live-repository.ts`) is family-agnostic — it writes whatever
   `source_market_id` it's handed.
 - The Kalshi adapter (`kalshi-direct.ts`) emits `moneyline, spread, total,
-  team-prop, player-prop, other`; the odds-api classifier emits
+team-prop, player-prop, other`; the odds-api classifier emits
   `moneyline/spread/total/player-prop`.
 - The Live view's own tick schema carries `rawFamily`/`rawLabel` (F-006), i.e. the
   product expects mixed families in `quote_ticks`.

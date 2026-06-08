@@ -2536,6 +2536,9 @@ export function recordGameStateObservation(input: Omit<CanonicalGameState, "id">
 export type NbaPlayByPlayActionInput = {
   actionNumber: number;
   actionType?: string | null;
+  subType?: string | null;
+  personId?: number | null;
+  playerName?: string | null;
   clock?: string | null;
   description?: string | null;
   period?: number | null;
@@ -2561,6 +2564,9 @@ export function recordNbaPlayByPlayActions(input: {
             game_id,
             action_number,
             action_type,
+            sub_type,
+            person_id,
+            player_name,
             period,
             clock,
             description,
@@ -2571,9 +2577,12 @@ export function recordNbaPlayByPlayActions(input: {
             captured_at,
             raw_metadata_json
           )
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT(game_id, action_number) DO UPDATE SET
             action_type = excluded.action_type,
+            sub_type = excluded.sub_type,
+            person_id = excluded.person_id,
+            player_name = excluded.player_name,
             period = excluded.period,
             clock = excluded.clock,
             description = excluded.description,
@@ -2594,6 +2603,9 @@ export function recordNbaPlayByPlayActions(input: {
             input.gameId,
             action.actionNumber,
             action.actionType ?? null,
+            action.subType ?? null,
+            action.personId ?? null,
+            action.playerName ?? null,
             action.period ?? null,
             action.clock ?? null,
             action.description ?? null,
@@ -2616,6 +2628,200 @@ export function recordNbaPlayByPlayActions(input: {
     },
     {
       gameId: input.gameId,
+    },
+  );
+}
+
+export function recordNbaPlayByPlayRevisions(input: {
+  actions: NbaPlayByPlayActionInput[];
+  capturedAt: string;
+  gameId: string;
+}) {
+  return executeDatabaseOperation(
+    "nbaPlayByPlayRevisions.append",
+    () => {
+      const db = getDatabase();
+      const statement = db.prepare(
+        `
+          INSERT OR IGNORE INTO nba_pbp_revisions (
+            game_id,
+            action_number,
+            captured_at,
+            action_type,
+            sub_type,
+            person_id,
+            player_name,
+            period,
+            clock,
+            description,
+            score_away,
+            score_home,
+            team_tricode,
+            time_actual
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `,
+      );
+      const latestStatement = db.prepare(
+        `
+          SELECT action_type,
+                 sub_type,
+                 person_id,
+                 player_name,
+                 period,
+                 clock,
+                 description,
+                 score_away,
+                 score_home,
+                 team_tricode,
+                 time_actual
+          FROM nba_pbp_revisions
+          WHERE game_id = ?
+            AND action_number = ?
+          ORDER BY captured_at DESC, id DESC
+          LIMIT 1
+        `,
+      );
+      const run = db.transaction(() => {
+        let written = 0;
+        for (const action of input.actions) {
+          if (!Number.isFinite(action.actionNumber)) continue;
+          const latest = latestStatement.get(input.gameId, action.actionNumber) as
+            | {
+                action_type: string | null;
+                clock: string | null;
+                description: string | null;
+                period: number | null;
+                person_id: number | null;
+                player_name: string | null;
+                score_away: string | null;
+                score_home: string | null;
+                sub_type: string | null;
+                team_tricode: string | null;
+                time_actual: string | null;
+              }
+            | undefined;
+          if (
+            latest !== undefined &&
+            latest.action_type === (action.actionType ?? null) &&
+            latest.person_id === (action.personId ?? null) &&
+            latest.player_name === (action.playerName ?? null) &&
+            latest.sub_type === (action.subType ?? null) &&
+            latest.period === (action.period ?? null) &&
+            latest.clock === (action.clock ?? null) &&
+            latest.description === (action.description ?? null) &&
+            latest.score_away === (action.scoreAway ?? null) &&
+            latest.score_home === (action.scoreHome ?? null) &&
+            latest.team_tricode === (action.teamTricode ?? null) &&
+            latest.time_actual === (action.timeActual ?? null)
+          ) {
+            continue;
+          }
+          const result = statement.run(
+            input.gameId,
+            action.actionNumber,
+            input.capturedAt,
+            action.actionType ?? null,
+            action.subType ?? null,
+            action.personId ?? null,
+            action.playerName ?? null,
+            action.period ?? null,
+            action.clock ?? null,
+            action.description ?? null,
+            action.scoreAway ?? null,
+            action.scoreHome ?? null,
+            action.teamTricode ?? null,
+            action.timeActual ?? null,
+          );
+          written += result.changes;
+        }
+        return written;
+      });
+      return { actionsSeen: input.actions.length, revisionsWritten: run() };
+    },
+    {
+      gameId: input.gameId,
+    },
+  );
+}
+
+export interface PbpAttributionTransition {
+  actionNumber: number;
+  fromPersonId: number | null;
+  toPersonId: number | null;
+  fromPlayer: string | null;
+  toPlayer: string | null;
+  fromSubType: string | null;
+  toSubType: string | null;
+  firstSeenAt: string;
+  changedAt: string;
+}
+
+export function listPbpAttributionTransitions(gameId: string): PbpAttributionTransition[] {
+  return executeDatabaseOperation(
+    "nbaPlayByPlayRevisions.transitions",
+    () => {
+      const db = getDatabase();
+      const rows = db
+        .prepare(
+          `
+          SELECT action_number, captured_at, person_id, player_name, sub_type
+          FROM nba_pbp_revisions
+          WHERE game_id = ?
+          ORDER BY action_number ASC, captured_at ASC
+        `,
+        )
+        .all(gameId) as Array<{
+        action_number: number;
+        captured_at: string;
+        person_id: number | null;
+        player_name: string | null;
+        sub_type: string | null;
+      }>;
+
+      const byAction = new Map<number, typeof rows>();
+      for (const row of rows) {
+        const list = byAction.get(row.action_number);
+        if (list) list.push(row);
+        else byAction.set(row.action_number, [row]);
+      }
+
+      const transitions: PbpAttributionTransition[] = [];
+      for (const [actionNumber, revisions] of byAction) {
+        let segmentStart = revisions[0];
+        for (let index = 1; index < revisions.length; index += 1) {
+          const previous = revisions[index - 1];
+          const current = revisions[index];
+          if (segmentStart === undefined || previous === undefined || current === undefined)
+            continue;
+          const idChanged =
+            previous.person_id !== current.person_id &&
+            (previous.person_id !== null || current.person_id !== null);
+          const nameChanged =
+            previous.person_id === null &&
+            current.person_id === null &&
+            (previous.player_name ?? null) !== (current.player_name ?? null);
+          const subTypeChanged = (previous.sub_type ?? null) !== (current.sub_type ?? null);
+          if (idChanged || nameChanged || subTypeChanged) {
+            transitions.push({
+              actionNumber,
+              changedAt: current.captured_at,
+              firstSeenAt: segmentStart.captured_at,
+              fromPersonId: segmentStart.person_id,
+              fromPlayer: segmentStart.player_name,
+              fromSubType: segmentStart.sub_type,
+              toPersonId: current.person_id,
+              toPlayer: current.player_name,
+              toSubType: current.sub_type,
+            });
+            segmentStart = current;
+          }
+        }
+      }
+      return transitions;
+    },
+    {
+      gameId,
     },
   );
 }

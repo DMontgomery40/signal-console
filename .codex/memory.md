@@ -1,5 +1,7 @@
 # Codex memory — signal-console
 
+Last verified: 2026-06-07
+
 Per-repo persistent notes for the Codex agent. Update entries when they become stale; date entries when context decays fast.
 
 ---
@@ -49,6 +51,25 @@ The three-question framing is the durable bit, worth keeping verbatim:
 `apps/nba-sidecar` is a thin FastAPI service that uses Python `nba_api` (`>=1.11.4,<2` per `pyproject.toml`) directly via `from nba_api.live.nba.endpoints import boxscore, playbyplay, scoreboard` and `from nba_api.stats.endpoints import scoreboardv3`. It is NOT a hand-rolled wrapper of `nbastatR` (which is R-only and unusable from this stack). The 366-line `normalizers.py` is doing project-specific schema translation from `nba_api` payload shape into signal-console's domain shape — no community library exists for that and one shouldn't.
 
 The TS `packages/adapters/{kalshi,polymarket,bet365,odds-api}` are BETTING-MARKET adapters, not NBA stat sources — different category, no community wrapper exists for those vendors either.
+
+## Live/PBP contract (implemented 2026-06-07)
+
+`/v1/live/:gameId` is not raw ticks only. It returns bounded market ticks plus an
+`activity` object with replay-scoped game state and official PBP. The activity
+path reads `game_states` and `nba_pbp_revisions` at or before the request
+`windowEnd` so historical `at=` replay does not leak final score or later
+official PBP corrections.
+
+NBA PBP now carries `sub_type`, `person_id`, and `player_name`. The worker
+writes the latest row to `nba_play_by_play_actions` and writes changed snapshots
+to `nba_pbp_revisions`; `listPbpAttributionTransitions` reports credited-player
+or subtype corrections. Durable docs for this contract live in
+`docs/live-data-contract.md`.
+
+Settings source freshness now comes from successful live `adapter_runs`
+(`capture_mode = 'live'`), not `MAX(quote_ticks.captured_at)`. Historical
+backfill and discovery runs must set `capture_mode` explicitly so they do not
+pretend a source is live-fresh.
 
 ## State-space tunables (implemented 2026-05-28)
 

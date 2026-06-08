@@ -10,8 +10,8 @@
 
 The Sensitivity dial's center readout ("Estimated fires/game") and two pieces of
 on-page copy assert a **live, in-memory recompute as you move the dial**. The
-recompute was removed (see F-002). The readout is now wired to the *last server
-run's* stats and does not respond to the dial at all.
+recompute was removed (see F-002). The readout is now wired to the _last server
+run's_ stats and does not respond to the dial at all.
 
 Data path (all in `BacktestPage.tsx`):
 
@@ -32,12 +32,12 @@ only from `snapshot.response.stats` — a value frozen at the moment of the last
 1. Dial caption, `:1460-1463`:
    > "The center readout is estimated fires per game for the last run. **It updates
    > in memory as the trigger moves.**"
-   The first clause is accurate; the second is false.
+   > The first clause is accurate; the second is false.
 2. Recompute hint, `:1597-1600`:
    > "**Trigger and board-model timing recompute in memory after the first run.**
    > Changing bucketSeconds, weighting, or freshCapSeconds requires re-running."
-   This tells the user kMad / warmup / trailing / opening-ramp changes recompute
-   live. They do not — they only flip the `stale` flag.
+   > This tells the user kMad / warmup / trailing / opening-ramp changes recompute
+   > live. They do not — they only flip the `stale` flag.
 
 ## Why it's dangerous
 
@@ -45,6 +45,7 @@ This is the calibration surface. A scout drags the Sensitivity dial from K=3 to
 K=8 expecting the fires/game estimate to fall; the dial-adjacent number — the one
 the caption says is tracking the trigger — does not budge. Reasonable
 conclusions a user draws, all wrong:
+
 - "K has almost no effect on this detector" → mis-tunes or abandons a good signal.
 - "The detector is broken / unresponsive" → tosses a working model.
 - Trusts the frozen K=3 fires/game as if it were the K=8 result → promotes the
@@ -75,7 +76,7 @@ the very copy beside the control.
 
 ## RESOLUTION (fixed 2026-05-30)
 
-The frozen-preview *behavior* is the team's intended post-sidecar design (tests
+The frozen-preview _behavior_ is the team's intended post-sidecar design (tests
 at BacktestPage.test.tsx:1153 explicitly assert "rows stay pinned to the last
 server run"). The defect was the **copy that claimed liveness**. Fixed the copy,
 not the behavior:

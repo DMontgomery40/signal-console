@@ -15,21 +15,21 @@ silent failure mode, and a concrete fix.
 
 ## Coverage map (slices)
 
-| # | Slice | Status | Findings |
-|---|-------|--------|----------|
-| 1 | board-volatility **state-space**: Python sidecar `volatility.py`/`models.py` ↔ TS `state-space-runtime.ts`/`state-space-config.ts` ↔ web | done | F-001 ✅fixed |
-| 2 | board-mad detector: `sweep.ts` ↔ `clientRecompute.ts` ↔ `baseline.ts` ↔ web preview | done | F-002 ✅fixed, F-003 ✅fixed |
-| 2b | board-mad **dial ranges/defaults** (`config.ts` MIN/MAX/DEFAULT) ↔ UI dial snap/range props ↔ `explainers.ts` copy ↔ params schema | done | F-004 |
-| 3 | domain schemas (`schemas/core,live,research`) ↔ DB (`migrations`, `sport-views`) ↔ API req/resp shapes | partial | F-005 |
-| 3b | domain `schemas/live.ts` + `research.ts` ↔ DB tables (quote_ticks/game_states/source_markets) ↔ API resp — field/nullability/units | done | F-006 |
-| 4 | adapters: `canonical-instruments`, source identity, market/instrument mapping across bet365/kalshi/polymarket/odds-api | partial | F-007 |
-| 4b | adapter market-FAMILY mapping (provider ML/Spread/Totals/Player Props → `marketFamilies` enum) + board family-filtering | done | F-008 |
-| 5 | board-anomaly cluster (`shared/board-anomaly/*`): volatility-model / phase / classifier / residual / h0 | todo | |
-| 6 | API routes ↔ web `data/queries` ↔ OpenAPI metadata (field names, units, nullability) | todo | |
-| 7 | explainers copy (`packages/ui/src/explainers.ts`) ↔ actual defaults / math / units / code refs | todo | |
-| 8 | nba-sidecar normalizers/models ↔ TS canonical game/state types ↔ DB persisted shapes | todo | |
-| 9 | detector registry labels/ids ↔ ids used in runtime/UI/DB/bakeoff | todo | |
-| 10 | env var names: `env.ts` ↔ usage ↔ docs ↔ credential-lookup order | todo | |
+| #   | Slice                                                                                                                                    | Status  | Findings                     |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------------- | ------- | ---------------------------- |
+| 1   | board-volatility **state-space**: Python sidecar `volatility.py`/`models.py` ↔ TS `state-space-runtime.ts`/`state-space-config.ts` ↔ web | done    | F-001 ✅fixed                |
+| 2   | board-mad detector: `sweep.ts` ↔ `clientRecompute.ts` ↔ `baseline.ts` ↔ web preview                                                      | done    | F-002 ✅fixed, F-003 ✅fixed |
+| 2b  | board-mad **dial ranges/defaults** (`config.ts` MIN/MAX/DEFAULT) ↔ UI dial snap/range props ↔ `explainers.ts` copy ↔ params schema       | done    | F-004                        |
+| 3   | domain schemas (`schemas/core,live,research`) ↔ DB (`migrations`, `sport-views`) ↔ API req/resp shapes                                   | partial | F-005                        |
+| 3b  | domain `schemas/live.ts` + `research.ts` ↔ DB tables (quote_ticks/game_states/source_markets) ↔ API resp — field/nullability/units       | done    | F-006                        |
+| 4   | adapters: `canonical-instruments`, source identity, market/instrument mapping across bet365/kalshi/polymarket/odds-api                   | partial | F-007                        |
+| 4b  | adapter market-FAMILY mapping (provider ML/Spread/Totals/Player Props → `marketFamilies` enum) + board family-filtering                  | done    | F-008                        |
+| 5   | board-anomaly cluster (`shared/board-anomaly/*`): volatility-model / phase / classifier / residual / h0                                  | todo    |                              |
+| 6   | API routes ↔ web `data/queries` ↔ OpenAPI metadata (field names, units, nullability)                                                     | todo    |                              |
+| 7   | explainers copy (`packages/ui/src/explainers.ts`) ↔ actual defaults / math / units / code refs                                           | todo    |                              |
+| 8   | nba-sidecar normalizers/models ↔ TS canonical game/state types ↔ DB persisted shapes                                                     | todo    |                              |
+| 9   | detector registry labels/ids ↔ ids used in runtime/UI/DB/bakeoff                                                                         | todo    |                              |
+| 10  | env var names: `env.ts` ↔ usage ↔ docs ↔ credential-lookup order                                                                         | todo    |                              |
 
 (Slices may split or merge as the work reveals structure. Add rows; never delete
 a done row.)
@@ -60,7 +60,7 @@ SensitivityDial` (web, 48✅), `pytest test_state_space_bounds_contract.py`
   `fired`, `bucketStart/End`, `generatedAt`, `gameId`).
 - **state-space config bounds match** field-for-field across all 7 groups / 30
   fields between `models.py` (pydantic) and `state-space-config.ts` (Zod). See
-  F-001 for the *enforcement* gap.
+  F-001 for the _enforcement_ gap.
 - **state-space params interface matches** field-for-field (pydantic
   `VolatilityStateSpaceParams` ↔ TS interface).
 - **board-mad baseline math is shared, not re-ported.** Both the server sweep

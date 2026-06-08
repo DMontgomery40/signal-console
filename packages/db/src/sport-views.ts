@@ -17,7 +17,8 @@
 //   - `game_states` (cols: game_id, captured_at, status; latest row per game
 //     supplies the current status via correlated subquery)
 //   - `nba_play_by_play_actions` (cols: game_id, action_number, action_type,
-//     period, clock, description, time_actual, captured_at)
+//     sub_type, person_id, player_name, period, clock, description,
+//     time_actual, captured_at)
 //
 // When football PBP ingest lands, `v_events` grows a `UNION ALL` against the
 // football PBP table; `v_games` grows JSON-shape handling if a new sport's
@@ -47,6 +48,9 @@ export const v_events: string = `
     pbp.game_id       AS game_id,
     pbp.action_number AS action_number,
     pbp.action_type   AS action_type,
+    pbp.sub_type      AS sub_type,
+    pbp.person_id     AS person_id,
+    pbp.player_name   AS player_name,
     pbp.period        AS period,
     pbp.clock         AS clock,
     pbp.description   AS description,

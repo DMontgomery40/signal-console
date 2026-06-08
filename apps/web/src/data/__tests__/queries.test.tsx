@@ -203,4 +203,26 @@ describe("useMicrostructure", () => {
       headers: { "X-Signal-Token": expectedSignalToken() },
     });
   });
+
+  it("passes the caller-provided volume-share threshold to the API", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({
+        gameId: "nba-0042500222",
+        theta: 0.04,
+        events: [],
+      }),
+    );
+
+    const wrapper = makeWrapper();
+    const { result } = renderHook(() => useMicrostructure("nba-0042500222", { theta: 0.04 }), {
+      wrapper,
+    });
+
+    await waitFor(() => {
+      expect(result.current.isSuccess).toBe(true);
+    });
+
+    const call = fetchMock.mock.calls[0];
+    expect(call?.[0]).toBe("/v1/microstructure/nba-0042500222?theta=0.04");
+  });
 });

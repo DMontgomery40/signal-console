@@ -61,6 +61,10 @@ Required components:
 - **Retry + circuit breaker.** Idempotent retries on 5xx with exponential
   backoff. Open the breaker after N consecutive failures and surface the open
   state to `/v1/settings` (see step 6).
+- **Adapter run accounting.** Record every worker attempt with
+  `recordAdapterRun`. Live ingestion uses `captureMode: "live"` (the default);
+  discovery, smoke, and historical/backfill jobs must set `captureMode`
+  explicitly so they do not make Settings freshness look live.
 - **IP normalization** (the most error-prone step — see step 2 for details).
 - **Heartbeat handling.** If the feed emits keepalives, tag them
   `is_heartbeat = 1` so board-MAD drops them from the volatility window.
@@ -130,6 +134,10 @@ Reuse path:
   `is_heartbeat` — no new columns needed.
 - `market_microstructure_events` — only for sources that ship print tape
   (executed trades with price + size). Quote-only feeds do not write here.
+- `adapter_runs` — one row per worker attempt. It now carries
+  `capture_mode` (`live | historical | discovery`) and is the source used by
+  heartbeat freshness for Settings. A successful historical job is provenance,
+  not a live freshness signal.
 - PBP tables (`nba_play_by_play_actions`, etc.) — sport-specific, schema
   extension required when adding a new sport, not a new sportsbook.
 
@@ -217,6 +225,9 @@ should fail before you forget.
   updated.
 - **Settings → Sources** section — add a row for the new feed showing
   sync status, last error, and tick count. Pull from `/v1/settings`.
+  Freshness must come from successful live `adapter_runs`, not a scan over
+  `quote_ticks`; quote ticks can be huge and historical backfills should not
+  masquerade as current live sync.
 - **Source-coverage badges** anywhere a sportsbook or exchange is named
   visually. Default styling uses `text-text-md` + the standard token
   palette; new tokens only if the desk needs a brand color, and only
@@ -229,8 +240,8 @@ Required test layers (in order):
 
 1. **Ingest unit tests** under `apps/worker/` — auth handshake, IP
    normalization for the source's price format, retry/backoff behaviour,
-   heartbeat tagging. Use small fixtures from the upstream's documented
-   examples.
+   heartbeat tagging, and `recordAdapterRun` capture-mode accounting. Use small
+   fixtures from the upstream's documented examples.
 2. **Fixture-backed integration test** under `apps/worker/tests/` — boot a
    fake upstream (msw, recorded HTTP fixtures), let the worker run end-to-
    end against an in-memory gold DB, assert rows land with the right
@@ -244,7 +255,10 @@ Required test layers (in order):
 4. **API integration smoke** under `apps/api/tests/` — call
    `GET /v1/detectors` and assert the new source appears in the right
    detector's `sources` array.
-5. **UI integration test** under `apps/web/src/features/detectors/__tests__/`
+5. **Settings heartbeat smoke** under `apps/worker/src/__tests__/` or
+   `apps/web/src/features/settings/__tests__/` — prove successful live adapter
+   runs update Settings freshness and historical/discovery runs do not.
+6. **UI integration test** under `apps/web/src/features/detectors/__tests__/`
    — render the page with the new fixture and assert the SOURCES chip
    contains the new source.
 
@@ -263,7 +277,8 @@ feed (no print tape):
    `apps/worker/src/fanduel/` — Bearer-token auth against the FanDuel
    Trading API; American-odds → unit-interval conversion with documented
    vig-strip (proportional); 5 Hz polling per active game; tag suspends
-   as `is_heartbeat`.
+   as `is_heartbeat`; record successful live cycles in `adapter_runs` with
+   `captureMode: "live"`.
 2. **Schema:** reuse `source_markets` + `quote_ticks`. No new tables.
 3. **Watermark:** no change — the `quote_ticks` triple already covers
    the new rows.

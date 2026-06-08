@@ -3,7 +3,14 @@ import { render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode, JSX } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
-import { LivePage, buildChartData, offPriceMarkersForDomain } from "../LivePage";
+import {
+  LivePage,
+  buildChartData,
+  buildTradePrintChartData,
+  offPriceMarkersForDomain,
+} from "../LivePage";
+
+const GAME_ID = "nba-0042500313";
 
 function makeWrapper(): (props: { children: ReactNode }) => JSX.Element {
   const client = new QueryClient({
@@ -14,30 +21,82 @@ function makeWrapper(): (props: { children: ReactNode }) => JSX.Element {
   };
 }
 
-// AMENDED 2026-05-25 (Codex review P1): some tests need the response body
-// synchronously inside the fetch mock handler (the legacy `boardResponse`
-// + `microstructureResponse` fixtures get adapted into the new ensemble-or
-// shape on the fly). Response.json() is async; the adapter looks up the
-// pre-computed body via a WeakMap keyed on the Response itself.
-const responseBodyText = new WeakMap<Response, string>();
-
-// Per-mock K override. mockLiveAndBoard sets this when the test wants the
-// ensemble adapter to echo a specific K back (e.g. to prove the chart K
-// comes from the ensemble response, not from any fallback). Default 3.0.
-const adapterEnsembleKByGame = new Map<string, number>();
-
 function jsonResponse(body: unknown, init?: ResponseInit): Response {
-  const text = JSON.stringify(body);
-  const res = new Response(text, {
+  return new Response(JSON.stringify(body), {
     status: 200,
     headers: { "Content-Type": "application/json" },
     ...init,
   });
-  responseBodyText.set(res, text);
-  return res;
 }
 
-function liveResponse(opts: { gameId: string; tickCount: number }): Response {
+function defaultLiveActivity() {
+  return {
+    gameState: null,
+    playByPlayActionCount: 0,
+    recentPlayByPlay: [],
+  };
+}
+
+function activeGameActivity() {
+  return {
+    gameState: {
+      awayScore: 56,
+      capturedAt: "2026-06-06T01:58:05.000Z",
+      clock: "PT00M00.00S",
+      finalAt: null,
+      homeScore: 52,
+      isFinal: false,
+      period: 2,
+      startedAt: "2026-06-06T00:33:00.000Z",
+      status: "in-play",
+    },
+    playByPlayActionCount: 311,
+    recentPlayByPlay: [
+      {
+        actionNumber: 379,
+        actionType: "period",
+        clock: "PT00M00.00S",
+        description: "Period End",
+        period: 2,
+        personId: null,
+        playerName: null,
+        scoreAway: "56",
+        scoreHome: "52",
+        subType: null,
+        teamTricode: null,
+        timeActual: "2026-06-06T01:56:02.500Z",
+      },
+    ],
+  };
+}
+
+function scheduledGameActivity() {
+  return {
+    gameState: {
+      awayScore: null,
+      capturedAt: "2026-06-06T01:58:05.000Z",
+      clock: null,
+      finalAt: null,
+      homeScore: null,
+      isFinal: false,
+      period: 0,
+      startedAt: null,
+      status: "scheduled",
+    },
+    playByPlayActionCount: 0,
+    recentPlayByPlay: [],
+  };
+}
+
+type LiveActivityFixture =
+  | ReturnType<typeof activeGameActivity>
+  | ReturnType<typeof scheduledGameActivity>;
+
+function liveResponse(opts: {
+  gameId: string;
+  tickCount: number;
+  activity?: LiveActivityFixture;
+}): Response {
   const ticks = Array.from({ length: opts.tickCount }, (_unused, i) => ({
     sourceMarketId: `sm-${String(i)}`,
     capturedAt: `2026-05-23T03:${String(i).padStart(2, "0")}:00Z`,
@@ -49,6 +108,7 @@ function liveResponse(opts: { gameId: string; tickCount: number }): Response {
     rawLabel: "home -3.5",
   }));
   return jsonResponse({
+    activity: opts.activity ?? defaultLiveActivity(),
     gameId: opts.gameId,
     windowStart: "2026-05-23T02:55:00Z",
     windowEnd: "2026-05-23T03:00:00Z",
@@ -56,58 +116,26 @@ function liveResponse(opts: { gameId: string; tickCount: number }): Response {
   });
 }
 
-function boardResponse(opts: {
-  gameId: string;
-  firesCount: number;
-  nonFiresCount?: number;
-}): Response {
-  const nonFires = opts.nonFiresCount ?? 0;
-  const observations: unknown[] = [];
-  for (let i = 0; i < nonFires; i++) {
-    observations.push({
-      bucketStart: `2026-05-23T03:${String(i).padStart(2, "0")}:00Z`,
-      bucketEnd: `2026-05-23T03:${String(i + 1).padStart(2, "0")}:00Z`,
-      fired: 0,
-      intensity: 0.1 + i * 0.01,
-      baselineMedian: 0.1,
-      baselineMad: 0.02,
-      warmedUp: true,
-    });
-  }
-  for (let i = 0; i < opts.firesCount; i++) {
-    const m = nonFires + i;
-    observations.push({
-      bucketStart: `2026-05-23T03:${String(m).padStart(2, "0")}:00Z`,
-      bucketEnd: `2026-05-23T03:${String(m + 1).padStart(2, "0")}:00Z`,
-      fired: 1,
-      intensity: 1.5 + i * 0.1,
-      baselineMedian: 0.1,
-      baselineMad: 0.05,
-      warmedUp: true,
-    });
-  }
-  return jsonResponse({ gameId: opts.gameId, runId: 1, k: 3.0, observations });
-}
-
 function microstructureResponse(opts: {
   gameId: string;
   eventTimestamps?: readonly string[];
+  eventOverrides?: readonly Record<string, unknown>[];
 }): Response {
   const events = (opts.eventTimestamps ?? []).map((eventTimestamp, i) => ({
     id: i + 1,
     source: "polymarket",
     sourceMarketId: `poly-${String(i)}`,
     gameId: opts.gameId,
-    instrumentId: `inst-${String(i)}`,
+    instrumentId: `nba-${String(i)}-trade-print`,
     eventType: "trade",
     apiSurface: "trades",
     eventTimestamp,
     capturedAt: eventTimestamp,
-    price: 0.62,
+    price: 0.62 + i * 0.01,
     previousPrice: 0.58,
-    tradePrice: 0.62,
-    size: 100,
-    notional: 62,
+    tradePrice: 0.62 + i * 0.01,
+    size: 100 + i,
+    notional: 62 + i,
     volume: 1000,
     finalMarketVolume: 2500,
     volumeShare: 0.4,
@@ -115,8 +143,115 @@ function microstructureResponse(opts: {
     bestAsk: null,
     spread: null,
     depthScore: null,
+    ...(opts.eventOverrides?.[i] ?? {}),
   }));
   return jsonResponse({ gameId: opts.gameId, theta: 0.1, events });
+}
+
+function offPricePrintResponse(opts: {
+  gameId: string;
+  fires?: readonly { readonly bucketStart: string; readonly sourceMarketId: string }[];
+}): Response {
+  return jsonResponse({
+    gameId: opts.gameId,
+    runId: 1,
+    fires: (opts.fires ?? []).map((fire) => ({
+      bucketStart: fire.bucketStart,
+      bucketEnd: fire.bucketStart,
+      intensity: 0.75,
+      sourceMarketId: fire.sourceMarketId,
+    })),
+  });
+}
+
+function settingsResponse(opts: { readonly offPriceMinVolumeShare?: number } = {}): Response {
+  return jsonResponse({
+    db: {
+      path: "/tmp/signal-console.sqlite",
+      sizeBytes: 1,
+      walBytes: 0,
+      pageCount: 1,
+      pageSize: 4096,
+      lastModified: "2026-05-23T00:00:00.000Z",
+      mode: "read-only",
+    },
+    cacheDb: {
+      path: "/tmp/detector-cache.sqlite",
+      sizeBytes: 1,
+      pageCount: 1,
+    },
+    sources: {
+      ingestPaused: false,
+      bySource: {},
+    },
+    errors: [],
+    about: {
+      appVersion: "test",
+      detectorVersions: [],
+      dbSchemaVersion: 18,
+    },
+    detectorDefaults: {
+      kMadLive: 3,
+      baselineMode: "opening-ramp",
+      bucketSeconds: 60,
+      openingBaselineBuckets: 12,
+      openingRampCompleteBuckets: 24,
+      trailingBuckets: 60,
+      warmupBuckets: 3,
+      freshCapSeconds: 90,
+      historicalLastGames: 6,
+      historicalAwayWeight: 0.35,
+      historicalPriorWeight: 0.25,
+      historicalRampCompleteGameMinutes: 36,
+      trailingGameMinutes: 18,
+      recentWallMinutes: 10,
+      recentWallWeight: 0.5,
+      pbpPreBufferMs: 300000,
+      pbpPostBufferMs: 60000,
+      stateSpace: {},
+      offPriceMinVolumeShare: opts.offPriceMinVolumeShare ?? 0.1,
+      offPriceMinOffPriceDistance: 0.4,
+    },
+  });
+}
+
+function ensembleOrResponse(opts: {
+  gameId: string;
+  boardObservations?: readonly {
+    readonly bucketStart: string;
+    readonly bucketEnd: string;
+    readonly fired: number;
+    readonly intensity: number;
+  }[];
+  fires?: readonly {
+    readonly bucketStart: string;
+    readonly bucketEnd: string;
+    readonly lane: "board" | "offprice";
+    readonly sourceMarketId?: string;
+  }[];
+  k?: number;
+}): Response {
+  return jsonResponse({
+    gameId: opts.gameId,
+    runId: 1,
+    k: opts.k ?? 3,
+    boardObservations: (opts.boardObservations ?? []).map((obs) => ({
+      bucketStart: obs.bucketStart,
+      bucketEnd: obs.bucketEnd,
+      fired: obs.fired,
+      intensity: obs.intensity,
+      baselineMedian: 0.2,
+      baselineMad: 0.1,
+      warmedUp: true,
+    })),
+    fires: (opts.fires ?? []).map((fire) => ({
+      bucketStart: fire.bucketStart,
+      bucketEnd: fire.bucketEnd,
+      intensity: 0.75,
+      lane: fire.lane,
+      sourceMarketId: fire.sourceMarketId,
+    })),
+  });
 }
 
 type FetchFn = typeof fetch;
@@ -127,118 +262,28 @@ function urlOf(input: Parameters<FetchFn>[0]): string {
   return input.url;
 }
 
-function mockLiveAndBoard(
+function mockLiveAndModel(
   fetchMock: ReturnType<typeof vi.fn<FetchFn>>,
   live: Response,
-  board: Response,
-  micro: Response = microstructureResponse({ gameId: GAME_ID }),
+  micro: Response,
+  offPrice: Response = offPricePrintResponse({ gameId: GAME_ID }),
+  ensemble: Response = ensembleOrResponse({ gameId: GAME_ID }),
+  settings: Response = settingsResponse(),
 ): void {
-  // AMENDED 2026-05-25 (Codex review P1, then B-followup #2 P1): LivePage
-  // consumes /v1/ensemble-or instead of /v1/board + /v1/microstructure, and
-  // reads K from the ensemble response itself (NOT from /v1/settings).
-  // We still accept the legacy `board` + `micro` params so existing call
-  // sites (e.g., the offPriceTimestamps in `renders the alert threshold
-  // line...` test) continue to seed the chart by adapting both into an
-  // ensemble-or response shape on the fly. /v1/settings is no longer
-  // fetched at all by LivePage.
   fetchMock.mockImplementation(async (input) => {
     await Promise.resolve();
     const url = urlOf(input);
+    if (url.startsWith("/v1/settings")) return settings.clone();
     if (url.startsWith("/v1/live/")) return live.clone();
-    if (url.startsWith("/v1/ensemble-or/")) {
-      return adaptBoardAndMicroToEnsemble(board, micro).clone();
-    }
-    // Defensive: legacy paths still get served so any test that explicitly
-    // mocks /v1/board or /v1/microstructure doesn't break (none should
-    // remain post-P1, but no need to delete the safety net).
-    if (url.startsWith("/v1/board/")) return board.clone();
+    if (url.startsWith("/v1/ensemble-or/")) return ensemble.clone();
     if (url.startsWith("/v1/microstructure/")) return micro.clone();
+    if (url.startsWith("/v1/off-price-print/")) return offPrice.clone();
     return new Response("not found", { status: 404 });
   });
 }
 
-// Adapt the legacy board + micro test fixtures into the ensemble-or shape.
-// Reads board observations from `board.json()`, micro events from
-// `micro.json()`, and re-emits as { gameId, runId, boardObservations, fires }.
-interface BoardJsonShape {
-  readonly gameId: string;
-  readonly observations: readonly {
-    readonly fired: number;
-    readonly bucketStart: string;
-    readonly bucketEnd: string;
-    readonly intensity: number;
-    readonly baselineMedian: number;
-    readonly baselineMad: number;
-    readonly warmedUp: boolean;
-  }[];
-}
-interface MicroJsonShape {
-  readonly events: readonly { readonly eventTimestamp: string; readonly sourceMarketId: string }[];
-}
-
-function parseBoardJson(text: string): BoardJsonShape {
-  const parsed: unknown = JSON.parse(text);
-  if (typeof parsed !== "object" || parsed === null) throw new Error("board json shape");
-  return parsed as BoardJsonShape; // eslint-disable-line @typescript-eslint/consistent-type-assertions
-}
-function parseMicroJson(text: string): MicroJsonShape {
-  const parsed: unknown = JSON.parse(text);
-  if (typeof parsed !== "object" || parsed === null) throw new Error("micro json shape");
-  return parsed as MicroJsonShape; // eslint-disable-line @typescript-eslint/consistent-type-assertions
-}
-
-function adaptBoardAndMicroToEnsemble(board: Response, micro: Response): Response {
-  const boardJson = parseBoardJson(readSyncBody(board));
-  const microJson = parseMicroJson(readSyncBody(micro));
-  const boardFires = boardJson.observations
-    .filter((o) => o.fired === 1)
-    .map((o) => ({
-      bucketStart: o.bucketStart,
-      bucketEnd: o.bucketEnd,
-      intensity: o.intensity,
-      baselineMedian: o.baselineMedian,
-      baselineMad: o.baselineMad,
-      lane: "board",
-    }));
-  const offpriceFires = microJson.events.map((e) => ({
-    bucketStart: e.eventTimestamp,
-    bucketEnd: e.eventTimestamp,
-    intensity: 0.5,
-    lane: "offprice",
-    sourceMarketId: e.sourceMarketId,
-  }));
-  return jsonResponse({
-    gameId: boardJson.gameId,
-    runId: 1,
-    // Echo back the per-game K override set via mockLiveAndBoard so tests
-    // can prove the Live chart reads K from the ensemble response. Default
-    // 3.0 mirrors the production fallback in LivePage; legacy tests that
-    // don't set an override still see "3.0".
-    k: adapterEnsembleKByGame.get(boardJson.gameId) ?? 3.0,
-    boardObservations: boardJson.observations,
-    fires: [...boardFires, ...offpriceFires],
-  });
-}
-
-// Synchronously read a cloneable Response body that was built via jsonResponse.
-// Pulls from the WeakMap-side-channel because Response.json() is async and
-// the adapter runs inside the synchronous fetch mock handler.
-function readSyncBody(res: Response): string {
-  const text = responseBodyText.get(res);
-  if (text === undefined) {
-    throw new Error("response was not built via jsonResponse — no body in WeakMap");
-  }
-  return text;
-}
-
-const GAME_ID = "nba-0042500313";
-
 describe("offPriceMarkersForDomain", () => {
   it("keeps off-price events inside the visible chart time range even when they are between sparse board buckets", () => {
-    // OffPriceMarkerSource shape (post-B-followup) is minimal: just id +
-    // eventTimestamp. Numeric ids from the legacy /v1/microstructure route
-    // get stringified at the call site; ensemble-or fires use
-    // `${bucketStart}|${sourceMarketId}` composite keys.
     const markers = offPriceMarkersForDomain(
       [
         {
@@ -327,6 +372,64 @@ describe("buildChartData", () => {
   });
 });
 
+describe("buildTradePrintChartData", () => {
+  it("sorts trade prints by event time and maps price points without buckets", () => {
+    const data = buildTradePrintChartData([
+      {
+        id: 2,
+        source: "polymarket",
+        sourceMarketId: "poly-2",
+        gameId: GAME_ID,
+        instrumentId: "inst-2",
+        eventType: "trade",
+        apiSurface: "trades",
+        eventTimestamp: "2026-05-23T03:02:30Z",
+        capturedAt: "2026-05-23T03:02:31Z",
+        price: 0.63,
+        previousPrice: null,
+        tradePrice: 0.63,
+        size: 101,
+        notional: 63,
+        volume: 1000,
+        finalMarketVolume: null,
+        volumeShare: 0.4,
+        bestBid: null,
+        bestAsk: null,
+        spread: null,
+        depthScore: null,
+      },
+      {
+        id: 1,
+        source: "polymarket",
+        sourceMarketId: "poly-1",
+        gameId: GAME_ID,
+        instrumentId: "inst-1",
+        eventType: "trade",
+        apiSurface: "trades",
+        eventTimestamp: "2026-05-23T03:01:30Z",
+        capturedAt: "2026-05-23T03:01:31Z",
+        price: 0.62,
+        previousPrice: null,
+        tradePrice: 0.62,
+        size: 100,
+        notional: 62,
+        volume: 1000,
+        finalMarketVolume: null,
+        volumeShare: 0.35,
+        bestBid: null,
+        bestAsk: null,
+        spread: null,
+        depthScore: null,
+      },
+    ]);
+    expect(data.map((point) => point.eventTimestamp)).toEqual([
+      "2026-05-23T03:01:30Z",
+      "2026-05-23T03:02:30Z",
+    ]);
+    expect(data.map((point) => point.price)).toEqual([0.62, 0.63]);
+  });
+});
+
 describe("LivePage", () => {
   let fetchMock: ReturnType<typeof vi.fn<FetchFn>>;
 
@@ -341,20 +444,16 @@ describe("LivePage", () => {
   });
 
   it("renders the no-game placeholder when gameId is null and fires no requests", () => {
-    // AMENDED 2026-05-25 (Codex B-followup review P1): K now comes from the
-    // ensemble route, not from /v1/settings, so LivePage makes NO requests
-    // at all when gameId is null. All game-scoped queries gate on
-    // non-empty id.
     render(<LivePage gameId={null} />, { wrapper: makeWrapper() });
     expect(screen.getByTestId("live-no-game")).toBeDefined();
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("renders the gameId in the title and a back-to-recent link", async () => {
-    mockLiveAndBoard(
+    mockLiveAndModel(
       fetchMock,
       liveResponse({ gameId: GAME_ID, tickCount: 4 }),
-      boardResponse({ gameId: GAME_ID, firesCount: 1 }),
+      microstructureResponse({ gameId: GAME_ID }),
     );
     render(<LivePage gameId={GAME_ID} />, { wrapper: makeWrapper() });
     await waitFor(() => {
@@ -363,70 +462,213 @@ describe("LivePage", () => {
     expect(screen.getByTestId("live-back-to-recent")).toBeDefined();
   });
 
-  it("fires GET /v1/live/:gameId and GET /v1/ensemble-or/:gameId on mount", async () => {
-    // AMENDED 2026-05-25 (Codex review P1): LivePage now consumes the
-    // ensemble-or live route as the unified board + offprice surface.
-    mockLiveAndBoard(
+  it("fires live, ensemble, microstructure, and off-price model requests on mount", async () => {
+    mockLiveAndModel(
       fetchMock,
       liveResponse({ gameId: GAME_ID, tickCount: 2 }),
-      boardResponse({ gameId: GAME_ID, firesCount: 0, nonFiresCount: 3 }),
+      microstructureResponse({ gameId: GAME_ID }),
+      offPricePrintResponse({ gameId: GAME_ID }),
+      ensembleOrResponse({ gameId: GAME_ID }),
+      settingsResponse({ offPriceMinVolumeShare: 0.04 }),
     );
     render(<LivePage gameId={GAME_ID} />, { wrapper: makeWrapper() });
     await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalled();
+      const calledUrls = fetchMock.mock.calls.map((c) => urlOf(c[0]));
+      expect(calledUrls.some((u) => u.startsWith(`/v1/settings`))).toBe(true);
+      expect(calledUrls.some((u) => u.startsWith(`/v1/live/${GAME_ID}`))).toBe(true);
+      expect(calledUrls.some((u) => u.startsWith(`/v1/ensemble-or/${GAME_ID}`))).toBe(true);
+      expect(calledUrls.some((u) => u === `/v1/microstructure/${GAME_ID}?theta=0.04`)).toBe(true);
+      expect(calledUrls.some((u) => u.startsWith(`/v1/off-price-print/${GAME_ID}`))).toBe(true);
     });
-    const calledUrls = fetchMock.mock.calls.map((c) => urlOf(c[0]));
-    expect(calledUrls.some((u) => u.startsWith(`/v1/live/${GAME_ID}`))).toBe(true);
-    expect(calledUrls.some((u) => u.startsWith(`/v1/ensemble-or/${GAME_ID}`))).toBe(true);
   });
 
-  it("renders the intensity timeline once board data resolves with fires", async () => {
-    mockLiveAndBoard(
+  it("renders the ensemble board lane alongside point-event trade prints", async () => {
+    mockLiveAndModel(
       fetchMock,
       liveResponse({ gameId: GAME_ID, tickCount: 0 }),
-      boardResponse({ gameId: GAME_ID, firesCount: 2, nonFiresCount: 8 }),
-    );
-    render(<LivePage gameId={GAME_ID} />, { wrapper: makeWrapper() });
-    await waitFor(() => {
-      expect(screen.queryByTestId("live-timeline")).not.toBeNull();
-    });
-    expect(screen.getByTestId("live-fires-count").textContent).toBe("2");
-  });
-
-  it("renders the state-space threshold line and off-price markers on the live chart", async () => {
-    mockLiveAndBoard(
-      fetchMock,
-      liveResponse({ gameId: GAME_ID, tickCount: 0 }),
-      boardResponse({ gameId: GAME_ID, firesCount: 1, nonFiresCount: 4 }),
       microstructureResponse({
         gameId: GAME_ID,
         eventTimestamps: ["2026-05-23T03:02:30Z"],
       }),
-    );
-    const { container } = render(<LivePage gameId={GAME_ID} />, { wrapper: makeWrapper() });
-    await waitFor(() => {
-      expect(screen.queryByTestId("live-timeline")).not.toBeNull();
-    });
-    await waitFor(() => {
-      expect(screen.getByTestId("live-offprice-count").textContent).toBe("1");
-    });
-    expect(screen.getByTestId("live-threshold-legend").textContent).toContain(
-      "active state-space threshold",
-    );
-    expect(container.querySelector("[data-testid='live-timeline']")).not.toBeNull();
-  });
-
-  it("shows the empty-state when board observations is empty", async () => {
-    mockLiveAndBoard(
-      fetchMock,
-      liveResponse({ gameId: GAME_ID, tickCount: 0 }),
-      boardResponse({ gameId: GAME_ID, firesCount: 0, nonFiresCount: 0 }),
+      offPricePrintResponse({
+        gameId: GAME_ID,
+        fires: [{ bucketStart: "2026-05-23T03:02:30Z", sourceMarketId: "poly-0" }],
+      }),
+      ensembleOrResponse({
+        gameId: GAME_ID,
+        k: 3,
+        boardObservations: [
+          {
+            bucketStart: "2026-05-23T03:01:00Z",
+            bucketEnd: "2026-05-23T03:02:00Z",
+            fired: 1,
+            intensity: 0.74,
+          },
+          {
+            bucketStart: "2026-05-23T03:02:00Z",
+            bucketEnd: "2026-05-23T03:03:00Z",
+            fired: 0,
+            intensity: 0.38,
+          },
+        ],
+        fires: [
+          {
+            bucketStart: "2026-05-23T03:01:00Z",
+            bucketEnd: "2026-05-23T03:02:00Z",
+            lane: "board",
+          },
+          {
+            bucketStart: "2026-05-23T03:02:30Z",
+            bucketEnd: "2026-05-23T03:03:00Z",
+            lane: "offprice",
+            sourceMarketId: "poly-0",
+          },
+        ],
+      }),
     );
     render(<LivePage gameId={GAME_ID} />, { wrapper: makeWrapper() });
     await waitFor(() => {
-      expect(screen.queryByTestId("live-timeline-empty")).not.toBeNull();
+      expect(screen.getByTestId("live-fires-count").textContent).toBe("1");
     });
-    expect(screen.getByTestId("live-fires-count").textContent).toBe("0");
+    expect(screen.getByTestId("live-k").textContent).toBe("3.0");
+    expect(screen.getByTestId("live-offprice-count").textContent).toBe("1");
+    expect(screen.getByTestId("live-timeline")).toBeDefined();
+    await waitFor(() => {
+      expect(screen.getByTestId("live-trade-count").textContent).toBe("1");
+    });
+  });
+
+  it("renders point-event trade prints and strict off-price fires", async () => {
+    mockLiveAndModel(
+      fetchMock,
+      liveResponse({ gameId: GAME_ID, tickCount: 0 }),
+      microstructureResponse({
+        gameId: GAME_ID,
+        eventTimestamps: ["2026-05-23T03:01:30Z", "2026-05-23T03:02:30Z"],
+      }),
+      offPricePrintResponse({
+        gameId: GAME_ID,
+        fires: [{ bucketStart: "2026-05-23T03:02:30Z", sourceMarketId: "poly-1" }],
+      }),
+    );
+    render(<LivePage gameId={GAME_ID} />, { wrapper: makeWrapper() });
+    await waitFor(() => {
+      expect(screen.getByTestId("live-trade-count").textContent).toBe("1");
+    });
+    expect(screen.getByTestId("live-trade-offprice-count").textContent).toBe("1");
+    expect(screen.getByTestId("live-trade-timeline")).toBeDefined();
+    expect(screen.getByTestId("live-trade-table").textContent).toContain("nba-1-trade-print");
+    expect(screen.getByTestId("live-offprice-fire-list").textContent).toContain("poly-1");
+  });
+
+  it("filters the trade-print model to Polymarket trade events", async () => {
+    mockLiveAndModel(
+      fetchMock,
+      liveResponse({ gameId: GAME_ID, tickCount: 0 }),
+      microstructureResponse({
+        gameId: GAME_ID,
+        eventTimestamps: ["2026-05-23T03:01:30Z", "2026-05-23T03:02:30Z", "2026-05-23T03:03:30Z"],
+        eventOverrides: [
+          {},
+          {
+            source: "kalshi",
+            sourceMarketId: "kalshi-1",
+            instrumentId: "kalshi-event",
+          },
+          {
+            eventType: "quote",
+            sourceMarketId: "poly-quote",
+            instrumentId: "polymarket-quote",
+          },
+        ],
+      }),
+      offPricePrintResponse({
+        gameId: GAME_ID,
+        fires: [{ bucketStart: "2026-05-23T03:01:30Z", sourceMarketId: "poly-0" }],
+      }),
+    );
+    render(<LivePage gameId={GAME_ID} />, { wrapper: makeWrapper() });
+    await waitFor(() => {
+      expect(screen.getByTestId("live-trade-count").textContent).toBe("1");
+    });
+    const tableText = screen.getByTestId("live-trade-table").textContent;
+    expect(tableText).toContain("nba-0-trade-print");
+    expect(tableText).not.toContain("kalshi-event");
+    expect(tableText).not.toContain("polymarket-quote");
+  });
+
+  it("does not render model query failures as zero-event trade-print data", async () => {
+    mockLiveAndModel(
+      fetchMock,
+      liveResponse({ gameId: GAME_ID, tickCount: 0 }),
+      new Response("upstream down", { status: 503, statusText: "Service Unavailable" }),
+    );
+    render(<LivePage gameId={GAME_ID} />, { wrapper: makeWrapper() });
+    await waitFor(() => {
+      expect(screen.getByTestId("query-error-banner").textContent).toContain(
+        "Failed to load trade-print events",
+      );
+    });
+    expect(screen.getByTestId("live-model-status").textContent).toContain("unavailable");
+    expect(screen.getByTestId("live-model-unavailable")).toBeDefined();
+    expect(screen.queryByTestId("live-trade-count")).toBeNull();
+    expect(screen.queryByTestId("live-model-empty")).toBeNull();
+  });
+
+  it("renders official game activity separately from the point-event model and does not show market buckets as game minutes", async () => {
+    mockLiveAndModel(
+      fetchMock,
+      liveResponse({ gameId: GAME_ID, tickCount: 5, activity: activeGameActivity() }),
+      microstructureResponse({
+        gameId: GAME_ID,
+        eventTimestamps: ["2026-05-23T03:01:30Z", "2026-05-23T03:02:30Z"],
+      }),
+      offPricePrintResponse({
+        gameId: GAME_ID,
+        fires: [
+          { bucketStart: "2026-05-23T03:01:30Z", sourceMarketId: "poly-0" },
+          { bucketStart: "2026-05-23T03:02:30Z", sourceMarketId: "poly-1" },
+        ],
+      }),
+    );
+    render(<LivePage gameId={GAME_ID} />, { wrapper: makeWrapper() });
+    await waitFor(() => {
+      expect(screen.getByTestId("live-game-state").textContent).toContain("Q2 0:00");
+    });
+    expect(screen.getByTestId("live-score").textContent).toBe("56-52");
+    expect(screen.getByTestId("live-pbp-count").textContent).toBe("311 actions");
+    expect(screen.getByTestId("live-pbp-list").textContent).toContain("Period End");
+    await waitFor(() => {
+      expect(screen.getByTestId("live-model-panel").textContent).toContain("2 trade prints");
+    });
+    expect(screen.getByTestId("live-board-panel")).toBeDefined();
+    expect(screen.queryByText(/wall-clock market bucket/i)).toBeNull();
+  });
+
+  it("renders scheduled game activity as pregame instead of a Q0 period", async () => {
+    mockLiveAndModel(
+      fetchMock,
+      liveResponse({ gameId: GAME_ID, tickCount: 0, activity: scheduledGameActivity() }),
+      microstructureResponse({ gameId: GAME_ID }),
+    );
+    render(<LivePage gameId={GAME_ID} />, { wrapper: makeWrapper() });
+    await waitFor(() => {
+      expect(screen.getByTestId("live-game-state").textContent).toContain("pregame");
+    });
+    expect(screen.getByTestId("live-game-state").textContent).not.toContain("Q0");
+  });
+
+  it("shows the empty-state when the trade-print model has no point events", async () => {
+    mockLiveAndModel(
+      fetchMock,
+      liveResponse({ gameId: GAME_ID, tickCount: 0 }),
+      microstructureResponse({ gameId: GAME_ID }),
+    );
+    render(<LivePage gameId={GAME_ID} />, { wrapper: makeWrapper() });
+    await waitFor(() => {
+      expect(screen.queryByTestId("live-model-empty")).not.toBeNull();
+    });
+    expect(screen.getByTestId("live-trade-count").textContent).toBe("0");
   });
 
   it("shows the API-unreachable banner when fetch throws a TypeError", async () => {
@@ -437,39 +679,6 @@ describe("LivePage", () => {
     render(<LivePage gameId={GAME_ID} />, { wrapper: makeWrapper() });
     await waitFor(() => {
       expect(screen.queryByTestId("api-unreachable-banner")).not.toBeNull();
-    });
-  });
-
-  it("renders the live trigger value from the ensemble response (not from any fallback)", async () => {
-    // Codex B-followup review P1 (2026-05-25): the rendered K must come
-    // from /v1/ensemble-or's `k` field, NOT from a separate /v1/settings
-    // round-trip or any fallback. Set a NON-default K (4.5) via the
-    // adapter override so passing the assertion requires the chart to
-    // have actually read ensemble.data.k — the production fallback
-    // (3.0) would fail this assertion.
-    adapterEnsembleKByGame.set(GAME_ID, 4.5);
-    mockLiveAndBoard(
-      fetchMock,
-      liveResponse({ gameId: GAME_ID, tickCount: 0 }),
-      boardResponse({ gameId: GAME_ID, firesCount: 1 }),
-    );
-    render(<LivePage gameId={GAME_ID} />, { wrapper: makeWrapper() });
-    await waitFor(() => {
-      expect(screen.getByTestId("live-k").textContent).toBe("4.5");
-    });
-    adapterEnsembleKByGame.delete(GAME_ID);
-  });
-
-  it("renders the live meta line with tick count after live data resolves", async () => {
-    mockLiveAndBoard(
-      fetchMock,
-      liveResponse({ gameId: GAME_ID, tickCount: 5 }),
-      boardResponse({ gameId: GAME_ID, firesCount: 0, nonFiresCount: 2 }),
-    );
-    render(<LivePage gameId={GAME_ID} />, { wrapper: makeWrapper() });
-    await waitFor(() => {
-      const meta = String(screen.getByTestId("live-meta").textContent);
-      expect(meta).toContain("5 ticks");
     });
   });
 });
