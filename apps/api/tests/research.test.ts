@@ -105,6 +105,60 @@ function seedArtifacts(): void {
       { id: "state_space_current", label: "State-space", description: "from registry" },
     ],
   });
+
+  // attribution re-ranker report at the root.
+  writeJson(join(root, "attribution_reranker.json"), {
+    overall: { n: 15, n_scored: 9, abstention_rate: 0.4, median_score: 0.0 },
+    player_swap: { n: 8, n_scored: 6, abstention_rate: 0.25, median_score: 0.022 },
+    team_dispute: { n: 7, n_scored: 3, abstention_rate: 0.57, median_score: -0.015 },
+    line_select: "aggregate_drift",
+    n_incidents: 15,
+  });
+
+  // FAR-on-control + matched-recall report at the root.
+  writeJson(join(root, "far_calibration.json"), {
+    n_control_games: 163,
+    line_select: "aggregate_drift",
+    all_control: { n_scored_pairs: 42887, per_pair_far: { "0.02": 0.0567 } },
+    matched_recall: { n_incidents: 9, n_scored: 2, tpr_per_pair: { "0.02": 0.5 } },
+    data_quality: { games: 163, games_bad_starters: 0 },
+  });
+
+  // Whole-board confluence gate + operating-point eval at the root.
+  writeJson(join(root, "confluence_eval.json"), {
+    generatedAt: "2026-06-01T08:00:00.000Z",
+    gate_verdict: "VIABLE",
+    meets_bar: false,
+    gate: { verdict: "VIABLE", n_evaluated: 14, successes: 13, secondary_rank_auc: 0.972 },
+    operating_point: {
+      meets_bar: false,
+      fp_ratio_at_target_recall: 17.417,
+      max_recall_point: { caught: 14, threshold: -1.0, fp_ratio: 129.214 },
+      baseline_comparison: [
+        { baseline: "expanding", fp_ratio_at_target_recall: 17.417, recall_ceiling: 14 },
+      ],
+    },
+  });
+
+  // Harvested miscredit labels at the root.
+  writeJson(join(root, "harvested_incidents.json"), {
+    generatedAt: "2026-05-31T00:00:00.000Z",
+    source: "pbp-revision-harvester",
+    stat: "rebound",
+    gamesScanned: 9,
+    netTransitions: 1,
+    incidentCount: 1,
+    incidents: [
+      {
+        id: "harvested-nba-x-416",
+        gameId: "nba-x",
+        creditedPlayer: "S. Merrill",
+        rightfulPlayer: "J. Allen",
+        stat: "rebound",
+        correctionLatencySec: 840,
+      },
+    ],
+  });
 }
 
 beforeEach(() => {
@@ -290,6 +344,73 @@ describe("research routes — read endpoints (seeded artifact tree)", () => {
     if (!isUnknownArray(rows)) throw new Error("rows not array");
     expect(rows).toHaveLength(2);
   });
+
+  it("GET /v1/research/attribution returns the re-ranker report", async () => {
+    const app = await startApp(true);
+    const res = await app.inject({
+      method: "GET",
+      url: "/v1/research/attribution",
+      headers: authHeaders(),
+    });
+    expect(res.statusCode).toBe(200);
+    const body: unknown = res.json();
+    if (!isRecord(body)) throw new Error("body not object");
+    const attribution = body["attribution"];
+    if (!isRecord(attribution)) throw new Error("attribution not object");
+    expect(attribution["line_select"]).toBe("aggregate_drift");
+    expect(isRecord(attribution["player_swap"])).toBe(true);
+  });
+
+  it("GET /v1/research/far-calibration returns the FAR + matched-recall report", async () => {
+    const app = await startApp(true);
+    const res = await app.inject({
+      method: "GET",
+      url: "/v1/research/far-calibration",
+      headers: authHeaders(),
+    });
+    expect(res.statusCode).toBe(200);
+    const body: unknown = res.json();
+    if (!isRecord(body)) throw new Error("body not object");
+    const far = body["farCalibration"];
+    if (!isRecord(far)) throw new Error("farCalibration not object");
+    expect(far["n_control_games"]).toBe(163);
+    expect(isRecord(far["matched_recall"])).toBe(true);
+    expect(isRecord(far["all_control"])).toBe(true);
+  });
+
+  it("GET /v1/research/confluence-eval returns the gate + operating-point report", async () => {
+    const app = await startApp(true);
+    const res = await app.inject({
+      method: "GET",
+      url: "/v1/research/confluence-eval",
+      headers: authHeaders(),
+    });
+    expect(res.statusCode).toBe(200);
+    const body: unknown = res.json();
+    if (!isRecord(body)) throw new Error("body not object");
+    const conf = body["confluenceEval"];
+    if (!isRecord(conf)) throw new Error("confluenceEval not object");
+    // The gate can pass while the bar fails — both must survive the round-trip.
+    expect(conf["gate_verdict"]).toBe("VIABLE");
+    expect(conf["meets_bar"]).toBe(false);
+    expect(isRecord(conf["operating_point"])).toBe(true);
+  });
+
+  it("GET /v1/research/harvested-labels returns the harvested-label report", async () => {
+    const app = await startApp(true);
+    const res = await app.inject({
+      method: "GET",
+      url: "/v1/research/harvested-labels",
+      headers: authHeaders(),
+    });
+    expect(res.statusCode).toBe(200);
+    const body: unknown = res.json();
+    if (!isRecord(body)) throw new Error("body not object");
+    const harvested = body["harvestedLabels"];
+    if (!isRecord(harvested)) throw new Error("harvestedLabels not object");
+    expect(harvested["incidentCount"]).toBe(1);
+    expect(Array.isArray(harvested["incidents"])).toBe(true);
+  });
 });
 
 describe("research routes — empty / absent artifact states (no seed)", () => {
@@ -332,7 +453,47 @@ describe("research routes — empty / absent artifact states (no seed)", () => {
     const lbBody: unknown = leaderboard.json();
     if (!isRecord(lbBody)) throw new Error("leaderboard body not object");
     expect(lbBody["runId"]).toBeNull();
+
+    const attribution = await app.inject({
+      method: "GET",
+      url: "/v1/research/attribution",
+      headers: authHeaders(),
+    });
+    expect(attribution.statusCode).toBe(200);
+    const attrBody: unknown = attribution.json();
+    if (!isRecord(attrBody)) throw new Error("attribution body not object");
+    expect(attrBody["attribution"]).toBeNull();
     expect(lbBody["rows"]).toEqual([]);
+
+    const farCal = await app.inject({
+      method: "GET",
+      url: "/v1/research/far-calibration",
+      headers: authHeaders(),
+    });
+    expect(farCal.statusCode).toBe(200);
+    const farBody: unknown = farCal.json();
+    if (!isRecord(farBody)) throw new Error("far-calibration body not object");
+    expect(farBody["farCalibration"]).toBeNull();
+
+    const harvested = await app.inject({
+      method: "GET",
+      url: "/v1/research/harvested-labels",
+      headers: authHeaders(),
+    });
+    expect(harvested.statusCode).toBe(200);
+    const harvestedBody: unknown = harvested.json();
+    if (!isRecord(harvestedBody)) throw new Error("harvested-labels body not object");
+    expect(harvestedBody["harvestedLabels"]).toBeNull();
+
+    const confluence = await app.inject({
+      method: "GET",
+      url: "/v1/research/confluence-eval",
+      headers: authHeaders(),
+    });
+    expect(confluence.statusCode).toBe(200);
+    const confluenceBody: unknown = confluence.json();
+    if (!isRecord(confluenceBody)) throw new Error("confluence-eval body not object");
+    expect(confluenceBody["confluenceEval"]).toBeNull();
 
     // models falls back to the static list when no models.json exists.
     const models = await app.inject({

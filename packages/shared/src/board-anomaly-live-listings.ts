@@ -151,7 +151,7 @@ export function listGameStateVolatilityAcrossGames(
           const readyDelta = Number(right.sample.ready) - Number(left.sample.ready);
           if (readyDelta !== 0) return readyDelta;
           const stateRank = (row: BoardGameStateVolatility) => {
-            switch (row.state) {
+            switch (row.band) {
               case "critical":
                 return 4;
               case "alert":

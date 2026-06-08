@@ -70,7 +70,7 @@ The generated bakeoff report carries the current empirical characterization for 
 Calm exists on the dial as a reference point, not a recommended setting. It's the value the original research backtest was written around (the Python script's default), and pinning it as a labeled snap makes it cheap to sanity-check: move the dial to Calm, see which fires survive, ask whether they're the right ones.
 
 In production we never run the live system at sensitivity 6 — too many real events get missed at that sensitivity. If the dial in Backtest shows you something interesting at sensitivity 6 specifically, it's almost certainly a high-confidence event also visible at sensitivity 3. The interesting comparison is usually the other direction: things that fire at sensitivity 3 but not at sensitivity 6 are the edge-case sensitivity gains.`,
-    formal: String.raw`Sensitivity 6.0 is the comparison-only preset, matching the original Python research backtest's default in \`scripts/board_signal_v2.py:33\`. It is exposed only in Backtest UI and never used by Live or Recent surfaces.
+    formal: String.raw`Sensitivity 6.0 is the comparison-only preset, declared as \`K_MAD_CALM\` in \`packages/detectors/src/board-mad/config.ts\` (it carries over the original research backtest's default from the upstream \`nba-predict/scripts/board_signal_v2.py\`). It is exposed only in Backtest UI and never used by Live or Recent surfaces.
 
 Empirical anchors for the current incident corpus live in \`outputs/nba-detector-bakeoff/\` and the Known Cases page. The committed detector tests keep this preset bounded against the local PBP fixture set without copying a stale benchmark count into product copy.
 
@@ -90,7 +90,7 @@ $$\mathrm{MAD}(x) = \mathrm{median}_i\!\left(\left|x_i - \mathrm{median}(x)\righ
 
 a robust scale estimator with a 50% asymptotic breakdown point (vs the 0% breakdown of standard deviation). For approximately Gaussian samples, $\mathrm{MAD}$ relates to the population standard deviation by $\sigma \approx 1.4826 \cdot \mathrm{MAD}$, but the board-MAD detector does NOT apply this constant — the rule is parameterized directly in MAD units via sensitivity, so any rescaling would just multiply through sensitivity.
 
-We choose MAD over $\hat\sigma$ in the fire rule because the trailing window is contaminated by definition: it is contaminated by the events we're trying to detect, plus benign outliers (timeout-end repricing bursts, single-market liquidation cascades) that don't constitute board-wide signal. With $\hat\sigma$, a single such outlier inflates the threshold for $W$ subsequent buckets, suppressing detections we'd want to see. With MAD, the threshold is essentially unmoved by isolated outliers — the median absorbs the location shift and the median of absolute deviations from it remains close to the bulk's natural scale. A small floor (\`max(MAD, 1e-9)\`) prevents division-by-zero on degenerate quiet windows; see \`scripts/board_signal_v2.py\`.`,
+We choose MAD over $\hat\sigma$ in the fire rule because the trailing window is contaminated by definition: it is contaminated by the events we're trying to detect, plus benign outliers (timeout-end repricing bursts, single-market liquidation cascades) that don't constitute board-wide signal. With $\hat\sigma$, a single such outlier inflates the threshold for $W$ subsequent buckets, suppressing detections we'd want to see. With MAD, the threshold is essentially unmoved by isolated outliers — the median absorbs the location shift and the median of absolute deviations from it remains close to the bulk's natural scale. A small floor (\`max(MAD, 1e-9)\`) prevents division-by-zero on degenerate quiet windows; see \`BOARD_MAD_MAD_FLOOR\` in \`packages/detectors/src/board-mad/config.ts\` and the live filter in \`apps/nba-sidecar/src/nba_sidecar/volatility.py\`.`,
   },
 
   "trailing-baseline": {
@@ -168,7 +168,7 @@ Two caveats worth knowing. First, $F/G$ is averaged across games of very differe
     eli5: String.raw`The bucket is the heartbeat of the detector. Every 60 seconds we tally up every quote change across every market on the game, weight them, and stamp that minute with one number — the "intensity." That number is what gets compared against the trailing baseline to decide if something just happened. So the bucket is basically asking: at what resolution do we want to see the board breathe?
 
 Sixty seconds is the sweet spot for live sports. Short enough that a real news-driven move shows up in the same window the books are repricing, long enough that one twitchy market-maker doesn't look like a fire. Shrink it to 15 or 30 and the intensity gets jumpy — you'll see more candidate fires but more of them will be noise, and you'll need proportionally more buckets to warm up. Stretch it to 120 or 300 and the detector goes blind to anything that resolves in under two minutes, which is most of what we care about.`,
-    formal: String.raw`$\texttt{bucketSeconds}$ defines the fixed window $\Delta t$ over which volume-weighted absolute implied-probability deltas are aggregated into the intensity series $I_t$. With $\Delta t = 60$ s (live default, see \`scripts/board_signal_v2.py\`), the detector operates at one-minute granularity: each bucket emits a single $I_t$ scalar consumed by the MAD rule.
+    formal: String.raw`$\texttt{bucketSeconds}$ defines the fixed window $\Delta t$ over which volume-weighted absolute implied-probability deltas are aggregated into the intensity series $I_t$. With $\Delta t = 60$ s (live default \`BOARD_MAD_BUCKET_SECONDS_DEFAULT\` in \`packages/detectors/src/board-mad/config.ts\`), the detector operates at one-minute granularity: each bucket emits a single $I_t$ scalar consumed by the MAD rule.
 
 $$I_t = \sum_{m \in \mathcal{M}} \sum_{i \in t} w_{m,i} \cdot \left| p_{m,i} - p_{m,i-1} \right|$$
 
@@ -210,7 +210,7 @@ The freshness cap is the cutoff. If consecutive ticks on the same market are mor
 
 $$\Delta p_{m,i} = \begin{cases} \left| p_{m,i} - p_{m,i-1} \right| & \text{if } s_{m,i} - s_{m,i-1} \leq \tau_{\max} \\ 0 & \text{otherwise} \end{cases}$$
 
-The cap exists because the implied-probability delta is only a meaningful signal of repricing when the prior tick reflects the book's view at a comparable point in the game state. A 300-second gap routinely spans suspensions, feed dropouts, and TV-timeout quiets during which the underlying truth has moved without the market quoting; the first post-gap tick is a re-anchor, not an update. $\tau_{\max} = 300$ s is the live default in \`scripts/board_signal_v2.py\`, chosen as the upper edge of the empirical inter-tick distribution for active markets in-play — gaps below this are predominantly genuine quiet, gaps above are predominantly suspension artifacts.`,
+The cap exists because the implied-probability delta is only a meaningful signal of repricing when the prior tick reflects the book's view at a comparable point in the game state. A 300-second gap routinely spans suspensions, feed dropouts, and TV-timeout quiets during which the underlying truth has moved without the market quoting; the first post-gap tick is a re-anchor, not an update. $\tau_{\max} = 300$ s is the live default \`BOARD_MAD_FRESH_CAP_SECONDS_DEFAULT\` in \`packages/detectors/src/board-mad/config.ts\`, chosen as the upper edge of the empirical inter-tick distribution for active markets in-play — gaps below this are predominantly genuine quiet, gaps above are predominantly suspension artifacts.`,
   },
 
   weighting: {
@@ -222,7 +222,7 @@ We use $\log(1 + v)$ rather than raw volume, and that's deliberate. Raw volume h
 
 $$w_{m,i} = \begin{cases} \log(1 + v_{m,i}) & \texttt{weighting = "volume"} \\ 1 & \texttt{weighting = "equal"} \end{cases}$$
 
-where $v_{m,i}$ is the traded volume associated with the $i$-th tick of market $m$. The "volume" mode is the live default in \`scripts/board_signal_v2.py\`. The motivation is signal-to-noise: a fixed-size implied-probability move carries more information about consensus repricing when it clears against meaningful size, so weighting by a monotone function of volume sharpens the detector against a uniform-weight baseline. $\log(1 + v)$ is chosen over raw $v$ because trade-size distributions in betting markets are heavy-tailed (approximately log-normal to power-law in the upper decile); under linear weighting a single large ticket can contribute more than the rest of the bucket combined, collapsing $I_t$ onto an order-flow statistic rather than a board-repricing statistic. The $\log(1+\cdot)$ form is also defined at $v=0$ and grows slowly enough that the cross-market sum remains well-conditioned. "equal" is retained as a diagnostic baseline for attribution analysis.`,
+where $v_{m,i}$ is the traded volume associated with the $i$-th tick of market $m$. The "volume" mode is the live default \`BOARD_MAD_WEIGHTING_DEFAULT\` in \`packages/detectors/src/board-mad/config.ts\`, applied by \`packages/detectors/src/board-mad/prebucket.ts\`. The motivation is signal-to-noise: a fixed-size implied-probability move carries more information about consensus repricing when it clears against meaningful size, so weighting by a monotone function of volume sharpens the detector against a uniform-weight baseline. $\log(1 + v)$ is chosen over raw $v$ because trade-size distributions in betting markets are heavy-tailed (approximately log-normal to power-law in the upper decile); under linear weighting a single large ticket can contribute more than the rest of the bucket combined, collapsing $I_t$ onto an order-flow statistic rather than a board-repricing statistic. The $\log(1+\cdot)$ form is also defined at $v=0$ and grows slowly enough that the cross-market sum remains well-conditioned. "equal" is retained as a diagnostic baseline for attribution analysis.`,
   },
 
   "fanout-window": {
@@ -308,7 +308,7 @@ So before any signal math runs, we drop every row where \`is_heartbeat = true\`.
 
 $$T_{\text{clean}} = \{ t \in T : t.\text{isHeartbeat} = \text{false} \}$$
 
-The sanitation pass filters $T_{\text{clean}}$ before any consecutive-tick delta computation $\Delta p_m = p_{m,i} - p_{m,i-1}$. Leaving heartbeats in would inject structural zero-deltas at the heartbeat cadence, biasing the trailing MAD downward (the denominator in the fire rule), which would in turn inflate the standardized score and produce spurious fires once a real quote finally arrived. Filtering occurs at the bucketing layer in \`scripts/board_signal_v2.py\`, upstream of both the board-MAD and off-price-print detectors so every downstream consumer sees only genuine price observations.`,
+The sanitation pass filters $T_{\text{clean}}$ before any consecutive-tick delta computation $\Delta p_m = p_{m,i} - p_{m,i-1}$. Leaving heartbeats in would inject structural zero-deltas at the heartbeat cadence, biasing the trailing MAD downward (the denominator in the fire rule), which would in turn inflate the standardized score and produce spurious fires once a real quote finally arrived. Filtering occurs at the bucketing layer in \`packages/detectors/src/board-mad/prebucket.ts\`, upstream of both the board-MAD and off-price-print detectors so every downstream consumer sees only genuine price observations.`,
   },
 
   "opening-anchor-0500": {
@@ -665,6 +665,70 @@ On the leaderboard this column tells you how a model leaned on those off-price p
 
 It is a sanity check on a model's extra fires. A model can post great recall by firing constantly — but if most of its un-labelled fires are junk, the desk drowns. High residual coverage means the leftover fires still tend to sit on genuine board moves, so the operator's time spent checking them is not wasted. Low residual coverage is a warning that the model is padding its catches with chatter.`,
     formal: String.raw`Residual coverage is computed over the fires NOT matched to a labelled incident (the residual set). It is the fraction of that residual set whose buckets still clear an independent board-activity criterion (e.g. a positive standardized innovation in the state-space filter), versus fires that sit on quiet buckets. It complements recall@fires/game: recall measures hits against the known corpus; residual coverage characterizes the quality of the remaining fire budget. A research-snapshot metric only — it is not a live production gate. Canonical source: the run's \`leaderboard.json\` under \`outputs/nba-quant-lab/runs/<id>/\`.`,
+  },
+  // ──────────────────────────────────────────────────────────────────────────
+  //  Research lab (the /research tab — keep these blocks de-crowded; the verbose
+  //  explanation lives HERE, not as inline paragraphs on the page)
+  // ──────────────────────────────────────────────────────────────────────────
+
+  "research-snapshot": {
+    title: "Research snapshot",
+    eli5: String.raw`A snapshot is a frozen, reproducible copy of the slice of the gold database the research lab scores against. It is frozen on purpose: two models can only be compared fairly if they see the exact same data, and a frozen snapshot means today's leaderboard still means the same thing next week, even as new live data keeps arriving.
+
+Inside it are the games, the whole-board observations, the labeled incident truth, and the per-player prop ticks — everything a model or the attribution re-ranker needs to be scored, packaged once so the run is repeatable.`,
+    formal: String.raw`Materialized by \`pnpm quant:export\` from the READ-ONLY gold DB plus the committed incident registry, using the shared truth functions so snapshot truth equals the bakeoff truth. Parquet tables: \`games\`, \`board_observations\` (live board lane shape), \`market_outlier_episodes\` (bakeoff path), \`incidents\`, \`score_windows\`, \`player_prop_ticks\`, plus \`manifest.json\` and \`snapshot.duckdb\`. Selection modes: \`full-corpus\` (default — every board-eligible game), \`explicit-games\` (\`--games\`), or \`incident-plus-sample\` (\`--sample N\` = all incident games + N deterministic controls). Output: \`outputs/nba-quant-lab/snapshots/<id>/\`.`,
+  },
+
+  "research-model-lab": {
+    title: "Model lab",
+    eli5: String.raw`These are baseline research models, not tuned production detectors. They exist so a snapshot can be scored repeatably — humble reference points to compare new candidates against, not the live suspend signal.`,
+    formal: String.raw`Registered \`BoardModel\`s from the python registry (emitted to \`models.json\` via \`pnpm quant emit-models\`, read by \`GET /v1/research/models\`). Each scores a snapshot through the same contract, so a candidate's leaderboard line is directly comparable to these incumbents.`,
+  },
+
+  "research-leaderboard": {
+    title: "Research leaderboard",
+    eli5: String.raw`How each model did on one snapshot: of the incidents we know about, how many it caught (recall), how often it fired per game (burden), and how its catches split between whole-board volatility and single off-price prints. This is a research-snapshot result, not live production behavior — read it as a bakeoff scorecard, not a promise about tomorrow's games.`,
+    formal: String.raw`Per-model rows from \`outputs/nba-quant-lab/runs/<id>/leaderboard.json\`: \`incident_recall\` (caught / total labeled), \`fires_per_game\`, \`tape_outlier_recall\` vs board-volatility attribution, and \`residual_coverage\` (quality of the un-labeled fire budget). Produced by \`pnpm quant compare <models> --snapshot <snap>\`.`,
+  },
+
+  "research-attribution": {
+    title: "Attribution re-ranker",
+    eli5: String.raw`When a stat is credited to the wrong player, the market often splits in a tell-tale way: the rightful player's "over" drifts UP (he really did the thing) while the credited player's "over" drifts DOWN. This re-ranker scores that directed split for each labeled incident and tries to pick the rightful player out of the players who were on the court.
+
+It is a research diagnostic — a directed-drift score, not the live suspend signal. It abstains when there is no clean candidate rather than guessing, so always read its number together with how many incidents it actually scored (its N), never as a single point estimate.`,
+    formal: String.raw`Signed-paired directed drift over labeled incidents, stratified into \`player_swap\` (a specific wrong player) vs \`team_dispute\` (credited to TEAM), with \`line_select=aggregate_drift\`. The score is the directed gap between the rightful player's over-side drift and the credited player's over-side drift around the event; abstentions (no on-court candidate / no usable prop line) are reported, never scored as misses. Emitted to \`attribution_reranker.json\` by \`pnpm quant attribution-eval <snap>\`; surfaced at \`GET /v1/research/attribution\`.`,
+  },
+
+  "research-far": {
+    title: "Re-ranker FAR calibration",
+    eli5: String.raw`How often the attribution re-ranker would fire on a NORMAL, non-incident game — its false-alarm rate. The re-ranker's score is not centered at zero, so you cannot just fire on "positive"; you read the fire threshold off this empirical distribution of what it does on clean games.
+
+Per-pair counts one candidate. Per-rebound takes the worst of a rebound's roughly four on-court teammates — that is the multiple-testing cost of having to pick among several plausible players. Matched recall runs the labeled incidents through the exact same path so the true-positive rate and the false-alarm rate share one operating point — but it is label-starved, so read it with its N, never as a point estimate.`,
+    formal: String.raw`False-alarm rate of the signed-paired re-ranker on non-incident control games, reported per-pair and per-rebound (per-rebound = $\max$ over the $\sim4$ on-court teammates). Matched TPR pushes the labeled incidents through the same candidate path at the same threshold. Degenerate (all-null / zero scored pairs) when the control games lack on-court starter data or rebound prop ticks — a coverage problem, not a result. Emitted to \`far_calibration.json\` by \`pnpm quant far-calibration <snap>\`.`,
+  },
+
+  "research-confluence": {
+    title: "Whole-board confluence eval",
+    eli5: String.raw`A two-part eval of the whole-board confluence signal (distinct props moving together in a 60-second window). The GATE asks whether labeled misattributions stand out against their OWN game's background. The BAR is the deployable operating point: catch at least 70% of incidents at no worse than 3 false alarms per real catch.
+
+The gate can pass while the bar fails — a signal can be unmistakably real and still be too noisy to ship as a standalone classifier. And with only about 15 labeled incidents, the false-alarm ratio here is a LOWER BOUND (an unlabeled-but-real anomaly counts against us), so read this as a screen worth zooming in from, not a final verdict on the idea.`,
+    formal: String.raw`Gate = per-incident standout: does the incident's $\pm60\text{s}$ window beat its own game's control distribution? (binomial across incidents). Bar = global-threshold operating point on a causal per-game trailing-z of the confluence count, with a clustered-alert false-positive unit; reported with a baseline comparison (expanding vs rolling trailing window). Read-only over the gold DB; emitted by \`pnpm quant confluence-eval\`; surfaced at \`GET /v1/research/confluence-eval\`.`,
+  },
+
+  "research-harvested-labels": {
+    title: "Harvested labels vs known cases",
+    eli5: String.raw`Two different things both sound like "misattributions" — this is the difference.
+
+KNOWN CASES (the incident registry) are hand-curated, human-verified misattributions: the ones we already know happened and checked by hand. That is a small, fixed set (about 15).
+
+HARVESTED LABELS are NEW misattributions discovered automatically, with no human in the loop. The NBA silently fixes stat-credit errors after a game — no announcement, no feed; the box score just quietly changes. We re-snapshot each game's play-by-play repeatedly over the days after it ends, and when a play's credited player CHANGES between two snapshots, that change itself IS the label: the original credit was the misattribution, the corrected one is the truth.
+
+Why it matters: hand-labeling is the bottleneck — you can only study about 15 incidents. Harvested labels grow that set on their own over time, which is what eventually lets the models be measured properly.
+
+Why it's empty right now: it only produces a label once it has caught a correction in the act — at least two snapshots of the same game with a real change between them. Early on the revision shadow is thin, so an empty list here is expected and honest, not a bug.
+
+How to harvest history WITHOUT ingesting live games: you do not need live games at all. Run the capture script over a list of PAST game ids — it re-pulls their play-by-play from the NBA CDN and appends to the versioned shadow (append-only and idempotent, so re-running is safe). Re-run it on a cadence for about 7 days after each game, because corrections land minutes to days late. Then run the harvest script to diff those snapshots into labels.`,
+    formal: String.raw`Engine: \`capture-pbp-revisions.ts\` snapshots cdn.nba.com PBP into the versioned \`nba_pbp_revisions\` shadow (\`INSERT OR IGNORE\` on \`(game_id, action_number, captured_at)\` — append-only, idempotent). \`harvest-incident-labels.ts\` diffs credited-person transitions between snapshots into an incident-registry-shaped artifact (\`harvested_incidents.json\`) consumed by \`attribution-eval\` / \`far-calibration\` and surfaced at \`GET /v1/research/harvested-labels\`. Historical, no live worker needed: run \`pnpm tsx scripts/capture-pbp-revisions.ts --games <ids>\` with \`GOLD_DB_PATH\` set, re-run on a cadence for ~7 days post-game, then \`pnpm tsx scripts/harvest-incident-labels.ts --stat rebound\`. A label requires $\ge 2$ snapshots of an action with a real credited-person change between them, so the set accrues over days.`,
   },
 } as const satisfies Record<string, Explainer>;
 

@@ -101,6 +101,26 @@ class SourceCoverageRow(BaseModel):
     model_config = {"populate_by_name": True}
 
 
+class PlayerPropTickRow(BaseModel):
+    """One per-player rebound-prop tick from the snapshot (re-ranker input). Causal."""
+
+    game_id: str
+    player_key: str
+    source: str
+    line: float | None = None
+    stat: str
+    captured_at: datetime
+    implied_probability: float = Field(ge=0, le=1)
+    volume: float | None = None
+
+    @field_validator("captured_at")
+    @classmethod
+    def _aware(cls, value: datetime) -> datetime:
+        if value.tzinfo is None:
+            raise ValueError("captured_at must be timezone-aware")
+        return value.astimezone(timezone.utc)
+
+
 # ---------------------------------------------------------------------------
 # Model input schemas
 # ---------------------------------------------------------------------------
@@ -211,6 +231,7 @@ __all__ = [
     "ScoreWindowRow",
     "MarketOutlierEpisodeRow",
     "SourceCoverageRow",
+    "PlayerPropTickRow",
     "ModelInputBucket",
     "GameBucketSeries",
     "PredictionRow",

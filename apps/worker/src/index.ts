@@ -25,6 +25,7 @@ import {
   loadRuntimeEnv,
   markAdminActionCompleted,
   markAdminActionErrored,
+  resolveOddsApiKey,
   serializeErrorForLog,
   type AppLogger,
 } from "@signal-console/shared";
@@ -554,7 +555,7 @@ export async function runWorkerCycle(options?: {
     let polymarketSourceMarketsObserved = 0;
     const providerFailures: WorkerHeartbeatSummary["providerFailures"] = [];
     const nbaSidecarConfigured = Boolean(process.env.NBA_SIDECAR_BASE_URL);
-    const oddsApiConfigured = Boolean(process.env.ODDS_API_KEY ?? process.env.ODDS_API_IO_KEY);
+    const oddsApiConfigured = resolveOddsApiKey() != null;
     const kalshiDirectConfigured = Boolean(process.env.KALSHI_API_KEY);
     let marketProviderAttempts = 0;
 

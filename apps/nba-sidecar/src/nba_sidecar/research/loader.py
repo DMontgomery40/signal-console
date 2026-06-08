@@ -25,12 +25,14 @@ import pandas as pd
 
 from .contracts import (
     BOARD_OBSERVATION_COLUMNS,
+    PLAYER_PROP_TICKS_COLUMNS,
     GameBucketSeries,
     ModelInputBucket,
     validate_dataframe,
 )
 
 _BOARD_FILE = "board_observations.parquet"
+_PLAYER_PROP_TICKS_FILE = "player_prop_ticks.parquet"
 _DUCKDB_FILE = "snapshot.duckdb"
 
 # Causal, leakage-safe columns that flow into a model input bucket.
@@ -63,6 +65,18 @@ def read_board_observations(snapshot_path: str | Path) -> pd.DataFrame:
         raise FileNotFoundError(f"missing {_BOARD_FILE} in snapshot: {path}")
     df = pd.read_parquet(path)
     return validate_dataframe(df, BOARD_OBSERVATION_COLUMNS)
+
+
+def read_player_prop_ticks(snapshot_path: str | Path) -> pd.DataFrame:
+    """Read + validate the player_prop_ticks parquet (the re-ranker's per-player
+    rebound-prop microstructure). Returns an empty-but-typed frame is NOT done —
+    a missing file raises, mirroring read_board_observations, so a malformed/old
+    snapshot fails loudly rather than silently yielding no re-ranker input."""
+    path = _snapshot_dir(snapshot_path) / _PLAYER_PROP_TICKS_FILE
+    if not path.exists():
+        raise FileNotFoundError(f"missing {_PLAYER_PROP_TICKS_FILE} in snapshot: {path}")
+    df = pd.read_parquet(path)
+    return validate_dataframe(df, PLAYER_PROP_TICKS_COLUMNS)
 
 
 def read_board_observations_duckdb(snapshot_path: str | Path) -> pd.DataFrame:
@@ -147,6 +161,7 @@ def load_game_series(
 
 __all__ = [
     "read_board_observations",
+    "read_player_prop_ticks",
     "read_board_observations_duckdb",
     "build_game_series",
     "load_game_series",

@@ -6,9 +6,23 @@
 import type { z } from "zod";
 
 // Upstream data sources a detector reads from. Surfaced via /v1/detectors so
-// the Detectors UI can render a "SOURCES:" chip per detector (US-048). The
-// literal union is closed on purpose — a detector that wants to declare a new
-// source has to extend the union here, which forces a single source of truth.
+// the Detectors UI can render a "SOURCES:" chip per detector (US-048).
+//
+// This union is intentionally a SUBSET of the canonical source universe in
+// domain (`marketResearchSourceIds` = bet365/fanduel/draftkings/kalshi/
+// polymarket): it lists only the sources these detectors actually consume.
+// `detectors` cannot import `domain` to type-bind it — `domain` already imports
+// `detectors`' board-mad config, so the dependency is one-way. The binding that
+// keeps this honest is the runtime contract test
+// `apps/api/tests/detector-source-contract.test.ts`, which fails if any declared
+// source is not a member of the domain universe (audit F-007 — the old comment
+// here falsely claimed this union "forces a single source of truth"; it did not,
+// and nothing enforced the subset relationship).
+//
+// NOTE: the live whole-board signal derives its source COUNT data-drivenly from
+// the ticks actually present (see `board-volatility-model.ts` — by design, per
+// PRD FR-8 "whole-board"). This union is the advertised-coverage contract shown
+// in the UI, NOT a runtime filter on which ticks the board ingests.
 export type Source = "bet365" | "kalshi" | "polymarket";
 
 // Quote tick shape consumed by board-mad (US-009). Mirrors the gold-DB

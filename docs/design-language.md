@@ -130,7 +130,7 @@ That's it. Anything beyond these five — drop shadows, gradients, glow filters,
 
 ## Charts (Recharts theme)
 
-Strip Recharts to the bone. Custom theme exported from `packages/ui/src/chart-theme.ts`.
+Strip Recharts to the bone. Chart styling reads design tokens from `packages/ui/src/tokens.ts` (consumed by the web chart components, e.g. `apps/web/src/features/backtest/BacktestTimelines.tsx`); there is no separate `chart-theme.ts` module today.
 
 - **Lines:** 1 px stroke, `accent-green` for normal, `accent-yellow` for above-threshold buckets.
 - **Markers:** 6 px filled circle `accent-yellow` for fires; nothing else marked.
@@ -221,7 +221,7 @@ Many numbers and concepts in this app (`kMad`, `fires/game`, the various detecto
 **Voice guidelines (enforced by review):**
 
 - ELI5: second person OK, conversational, no jargon. "We watch how much every market on a game wiggles relative to its own recent calm" not "Robust dispersion of intra-game implied-probability deltas." Two or three short paragraphs. Tell them what the number means for _their job_ (deciding whether to suspend a market), not for the algorithm's job.
-- Formal: technical but not IMO-only. Define notation the first time it's used. Always say WHY this estimator vs the obvious alternative ("MAD over std because a single outlier from a vacated-position blip would otherwise dominate"). Cite the canonical source (e.g. `scripts/board_signal_v2.py:33`).
+- Formal: technical but not IMO-only. Define notation the first time it's used. Always say WHY this estimator vs the obvious alternative ("MAD over std because a single outlier from a vacated-position blip would otherwise dominate"). Cite the canonical source — an in-repo path that resolves (e.g. `packages/detectors/src/board-mad/config.ts` or `apps/nba-sidecar/src/nba_sidecar/volatility.py`); for external provenance say so explicitly (e.g. "ported from `nba-predict/...`").
 
 **Don't:**
 

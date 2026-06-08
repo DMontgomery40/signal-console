@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 from ..evaluation import (
@@ -20,6 +22,8 @@ from ..evaluation.artifacts import (
     render_report_md_from_artifacts,
     write_run,
 )
+from ..attribution_snapshot import evaluate_snapshot
+from ..evaluation.separation import report_to_dict, run_separation
 from ..models import get_model, list_models as registry_list_models
 from .bootstrap import (
     DEFAULT_NOTEBOOK_PATH,
@@ -149,6 +153,257 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     return 0 if result["ok"] else 1
 
 
+def cmd_separation(args: argparse.Namespace) -> int:
+    report = run_separation(
+        args.snapshot,
+        control_percentile=args.control_percentile,
+        movement_floor=args.movement_floor,
+    )
+    _print_json(report_to_dict(report))
+    return 0 if report.support == "ok" else 1
+
+
+def cmd_attribution_eval(args: argparse.Namespace) -> int:
+    # Run the snapshot-backed signed-paired re-ranker over incident truth and emit
+    # outputs/nba-quant-lab/attribution_reranker.json (the /research portal reads it).
+    registry = json.loads(Path(args.registry).read_text())
+    raw = registry.get("incidents", registry) if isinstance(registry, dict) else registry
+    incidents = []
+    for inc in raw if isinstance(raw, list) else []:
+        gid = inc.get("gameId", "")
+        if not gid or not inc.get("utcTime"):
+            continue
+        incidents.append(
+            {
+                "id": inc.get("id"),
+                "game_id": gid if gid.startswith("nba-") else f"nba-{gid}",
+                "credited_player": inc.get("creditedPlayer", ""),
+                "rightful_player": inc.get("rightfulPlayer", ""),
+                "event_iso": inc.get("utcTime", ""),
+            }
+        )
+    report = evaluate_snapshot(args.snapshot, incidents, line_select=args.line_select)
+    report["line_select"] = args.line_select
+    report["n_incidents"] = len(incidents)
+    # Provenance so a quant reading this JSON can verify freshness + the source snapshot.
+    report["generatedAt"] = datetime.now(timezone.utc).isoformat()
+    report["snapshot"] = args.snapshot
+    out = Path(args.out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(report, indent=2, default=str))
+    print(f"wrote {out} ({len(incidents)} incidents, line_select={args.line_select})")
+    _print_json({k: report[k] for k in ("overall", "player_swap", "team_dispute")})
+    return 0
+
+
+def cmd_far_calibration(args: argparse.Namespace) -> int:
+    # Falsification test for the signed-paired re-ranker: fire-rate on assumed-
+    # negative (non-incident) games. Reads prop ticks from the snapshot + PBP from
+    # the gold DB (read-only) to generate candidate pairs, scores them through the
+    # SAME path incidents use, and writes far_calibration.json (the /research
+    # portal reads it alongside attribution_reranker.json). Front<->back fabric.
+    import sqlite3
+
+    import pyarrow.parquet as pq
+
+    from ..attribution_snapshot import _epoch, last_name
+    from ..far_calibration import (
+        harvested_label_specs,
+        incident_recall_matched,
+        merge_incident_specs,
+        oncourt_quality,
+        score_control_pairs,
+        summarize_far,
+    )
+    from ..loader import read_player_prop_ticks
+
+    snap = args.snapshot
+    ticks = read_player_prop_ticks(snap)
+    inc = pq.read_table(str(Path(snap) / "incidents.parquet")).to_pandas()
+    inc_games = set(inc["canonical_game_id"].dropna())
+    epi = pq.read_table(str(Path(snap) / "market_outlier_episodes.parquet")).to_pandas()
+    epi_games = set(epi["game_id"].dropna())
+    control = sorted(set(ticks["game_id"].unique()) - inc_games)
+
+    pbp_cols = (
+        "SELECT action_number, action_type, sub_type, person_id, team_tricode, "
+        "player_name, period, clock, time_actual FROM nba_play_by_play_actions "
+        "WHERE game_id=? ORDER BY action_number"
+    )
+    conn = sqlite3.connect(f"file:{args.gold}?mode=ro", uri=True)
+    conn.row_factory = sqlite3.Row
+
+    def load_pbp(game_ids: list[str]) -> dict[str, list[dict]]:
+        out: dict[str, list[dict]] = {}
+        for gid in game_ids:
+            rows = conn.execute(pbp_cols, (gid,)).fetchall()
+            if rows:
+                out[gid] = [dict(r) for r in rows]
+        return out
+
+    pbp = load_pbp(control)
+
+    # Matched recall: push player_swap incidents through the SAME candidate path so
+    # TPR and FAR share an operating point. Incident games' prop ticks are in the
+    # snapshot (truth-bearing is always exported); PBP comes from gold.
+    registry_specs = []
+    for _, r in inc[inc["scoreable"] == True].iterrows():  # noqa: E712 (pandas mask)
+        credited_str = str(r["credited_player"])
+        cl, rl = last_name(credited_str), last_name(str(r["rightful_player"]))
+        ev = r.get("event_sec")
+        stat = str(r.get("stat", "")).lower()
+        if not rl or ev is None:
+            continue
+        # player_swap (cl present) OR TEAM-credited rebound (cl == "" but credited is
+        # a TEAM rebound string) — the latter gets the one-legged TEAM branch.
+        is_team_rebound = not cl and "team" in credited_str.lower() and "rebound" in stat
+        if cl or is_team_rebound:
+            registry_specs.append(
+                {
+                    "id": r.get("incident_id"),
+                    "game_id": r["canonical_game_id"],
+                    "credited_last": cl,
+                    "rightful_last": rl,
+                    "event_epoch": float(ev),
+                }
+            )
+    # Close the label loop: merge harvested labels (credited->rightful corrections
+    # recovered by the revision harvester) so they flow into recall as they accrue.
+    harvested_path = Path(args.harvested)
+    harvested_report = json.loads(harvested_path.read_text()) if harvested_path.exists() else {}
+    harvested = harvested_label_specs(harvested_report)
+    merge = merge_incident_specs(registry_specs, harvested)
+    specs = merge["specs"]
+    incident_pbp = load_pbp(sorted({s["game_id"] for s in specs}))
+    conn.close()
+
+    quality = oncourt_quality(pbp)
+    scored = score_control_pairs(ticks, pbp, line_select=args.line_select)
+    all_summary = summarize_far(scored)
+    pure = summarize_far([r for r in scored if r["game_id"] not in epi_games])
+    recall = incident_recall_matched(ticks, incident_pbp, specs, line_select=args.line_select)
+    report = {
+        # Provenance so a quant reading this JSON in a notebook can verify freshness
+        # + which snapshot produced it (a failed re-run leaves the prior file in place).
+        "generatedAt": datetime.now(timezone.utc).isoformat(),
+        "snapshot": snap,
+        "line_select": args.line_select,
+        "n_control_games": len(pbp),
+        "n_pure_control_games": len(set(pbp) - epi_games),
+        "data_quality": quality,
+        "all_control": all_summary,
+        "pure_control": pure,
+        "incident_sources": {
+            "n_registry": merge["n_registry"],
+            "n_harvested_added": merge["n_harvested_added"],
+            "n_harvested_duplicate": merge["n_harvested_duplicate"],
+        },
+        "matched_recall": recall,
+    }
+    out = Path(args.out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(report, indent=2, default=str))
+    print(f"wrote {out} ({len(pbp)} control games, {recall['n_scored']}/{recall['n_incidents']} scoreable incidents)")
+    # A valid snapshot can still yield a degenerate run (no control coverage / nothing
+    # scored). It is not an exception, so say so LOUDLY on stderr rather than leaving a
+    # quant to infer it from zeros buried in the JSON.
+    if len(pbp) == 0 or all_summary["n_scored_pairs"] == 0:
+        print(
+            f"WARNING: degenerate FAR run — {len(pbp)} control games, "
+            f"{all_summary['n_scored_pairs']} scored pairs. Check the snapshot has rebound "
+            "prop ticks + control-game PBP before trusting these numbers.",
+            file=sys.stderr,
+        )
+    _print_json(
+        {
+            "all_control": {k: all_summary[k] for k in ("n_scored_pairs", "abstention_rate", "per_rebound_far")},
+            "pure_control": {k: pure[k] for k in ("n_scored_pairs", "per_rebound_far")},
+            "matched_recall": {
+                k: recall[k]
+                for k in ("n_incidents", "n_matched", "n_rightful_oncourt", "n_scored", "tpr_per_pair", "rank_by_prior", "rank_by_score")
+            },
+            "incident_sources": report["incident_sources"],
+            "data_quality": quality,
+        }
+    )
+    return 0
+
+
+def cmd_confluence_eval(args: argparse.Namespace) -> int:
+    # Third-model eval-first: run BOTH read-only confluence experiments over the gold
+    # corpus and emit confluence_eval.json at the output-tree root (the /research
+    # portal reads it alongside far_calibration.json + attribution_reranker.json).
+    #   1. killtest  -> falsification gate (do incidents stand out vs their OWN game?)
+    #   2. operating -> the real bar (>=70% recall at <=3:1 FP, deployable threshold)
+    # Front<->back fabric: python -> confluence_eval.json -> GET /v1/research/confluence-eval -> UI.
+    from ..experiments import confluence_killtest as ck
+    from ..experiments import confluence_operating_point as cop
+
+    db_path = args.gold
+    registry = args.registry
+    killtest = ck.run(db_path, registry)
+    operating = cop.run(db_path, registry)
+
+    report = {
+        # Provenance so a quant reading this in-app/in-notebook can verify freshness
+        # and which inputs produced it (a failed re-run leaves the prior file in place).
+        "generatedAt": datetime.now(timezone.utc).isoformat(),
+        "db_path": db_path,
+        "registry": registry,
+        # Headline the UI/operator reads first: the gate can pass while the bar fails.
+        "gate_verdict": killtest["verdict"],
+        "meets_bar": operating["meets_bar"],
+        "gate": killtest,
+        "operating_point": operating,
+    }
+    out = Path(args.out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(report, indent=2, default=str))
+    fp_bar = operating.get("fp_ratio_at_target_recall")
+    print(
+        f"wrote {out} (gate={killtest['verdict']} "
+        f"{killtest['successes']}/{killtest['n_evaluated']} standout; "
+        f"bar meets={operating['meets_bar']} fp@target={fp_bar}:1)"
+    )
+    # A passing gate with a failing bar is the expected, important state -- say it
+    # LOUDLY rather than letting an operator infer viability from the gate alone.
+    if killtest["verdict"] == "VIABLE" and not operating["meets_bar"]:
+        print(
+            "NOTE: confluence signal is REAL (gate passed) but the standalone count "
+            f"FAILS the bar (best ~{fp_bar}:1 FP at target recall vs <=3:1). It is a "
+            "screen, not a classifier -- needs richer features and/or Stage-2 attribution.",
+            file=sys.stderr,
+        )
+    _print_json(
+        {
+            "gate": {k: report["gate"][k] for k in ("verdict", "n_evaluated", "successes", "binomial_p_value", "secondary_rank_auc")},
+            "operating_point": {
+                "meets_bar": operating["meets_bar"],
+                "fp_ratio_at_target_recall": fp_bar,
+                "max_recall_point": operating.get("max_recall_point"),
+                "baseline_comparison": operating.get("baseline_comparison"),
+            },
+        }
+    )
+    return 0
+
+
+def cmd_emit_models(args: argparse.Namespace) -> int:
+    # Emit outputs/nba-quant-lab/models.json from the registry so the /research
+    # "Model lab" surfaces the REAL registered models (the API's getResearchModels
+    # reads this file and otherwise falls back to a static list). Front<->back
+    # fabric: python registry -> models.json -> GET /v1/research/models -> UI.
+    out = Path(args.out)
+    models = []
+    for mid in registry_list_models():
+        m = get_model(mid)
+        models.append({"id": m.id, "label": m.name, "description": m.summary, "family": m.family})
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps({"models": models}, indent=2))
+    print(f"wrote {out} ({len(models)} models)")
+    return 0
+
+
 def cmd_bootstrap(args: argparse.Namespace) -> int:
     notebook_path = Path(args.out) if args.out else DEFAULT_NOTEBOOK_PATH
     snapshot_path = Path(args.snapshot) if args.snapshot else DEFAULT_SNAPSHOT_PATH
@@ -211,6 +466,97 @@ def build_parser() -> argparse.ArgumentParser:
     p_doc = sub.add_parser("doctor", help="coverage/leakage/scoreability preflight")
     p_doc.add_argument("snapshot")
     p_doc.set_defaults(func=cmd_doctor)
+
+    p_sep = sub.add_parser(
+        "separation",
+        help="incident-alignment: does any feature separate incidents from equally-large non-incident moves?",
+    )
+    p_sep.add_argument("snapshot")
+    p_sep.add_argument(
+        "--control-percentile", type=float, default=90.0,
+        help="intensity percentile defining the equally-large non-incident control set (default 90)",
+    )
+    p_sep.add_argument(
+        "--movement-floor", type=float, default=1.0,
+        help="intensity below which an incident window counts as 'no board move' (default 1.0)",
+    )
+    p_sep.set_defaults(func=cmd_separation)
+
+    p_attr = sub.add_parser(
+        "attribution-eval",
+        help="run the signed-paired attribution re-ranker over incident truth; emit attribution_reranker.json",
+    )
+    p_attr.add_argument("snapshot")
+    p_attr.add_argument(
+        "--registry", default="outputs/nba-detector-bakeoff/research/incident-registry-expanded.json"
+    )
+    p_attr.add_argument("--out", default="outputs/nba-quant-lab/attribution_reranker.json")
+    p_attr.add_argument(
+        "--line-select", default="aggregate_drift",
+        choices=["most_active", "closest_to_half", "aggregate_drift"],
+    )
+    p_attr.set_defaults(func=cmd_attribution_eval)
+
+    p_far = sub.add_parser(
+        "far-calibration",
+        help="false-alarm-rate of the re-ranker on non-incident control games; emit far_calibration.json",
+    )
+    p_far.add_argument("snapshot")
+    p_far.add_argument(
+        "--gold",
+        # Config-driven: the GOLD_DB_PATH / SIGNAL_CONSOLE_DB_PATH env (the same the
+        # TS scripts + packages/db use), else the canonical home-relative gold DB.
+        default=(
+            os.environ.get("GOLD_DB_PATH")
+            or os.environ.get("SIGNAL_CONSOLE_DB_PATH")
+            or str(Path.home() / "signal-console" / "data" / "signal-console.sqlite")
+        ),
+        help="gold DB path (read-only) for control-game PBP; overrides GOLD_DB_PATH env",
+    )
+    p_far.add_argument("--out", default="outputs/nba-quant-lab/far_calibration.json")
+    p_far.add_argument(
+        "--harvested",
+        default="outputs/nba-quant-lab/harvested_incidents.json",
+        help="harvested-label file merged into matched-recall incidents (closes the label loop)",
+    )
+    p_far.add_argument(
+        "--line-select", default="aggregate_drift",
+        choices=["most_active", "closest_to_half", "aggregate_drift"],
+    )
+    p_far.set_defaults(func=cmd_far_calibration)
+
+    p_conf = sub.add_parser(
+        "confluence-eval",
+        help="whole-board confluence falsification gate + operating-point bar; emit confluence_eval.json",
+    )
+    p_conf.add_argument(
+        "--gold",
+        # Config-driven, identical to far-calibration: GOLD_DB_PATH / SIGNAL_CONSOLE_DB_PATH
+        # env (the same the TS scripts + packages/db use), else the canonical gold DB.
+        default=(
+            os.environ.get("SIGNAL_CONSOLE_DB_PATH")
+            or os.environ.get("GOLD_DB_PATH")
+            or str(Path.home() / "signal-console" / "data" / "signal-console.sqlite")
+        ),
+        help="gold DB path (read-only); overrides SIGNAL_CONSOLE_DB_PATH/GOLD_DB_PATH env",
+    )
+    p_conf.add_argument(
+        "--registry",
+        default=(
+            os.environ.get("INCIDENT_REGISTRY_PATH")
+            or "outputs/nba-detector-bakeoff/research/incident-registry-expanded.json"
+        ),
+        help="labeled-incident registry; overrides INCIDENT_REGISTRY_PATH env",
+    )
+    p_conf.add_argument("--out", default="outputs/nba-quant-lab/confluence_eval.json")
+    p_conf.set_defaults(func=cmd_confluence_eval)
+
+    p_em = sub.add_parser(
+        "emit-models",
+        help="write outputs/nba-quant-lab/models.json from the registry (surfaces models in the /research Model lab)",
+    )
+    p_em.add_argument("--out", default="outputs/nba-quant-lab/models.json")
+    p_em.set_defaults(func=cmd_emit_models)
 
     p_boot = sub.add_parser(
         "bootstrap",

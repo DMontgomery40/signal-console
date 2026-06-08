@@ -55,6 +55,10 @@ import { QueryErrorBanner } from "../../components/QueryErrorBanner";
 import {
   API_BASE_URL,
   useResearchGold,
+  useResearchAttribution,
+  useResearchConfluenceEval,
+  useResearchFarCalibration,
+  useResearchHarvestedLabels,
   useResearchLeaderboard,
   useResearchModels,
   useResearchPulls,
@@ -364,9 +368,12 @@ function GoldStatus({ gold }: { readonly gold: ResearchGold | undefined }): JSX.
 
 const QUANT_GUIDE_PATH = "docs/quant-researcher-guide.md";
 const QUANT_GUIDE_HREF = `${API_BASE_URL}/v1/research/guide`;
+// `ls` yields a bare dir name; --snapshot needs the path the CLI opens (pnpm quant
+// runs from the repo root), so SNAP must include the snapshots dir, not just the id.
+const QUANT_SNAPSHOTS_DIR = "outputs/nba-quant-lab/snapshots";
 const QUANT_CLI_QUICKSTART = [
   "pnpm quant:export",
-  "SNAP=$(ls -t outputs/nba-quant-lab/snapshots | head -1)",
+  `SNAP="${QUANT_SNAPSHOTS_DIR}/$(ls -t ${QUANT_SNAPSHOTS_DIR} | head -1)"`,
   'pnpm quant compare robust_mad state_space_current --snapshot "$SNAP"',
 ].join("\n");
 
@@ -1417,7 +1424,7 @@ function SnapshotBlock({
   if (snapshot === null) {
     return (
       <section data-testid="research-snapshot" className="space-y-3">
-        <SectionHeading>Snapshot</SectionHeading>
+        <SectionHeading explainerId="research-snapshot">Snapshot</SectionHeading>
         <EmptyLine testid="research-snapshot-empty">
           No snapshot exported yet from the gold DB. Export one to begin (no pull needed — the
           canonical sources are already persisted).
@@ -1458,7 +1465,7 @@ function SnapshotBlock({
 
   return (
     <section data-testid="research-snapshot" className="space-y-3">
-      <SectionHeading>Snapshot</SectionHeading>
+      <SectionHeading explainerId="research-snapshot">Snapshot</SectionHeading>
       <div className="bg-surface-1 px-5 py-4">
         <div className="grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-3">
           <div className="space-y-1">
@@ -1517,9 +1524,14 @@ function SnapshotBlock({
           </p>
         ) : null}
         {Array.isArray(files) && files.length > 0 ? (
-          <p className="mt-3 font-mono text-xs text-text-md" data-testid="research-snapshot-files">
-            files: {files.filter((f): f is string => typeof f === "string").join(" · ")}
-          </p>
+          <details className="mt-3" data-testid="research-snapshot-files">
+            <summary className="cursor-pointer font-mono text-xs text-text-lo hover:text-text-md">
+              {files.filter((f): f is string => typeof f === "string").length} snapshot files
+            </summary>
+            <p className="mt-2 font-mono text-xs text-text-md">
+              {files.filter((f): f is string => typeof f === "string").join(" · ")}
+            </p>
+          </details>
         ) : null}
         {doctorText !== undefined ? (
           <p
@@ -1549,7 +1561,7 @@ function ModelLab({
   if (!hasSnapshot) {
     return (
       <section data-testid="research-model-lab" className="space-y-3">
-        <SectionHeading>Model lab</SectionHeading>
+        <SectionHeading explainerId="research-model-lab">Model lab</SectionHeading>
         <EmptyLine testid="research-model-lab-empty">
           No snapshot exported yet from the gold DB. Export one to begin (no pull needed — the
           canonical sources are already persisted), then score these baseline models against it.
@@ -1559,12 +1571,7 @@ function ModelLab({
   }
   return (
     <section data-testid="research-model-lab" className="space-y-3">
-      <SectionHeading>Model lab</SectionHeading>
-      <p className="max-w-[80ch] text-xs text-text-md" data-testid="research-model-lab-note">
-        These are baseline research models, not tuned production detectors. They exist so a snapshot
-        can be scored repeatably; treat them as humble reference points, not the live suspend
-        signal.
-      </p>
+      <SectionHeading explainerId="research-model-lab">Model lab</SectionHeading>
       <div role="table" aria-label="Model lab" className="bg-surface-1 text-sm">
         <div
           role="row"
@@ -1613,7 +1620,7 @@ function Leaderboard({
 }): JSX.Element {
   return (
     <section data-testid="research-leaderboard" className="space-y-3">
-      <SectionHeading>Leaderboard</SectionHeading>
+      <SectionHeading explainerId="research-leaderboard">Leaderboard</SectionHeading>
       <p className="font-mono text-xs text-text-lo" data-testid="research-leaderboard-disclaimer">
         Research snapshot result, not live production behavior.
       </p>
@@ -1707,6 +1714,354 @@ function Leaderboard({
   );
 }
 
+// ── (7b) Attribution re-ranker ────────────────────────────────────────────────
+
+function AttributionReranker({
+  attribution,
+}: {
+  readonly attribution: Record<string, unknown> | null;
+}): JSX.Element {
+  const strata: readonly { key: string; label: string }[] = [
+    { key: "overall", label: "Overall" },
+    { key: "player_swap", label: "Player swap" },
+    { key: "team_dispute", label: "TEAM dispute" },
+  ];
+  const lineSelect = attribution !== null ? str(pick(attribution, "line_select")) : undefined;
+  const nIncidents = attribution !== null ? num(pick(attribution, "n_incidents")) : undefined;
+  return (
+    <section data-testid="research-attribution" className="space-y-3">
+      <SectionHeading explainerId="research-attribution">Attribution re-ranker</SectionHeading>
+      {attribution === null ? (
+        <EmptyLine testid="research-attribution-empty">
+          No attribution report yet — run pnpm quant attribution-eval &lt;snapshot&gt; to populate
+          this.
+        </EmptyLine>
+      ) : (
+        <div role="table" aria-label="Attribution re-ranker" className="bg-surface-1 text-sm">
+          <div
+            role="row"
+            className="grid grid-cols-[1.2fr_0.6fr_0.8fr_0.9fr_0.9fr] gap-x-5 px-5 pb-2 pt-4 font-mono text-xs uppercase tracking-[0.06em] text-text-lo"
+          >
+            <span role="columnheader">Stratum</span>
+            <span role="columnheader">n</span>
+            <span role="columnheader">Scored</span>
+            <span role="columnheader">Abstention</span>
+            <span role="columnheader">Median score</span>
+          </div>
+          {strata.map(({ key, label }) => {
+            const s = pick(attribution, key);
+            const rec = isRecord(s) ? s : {};
+            const n = num(pick(rec, "n"));
+            const scored = num(pick(rec, "n_scored"));
+            const abst = num(pick(rec, "abstention_rate"));
+            const med = num(pick(rec, "median_score"));
+            return (
+              <div
+                key={key}
+                role="row"
+                data-testid="research-attribution-row"
+                data-stratum={key}
+                className="grid grid-cols-[1.2fr_0.6fr_0.8fr_0.9fr_0.9fr] items-baseline gap-x-5 px-5 py-3"
+              >
+                <span role="cell" className="text-text-md">
+                  {label}
+                </span>
+                <span role="cell" className="font-mono text-xs tabular-nums text-text-md">
+                  {fmtNum(n)}
+                </span>
+                <span role="cell" className="font-mono text-xs tabular-nums text-text-md">
+                  {scored === undefined || n === undefined
+                    ? "—"
+                    : `${fmtNum(scored)} / ${fmtNum(n)}`}
+                </span>
+                <span role="cell" className="font-mono text-xs tabular-nums text-text-md">
+                  {abst === undefined ? "—" : `${fmtNum(abst * 100, 0)}%`}
+                </span>
+                <span role="cell" className="font-mono text-xs tabular-nums text-text-md">
+                  {med === undefined ? "—" : fmtNum(med, 3)}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {attribution !== null && (nIncidents !== undefined || lineSelect !== undefined) ? (
+        <p className="font-mono text-xs text-text-lo" data-testid="research-attribution-meta">
+          {nIncidents !== undefined ? `incidents ${fmtNum(nIncidents)}` : ""}
+          {nIncidents !== undefined && lineSelect !== undefined ? " · " : ""}
+          {lineSelect !== undefined ? `line-select ${lineSelect}` : ""}
+        </p>
+      ) : null}
+    </section>
+  );
+}
+
+function FarCalibration({
+  farCalibration,
+}: {
+  readonly farCalibration: Record<string, unknown> | null;
+}): JSX.Element {
+  const thresholds = ["0.01", "0.02", "0.05", "0.1", "0.2"] as const;
+  const fc = farCalibration ?? {};
+  const acRaw = pick(fc, "all_control");
+  const allControl = isRecord(acRaw) ? acRaw : {};
+  const mrRaw = pick(fc, "matched_recall");
+  const recall = isRecord(mrRaw) ? mrRaw : {};
+  const dqRaw = pick(fc, "data_quality");
+  const quality = isRecord(dqRaw) ? dqRaw : {};
+  const ppRaw = pick(allControl, "per_pair_far");
+  const perPair = isRecord(ppRaw) ? ppRaw : {};
+  const prRaw = pick(allControl, "per_rebound_far");
+  const perReb = isRecord(prRaw) ? prRaw : {};
+  const tprRaw = pick(recall, "tpr_per_pair");
+  const tpr = isRecord(tprRaw) ? tprRaw : {};
+  const nControl = num(pick(fc, "n_control_games"));
+  const nScoredInc = num(pick(recall, "n_scored"));
+  const nInc = num(pick(recall, "n_incidents"));
+  const badStarters = num(pick(quality, "games_bad_starters"));
+  const ne5 = num(pick(quality, "rebounds_oncourt_ne5_frac"));
+  const pct = (v: number | undefined): string => (v === undefined ? "—" : `${fmtNum(v * 100, 1)}%`);
+  return (
+    <section data-testid="research-far-calibration" className="space-y-3">
+      <SectionHeading explainerId="research-far">Re-ranker FAR calibration</SectionHeading>
+      {farCalibration === null ? (
+        <EmptyLine testid="research-far-calibration-empty">
+          No FAR report yet — run pnpm quant far-calibration &lt;snapshot&gt; to populate this.
+        </EmptyLine>
+      ) : (
+        <div role="table" aria-label="FAR calibration" className="bg-surface-1 text-sm">
+          <div
+            role="row"
+            className="grid grid-cols-[0.8fr_1fr_1fr_1fr] gap-x-5 px-5 pb-2 pt-4 font-mono text-xs uppercase tracking-[0.06em] text-text-lo"
+          >
+            <span role="columnheader">Threshold</span>
+            <span role="columnheader">FAR / pair</span>
+            <span role="columnheader">FAR / rebound</span>
+            <span role="columnheader">TPR (matched)</span>
+          </div>
+          {thresholds.map((th) => (
+            <div
+              key={th}
+              role="row"
+              data-testid="research-far-calibration-row"
+              data-threshold={th}
+              className="grid grid-cols-[0.8fr_1fr_1fr_1fr] items-baseline gap-x-5 px-5 py-2"
+            >
+              <span role="cell" className="font-mono text-xs tabular-nums text-text-md">
+                {th}
+              </span>
+              <span role="cell" className="font-mono text-xs tabular-nums text-text-md">
+                {pct(num(pick(perPair, th)))}
+              </span>
+              <span role="cell" className="font-mono text-xs tabular-nums text-text-md">
+                {pct(num(pick(perReb, th)))}
+              </span>
+              <span role="cell" className="font-mono text-xs tabular-nums text-text-md">
+                {pct(num(pick(tpr, th)))}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+      {farCalibration !== null ? (
+        <p className="font-mono text-xs text-text-lo" data-testid="research-far-calibration-meta">
+          {nControl !== undefined ? `control games ${fmtNum(nControl)}` : ""}
+          {nScoredInc !== undefined && nInc !== undefined
+            ? ` · matched recall n ${fmtNum(nScoredInc)} / ${fmtNum(nInc)}`
+            : ""}
+          {badStarters !== undefined ? ` · bad-starter games ${fmtNum(badStarters)}` : ""}
+          {ne5 !== undefined ? ` · on-court≠5 ${pct(ne5)}` : ""}
+        </p>
+      ) : null}
+    </section>
+  );
+}
+
+function ConfluenceEval({
+  confluenceEval,
+}: {
+  readonly confluenceEval: Record<string, unknown> | null;
+}): JSX.Element {
+  const ce = confluenceEval ?? {};
+  const gateRaw = pick(ce, "gate");
+  const gate = isRecord(gateRaw) ? gateRaw : {};
+  const opRaw = pick(ce, "operating_point");
+  const op = isRecord(opRaw) ? opRaw : {};
+  const gateVerdict = str(pick(ce, "gate_verdict")) ?? str(pick(gate, "verdict"));
+  const meetsBarRaw = pick(ce, "meets_bar");
+  const meetsBar = typeof meetsBarRaw === "boolean" ? meetsBarRaw : undefined;
+  const fpAtBar = num(pick(op, "fp_ratio_at_target_recall"));
+  const auc = num(pick(gate, "secondary_rank_auc"));
+  const successes = num(pick(gate, "successes"));
+  const nEval = num(pick(gate, "n_evaluated"));
+  const mrRaw = pick(op, "max_recall_point");
+  const maxRecall = isRecord(mrRaw) ? mrRaw : {};
+  const ceiling = num(pick(maxRecall, "caught"));
+  const bcRaw = pick(op, "baseline_comparison");
+  const baselines = bcRaw !== undefined && Array.isArray(bcRaw) ? bcRaw : [];
+  const gateOk = gateVerdict === "VIABLE";
+  return (
+    <section data-testid="research-confluence-eval" className="space-y-3">
+      <SectionHeading explainerId="research-confluence">Whole-board confluence eval</SectionHeading>
+      {confluenceEval === null ? (
+        <EmptyLine testid="research-confluence-eval-empty">
+          No confluence eval yet — run pnpm quant confluence-eval to populate this.
+        </EmptyLine>
+      ) : (
+        <>
+          <div className="flex flex-wrap gap-x-8 gap-y-2 bg-surface-1 px-5 py-4">
+            <span
+              className="font-mono text-sm tabular-nums"
+              data-testid="research-confluence-eval-gate"
+              data-verdict={gateVerdict ?? "—"}
+            >
+              <span className="text-text-lo">gate </span>
+              <span className={gateOk ? "text-accent-green" : "text-accent-yellow"}>
+                {gateVerdict ?? "—"}
+              </span>
+              {successes !== undefined && nEval !== undefined ? (
+                <span className="text-text-md">
+                  {" "}
+                  ({fmtNum(successes)}/{fmtNum(nEval)} standout
+                  {auc !== undefined ? `, AUC ${fmtNum(auc, 3)}` : ""})
+                </span>
+              ) : null}
+            </span>
+            <span
+              className="font-mono text-sm tabular-nums"
+              data-testid="research-confluence-eval-bar"
+              data-meets-bar={meetsBar === undefined ? "—" : String(meetsBar)}
+            >
+              <span className="text-text-lo">bar </span>
+              <span className={meetsBar === true ? "text-accent-green" : "text-accent-yellow"}>
+                {meetsBar === undefined ? "—" : meetsBar ? "PASS" : "FAIL"}
+              </span>
+              {fpAtBar !== undefined ? (
+                <span className="text-text-md"> (best ~{fmtNum(fpAtBar, 1)}:1 FP at target)</span>
+              ) : null}
+            </span>
+          </div>
+          {baselines.length > 0 ? (
+            <div
+              role="table"
+              aria-label="Confluence baseline comparison"
+              className="bg-surface-1 text-sm"
+            >
+              <div
+                role="row"
+                className="grid grid-cols-[1.2fr_1fr_1fr] gap-x-5 px-5 pb-2 pt-4 font-mono text-xs uppercase tracking-[0.06em] text-text-lo"
+              >
+                <span role="columnheader">Baseline</span>
+                <span role="columnheader">FP @ target recall</span>
+                <span role="columnheader">Recall ceiling</span>
+              </div>
+              {baselines.map((b, i) => {
+                const row = isRecord(b) ? b : {};
+                const name = str(pick(row, "baseline")) ?? `#${String(i)}`;
+                const fp = num(pick(row, "fp_ratio_at_target_recall"));
+                const rc = num(pick(row, "recall_ceiling"));
+                return (
+                  <div
+                    key={name}
+                    role="row"
+                    data-testid="research-confluence-eval-row"
+                    data-baseline={name}
+                    className="grid grid-cols-[1.2fr_1fr_1fr] items-baseline gap-x-5 px-5 py-2"
+                  >
+                    <span role="cell" className="font-mono text-xs tabular-nums text-text-md">
+                      {name}
+                    </span>
+                    <span role="cell" className="font-mono text-xs tabular-nums text-text-md">
+                      {fp === undefined ? "—" : `${fmtNum(fp, 1)}:1`}
+                    </span>
+                    <span role="cell" className="font-mono text-xs tabular-nums text-text-md">
+                      {rc === undefined ? "—" : fmtNum(rc)}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          ) : null}
+          <p className="font-mono text-xs text-text-lo" data-testid="research-confluence-eval-meta">
+            {ceiling !== undefined ? `recall ceiling ${fmtNum(ceiling)}/15` : ""}
+            {fpAtBar !== undefined ? ` · target FP ${fmtNum(fpAtBar, 1)}:1 (bar ≤3:1)` : ""}
+          </p>
+        </>
+      )}
+    </section>
+  );
+}
+
+function HarvestedLabels({
+  harvestedLabels,
+}: {
+  readonly harvestedLabels: Record<string, unknown> | null;
+}): JSX.Element {
+  const hl = harvestedLabels ?? {};
+  const incidentsRaw = pick(hl, "incidents");
+  const incidents = Array.isArray(incidentsRaw) ? incidentsRaw : [];
+  const count = num(pick(hl, "incidentCount"));
+  const scanned = num(pick(hl, "gamesScanned"));
+  const generatedAt = str(pick(hl, "generatedAt"));
+  return (
+    <section data-testid="research-harvested-labels" className="space-y-3">
+      <SectionHeading explainerId="research-harvested-labels">
+        Harvested miscredit labels
+      </SectionHeading>
+      {harvestedLabels === null || incidents.length === 0 ? (
+        <EmptyLine testid="research-harvested-labels-empty">
+          {harvestedLabels === null
+            ? "No harvest report yet — run scripts/harvest-incident-labels.ts to populate this."
+            : `No corrections recovered yet (${scanned === undefined ? "0" : fmtNum(scanned)} games scanned). Labels accrue as capture-pbp-revisions.ts re-runs on a cadence.`}
+        </EmptyLine>
+      ) : (
+        <div role="table" aria-label="Harvested miscredit labels" className="bg-surface-1 text-sm">
+          <div
+            role="row"
+            className="grid grid-cols-[1fr_1fr_0.8fr] gap-x-5 px-5 pb-2 pt-4 font-mono text-xs uppercase tracking-[0.06em] text-text-lo"
+          >
+            <span role="columnheader">Credited</span>
+            <span role="columnheader">Rightful</span>
+            <span role="columnheader">Latency</span>
+          </div>
+          {incidents.map((inc, i) => {
+            const rec = isRecord(inc) ? inc : {};
+            const credited = str(pick(rec, "creditedPlayer"));
+            const rightful = str(pick(rec, "rightfulPlayer"));
+            const latency = num(pick(rec, "correctionLatencySec"));
+            const id = str(pick(rec, "id"));
+            return (
+              <div
+                key={id ?? String(i)}
+                role="row"
+                data-testid="research-harvested-labels-row"
+                className="grid grid-cols-[1fr_1fr_0.8fr] items-baseline gap-x-5 px-5 py-2"
+              >
+                <span role="cell" className="text-text-md">
+                  {credited ?? "—"}
+                </span>
+                <span role="cell" className="text-text-md">
+                  {rightful ?? "—"}
+                </span>
+                <span role="cell" className="font-mono text-xs tabular-nums text-text-md">
+                  {latency === undefined ? "—" : `${fmtNum(Math.round(latency / 60))}m`}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {harvestedLabels !== null ? (
+        <p className="font-mono text-xs text-text-lo" data-testid="research-harvested-labels-meta">
+          {count !== undefined ? `labels ${fmtNum(count)}` : ""}
+          {scanned !== undefined ? ` · games scanned ${fmtNum(scanned)}` : ""}
+          {generatedAt !== undefined ? ` · ${generatedAt}` : ""}
+        </p>
+      ) : null}
+    </section>
+  );
+}
+
 // ── (8) Casebook preview ──────────────────────────────────────────────────────
 
 function CasebookPreview({ hasSnapshot }: { readonly hasSnapshot: boolean }): JSX.Element {
@@ -1745,6 +2100,10 @@ export function ResearchPage(): JSX.Element {
   const leaderboard = useResearchLeaderboard();
   const models = useResearchModels();
   const pulls = useResearchPulls();
+  const attribution = useResearchAttribution();
+  const farCalibration = useResearchFarCalibration();
+  const confluenceEval = useResearchConfluenceEval();
+  const harvestedLabels = useResearchHarvestedLabels();
 
   const goldData = gold.data;
   const snapshotData = snapshot.data?.snapshot ?? null;
@@ -1752,6 +2111,10 @@ export function ResearchPage(): JSX.Element {
   const pullRows = useMemo(() => pulls.data?.pulls ?? [], [pulls.data?.pulls]);
   const sourceRows = useMemo(() => sources.data?.sources ?? [], [sources.data?.sources]);
   const modelRows = useMemo(() => models.data?.models ?? [], [models.data?.models]);
+  const attributionData = attribution.data?.attribution ?? null;
+  const farCalibrationData = farCalibration.data?.farCalibration ?? null;
+  const confluenceEvalData = confluenceEval.data?.confluenceEval ?? null;
+  const harvestedLabelsData = harvestedLabels.data?.harvestedLabels ?? null;
 
   const hasSnapshot = snapshotData !== null;
   const snapshotKey = useMemo(() => snapshotPollingKey(snapshotData), [snapshotData]);
@@ -1813,7 +2176,22 @@ export function ResearchPage(): JSX.Element {
       : undefined;
 
   // Network-down banner takes precedence; otherwise surface the first hard error.
-  const queries = [gold, sources, snapshot, leaderboard, models, pulls];
+  // Include farCalibration + harvestedLabels so a failed /far-calibration or
+  // /harvested-labels request surfaces as an operator error, not a silent
+  // "No report yet" empty state (an ABSENT artifact returns null successfully and
+  // is NOT an error, so this only banners real request failures).
+  const queries = [
+    gold,
+    sources,
+    snapshot,
+    leaderboard,
+    models,
+    pulls,
+    attribution,
+    farCalibration,
+    confluenceEval,
+    harvestedLabels,
+  ];
   const networkErr = queries.find((q) => q.isError && isNetworkError(q.error));
   const hardErr = queries.find((q) => q.isError && !isNetworkError(q.error));
   const banner =
@@ -1856,6 +2234,13 @@ export function ResearchPage(): JSX.Element {
       <SnapshotBlock snapshot={snapshotData} />
       <ModelLab models={modelRows} hasSnapshot={hasSnapshot} />
       <Leaderboard runId={leaderboard.data?.runId ?? null} rows={leaderboardRows} />
+      <AttributionReranker attribution={attributionData} />
+
+      <FarCalibration farCalibration={farCalibrationData} />
+
+      <ConfluenceEval confluenceEval={confluenceEvalData} />
+
+      <HarvestedLabels harvestedLabels={harvestedLabelsData} />
       <CasebookPreview hasSnapshot={hasSnapshot} />
 
       {pullDialogOpen ? (

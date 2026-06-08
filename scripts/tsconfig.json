@@ -2,7 +2,14 @@
   "extends": "../tsconfig.base.json",
   "compilerOptions": {
     "noEmit": true,
-    "types": ["node"]
+    "types": ["node"],
+    // Match the deliberate package policy (packages/shared, packages/adapters,
+    // apps/worker set these false). The scripts typecheck compiles transitive
+    // package SOURCE, so without this it judges that source under stricter flags
+    // than the packages themselves use, flipping the gate red on non-bugs when a
+    // script imports package internals (the verify-gate strictness landmine).
+    "exactOptionalPropertyTypes": false,
+    "noUncheckedIndexedAccess": false
   },
   "include": ["**/*.ts"],
   "exclude": ["ralph/**", "node_modules"]

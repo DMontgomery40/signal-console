@@ -764,7 +764,6 @@ async function calculateBoardVwMeasurement(input: BuildGameStateVolatilityAlertI
       hasSourceConfirmation: view.sourceCount >= 2,
     },
     h0Adjustments: view.h0Adjustments,
-    headlineScore: score,
     inspect: view.inspect,
     measuredAt: input.detectedAtIso,
     missingDataNotes: view.missingDataNotes,
@@ -799,7 +798,6 @@ async function calculateBoardVwMeasurement(input: BuildGameStateVolatilityAlertI
         ).toFixed(3),
       ),
     },
-    state: band,
     thresholds: {
       alertMinScore: 55,
       criticalMinScore: 85,
@@ -870,9 +868,9 @@ export async function buildGameStateVolatilityAlert(
     shockKind: "game-state-volatility",
     firstPopAt,
     detectedAt: input.detectedAtIso,
-    score: measurement.headlineScore,
+    score: measurement.score,
     confidence: measurement.confidence,
-    severity: scoreToSeverity(measurement.headlineScore),
+    severity: scoreToSeverity(measurement.score),
     reason: `board state-space ${input.config.gameStateVolatility.runtime.bucketSeconds}s bucket fired at ${new Date(
       activeBucket.bucketStartMs + input.config.gameStateVolatility.runtime.bucketSeconds * 1000,
     ).toISOString()}: ${activeBucket.intensity.toFixed(3)} vs threshold ${activeObservation.threshold.toFixed(
