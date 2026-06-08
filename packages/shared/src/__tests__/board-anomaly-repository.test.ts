@@ -643,7 +643,6 @@ describe("board anomaly repository", () => {
         materializedObservationRows: 0,
         rawQuoteRows: 1,
       },
-      state: "insufficient-data",
     });
   });
 
@@ -940,7 +939,6 @@ describe("board anomaly repository", () => {
     expect(measurements[1]).toMatchObject({
       gameId: "nba-board-pregame-insufficient-test",
       score: 0,
-      state: "insufficient-data",
     });
   });
 

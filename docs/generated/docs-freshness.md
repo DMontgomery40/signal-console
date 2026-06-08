@@ -26,9 +26,11 @@ Scope: `staged`
 
 Source/config changes:
 
-- `apps/api/src/services/board-volatility-model.ts`
-- `apps/api/tests/board-volatility-model.test.ts`
-- `packages/detectors/src/types.ts`
+- `packages/domain/src/board-anomaly.ts`
+- `packages/shared/src/__tests__/board-anomaly-repository.test.ts`
+- `packages/shared/src/__tests__/board-anomaly.test.ts`
+- `packages/shared/src/board-anomaly-live-listings.ts`
+- `packages/shared/src/board-anomaly/game-state-volatility.ts`
 
 Normal docs, repo-memory, or instruction refresh changes:
 

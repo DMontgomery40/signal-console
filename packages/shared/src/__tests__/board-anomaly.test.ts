@@ -544,7 +544,6 @@ describe("detectBoardAnomalies", () => {
     expect(measurement).toMatchObject({
       band: "insufficient-data",
       score: 0,
-      state: "insufficient-data",
     });
   });
 
@@ -704,7 +703,6 @@ describe("detectBoardAnomalies", () => {
     expect(measurement).toMatchObject({
       band: "insufficient-data",
       score: 0,
-      state: "insufficient-data",
     });
   });
 

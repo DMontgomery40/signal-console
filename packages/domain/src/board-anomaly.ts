@@ -226,8 +226,6 @@ export type BoardGameStateVolatility = {
   gameId: string;
   gameLabel: string;
   measuredAt: string;
-  headlineScore: number;
-  state: BoardGameStateVolatilityBand;
   score: number;
   band: BoardGameStateVolatilityBand;
   confidence: number;
