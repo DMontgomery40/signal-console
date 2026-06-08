@@ -182,6 +182,66 @@ describe("buildBoardVolatilityModelRequest", () => {
     expect(request.observations).toEqual([]);
   });
 
+  it("counts distinct BOOKS for sourceCount, not markets — one book on two markets is sourceCount 1 (F-008)", () => {
+    // bet365 quotes TWO markets (moneyline + spread), each moving, in one bucket.
+    // `sourceCount` (the source-trust gate input) must be book-level = 1, while
+    // `activeMarketCount` (the breadth normalizer) is market-level = 2. This pins
+    // the semantics behind the renamed `contributingSourceKeys` set so a future
+    // refactor can't silently turn sourceCount into a market count.
+    const request = buildBoardVolatilityModelRequest({
+      bucketSeconds: 60,
+      freshCapSeconds: 300,
+      gameId: "nba-synth-book",
+      params: {
+        baselineMode: "trailing",
+        bucketSeconds: 60,
+        kMad: 3,
+        stateSpace: BOARD_STATE_SPACE_CONFIG_DEFAULTS,
+        trailingBuckets: 20,
+        warmupBuckets: 8,
+      },
+      ticks: [
+        tick({
+          capturedAt: "2026-05-25T00:00:10.000Z",
+          gameElapsedSeconds: 10,
+          impliedProbability: 0.4,
+          source: "bet365",
+          sourceMarketId: "bet365-ml",
+        }),
+        tick({
+          capturedAt: "2026-05-25T00:00:40.000Z",
+          gameElapsedSeconds: 40,
+          impliedProbability: 0.55,
+          source: "bet365",
+          sourceMarketId: "bet365-ml",
+        }),
+        tick({
+          capturedAt: "2026-05-25T00:00:12.000Z",
+          gameElapsedSeconds: 12,
+          impliedProbability: 0.3,
+          source: "bet365",
+          sourceMarketId: "bet365-spread",
+        }),
+        tick({
+          capturedAt: "2026-05-25T00:00:42.000Z",
+          gameElapsedSeconds: 42,
+          impliedProbability: 0.45,
+          source: "bet365",
+          sourceMarketId: "bet365-spread",
+        }),
+      ],
+      weighting: "equal",
+    });
+
+    expect(request.observations).toHaveLength(1);
+    expect(request.observations[0]).toMatchObject({
+      activeMarketCount: 2,
+      sourceCount: 1,
+      sourceDisagreement: 0,
+    });
+    expect(request.observations[0]?.sourceDominance).toBe(1);
+  });
+
   it("falls back to tipoff-anchored elapsed seconds when ticks lack game clock", () => {
     const request = buildBoardVolatilityModelRequest({
       bucketSeconds: 60,

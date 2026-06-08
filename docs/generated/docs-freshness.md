@@ -26,11 +26,13 @@ Scope: `staged`
 
 Source/config changes:
 
-- None detected.
+- `apps/api/src/services/board-volatility-model.ts`
+- `apps/api/tests/board-volatility-model.test.ts`
+- `packages/detectors/src/types.ts`
 
 Normal docs, repo-memory, or instruction refresh changes:
 
-- `README.md`
+- `docs/agent-context.md`
 
 ## Issues
 

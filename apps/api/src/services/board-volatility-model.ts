@@ -16,12 +16,21 @@ export interface BuildBoardVolatilityModelRequestArgs {
 }
 
 interface MutableBucket {
+  // Distinct MARKETS that moved in this bucket → `activeMarketCount` (the breadth
+  // normalizer). Keyed by `sourceMarketId`.
   readonly activeMarkets: Set<string>;
   gameElapsedSeconds: number | null;
   intensity: number;
   readonly sourceContribution: Map<string, number>;
   readonly sourceSignedContribution: Map<string, number>;
-  readonly sourceMarkets: Set<string>;
+  // Distinct BOOKS that contributed → `sourceCount` (the source-trust gate input,
+  // book-level per docs/board-volatility-state-space.md). Keyed by
+  // `tickSourceKey = tick.source ?? sourceMarketId`, so this is book-level only
+  // while `tick.source` is populated; on a legacy gold DB without the
+  // `source_markets.source` column (`board-mad-context.ts` selects `NULL AS
+  // source`) it degrades to per-market. Renamed from the misleading
+  // `sourceMarkets` (audit F-008): the set holds book keys, NOT source-market ids.
+  readonly contributingSourceKeys: Set<string>;
 }
 
 function isFiniteNumber(value: unknown): value is number {
@@ -92,7 +101,7 @@ export function buildBoardVolatilityModelRequest(
       intensity: 0,
       sourceContribution: new Map<string, number>(),
       sourceSignedContribution: new Map<string, number>(),
-      sourceMarkets: new Set<string>(),
+      contributingSourceKeys: new Set<string>(),
     };
     const weightedDelta = delta * contributionWeight(current, args.weighting);
     const weightedSignedDelta =
@@ -100,7 +109,7 @@ export function buildBoardVolatilityModelRequest(
     const sourceKey = tickSourceKey(current);
     bucket.intensity += weightedDelta;
     bucket.activeMarkets.add(current.sourceMarketId);
-    bucket.sourceMarkets.add(sourceKey);
+    bucket.contributingSourceKeys.add(sourceKey);
     bucket.sourceContribution.set(
       sourceKey,
       (bucket.sourceContribution.get(sourceKey) ?? 0) + weightedDelta,
@@ -142,7 +151,7 @@ export function buildBoardVolatilityModelRequest(
           ? {}
           : { gameElapsedSeconds: bucket.gameElapsedSeconds }),
         intensity: bucket.intensity,
-        sourceCount: bucket.sourceMarkets.size,
+        sourceCount: bucket.contributingSourceKeys.size,
         sourceDisagreement,
         sourceDominance: dominantShare,
       };
