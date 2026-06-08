@@ -18,10 +18,12 @@ recomputing locally (`BacktestPage.tsx:9-12`). The wiring was neutered:
 
 ```ts
 function clampedStats(snapshot, currentParams): RecomputeView {
-  void currentParams;                       // <-- ignores the form entirely
-  return { stats: snapshot.response.stats,
-           observations: snapshot.response.observations,
-           fromRecompute: false };          // <-- always false now
+  void currentParams; // <-- ignores the form entirely
+  return {
+    stats: snapshot.response.stats,
+    observations: snapshot.response.observations,
+    fromRecompute: false,
+  }; // <-- always false now
 }
 ```
 

@@ -5,8 +5,8 @@
 // per-source freshness panel. Schema (mirrored by sourceRowSchema in that
 // route): { sources: Record<string, { lastSyncAt, lastError, rateLimitCooldown }> }.
 //
-// We derive lastSyncAt from MAX(quote_ticks.captured_at) per source via the
-// already-open better-sqlite3 handle — no subprocess, no extra connection.
+// We derive lastSyncAt from the latest successful adapter run per source.
+// This keeps heartbeat emission bounded even when quote_ticks is very large.
 // providerFailures from the worker cycle summary populate lastError.
 
 import { mkdirSync, renameSync, writeFileSync } from "node:fs";
@@ -50,10 +50,12 @@ export function writeHeartbeatJson(options?: {
   const db = getDatabase();
   const rows = db
     .prepare(
-      `SELECT sm.source AS source, MAX(qt.captured_at) AS last
-       FROM quote_ticks qt
-       JOIN source_markets sm ON sm.id = qt.source_market_id
-       GROUP BY sm.source`,
+      `SELECT source, MAX(finished_at) AS last
+       FROM adapter_runs
+       WHERE status = 'ok'
+         AND capture_mode = 'live'
+         AND finished_at IS NOT NULL
+       GROUP BY source`,
     )
     .all() as Array<{ source: string; last: string | null }>;
 
@@ -78,12 +80,17 @@ export function writeHeartbeatJson(options?: {
     };
   }
 
-  // nba-sidecar has no quote_ticks rows of its own (it populates games + PBP).
-  // Only report it when the worker actually has the sidecar configured; disabled
-  // sources should not look freshly synced.
-  if (options?.nbaSidecarConfigured === true && !bySource["nba-sidecar"]) {
+  const existingNbaSidecar = bySource["nba-sidecar"] ?? bySource["nba"];
+  delete bySource["nba"];
+  delete bySource["nba-sidecar"];
+
+  // Only report nba-sidecar when the worker actually has the sidecar
+  // configured; disabled sources should not look freshly synced. Prefer the
+  // current worker cycle's observed sidecar time over older ok adapter rows so
+  // partial PBP gaps do not pin Settings to stale freshness.
+  if (options?.nbaSidecarConfigured === true) {
     bySource["nba-sidecar"] = {
-      lastSyncAt: options.nbaSidecarLastSyncAt ?? null,
+      lastSyncAt: options.nbaSidecarLastSyncAt ?? existingNbaSidecar?.lastSyncAt ?? null,
       lastError: null,
       rateLimitCooldown: null,
     };

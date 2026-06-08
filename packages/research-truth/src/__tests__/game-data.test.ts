@@ -15,30 +15,35 @@ import { buildGameData, loadGameWindows } from "../index";
 // loaders' DB contract. The lib takes a handle; the caller owns open/close.
 const GOLD_DB_PATH = "/Users/davidmontgomery/signal-console/data/signal-console.sqlite";
 const REPRESENTATIVE_GAME_ID = "nba-0042500222";
+const REAL_GOLD_DB_TIMEOUT_MS = 60_000;
 
 describe("research-truth game-data loaders against the real gold DB", () => {
-  it("loads a non-empty GameData (pbp points + quote pairs) for the representative game", () => {
-    if (!existsSync(GOLD_DB_PATH)) {
-      throw new Error(
-        `gold DB not found at ${GOLD_DB_PATH}; this smoke test requires the read-only gold DB`,
-      );
-    }
-    const db = openGoldDb(GOLD_DB_PATH);
-    try {
-      const windows = loadGameWindows(db);
-      const window = windows.find((w) => w.gameId === REPRESENTATIVE_GAME_ID);
-      expect(window).toBeDefined();
-      if (window === undefined) return;
+  it(
+    "loads a non-empty GameData (pbp points + quote pairs) for the representative game",
+    () => {
+      if (!existsSync(GOLD_DB_PATH)) {
+        throw new Error(
+          `gold DB not found at ${GOLD_DB_PATH}; this smoke test requires the read-only gold DB`,
+        );
+      }
+      const db = openGoldDb(GOLD_DB_PATH);
+      try {
+        const windows = loadGameWindows(db);
+        const window = windows.find((w) => w.gameId === REPRESENTATIVE_GAME_ID);
+        expect(window).toBeDefined();
+        if (window === undefined) return;
 
-      // pbp lives on window.points
-      expect(window.points.length).toBeGreaterThan(0);
+        // pbp lives on window.points
+        expect(window.points.length).toBeGreaterThan(0);
 
-      const gameData = buildGameData(db, window);
-      expect(gameData.gameId).toBe(REPRESENTATIVE_GAME_ID);
-      expect(gameData.window.points.length).toBeGreaterThan(0);
-      expect(gameData.pairs.length).toBeGreaterThan(0);
-    } finally {
-      db.close();
-    }
-  });
+        const gameData = buildGameData(db, window);
+        expect(gameData.gameId).toBe(REPRESENTATIVE_GAME_ID);
+        expect(gameData.window.points.length).toBeGreaterThan(0);
+        expect(gameData.pairs.length).toBeGreaterThan(0);
+      } finally {
+        db.close();
+      }
+    },
+    REAL_GOLD_DB_TIMEOUT_MS,
+  );
 });

@@ -1,5 +1,7 @@
 ## In-Flight Architectural Notes
 
+Last verified: 2026-06-07
+
 Before designing changes to numerical state (formulas, constants, baselines, thresholds, calibration data) or proposing a new package layout, read `.codex/memory.md`. It contains the current architectural direction being staged (math/calibration/detectors/domain split, provenance rules for empirical constants, enforcement plan) plus the staging rule that says these are not yet codified here. Update `.codex/memory.md` when the direction shifts; only promote framings to this file after at least one real concept has moved through the new boundaries.
 
 ## Odds-API.io Live Comparator Policy
@@ -36,7 +38,7 @@ End every mutating turn by running the narrow changed-surface tests plus the rep
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **signal-console** (8447 symbols, 13974 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **signal-console** (10200 symbols, 16628 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 
@@ -76,3 +78,12 @@ This project is indexed by GitNexus as **signal-console** (8447 symbols, 13974 r
 | Index, status, clean, wiki CLI commands | `.claude/skills/gitnexus/gitnexus-cli/SKILL.md` |
 
 <!-- gitnexus:end -->
+
+<!-- agents-context-bootstrap:start -->
+## Agent Context Bootstrap
+
+- Source of truth for current repo reality: [docs/agent-context.md](docs/agent-context.md).
+- Generated checkout map: [docs/generated/repo-map.md](docs/generated/repo-map.md).
+- Required Mermaid docs: [docs/diagrams/](docs/diagrams/) with decoded PNG outputs in [docs/generated/diagrams/](docs/generated/diagrams/).
+- Keep durable project memory repo-local and update these docs when current reality changes.
+<!-- agents-context-bootstrap:end -->

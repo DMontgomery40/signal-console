@@ -102,6 +102,11 @@ function casesBody(incidents: readonly unknown[]) {
 
 function liveBody() {
   return {
+    activity: {
+      gameState: null,
+      playByPlayActionCount: 0,
+      recentPlayByPlay: [],
+    },
     gameId: "nba-0042500314",
     windowStart: "2026-05-25T00:11:22.400Z",
     windowEnd: "2026-05-25T00:21:22.400Z",

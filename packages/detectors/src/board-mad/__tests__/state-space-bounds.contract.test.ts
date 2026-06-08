@@ -11,9 +11,11 @@
 // It intentionally reads Zod internals (`_def`). If a Zod major bump changes
 // that shape this test fails loudly — which is the correct signal to re-confirm
 // the contract, not a false alarm to suppress.
+/* eslint-disable @typescript-eslint/consistent-type-assertions, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return */
 
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 
 import { BoardStateSpaceConfigSchema } from "../state-space-config";
 
@@ -23,59 +25,86 @@ interface Bound {
   readonly int?: true;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function unwrap(schema: any): any {
-  let s = schema;
-  for (let i = 0; i < 20; i++) {
-    const tn = s?._def?.typeName;
-    if (tn === "ZodDefault" || tn === "ZodOptional" || tn === "ZodNullable") {
-      s = s._def.innerType;
-      continue;
-    }
-    if (tn === "ZodEffects") {
-      s = s._def.schema;
-      continue;
-    }
-    break;
+const BoundSchema = z
+  .object({
+    min: z.number(),
+    max: z.number(),
+    int: z.literal(true).optional(),
+  })
+  .strict();
+
+function unwrap(schema: z.ZodTypeAny): z.ZodTypeAny {
+  if (schema instanceof z.ZodDefault) return unwrap(schema.removeDefault());
+  if (schema instanceof z.ZodOptional || schema instanceof z.ZodNullable)
+    return unwrap(schema.unwrap());
+  if (schema instanceof z.ZodEffects) return unwrap(schema.innerType());
+  return schema;
+}
+
+function expectZodObject(schema: z.ZodTypeAny, label: string): z.AnyZodObject {
+  const unwrapped = unwrap(schema);
+  if (!(unwrapped instanceof z.ZodObject)) {
+    throw new Error(`Zod schema ${label} is not an object`);
   }
-  return s;
+  return unwrapped;
+}
+
+function expectZodNumber(schema: z.ZodTypeAny, label: string): z.ZodNumber {
+  const unwrapped = unwrap(schema);
+  if (!(unwrapped instanceof z.ZodNumber)) {
+    throw new Error(`Zod field ${label} is not a number`);
+  }
+  return unwrapped;
+}
+
+function objectShape(schema: z.AnyZodObject): Readonly<Record<string, z.ZodTypeAny>> {
+  return schema.shape as Record<string, z.ZodTypeAny>;
+}
+
+function extractNumberBounds(schema: z.ZodNumber, label: string): Bound {
+  const min = schema._def.checks.find((check) => check.kind === "min")?.value;
+  const max = schema._def.checks.find((check) => check.kind === "max")?.value;
+  const isInt = schema._def.checks.some((check) => check.kind === "int");
+
+  if (typeof min !== "number" || typeof max !== "number") {
+    throw new Error(`Zod field ${label} is missing a min or max check`);
+  }
+
+  return isInt ? { min, max, int: true } : { min, max };
 }
 
 function extractBoundsFromZod(): Record<string, Bound> {
-  const root = unwrap(BoardStateSpaceConfigSchema);
-  const out: Record<string, Bound> = {};
-  for (const [groupKey, groupSchema] of Object.entries<unknown>(root.shape)) {
-    const groupObj = unwrap(groupSchema);
-    for (const [fieldKey, fieldSchema] of Object.entries<unknown>(groupObj.shape)) {
-      const num = unwrap(fieldSchema);
-      let min: number | undefined;
-      let max: number | undefined;
-      let isInt = false;
-      for (const check of num._def.checks as ReadonlyArray<{ kind: string; value?: number }>) {
-        if (check.kind === "min") min = check.value;
-        else if (check.kind === "max") max = check.value;
-        else if (check.kind === "int") isInt = true;
-      }
-      if (min === undefined || max === undefined) {
-        throw new Error(`Zod field ${groupKey}.${fieldKey} is missing a min or max check`);
-      }
-      out[`${groupKey}.${fieldKey}`] = isInt ? { min, max, int: true } : { min, max };
-    }
-  }
-  return out;
+  const root = expectZodObject(BoardStateSpaceConfigSchema, "root");
+  const entries: ReadonlyArray<readonly [string, Bound]> = Object.entries(
+    objectShape(root),
+  ).flatMap(([groupKey, groupSchema]): ReadonlyArray<readonly [string, Bound]> => {
+    const groupObj = expectZodObject(groupSchema, groupKey);
+    return Object.entries(objectShape(groupObj)).map(([fieldKey, fieldSchema]) => {
+      const label = `${groupKey}.${fieldKey}`;
+      return [label, extractNumberBounds(expectZodNumber(fieldSchema, label), label)];
+    });
+  });
+  return Object.fromEntries(entries);
+}
+
+function parseBound(value: unknown): Bound {
+  const parsed = BoundSchema.parse(value);
+  return parsed.int === true
+    ? { min: parsed.min, max: parsed.max, int: true }
+    : { min: parsed.min, max: parsed.max };
 }
 
 function loadContract(): Record<string, Bound> {
-  const raw: unknown = JSON.parse(
-    readFileSync(new URL("../state-space-bounds.json", import.meta.url), "utf8"),
+  const raw = z
+    .record(z.unknown())
+    .parse(
+      JSON.parse(readFileSync(new URL("../state-space-bounds.json", import.meta.url), "utf8")),
+    );
+  const entries: ReadonlyArray<readonly [string, Bound]> = Object.entries(raw).flatMap(
+    ([key, value]): ReadonlyArray<readonly [string, Bound]> =>
+      key === "_comment" ? [] : [[key, parseBound(value)]],
   );
-  if (typeof raw !== "object" || raw === null) throw new Error("bounds json is not an object");
-  const out: Record<string, Bound> = {};
-  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
-    if (key === "_comment") continue;
-    out[key] = value as Bound;
-  }
-  return out;
+  return Object.fromEntries(entries);
 }
 
 describe("board state-space bounds contract (F-001)", () => {

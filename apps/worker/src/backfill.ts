@@ -137,13 +137,17 @@ function printUsage() {
 
 async function runNba(logger: ReturnType<typeof createAppLogger>, options: BackfillOptions) {
   const anchorDate = options.until?.slice(0, 10);
+  const skipFutureScheduledGames = anchorDate === undefined || !isPastUtcDate(anchorDate);
   const summary = await syncNbaSidecarWindow({
+    captureMode: "historical",
     lookaheadDays: options.lookaheadDays ?? 0,
     lookbackDays: options.lookbackDays ?? DEFAULT_LOOKBACK_DAYS,
     now: anchorDate
       ? () =>
           new Date(`${anchorDate}T${String(UTC_BACKFILL_ANCHOR_HOUR).padStart(2, "0")}:00:00.000Z`)
       : undefined,
+    playByPlayReferenceNow: skipFutureScheduledGames ? () => new Date() : undefined,
+    skipFutureScheduledGames,
   });
   if (!summary.ok) {
     throw new Error(
@@ -262,6 +266,12 @@ function daysBetweenUtcDates(since: string, until: string): number {
 
 function todayUtcDate(): string {
   return new Date().toISOString().slice(0, 10);
+}
+
+function isPastUtcDate(date: string): boolean {
+  const dateMs = Date.parse(`${date.slice(0, 10)}T00:00:00Z`);
+  const todayMs = Date.parse(`${todayUtcDate()}T00:00:00Z`);
+  return Number.isFinite(dateMs) && Number.isFinite(todayMs) && dateMs < todayMs;
 }
 
 async function runNbaHistory(logger: ReturnType<typeof createAppLogger>, options: BackfillOptions) {

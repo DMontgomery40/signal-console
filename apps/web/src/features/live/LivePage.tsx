@@ -1,19 +1,10 @@
 // LivePage (US-031 / PRD §FR-20, US-206).
 //
-// Opt-in current-game live view: polls /v1/live/:gameId and /v1/ensemble-or/:gameId
-// every 30 s and renders a Recharts intensity timeline with fire markers
-// from the Stage-1 cascade (board-mad board lane + off-price-print lane).
-//
-// AMENDED 2026-05-25 (Codex review P1, then B-followup review P1):
-//   • Polls useLive(gameId) and useEnsembleOr(gameId) at refetchInterval=30000.
-//   • Timeline shows board intensity (line) + fire markers (yellow dots on
-//     fired=1) + off-price markers (red ReferenceLines).
-//   • K for the threshold line comes from the ensemble response itself
-//     (k field) so the chart's threshold is drawn against the SAME K the
-//     runner used to compute the fires — no /v1/settings race.
-//   • No silent-rebuild helpers imported from packages/db or packages/detectors.
-//     Pre-aggregated median/MAD values arrive as data fields on the ensemble
-//     API response; those are not function calls and not imports.
+// Opt-in current-game live view: polls /v1/live/:gameId, /v1/ensemble-or/:gameId,
+// and point-event Polymarket trade-print surfaces every 30 s. The live screen
+// intentionally separates official game/PBP activity from market model output so
+// wall-clock market observations are never presented as basketball game-clock
+// minutes.
 
 import type { JSX } from "react";
 import {
@@ -35,9 +26,14 @@ import { QueryErrorBanner } from "../../components/QueryErrorBanner";
 import {
   useEnsembleOr,
   useLive,
+  useMicrostructure,
+  useOffPricePrint,
+  useSettings,
   type BoardObservation,
   type EnsembleOrBoardObservation,
   type EnsembleOrFire,
+  type MicrostructureEvent,
+  type OffPricePrintFire,
 } from "../../data/queries";
 import { navigateTo } from "../../router";
 
@@ -46,11 +42,22 @@ interface LivePageProps {
 }
 
 const POLL_MS = 30_000;
+const MODEL_EVENT_LIMIT = 8;
 
 const TIME_FMT = new Intl.DateTimeFormat(undefined, {
   hour: "2-digit",
   minute: "2-digit",
   second: "2-digit",
+});
+const PRICE_FMT = new Intl.NumberFormat(undefined, {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 3,
+});
+const QUANTITY_FMT = new Intl.NumberFormat(undefined, {
+  maximumFractionDigits: 2,
+});
+const PCT_FMT = new Intl.NumberFormat(undefined, {
+  maximumFractionDigits: 1,
 });
 
 function formatClock(iso: string | null): string {
@@ -58,6 +65,110 @@ function formatClock(iso: string | null): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "—";
   return TIME_FMT.format(d);
+}
+
+function formatPeriod(period: number | null): string {
+  if (period === null) return "—";
+  if (period <= 0) return "pregame";
+  if (period <= 4) return `Q${String(period)}`;
+  return `OT${String(period - 4)}`;
+}
+
+function formatGameClock(clock: string | null): string {
+  if (clock === null || clock.length === 0) return "—";
+  const match = /^PT(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?$/.exec(clock);
+  if (match === null) return clock;
+  const minutes = Number(match[1] ?? "0");
+  const secondsRaw = match[2] ?? "0";
+  const seconds = Math.floor(Number(secondsRaw));
+  if (!Number.isFinite(minutes) || !Number.isFinite(seconds)) return clock;
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
+function formatGameScore(awayScore: number | null, homeScore: number | null): string {
+  if (awayScore === null || homeScore === null) return "—";
+  return `${String(awayScore)}-${String(homeScore)}`;
+}
+
+function formatPrice(value: number | null): string {
+  if (value === null) return "—";
+  return PRICE_FMT.format(value);
+}
+
+function formatQuantity(value: number | null): string {
+  if (value === null) return "—";
+  return QUANTITY_FMT.format(value);
+}
+
+function formatVolumeShare(value: number | null): string {
+  if (value === null) return "—";
+  return `${PCT_FMT.format(value * 100)}%`;
+}
+
+function latestTradeEvents(events: readonly MicrostructureEvent[]): readonly MicrostructureEvent[] {
+  return [...events]
+    .sort((a, b) =>
+      a.eventTimestamp < b.eventTimestamp ? 1 : a.eventTimestamp > b.eventTimestamp ? -1 : 0,
+    )
+    .slice(0, MODEL_EVENT_LIMIT);
+}
+
+function latestOffPriceFires(fires: readonly OffPricePrintFire[]): readonly OffPricePrintFire[] {
+  return [...fires]
+    .sort((a, b) => (a.bucketStart < b.bucketStart ? 1 : a.bucketStart > b.bucketStart ? -1 : 0))
+    .slice(0, MODEL_EVENT_LIMIT);
+}
+
+function detectorScopedTradeEvents(
+  events: readonly MicrostructureEvent[],
+  fires: readonly OffPricePrintFire[],
+): readonly MicrostructureEvent[] {
+  const fireKeys = new Set(
+    fires
+      .filter((fire) => fire.sourceMarketId !== undefined)
+      .map((fire) => `${fire.sourceMarketId}|${fire.bucketStart}`),
+  );
+  const unkeyedFireTimes = new Set(
+    fires.filter((fire) => fire.sourceMarketId === undefined).map((fire) => fire.bucketStart),
+  );
+  return events.filter((event) => {
+    if (event.source !== "polymarket" || event.eventType !== "trade") return false;
+    return (
+      fireKeys.has(`${event.sourceMarketId}|${event.eventTimestamp}`) ||
+      unkeyedFireTimes.has(event.eventTimestamp)
+    );
+  });
+}
+
+export interface TradePrintChartPoint {
+  readonly timeMs: number;
+  readonly eventTimestamp: string;
+  readonly instrumentId: string;
+  readonly market: string;
+  readonly notional: number | null;
+  readonly price: number | null;
+  readonly size: number | null;
+  readonly volumeShare: number | null;
+}
+
+export function buildTradePrintChartData(
+  events: readonly MicrostructureEvent[],
+): TradePrintChartPoint[] {
+  return [...events]
+    .sort((a, b) =>
+      a.eventTimestamp < b.eventTimestamp ? -1 : a.eventTimestamp > b.eventTimestamp ? 1 : 0,
+    )
+    .map((event) => ({
+      timeMs: Date.parse(event.eventTimestamp),
+      eventTimestamp: event.eventTimestamp,
+      instrumentId: event.instrumentId ?? event.sourceMarketId,
+      market: event.sourceMarketId,
+      notional: event.notional,
+      price: event.tradePrice ?? event.price,
+      size: event.size,
+      volumeShare: event.volumeShare,
+    }))
+    .filter((point) => Number.isFinite(point.timeMs) && point.price !== null);
 }
 
 export interface ChartPoint {
@@ -161,7 +272,7 @@ export function IntensityTimeline({ data, offPriceEvents }: IntensityTimelinePro
     // and the first resolved poll (US-031 AC #6: "renders without a layout-shift
     // flash").
     <div className="h-72 w-full" data-testid="live-timeline">
-      <ResponsiveContainer width="100%" height="100%">
+      <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
         <LineChart data={data} margin={{ top: 12, right: 16, bottom: 24, left: 8 }}>
           <CartesianGrid stroke={colors.textLo} strokeOpacity={0.2} strokeDasharray="2 4" />
           <XAxis
@@ -240,6 +351,426 @@ export function IntensityTimeline({ data, offPriceEvents }: IntensityTimelinePro
   );
 }
 
+interface LiveActivityPanelProps {
+  readonly activity: NonNullable<ReturnType<typeof buildActivitySnapshot>>;
+}
+
+function buildActivitySnapshot(
+  liveData: {
+    readonly activity?: {
+      readonly gameState: {
+        readonly awayScore: number | null;
+        readonly clock: string | null;
+        readonly homeScore: number | null;
+        readonly period: number | null;
+        readonly status: string;
+      } | null;
+      readonly playByPlayActionCount: number;
+      readonly recentPlayByPlay: readonly {
+        readonly actionNumber: number;
+        readonly actionType: string | null;
+        readonly clock: string | null;
+        readonly description: string | null;
+        readonly period: number | null;
+        readonly scoreAway: string | null;
+        readonly scoreHome: string | null;
+        readonly teamTricode: string | null;
+      }[];
+    };
+  } | null,
+) {
+  if (liveData?.activity === undefined) return null;
+  return liveData.activity;
+}
+
+function LiveActivityPanel({ activity }: LiveActivityPanelProps): JSX.Element {
+  const state = activity.gameState;
+  const latestActions = activity.recentPlayByPlay.slice(0, 4);
+  return (
+    <section
+      className="mt-6 border-y border-surface-1 py-4"
+      data-testid="live-activity-panel"
+      aria-label="Live game activity"
+    >
+      <div className="grid gap-3 sm:grid-cols-3">
+        <div>
+          <p className="font-mono text-[11px] uppercase tracking-[0.08em] text-text-lo">
+            game clock
+          </p>
+          <p className="mt-1 text-sm font-semibold text-text-hi" data-testid="live-game-state">
+            {state === null
+              ? "No game state"
+              : `${formatPeriod(state.period)} ${formatGameClock(state.clock)} · ${state.status}`}
+          </p>
+        </div>
+        <div>
+          <p className="font-mono text-[11px] uppercase tracking-[0.08em] text-text-lo">score</p>
+          <p className="mt-1 tabular font-mono text-sm text-text-hi" data-testid="live-score">
+            {state === null ? "—" : formatGameScore(state.awayScore, state.homeScore)}
+          </p>
+        </div>
+        <div>
+          <p className="font-mono text-[11px] uppercase tracking-[0.08em] text-text-lo">
+            official PBP
+          </p>
+          <p className="mt-1 tabular font-mono text-sm text-text-hi" data-testid="live-pbp-count">
+            {String(activity.playByPlayActionCount)} action
+            {activity.playByPlayActionCount === 1 ? "" : "s"}
+          </p>
+        </div>
+      </div>
+
+      {latestActions.length > 0 ? (
+        <ol className="mt-4 grid gap-2 sm:grid-cols-2" data-testid="live-pbp-list">
+          {latestActions.map((action) => (
+            <li
+              key={action.actionNumber}
+              className="border-l border-surface-2 pl-3"
+              data-testid="live-pbp-row"
+            >
+              <p className="tabular font-mono text-[11px] text-text-lo">
+                {formatPeriod(action.period)} {formatGameClock(action.clock)} ·{" "}
+                {action.scoreAway ?? "—"}-{action.scoreHome ?? "—"}
+                {action.teamTricode !== null ? ` · ${action.teamTricode}` : ""}
+              </p>
+              <p className="mt-0.5 text-sm text-text-md">
+                {action.description ?? action.actionType ?? "Official action"}
+              </p>
+            </li>
+          ))}
+        </ol>
+      ) : null}
+    </section>
+  );
+}
+
+interface BoardStateSpacePanelProps {
+  readonly chartData: ChartPoint[];
+  readonly fires: readonly BoardObservation[];
+  readonly isError: boolean;
+  readonly isLoading: boolean;
+  readonly liveK: number | null;
+  readonly observations: readonly BoardObservation[];
+  readonly offPriceEvents: readonly OffPriceMarkerSource[];
+}
+
+function BoardStateSpacePanel({
+  chartData,
+  fires,
+  isError,
+  isLoading,
+  liveK,
+  observations,
+  offPriceEvents,
+}: BoardStateSpacePanelProps): JSX.Element {
+  return (
+    <div className="mt-8" data-testid="live-board-panel">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-2">
+        <h3 className="text-sm font-semibold text-text-hi">
+          board state-space fires (trigger{" "}
+          <span data-testid="live-k" className="text-accent-yellow">
+            {liveK !== null ? liveK.toFixed(1) : "—"}
+          </span>
+          ) <span className="text-text-lo">+</span> off-price prints
+        </h3>
+        <p className="max-w-full break-words text-left tabular font-mono text-xs text-text-lo sm:text-right">
+          <span
+            data-testid="live-fires-count"
+            className={fires.length > 0 ? "text-accent-yellow" : "text-text-md"}
+          >
+            {String(fires.length)}
+          </span>{" "}
+          board ·{" "}
+          <span data-testid="live-offprice-count" className="text-negative">
+            {String(offPriceEvents.length)}
+          </span>{" "}
+          off-price · {String(observations.length)} bucket
+          {observations.length === 1 ? "" : "s"}
+        </p>
+      </div>
+
+      <div className="mt-4">
+        {isLoading ? (
+          <div
+            className="h-72 w-full bg-surface-1"
+            data-testid="live-timeline-loading"
+            role="status"
+            aria-label="loading timeline"
+          />
+        ) : isError ? null : observations.length === 0 ? (
+          <div
+            className="flex h-72 w-full items-center justify-center bg-surface-1"
+            data-testid="live-timeline-empty"
+          >
+            <p className="font-mono text-sm text-text-lo">
+              No board observations yet. Polling every 30 s…
+            </p>
+          </div>
+        ) : (
+          <IntensityTimeline data={chartData} offPriceEvents={offPriceEvents} />
+        )}
+      </div>
+
+      <div
+        className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 font-mono text-[11px] text-text-lo"
+        data-testid="live-legend"
+      >
+        <span className="flex items-center gap-2">
+          <span aria-hidden className="inline-block h-[1.5px] w-5 bg-accent-green" />
+          board intensity
+        </span>
+        <span className="flex items-center gap-2" data-testid="live-threshold-legend">
+          <span
+            aria-hidden
+            className="inline-block h-0 w-5 border-t border-dashed border-text-lo"
+          />
+          active state-space threshold
+        </span>
+        <span className="flex items-center gap-2">
+          <span aria-hidden className="inline-block h-2 w-2 rounded-full bg-accent-yellow" />
+          board state-space fire
+        </span>
+        <span className="flex items-center gap-2">
+          <span
+            aria-hidden
+            className="inline-block h-3 w-[2px] bg-negative"
+            style={{ borderRight: `1.5px dashed ${colors.negative}` }}
+          />
+          off-price print
+        </span>
+      </div>
+    </div>
+  );
+}
+
+interface TradePrintModelPanelProps {
+  readonly isUnavailable: boolean;
+  readonly isLoading: boolean;
+  readonly tradeEvents: readonly MicrostructureEvent[];
+  readonly offPriceFires: readonly OffPricePrintFire[];
+}
+
+function TradePrintModelPanel({
+  isUnavailable,
+  isLoading,
+  tradeEvents,
+  offPriceFires,
+}: TradePrintModelPanelProps): JSX.Element {
+  const chartData = buildTradePrintChartData(tradeEvents);
+  const latestTrades = latestTradeEvents(tradeEvents);
+  const latestFires = latestOffPriceFires(offPriceFires);
+  return (
+    <div className="mt-8" data-testid="live-model-panel">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-2">
+        <h3 className="text-sm font-semibold text-text-hi">
+          trade-print model <span className="text-text-lo">(point events)</span>
+        </h3>
+        <p className="max-w-full break-words text-left tabular font-mono text-xs text-text-lo sm:text-right">
+          {isUnavailable ? (
+            <span data-testid="live-model-status" className="text-negative">
+              unavailable
+            </span>
+          ) : (
+            <>
+              <span data-testid="live-trade-count" className="text-text-hi">
+                {String(tradeEvents.length)}
+              </span>{" "}
+              trade print{tradeEvents.length === 1 ? "" : "s"} ·{" "}
+              <span
+                data-testid="live-trade-offprice-count"
+                className={offPriceFires.length > 0 ? "text-negative" : "text-text-md"}
+              >
+                {String(offPriceFires.length)}
+              </span>{" "}
+              strict off-price fire{offPriceFires.length === 1 ? "" : "s"}
+            </>
+          )}
+        </p>
+      </div>
+
+      {isUnavailable ? (
+        <div
+          className="mt-4 flex h-56 w-full items-center justify-center bg-surface-1"
+          data-testid="live-model-unavailable"
+        >
+          <p className="font-mono text-sm text-negative">Trade-print model unavailable.</p>
+        </div>
+      ) : isLoading ? (
+        <div
+          className="mt-4 h-56 w-full bg-surface-1"
+          data-testid="live-model-loading"
+          role="status"
+          aria-label="loading trade-print model"
+        />
+      ) : latestTrades.length === 0 ? (
+        <div
+          className="mt-4 flex h-56 w-full items-center justify-center bg-surface-1"
+          data-testid="live-model-empty"
+        >
+          <p className="font-mono text-sm text-text-lo">No trade-print events yet.</p>
+        </div>
+      ) : (
+        <>
+          <TradePrintTimeline data={chartData} offPriceFires={offPriceFires} />
+          <div className="mt-4 overflow-x-auto border-y border-surface-1">
+            <table
+              className="w-full min-w-[720px] border-collapse text-left"
+              data-testid="live-trade-table"
+            >
+              <thead>
+                <tr className="font-mono text-[11px] uppercase tracking-[0.08em] text-text-lo">
+                  <th className="py-2 pr-4 font-medium">time</th>
+                  <th className="py-2 pr-4 font-medium">market</th>
+                  <th className="py-2 pr-4 text-right font-medium">price</th>
+                  <th className="py-2 pr-4 text-right font-medium">size</th>
+                  <th className="py-2 pr-4 text-right font-medium">notional</th>
+                  <th className="py-2 text-right font-medium">vol share</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-surface-1">
+                {latestTrades.map((event) => (
+                  <tr key={event.id} data-testid="live-trade-row">
+                    <td className="py-2 pr-4 tabular font-mono text-xs text-text-md">
+                      {formatClock(event.eventTimestamp)}
+                    </td>
+                    <td className="py-2 pr-4 font-mono text-xs text-text-hi">
+                      {event.instrumentId ?? event.sourceMarketId}
+                    </td>
+                    <td className="py-2 pr-4 text-right tabular font-mono text-xs text-text-hi">
+                      {formatPrice(event.tradePrice ?? event.price)}
+                    </td>
+                    <td className="py-2 pr-4 text-right tabular font-mono text-xs text-text-md">
+                      {formatQuantity(event.size)}
+                    </td>
+                    <td className="py-2 pr-4 text-right tabular font-mono text-xs text-text-md">
+                      {formatQuantity(event.notional)}
+                    </td>
+                    <td className="py-2 text-right tabular font-mono text-xs text-text-md">
+                      {formatVolumeShare(event.volumeShare)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+
+      {latestFires.length > 0 ? (
+        <ol className="mt-4 grid gap-2 sm:grid-cols-2" data-testid="live-offprice-fire-list">
+          {latestFires.map((fire) => (
+            <li
+              key={`${fire.bucketStart}|${fire.sourceMarketId ?? "unknown"}`}
+              className="border-l border-negative pl-3"
+              data-testid="live-offprice-fire-row"
+            >
+              <p className="tabular font-mono text-[11px] text-text-lo">
+                {formatClock(fire.bucketStart)}
+                {fire.sourceMarketId !== undefined ? ` · ${fire.sourceMarketId}` : ""}
+              </p>
+              <p className="mt-0.5 tabular font-mono text-sm text-negative">
+                intensity {PRICE_FMT.format(fire.intensity)}
+              </p>
+            </li>
+          ))}
+        </ol>
+      ) : null}
+    </div>
+  );
+}
+
+interface TradePrintTimelineProps {
+  readonly data: TradePrintChartPoint[];
+  readonly offPriceFires: readonly OffPricePrintFire[];
+}
+
+function tradePrintDomain(data: readonly TradePrintChartPoint[]): ChartDomain | null {
+  const times = data.map((d) => d.timeMs).filter(Number.isFinite);
+  if (times.length === 0) return null;
+  return { minMs: Math.min(...times), maxMs: Math.max(...times) };
+}
+
+function offPriceFireMarkersForTradeDomain(
+  fires: readonly OffPricePrintFire[],
+  domain: ChartDomain | null,
+): OffPriceMarker[] {
+  if (domain === null) return [];
+  return offPriceMarkersForDomain(
+    fires.map((fire) => ({
+      id:
+        fire.sourceMarketId !== undefined
+          ? `${fire.bucketStart}|${fire.sourceMarketId}`
+          : fire.bucketStart,
+      eventTimestamp: fire.bucketStart,
+    })),
+    domain,
+  );
+}
+
+function TradePrintTimeline({ data, offPriceFires }: TradePrintTimelineProps): JSX.Element {
+  const domain = tradePrintDomain(data);
+  const offPriceMarkers = offPriceFireMarkersForTradeDomain(offPriceFires, domain);
+  return (
+    <div className="mt-4 h-64 w-full" data-testid="live-trade-timeline">
+      <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
+        <LineChart data={data} margin={{ top: 12, right: 16, bottom: 24, left: 8 }}>
+          <CartesianGrid stroke={colors.textLo} strokeOpacity={0.2} strokeDasharray="2 4" />
+          <XAxis
+            dataKey="timeMs"
+            type="number"
+            domain={xAxisDomain(domain)}
+            tick={{ fill: colors.textLo, fontSize: 10, fontFamily: "JetBrains Mono" }}
+            tickFormatter={(v: number) => formatAxisTime(v)}
+            minTickGap={32}
+          />
+          <YAxis
+            dataKey="price"
+            domain={[0, 1]}
+            tick={{ fill: colors.textLo, fontSize: 10, fontFamily: "JetBrains Mono" }}
+            tickFormatter={(v: number) => formatPrice(v)}
+            width={42}
+          />
+          <Tooltip
+            contentStyle={{
+              background: colors.surface1,
+              border: `1px solid ${colors.surface2}`,
+              borderRadius: 0,
+              fontFamily: "JetBrains Mono",
+              fontSize: 11,
+              color: colors.textHi,
+            }}
+            labelFormatter={(label) =>
+              typeof label === "number" ? formatAxisTime(label) : String(label)
+            }
+          />
+          <Line
+            type="linear"
+            dataKey="price"
+            name="trade price"
+            stroke={colors.accentGreen}
+            strokeOpacity={0}
+            dot={{ r: 3, fill: colors.accentGreen, stroke: colors.accentGreen }}
+            activeDot={{ r: 4, fill: colors.accentGreen, stroke: colors.accentGreen }}
+            isAnimationActive={false}
+          />
+          {offPriceMarkers.map((marker) => (
+            <ReferenceLine
+              key={`trade-offprice-${marker.id}`}
+              x={marker.timeMs}
+              stroke={colors.negative}
+              strokeWidth={1.5}
+              strokeDasharray="3 3"
+              strokeOpacity={0.72}
+              ifOverflow="extendDomain"
+              data-testid="live-trade-offprice-marker"
+            />
+          ))}
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
 function InvalidGameFallback(): JSX.Element {
   return (
     <section data-testid="live-no-game">
@@ -266,34 +797,55 @@ export function LivePage({ gameId }: LivePageProps): JSX.Element {
   // 30 s poll is set here and nowhere else — Recent's useBoard stays one-shot
   // so opening Recent never triggers polling.
   const safeId = gameId ?? "";
+  const settings = useSettings({ enabled: safeId.length > 0 });
   const live = useLive(safeId, { refetchInterval: POLL_MS });
-  // Codex review P1 (2026-05-25): switched from useBoard + useMicrostructure
-  // to useEnsembleOr so the Live UI now reads the Stage-1 cascade math through
-  // the shared runner. /v1/ensemble-or returns board observations (per-bucket
-  // aggregates with warmedUp + fired) AND lane-tagged fires (board + offprice)
-  // computed by the actual off-price-print detector at live default thresholds.
-  // The earlier "/v1/microstructure events labeled as off-price prints" only
-  // filtered by volume_share — wrong domain, didn't apply offPriceMinOffPriceDistance.
   const ensemble = useEnsembleOr(safeId, { refetchInterval: POLL_MS });
+  const microstructureTheta = settings.data?.detectorDefaults.offPriceMinVolumeShare;
+  const microstructureOptions =
+    microstructureTheta === undefined
+      ? { enabled: settings.isSuccess, refetchInterval: POLL_MS }
+      : {
+          enabled: settings.isSuccess,
+          refetchInterval: POLL_MS,
+          theta: microstructureTheta,
+        };
+  const microstructure = useMicrostructure(safeId, microstructureOptions);
+  const offPricePrint = useOffPricePrint(safeId, { refetchInterval: POLL_MS });
 
   if (gameId === null) {
     return <InvalidGameFallback />;
   }
 
   const networkErrored =
+    (settings.isError && isNetworkError(settings.error)) ||
     (live.isError && isNetworkError(live.error)) ||
-    (ensemble.isError && isNetworkError(ensemble.error));
+    (ensemble.isError && isNetworkError(ensemble.error)) ||
+    (microstructure.isError && isNetworkError(microstructure.error)) ||
+    (offPricePrint.isError && isNetworkError(offPricePrint.error));
 
   const banner = networkErrored ? (
-    <ApiUnreachableBanner error={live.error ?? ensemble.error ?? null} />
+    <ApiUnreachableBanner
+      error={
+        settings.error ??
+        live.error ??
+        ensemble.error ??
+        microstructure.error ??
+        offPricePrint.error ??
+        null
+      }
+    />
+  ) : settings.isError ? (
+    <QueryErrorBanner query={settings} label="Failed to load detector settings" />
   ) : live.isError ? (
     <QueryErrorBanner query={live} label="Failed to load live ticks" />
   ) : ensemble.isError ? (
     <QueryErrorBanner query={ensemble} label="Failed to load ensemble-or observations" />
+  ) : microstructure.isError ? (
+    <QueryErrorBanner query={microstructure} label="Failed to load trade-print events" />
+  ) : offPricePrint.isError ? (
+    <QueryErrorBanner query={offPricePrint} label="Failed to load off-price print model" />
   ) : null;
 
-  // ensemble-or board lane observations already match the chart's
-  // BoardObservation shape, so the adapter only narrows the type.
   const observations: readonly BoardObservation[] = (ensemble.data?.boardObservations ?? []).map(
     (b: EnsembleOrBoardObservation) => ({
       bucketStart: b.bucketStart,
@@ -302,14 +854,11 @@ export function LivePage({ gameId }: LivePageProps): JSX.Element {
       intensity: b.intensity,
       baselineMedian: b.baselineMedian,
       baselineMad: b.baselineMad,
+      threshold: b.threshold,
       warmedUp: b.warmedUp,
     }),
   );
   const fires = observations.filter((o) => o.fired === 1);
-  // Codex review P1: ensemble-or offprice fires → minimal OffPriceMarkerSource
-  // shape the chart consumes. id = `${bucketStart}|${sourceMarketId}` so a
-  // React key collision is impossible across simultaneous markets, and
-  // per-timestamp dedup still happens inside offPriceMarkersForDomain.
   const offPriceEvents: readonly OffPriceMarkerSource[] = (ensemble.data?.fires ?? [])
     .filter((f: EnsembleOrFire) => f.lane === "offprice")
     .map(
@@ -318,27 +867,17 @@ export function LivePage({ gameId }: LivePageProps): JSX.Element {
         eventTimestamp: f.bucketStart,
       }),
     );
-  // Codex B-followup review P1 (2026-05-25): K comes from the ensemble
-  // response itself, NOT a separate /v1/settings round-trip. The runner
-  // computed these fires with this K; threshold line drawn against this K
-  // is guaranteed consistent. ensembleOrSchema enforces `k` is REQUIRED
-  // (no Zod default) per Codex review P2, so when ensemble.data is
-  // defined, k is always the real resolved K. While ensemble.data is
-  // undefined (loading / error), `liveK` is null and the label renders "—"
-  // — no silent fallback number. observations is also empty during load,
-  // so the chart skeleton shows; threshold lines need warmed observations
-  // anyway.
   const liveK = ensemble.data?.k ?? null;
-  // Chart math: use 0 when liveK is null. observations is empty during
-  // loading so this never produces a visible threshold; the 0 just keeps
-  // buildChartData's signature happy.
   const chartData = buildChartData(observations, liveK ?? 0);
+  const offPriceFires = offPricePrint.data?.fires ?? [];
+  const tradeEvents = detectorScopedTradeEvents(microstructure.data?.events ?? [], offPriceFires);
   const tickCount = live.data?.ticks.length ?? 0;
   const lastWindowEnd = live.data?.windowEnd ?? null;
   const lastTickTime =
     live.data !== undefined && live.data.ticks.length > 0
       ? (live.data.ticks[live.data.ticks.length - 1]?.capturedAt ?? null)
       : null;
+  const activity = buildActivitySnapshot(live.data ?? null);
 
   return (
     <section data-testid="live-page" data-game-id={gameId}>
@@ -371,82 +910,24 @@ export function LivePage({ gameId }: LivePageProps): JSX.Element {
         </p>
       </div>
 
-      <div className="mt-8" data-testid="live-board-panel">
-        <div className="flex items-baseline justify-between gap-6">
-          <h3 className="text-sm font-semibold text-text-hi">
-            board state-space fires (trigger{" "}
-            <span data-testid="live-k" className="text-accent-yellow">
-              {liveK !== null ? liveK.toFixed(1) : "—"}
-            </span>
-            ) <span className="text-text-lo">+</span> off-price prints
-          </h3>
-          <p className="tabular font-mono text-xs text-text-lo">
-            <span
-              data-testid="live-fires-count"
-              className={fires.length > 0 ? "text-accent-yellow" : "text-text-md"}
-            >
-              {String(fires.length)}
-            </span>{" "}
-            board ·{" "}
-            <span data-testid="live-offprice-count" className="text-negative">
-              {String(offPriceEvents.length)}
-            </span>{" "}
-            off-price · {String(observations.length)} bucket
-            {observations.length === 1 ? "" : "s"}
-          </p>
-        </div>
+      {activity !== null ? <LiveActivityPanel activity={activity} /> : null}
 
-        <div className="mt-4">
-          {ensemble.isLoading ? (
-            <div
-              className="h-72 w-full bg-surface-1"
-              data-testid="live-timeline-loading"
-              role="status"
-              aria-label="loading timeline"
-            />
-          ) : ensemble.isError ? null : observations.length === 0 ? (
-            <div
-              className="flex h-72 w-full items-center justify-center bg-surface-1"
-              data-testid="live-timeline-empty"
-            >
-              <p className="font-mono text-sm text-text-lo">
-                No board observations yet. Polling every 30 s…
-              </p>
-            </div>
-          ) : (
-            <IntensityTimeline data={chartData} offPriceEvents={offPriceEvents} />
-          )}
-        </div>
+      <BoardStateSpacePanel
+        chartData={chartData}
+        fires={fires}
+        isError={ensemble.isError}
+        isLoading={ensemble.isLoading}
+        liveK={liveK}
+        observations={observations}
+        offPriceEvents={offPriceEvents}
+      />
 
-        <div
-          className="mt-3 flex items-center gap-5 font-mono text-[11px] text-text-lo"
-          data-testid="live-legend"
-        >
-          <span className="flex items-center gap-2">
-            <span aria-hidden className="inline-block h-[1.5px] w-5 bg-accent-green" />
-            board intensity
-          </span>
-          <span className="flex items-center gap-2" data-testid="live-threshold-legend">
-            <span
-              aria-hidden
-              className="inline-block h-0 w-5 border-t border-dashed border-text-lo"
-            />
-            active state-space threshold
-          </span>
-          <span className="flex items-center gap-2">
-            <span aria-hidden className="inline-block h-2 w-2 rounded-full bg-accent-yellow" />
-            board state-space fire
-          </span>
-          <span className="flex items-center gap-2">
-            <span
-              aria-hidden
-              className="inline-block h-3 w-[2px] bg-negative"
-              style={{ borderRight: `1.5px dashed ${colors.negative}` }}
-            />
-            off-price print
-          </span>
-        </div>
-      </div>
+      <TradePrintModelPanel
+        isUnavailable={settings.isError || microstructure.isError || offPricePrint.isError}
+        isLoading={settings.isLoading || microstructure.isLoading || offPricePrint.isLoading}
+        tradeEvents={tradeEvents}
+        offPriceFires={offPriceFires}
+      />
     </section>
   );
 }

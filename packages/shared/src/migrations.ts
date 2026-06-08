@@ -2,7 +2,7 @@ import { DatabaseFailureError } from "./errors";
 
 import type Database from "better-sqlite3";
 
-export const currentSchemaVersion = 14;
+export const currentSchemaVersion = 16;
 
 function nowIso() {
   return new Date().toISOString();
@@ -352,6 +352,14 @@ export function applyMigrations(db: Database.Database, dbPath: string) {
 
   if (getAppliedVersion(db) < 14) {
     applyBoardVolatilityBaselineStorage(db);
+  }
+
+  if (getAppliedVersion(db) < 15) {
+    applyNbaPlayByPlayAttributionColumns(db);
+  }
+
+  if (getAppliedVersion(db) < 16) {
+    applyNbaPlayByPlayRevisionShadow(db);
   }
 }
 
@@ -726,5 +734,112 @@ function applyBoardVolatilityBaselineStorage(db: Database.Database) {
     `);
 
     insertMigration(db, 14, "board-volatility-baseline-storage");
+  })();
+}
+
+function applyNbaPlayByPlayAttributionColumns(db: Database.Database) {
+  db.transaction(() => {
+    if (!tableExists(db, "nba_play_by_play_actions")) {
+      insertMigration(db, 15, "nba-play-by-play-attribution-columns");
+      return;
+    }
+    const columns = db.prepare(`PRAGMA table_info('nba_play_by_play_actions')`).all() as Array<{
+      name: string;
+    }>;
+    const has = (name: string) => columns.some((c) => c.name === name);
+    if (!has("person_id")) {
+      db.exec(`ALTER TABLE nba_play_by_play_actions ADD COLUMN person_id INTEGER;`);
+    }
+    if (!has("player_name")) {
+      db.exec(`ALTER TABLE nba_play_by_play_actions ADD COLUMN player_name TEXT;`);
+    }
+    if (!has("sub_type")) {
+      db.exec(`ALTER TABLE nba_play_by_play_actions ADD COLUMN sub_type TEXT;`);
+    }
+
+    insertMigration(db, 15, "nba-play-by-play-attribution-columns");
+  })();
+}
+
+function applyNbaPlayByPlayRevisionShadow(db: Database.Database) {
+  db.transaction(() => {
+    if (!tableExists(db, "games")) {
+      insertMigration(db, 16, "nba-play-by-play-revision-shadow");
+      return;
+    }
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS nba_pbp_revisions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        game_id TEXT NOT NULL,
+        action_number INTEGER NOT NULL,
+        captured_at TEXT NOT NULL,
+        action_type TEXT,
+        sub_type TEXT,
+        person_id INTEGER,
+        player_name TEXT,
+        period INTEGER,
+        clock TEXT,
+        description TEXT,
+        score_away TEXT,
+        score_home TEXT,
+        team_tricode TEXT,
+        time_actual TEXT,
+        FOREIGN KEY (game_id) REFERENCES games(id) ON DELETE CASCADE,
+        UNIQUE (game_id, action_number, captured_at)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_nba_pbp_revisions_action
+        ON nba_pbp_revisions(game_id, action_number, captured_at);
+    `);
+    const revisionColumns = (
+      db.prepare("PRAGMA table_info(nba_pbp_revisions)").all() as Array<{ name: string }>
+    ).map((column) => column.name);
+    if (!revisionColumns.includes("score_away")) {
+      db.exec("ALTER TABLE nba_pbp_revisions ADD COLUMN score_away TEXT;");
+    }
+    if (!revisionColumns.includes("score_home")) {
+      db.exec("ALTER TABLE nba_pbp_revisions ADD COLUMN score_home TEXT;");
+    }
+    if (!revisionColumns.includes("team_tricode")) {
+      db.exec("ALTER TABLE nba_pbp_revisions ADD COLUMN team_tricode TEXT;");
+    }
+    if (tableExists(db, "nba_play_by_play_actions")) {
+      db.exec(`
+        INSERT OR IGNORE INTO nba_pbp_revisions (
+          game_id,
+          action_number,
+          captured_at,
+          action_type,
+          sub_type,
+          person_id,
+          player_name,
+          period,
+          clock,
+          description,
+          score_away,
+          score_home,
+          team_tricode,
+          time_actual
+        )
+        SELECT a.game_id,
+               a.action_number,
+               a.captured_at,
+               a.action_type,
+               a.sub_type,
+               a.person_id,
+               a.player_name,
+               a.period,
+               a.clock,
+               a.description,
+               a.score_away,
+               a.score_home,
+               a.team_tricode,
+               a.time_actual
+        FROM nba_play_by_play_actions a
+        WHERE EXISTS (SELECT 1 FROM games g WHERE g.id = a.game_id);
+      `);
+    }
+
+    insertMigration(db, 16, "nba-play-by-play-revision-shadow");
   })();
 }

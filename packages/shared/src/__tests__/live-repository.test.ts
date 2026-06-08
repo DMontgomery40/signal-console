@@ -18,10 +18,13 @@ import {
   listMarketAnomalyAlerts,
   listResearchGames,
   listPlayerPropDisagreementAlerts,
+  listPbpAttributionTransitions,
   listResearchDivergence,
   listSignalMismatches,
   recordGameStateObservation,
   recordMarketMicrostructureEvent,
+  recordNbaPlayByPlayActions,
+  recordNbaPlayByPlayRevisions,
   recordQuoteObservation,
   recordRawPayload,
   resetDatabase,
@@ -214,6 +217,156 @@ describe("live repository", () => {
     if (tempDir) {
       rmSync(tempDir, { recursive: true, force: true });
     }
+  });
+
+  it("persists structured PBP attribution through the latest schema", () => {
+    seedLiveRepositoryGame();
+    recordNbaPlayByPlayActions({
+      gameId: "nba-bos-nyk-2026-04-21",
+      capturedAt: "2026-04-21T23:41:00.000Z",
+      actions: [
+        {
+          actionNumber: 416,
+          actionType: "rebound",
+          description: "V. Wembanyama REBOUND",
+          personId: 1641705,
+          playerName: "V. Wembanyama",
+          subType: "offensive",
+        },
+        { actionNumber: 417, actionType: "timeout" },
+      ],
+    });
+
+    const db = getDatabase();
+    const credited = db
+      .prepare(
+        "SELECT person_id, player_name, sub_type FROM nba_play_by_play_actions WHERE game_id = ? AND action_number = ?",
+      )
+      .get("nba-bos-nyk-2026-04-21", 416) as {
+      person_id: number | null;
+      player_name: string | null;
+      sub_type: string | null;
+    };
+    expect(credited.person_id).toBe(1641705);
+    expect(credited.player_name).toBe("V. Wembanyama");
+    expect(credited.sub_type).toBe("offensive");
+
+    const unattributed = db
+      .prepare(
+        "SELECT person_id, player_name, sub_type FROM nba_play_by_play_actions WHERE game_id = ? AND action_number = ?",
+      )
+      .get("nba-bos-nyk-2026-04-21", 417) as {
+      person_id: number | null;
+      player_name: string | null;
+      sub_type: string | null;
+    };
+    expect(unattributed.person_id).toBeNull();
+    expect(unattributed.player_name).toBeNull();
+    expect(unattributed.sub_type).toBeNull();
+  });
+
+  it("recovers credited-to-rightful corrections from versioned PBP revisions", () => {
+    seedLiveRepositoryGame();
+    const gameId = "nba-bos-nyk-2026-04-21";
+
+    const firstSnapshot = recordNbaPlayByPlayRevisions({
+      gameId,
+      capturedAt: "2026-04-21T23:41:00.000Z",
+      actions: [
+        {
+          actionNumber: 416,
+          actionType: "rebound",
+          personId: 100,
+          playerName: "S. Merrill",
+          subType: "offensive",
+        },
+        {
+          actionNumber: 417,
+          actionType: "rebound",
+          personId: 300,
+          playerName: "J. Tatum",
+          subType: "defensive",
+        },
+      ],
+    });
+    expect(firstSnapshot.revisionsWritten).toBe(2);
+    expect(
+      recordNbaPlayByPlayRevisions({
+        gameId,
+        capturedAt: "2026-04-21T23:41:00.000Z",
+        actions: [
+          {
+            actionNumber: 416,
+            actionType: "rebound",
+            personId: 100,
+            playerName: "S. Merrill",
+            subType: "offensive",
+          },
+        ],
+      }).revisionsWritten,
+    ).toBe(0);
+
+    expect(
+      recordNbaPlayByPlayRevisions({
+        gameId,
+        capturedAt: "2026-04-21T23:48:00.000Z",
+        actions: [
+          {
+            actionNumber: 416,
+            actionType: "rebound",
+            personId: 100,
+            playerName: "S. Merrill",
+            subType: "offensive",
+          },
+        ],
+      }).revisionsWritten,
+    ).toBe(0);
+
+    recordNbaPlayByPlayRevisions({
+      gameId,
+      capturedAt: "2026-04-21T23:55:00.000Z",
+      actions: [
+        {
+          actionNumber: 416,
+          actionType: "rebound",
+          personId: 200,
+          playerName: "J. Allen",
+          subType: "offensive",
+        },
+        {
+          actionNumber: 417,
+          actionType: "rebound",
+          personId: 300,
+          playerName: "J. Tatum",
+          subType: "offensive",
+        },
+      ],
+    });
+
+    expect(listPbpAttributionTransitions(gameId)).toEqual([
+      {
+        actionNumber: 416,
+        changedAt: "2026-04-21T23:55:00.000Z",
+        firstSeenAt: "2026-04-21T23:41:00.000Z",
+        fromPersonId: 100,
+        fromPlayer: "S. Merrill",
+        fromSubType: "offensive",
+        toPersonId: 200,
+        toPlayer: "J. Allen",
+        toSubType: "offensive",
+      },
+      {
+        actionNumber: 417,
+        changedAt: "2026-04-21T23:55:00.000Z",
+        firstSeenAt: "2026-04-21T23:41:00.000Z",
+        fromPersonId: 300,
+        fromPlayer: "J. Tatum",
+        fromSubType: "defensive",
+        toPersonId: 300,
+        toPlayer: "J. Tatum",
+        toSubType: "offensive",
+      },
+    ]);
   });
 
   it("ignores scheduled regressions after a game has started or finished", () => {

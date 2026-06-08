@@ -16,7 +16,7 @@
 2. **Detector `Source` type + registry metadata, 3 sources** —
    `packages/detectors/src/types.ts:12`:
    `export type Source = "bet365" | "kalshi" | "polymarket";` with the comment
-   *"source has to extend the union here, which forces a single source of truth."*
+   _"source has to extend the union here, which forces a single source of truth."_
    `board-mad` and `ensemble-or` declare `sources: ["bet365","kalshi","polymarket"]`;
    this is surfaced to operators in the Settings "About" section and the Backtest
    detector view.

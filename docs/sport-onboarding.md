@@ -7,8 +7,9 @@
 > - **`adding-a-source.md`** — new upstream feed (FanDuel, DraftKings) for
 >   a sport we already ingest.
 > - **`sport-onboarding.md`** (this doc) — a sport we do not yet ingest at
->   all: new play-by-play table, possibly a new participant JSON shape,
->   sport-specific detectors, and the `v_events` `UNION ALL` extension.
+>   all: new play-by-play table, possibly a new participant/player attribution
+>   JSON shape, sport-specific detectors, and the `v_events` `UNION ALL`
+>   extension.
 >
 > The two documents have intentional overlap (both edit `types.ts`, both
 > add fixtures and contract tests), but the surface area is different. If
@@ -70,6 +71,12 @@ For each new sport, the worker must land:
   - `action_number` (INTEGER, monotonic within a game)
   - `action_type` (TEXT, sport-specific vocabulary — "pass", "rush",
     "field_goal_attempt" for NFL; "shot", "foul" for NBA)
+  - `sub_type` (TEXT, nullable — secondary action class such as offensive /
+    defensive rebound, penalty subtype, or NULL when the sport has no subtype)
+  - `person_id` (INTEGER, nullable — official player/person id when the action
+    can be attributed)
+  - `player_name` (TEXT, nullable — fallback display name when no stable
+    `person_id` exists)
   - `period` (INTEGER — quarter for NFL, period for NBA)
   - `clock` (TEXT — game-clock string, "MM:SS" or sport-conventional)
   - `description` (TEXT — human-readable play description)
@@ -153,7 +160,7 @@ the future maintainer at the dispatcher.
 ## 3. Extending `v_events`
 
 `v_events` is the cross-sport projection of every play-by-play table.
-Today it is NBA-only:
+Today it is NBA-only and includes official player attribution:
 
 ```ts
 export const v_events: string = `
@@ -162,6 +169,9 @@ export const v_events: string = `
     pbp.game_id       AS game_id,
     pbp.action_number AS action_number,
     pbp.action_type   AS action_type,
+    pbp.sub_type      AS sub_type,
+    pbp.person_id     AS person_id,
+    pbp.player_name   AS player_name,
     pbp.period        AS period,
     pbp.clock         AS clock,
     pbp.description   AS description,
@@ -182,6 +192,9 @@ export const v_events: string = `
     pbp.game_id       AS game_id,
     pbp.action_number AS action_number,
     pbp.action_type   AS action_type,
+    pbp.sub_type      AS sub_type,
+    pbp.person_id     AS person_id,
+    pbp.player_name   AS player_name,
     pbp.period        AS period,
     pbp.clock         AS clock,
     pbp.description   AS description,
@@ -194,6 +207,9 @@ export const v_events: string = `
     pbp.game_id       AS game_id,
     pbp.action_number AS action_number,
     pbp.action_type   AS action_type,
+    pbp.sub_type      AS sub_type,
+    pbp.person_id     AS person_id,
+    pbp.player_name   AS player_name,
     pbp.period        AS period,
     pbp.clock         AS clock,
     pbp.description   AS description,
@@ -218,9 +234,30 @@ Rules of thumb:
   Renaming for one sport breaks every other sport's reads.
 - **If a sport's PBP lacks one of the columns**, project a NULL:
   `NULL AS clock` for sports without a game clock. Callers must handle
-  `clock` being optional anyway (NBA quarter breaks emit `clock = ''`).
+  `clock` being optional anyway (NBA quarter breaks emit `clock = ''`). The
+  same rule applies to attribution fields: use `NULL AS person_id`,
+  `NULL AS player_name`, or `NULL AS sub_type` until the upstream proves a
+  stable value.
 
-### 3.2 What if a sport needs a new column?
+### 3.2 Revision shadow for replay-safe activity
+
+NBA now stores an append-only PBP revision shadow in `nba_pbp_revisions`.
+`/v1/live/:gameId` reads this table to reconstruct official activity at a
+historical replay end. A past replay must not display a final correction that
+arrived after the requested `windowEnd`.
+
+When onboarding a sport whose official PBP can be revised, create the same
+contract for that sport before exposing its PBP on Live:
+
+- latest/current table for current reads (`<sport>_play_by_play_actions`)
+- revision table keyed by `(game_id, action_number, captured_at)`
+- worker write path that appends only changed action snapshots
+- API read path that selects latest revision at or before replay `windowEnd`
+
+If the upstream guarantees immutable PBP, document that proof in this runbook
+and keep the API from pretending revision safety exists.
+
+### 3.3 What if a sport needs a new column?
 
 `v_events` is the lowest common denominator across sports. If you need
 sport-specific columns (NFL down-and-distance, MLB ball-strike count),
@@ -352,6 +389,10 @@ extended to assert:
 - `GET /v1/games/<nfl-game-id>` returns a single row with `sport: "NFL"`.
 - The OpenAPI doc (`apps/api/openapi.yaml` or equivalent) lists the new
   sport in the `sport` enum.
+- If the sport appears on Live, `GET /v1/live/<game-id>` returns replay-scoped
+  `activity.gameState`, `activity.playByPlayActionCount`, and
+  `activity.recentPlayByPlay` without leaking future PBP corrections into a
+  historical `at=` replay.
 
 ### 5.5 UI smoke (when a sport ships with a UI affordance)
 
@@ -435,6 +476,9 @@ Smallest realistic path for adding NFL with one quote-only sportsbook
       {
         "actionNumber": 1,
         "actionType": "kickoff",
+        "subType": null,
+        "personId": null,
+        "playerName": null,
         "period": 1,
         "clock": "15:00",
         "description": "Kickoff to BUF, returned to BUF 25",
@@ -507,7 +551,11 @@ Mark each item before flipping the final story to `passes: true`.
 **Schema**
 
 - [ ] Worker creates `<sport>_play_by_play_actions` with all eight
-      required columns and the `idx_<sport>_pbp_game_action` index.
+      baseline columns, the three attribution columns (`sub_type`,
+      `person_id`, `player_name`), and the `idx_<sport>_pbp_game_action`
+      index.
+- [ ] If official PBP can be corrected, the worker also creates a revision
+      shadow table and the API can replay activity at a historical `windowEnd`.
 - [ ] `games` rows land with `sport = '<UPPERCASE>'` and `league` set.
 - [ ] `game_states` rows land per game with a valid `status` value.
 - [ ] Participant JSON shape is either NBA-compatible or documented in

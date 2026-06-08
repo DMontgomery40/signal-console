@@ -11,6 +11,7 @@ import {
   enqueueMarketBackfill,
   enqueueResearchExport,
   getDatabase,
+  recordAdapterRun,
   resetDatabase,
   upsertGame,
 } from "@signal-console/shared";
@@ -209,6 +210,15 @@ describe("worker runtime", () => {
   it("does not synthesize nba-sidecar freshness when the sidecar is disabled", () => {
     const outPath = join(tempDir, "heartbeat-disabled.json");
 
+    recordAdapterRun({
+      finishedAt: "2026-04-22T06:01:05.000Z",
+      recordsSeen: 1,
+      recordsWritten: 1,
+      source: "nba",
+      startedAt: "2026-04-22T06:01:00.000Z",
+      status: "ok",
+    });
+
     writeHeartbeatJson({
       nbaSidecarConfigured: false,
       outPath,
@@ -218,6 +228,7 @@ describe("worker runtime", () => {
       sources?: Record<string, unknown>;
     };
     expect(parsed.sources?.["nba-sidecar"]).toBeUndefined();
+    expect(parsed.sources?.["nba"]).toBeUndefined();
   });
 
   it("writes nba-sidecar freshness only from the observed sidecar sync time", () => {
@@ -233,6 +244,72 @@ describe("worker runtime", () => {
       sources?: Record<string, { lastSyncAt?: string | null }>;
     };
     expect(parsed.sources?.["nba-sidecar"]?.lastSyncAt).toBe("2026-04-22T06:00:00.000Z");
+  });
+
+  it("prefers current sidecar freshness over an older successful nba adapter row", () => {
+    const outPath = join(tempDir, "heartbeat-sidecar-current.json");
+
+    recordAdapterRun({
+      finishedAt: "2026-04-22T06:00:00.000Z",
+      recordsSeen: 1,
+      recordsWritten: 1,
+      source: "nba",
+      startedAt: "2026-04-22T06:00:00.000Z",
+      status: "ok",
+    });
+
+    writeHeartbeatJson({
+      nbaSidecarConfigured: true,
+      nbaSidecarLastSyncAt: "2026-04-22T07:00:00.000Z",
+      outPath,
+    });
+
+    const parsed = JSON.parse(readFileSync(outPath, "utf8")) as {
+      sources?: Record<string, { lastSyncAt?: string | null }>;
+    };
+    expect(parsed.sources?.["nba-sidecar"]?.lastSyncAt).toBe("2026-04-22T07:00:00.000Z");
+  });
+
+  it("writes provider freshness from adapter runs without scanning quote ticks", () => {
+    const outPath = join(tempDir, "heartbeat-adapter-runs.json");
+
+    recordAdapterRun({
+      finishedAt: "2026-04-22T06:00:05.000Z",
+      recordsSeen: 1,
+      recordsWritten: 1,
+      source: "bet365",
+      startedAt: "2026-04-22T06:00:00.000Z",
+      status: "ok",
+    });
+    recordAdapterRun({
+      captureMode: "historical",
+      finishedAt: "2026-04-22T07:00:05.000Z",
+      recordsSeen: 100,
+      recordsWritten: 100,
+      source: "bet365",
+      startedAt: "2026-04-22T07:00:00.000Z",
+      status: "ok",
+    });
+    recordAdapterRun({
+      finishedAt: "2026-04-22T06:01:05.000Z",
+      recordsSeen: 1,
+      recordsWritten: 1,
+      source: "nba",
+      startedAt: "2026-04-22T06:01:00.000Z",
+      status: "ok",
+    });
+
+    writeHeartbeatJson({
+      nbaSidecarConfigured: true,
+      outPath,
+    });
+
+    const parsed = JSON.parse(readFileSync(outPath, "utf8")) as {
+      sources?: Record<string, { lastSyncAt?: string | null }>;
+    };
+    expect(parsed.sources?.["bet365"]?.lastSyncAt).toBe("2026-04-22T06:00:05.000Z");
+    expect(parsed.sources?.["nba"]).toBeUndefined();
+    expect(parsed.sources?.["nba-sidecar"]?.lastSyncAt).toBe("2026-04-22T06:01:05.000Z");
   });
 
   it("keeps later market providers running when bet365 is rate-limited", async () => {

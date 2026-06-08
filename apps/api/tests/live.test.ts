@@ -1,8 +1,8 @@
 // Live route contract tests (US-028 / PRD §FR-20, §15).
 //
-// Real on-disk SQLite that mirrors the gold-DB shape for source_markets +
-// quote_ticks (the only tables /v1/live touches). The route opens the
-// fixture path read-only via openGoldDb.
+// Real on-disk SQLite that mirrors the gold-DB shape for source_markets,
+// quote_ticks, game_states, and NBA PBP rows. The route opens the fixture path
+// read-only via openGoldDb.
 
 import Database from "better-sqlite3";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -42,10 +42,49 @@ interface SeedTick {
   readonly isHeartbeat?: number;
 }
 
+interface SeedGameState {
+  readonly awayScore?: number | null;
+  readonly capturedAt: string;
+  readonly clock?: string | null;
+  readonly finalAt?: string | null;
+  readonly gameId: string;
+  readonly homeScore?: number | null;
+  readonly isFinal?: number;
+  readonly period?: number | null;
+  readonly startedAt?: string | null;
+  readonly status: string;
+}
+
+interface SeedPbpAction {
+  readonly actionNumber: number;
+  readonly actionType?: string | null;
+  readonly clock?: string | null;
+  readonly capturedAt?: string;
+  readonly description?: string | null;
+  readonly gameId: string;
+  readonly period?: number | null;
+  readonly personId?: number | null;
+  readonly playerName?: string | null;
+  readonly scoreAway?: string | null;
+  readonly scoreHome?: string | null;
+  readonly subType?: string | null;
+  readonly teamTricode?: string | null;
+  readonly timeActual?: string | null;
+}
+
+interface SeedPbpRevision extends SeedPbpAction {
+  readonly capturedAt: string;
+}
+
 function seedGoldDb(
   path: string,
   markets: readonly SeedMarket[],
   ticks: readonly SeedTick[],
+  activity?: {
+    readonly gameStates?: readonly SeedGameState[];
+    readonly playByPlayActions?: readonly SeedPbpAction[];
+    readonly playByPlayRevisions?: readonly SeedPbpRevision[];
+  },
 ): void {
   const db = new Database(path);
   db.exec(`
@@ -71,6 +110,60 @@ function seedGoldDb(
     );
     CREATE INDEX IF NOT EXISTS idx_quote_ticks_source_market
       ON quote_ticks(source_market_id, captured_at);
+    CREATE TABLE IF NOT EXISTS game_states (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      game_id TEXT NOT NULL,
+      captured_at TEXT NOT NULL,
+      status TEXT NOT NULL,
+      period INTEGER,
+      clock TEXT,
+      home_score INTEGER,
+      away_score INTEGER,
+      is_final INTEGER NOT NULL DEFAULT 0,
+      started_at TEXT,
+      final_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_game_states_game_captured
+      ON game_states(game_id, captured_at DESC);
+    CREATE TABLE IF NOT EXISTS nba_play_by_play_actions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      game_id TEXT NOT NULL,
+      action_number INTEGER NOT NULL,
+      action_type TEXT,
+      sub_type TEXT,
+      person_id INTEGER,
+      player_name TEXT,
+      period INTEGER,
+      clock TEXT,
+      description TEXT,
+      score_away TEXT,
+      score_home TEXT,
+      team_tricode TEXT,
+      time_actual TEXT,
+      captured_at TEXT NOT NULL DEFAULT '2026-05-23T03:00:00.000Z'
+    );
+    CREATE INDEX IF NOT EXISTS idx_nba_play_by_play_game_clock
+      ON nba_play_by_play_actions(game_id, period, clock, action_number);
+    CREATE TABLE IF NOT EXISTS nba_pbp_revisions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      game_id TEXT NOT NULL,
+      action_number INTEGER NOT NULL,
+      captured_at TEXT NOT NULL,
+      action_type TEXT,
+      sub_type TEXT,
+      person_id INTEGER,
+      player_name TEXT,
+      period INTEGER,
+      clock TEXT,
+      description TEXT,
+      score_away TEXT,
+      score_home TEXT,
+      team_tricode TEXT,
+      time_actual TEXT,
+      UNIQUE (game_id, action_number, captured_at)
+    );
+    CREATE INDEX IF NOT EXISTS idx_nba_pbp_revisions_action
+      ON nba_pbp_revisions(game_id, action_number, captured_at);
   `);
   const insertMarket = db.prepare(
     `INSERT INTO source_markets (id, game_id, instrument_id, raw_family, raw_label)
@@ -79,6 +172,52 @@ function seedGoldDb(
   const insertTick = db.prepare(
     `INSERT INTO quote_ticks (source_market_id, captured_at, implied_probability, volume, is_heartbeat)
      VALUES (?, ?, ?, ?, ?)`,
+  );
+  const insertGameState = db.prepare(
+    `INSERT INTO game_states (
+       game_id,
+       captured_at,
+       status,
+       period,
+       clock,
+       home_score,
+       away_score,
+       is_final,
+       started_at,
+       final_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  );
+  const insertPbpAction = db.prepare(
+    `INSERT INTO nba_play_by_play_actions (
+       game_id,
+       action_number,
+       action_type,
+       period,
+       clock,
+       description,
+       score_away,
+       score_home,
+       team_tricode,
+       time_actual
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  );
+  const insertPbpRevision = db.prepare(
+    `INSERT INTO nba_pbp_revisions (
+       game_id,
+       action_number,
+       captured_at,
+       action_type,
+       sub_type,
+       person_id,
+       player_name,
+       period,
+       clock,
+       description,
+       score_away,
+       score_home,
+       team_tricode,
+       time_actual
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   for (const m of markets) {
     insertMarket.run(
@@ -96,6 +235,58 @@ function seedGoldDb(
       t.impliedProbability ?? null,
       t.volume ?? null,
       t.isHeartbeat ?? 0,
+    );
+  }
+  for (const state of activity?.gameStates ?? []) {
+    insertGameState.run(
+      state.gameId,
+      state.capturedAt,
+      state.status,
+      state.period ?? null,
+      state.clock ?? null,
+      state.homeScore ?? null,
+      state.awayScore ?? null,
+      state.isFinal ?? 0,
+      state.startedAt ?? null,
+      state.finalAt ?? null,
+    );
+  }
+  for (const action of activity?.playByPlayActions ?? []) {
+    insertPbpAction.run(
+      action.gameId,
+      action.actionNumber,
+      action.actionType ?? null,
+      action.period ?? null,
+      action.clock ?? null,
+      action.description ?? null,
+      action.scoreAway ?? null,
+      action.scoreHome ?? null,
+      action.teamTricode ?? null,
+      action.timeActual ?? null,
+    );
+  }
+  const revisions =
+    activity?.playByPlayRevisions ??
+    (activity?.playByPlayActions ?? []).map((action) => ({
+      ...action,
+      capturedAt: action.capturedAt ?? "2026-06-06T01:56:30.000Z",
+    }));
+  for (const action of revisions) {
+    insertPbpRevision.run(
+      action.gameId,
+      action.actionNumber,
+      action.capturedAt,
+      action.actionType ?? null,
+      action.subType ?? null,
+      action.personId ?? null,
+      action.playerName ?? null,
+      action.period ?? null,
+      action.clock ?? null,
+      action.description ?? null,
+      action.scoreAway ?? null,
+      action.scoreHome ?? null,
+      action.teamTricode ?? null,
+      action.timeActual ?? null,
     );
   }
   db.close();
@@ -149,6 +340,11 @@ function readTicks(body: unknown): readonly Record<string, unknown>[] {
   return ticks.map((t, i) => asRecord(t, `tick[${String(i)}]`));
 }
 
+function readActivity(body: unknown): Record<string, unknown> {
+  const rec = asRecord(body, "body");
+  return asRecord(rec["activity"], "body.activity");
+}
+
 function isoFromNow(deltaMs: number): string {
   return new Date(Date.now() + deltaMs).toISOString();
 }
@@ -196,6 +392,236 @@ describe("live route (US-028)", () => {
     expect(first["instrumentId"]).toBe("inst-1");
     expect(first["rawFamily"]).toBe("moneyline");
     expect(first["rawLabel"]).toBe("home_team");
+  });
+
+  it("returns latest game state and recent PBP actions alongside market ticks", async () => {
+    seedGoldDb(
+      ctx.goldDbPath,
+      [{ id: "mkt-activity", gameId: "nba-live-activity" }],
+      [{ sourceMarketId: "mkt-activity", capturedAt: isoFromNow(-30_000) }],
+      {
+        gameStates: [
+          {
+            awayScore: 51,
+            capturedAt: "2026-06-06T01:54:19.000Z",
+            clock: "PT01M09.00S",
+            gameId: "nba-live-activity",
+            homeScore: 52,
+            period: 2,
+            status: "in-play",
+          },
+          {
+            awayScore: 56,
+            capturedAt: "2026-06-06T01:58:05.000Z",
+            clock: "PT00M00.00S",
+            gameId: "nba-live-activity",
+            homeScore: 52,
+            period: 2,
+            status: "in-play",
+          },
+        ],
+        playByPlayActions: [
+          {
+            actionNumber: 377,
+            actionType: "2pt",
+            clock: "PT00M00.00S",
+            description: "MISS D. Fox 9' pullup Shot",
+            gameId: "nba-live-activity",
+            period: 2,
+            scoreAway: "56",
+            scoreHome: "52",
+            teamTricode: "SAS",
+            timeActual: "2026-06-06T01:55:59.200Z",
+          },
+          {
+            actionNumber: 379,
+            actionType: "period",
+            clock: "PT00M00.00S",
+            description: "Period End",
+            gameId: "nba-live-activity",
+            period: 2,
+            scoreAway: "56",
+            scoreHome: "52",
+            timeActual: "2026-06-06T01:56:02.500Z",
+          },
+        ],
+      },
+    );
+    const app = await startApp();
+    const res = await app.inject({
+      method: "GET",
+      url: "/v1/live/nba-live-activity",
+      headers: authHeaders(),
+    });
+    expect(res.statusCode).toBe(200);
+    const activity = readActivity(res.json());
+    const gameState = asRecord(activity["gameState"], "activity.gameState");
+    expect(gameState["period"]).toBe(2);
+    expect(gameState["clock"]).toBe("PT00M00.00S");
+    expect(gameState["awayScore"]).toBe(56);
+    expect(gameState["homeScore"]).toBe(52);
+    expect(activity["playByPlayActionCount"]).toBe(2);
+    const recent = activity["recentPlayByPlay"];
+    if (!isUnknownArray(recent)) throw new Error("recentPlayByPlay not an array");
+    expect(asRecord(recent[0], "recent[0]")["actionNumber"]).toBe(379);
+    expect(asRecord(recent[0], "recent[0]")["description"]).toBe("Period End");
+  });
+
+  it("scopes historical replay activity to the requested replay end", async () => {
+    seedGoldDb(
+      ctx.goldDbPath,
+      [{ id: "mkt-replay-activity", gameId: "nba-live-replay-activity" }],
+      [{ sourceMarketId: "mkt-replay-activity", capturedAt: "2026-06-06T01:56:00.000Z" }],
+      {
+        gameStates: [
+          {
+            awayScore: 51,
+            capturedAt: "2026-06-06T01:55:30.000Z",
+            clock: "PT00M33.00S",
+            gameId: "nba-live-replay-activity",
+            homeScore: 52,
+            period: 2,
+            status: "in-play",
+          },
+          {
+            awayScore: 56,
+            capturedAt: "2026-06-06T01:58:05.000Z",
+            clock: "PT00M00.00S",
+            gameId: "nba-live-replay-activity",
+            homeScore: 52,
+            period: 2,
+            status: "final",
+          },
+        ],
+        playByPlayActions: [
+          {
+            actionNumber: 377,
+            actionType: "2pt",
+            clock: "PT00M33.00S",
+            description: "Future corrected replay-window action",
+            gameId: "nba-live-replay-activity",
+            period: 2,
+            scoreAway: "51",
+            scoreHome: "52",
+            timeActual: "2026-06-06T01:55:59.200Z",
+          },
+          {
+            actionNumber: 378,
+            actionType: "rebound",
+            clock: "PT00M00.00S",
+            description: "Replay-end ISO variant action",
+            gameId: "nba-live-replay-activity",
+            period: 2,
+            scoreAway: "51",
+            scoreHome: "52",
+            timeActual: "2026-06-06T01:56:30Z",
+          },
+          {
+            actionNumber: 379,
+            actionType: "period",
+            clock: "PT00M00.00S",
+            description: "Post-replay final action",
+            gameId: "nba-live-replay-activity",
+            period: 2,
+            scoreAway: "56",
+            scoreHome: "52",
+            timeActual: "2026-06-06T01:57:02.500Z",
+          },
+          {
+            actionNumber: 999,
+            actionType: "unknown",
+            description: "Untimed future action",
+            gameId: "nba-live-replay-activity",
+            period: 4,
+            scoreAway: "80",
+            scoreHome: "80",
+            timeActual: null,
+          },
+        ],
+        playByPlayRevisions: [
+          {
+            actionNumber: 377,
+            actionType: "2pt",
+            capturedAt: "2026-06-06T01:56:00.000Z",
+            clock: "PT00M33.00S",
+            description: "Replay-window action",
+            gameId: "nba-live-replay-activity",
+            period: 2,
+            scoreAway: "51",
+            scoreHome: "52",
+            teamTricode: "BOS",
+            timeActual: "2026-06-06T01:55:59.200Z",
+          },
+          {
+            actionNumber: 377,
+            actionType: "2pt",
+            capturedAt: "2026-06-06T02:10:00.000Z",
+            clock: "PT00M33.00S",
+            description: "Future corrected replay-window action",
+            gameId: "nba-live-replay-activity",
+            period: 2,
+            scoreAway: "51",
+            scoreHome: "52",
+            teamTricode: "BOS",
+            timeActual: "2026-06-06T01:55:59.200Z",
+          },
+          {
+            actionNumber: 378,
+            actionType: "rebound",
+            capturedAt: "2026-06-06T01:56:30.000Z",
+            clock: "PT00M00.00S",
+            description: "Replay-end ISO variant action",
+            gameId: "nba-live-replay-activity",
+            period: 2,
+            scoreAway: "51",
+            scoreHome: "52",
+            teamTricode: "NYK",
+            timeActual: "2026-06-06T01:56:30Z",
+          },
+          {
+            actionNumber: 379,
+            actionType: "period",
+            capturedAt: "2026-06-06T01:57:02.500Z",
+            clock: "PT00M00.00S",
+            description: "Post-replay final action",
+            gameId: "nba-live-replay-activity",
+            period: 2,
+            scoreAway: "56",
+            scoreHome: "52",
+            teamTricode: "BOS",
+            timeActual: "2026-06-06T01:57:02.500Z",
+          },
+          {
+            actionNumber: 999,
+            actionType: "unknown",
+            capturedAt: "2026-06-06T02:30:00.000Z",
+            description: "Untimed future action",
+            gameId: "nba-live-replay-activity",
+            period: 4,
+            timeActual: null,
+          },
+        ],
+      },
+    );
+    const app = await startApp();
+    const res = await app.inject({
+      method: "GET",
+      url: "/v1/live/nba-live-replay-activity?at=2026-06-06T01%3A56%3A30.000Z&window_ms=600000",
+      headers: authHeaders(),
+    });
+    expect(res.statusCode).toBe(200);
+    const activity = readActivity(res.json());
+    const gameState = asRecord(activity["gameState"], "activity.gameState");
+    expect(gameState["status"]).toBe("in-play");
+    expect(gameState["awayScore"]).toBe(51);
+    expect(activity["playByPlayActionCount"]).toBe(2);
+    const recent = activity["recentPlayByPlay"];
+    if (!isUnknownArray(recent)) throw new Error("recentPlayByPlay not an array");
+    expect(recent).toHaveLength(2);
+    expect(asRecord(recent[0], "recent[0]")["description"]).toBe("Replay-end ISO variant action");
+    expect(asRecord(recent[0], "recent[0]")["scoreAway"]).toBe("51");
+    expect(asRecord(recent[0], "recent[0]")["teamTricode"]).toBe("NYK");
+    expect(asRecord(recent[1], "recent[1]")["description"]).toBe("Replay-window action");
   });
 
   it("excludes ticks captured more than 5 minutes ago, includes all ticks inside the window", async () => {

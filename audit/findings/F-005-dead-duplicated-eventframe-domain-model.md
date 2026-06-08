@@ -29,7 +29,7 @@ defining files:
 - `eventFrameSchema`, `sportEventSchema`, `sourceQuoteSchema`,
   `eventContextSchema`, `suggestedActionSchema` → **0 referencing files**.
 - The `EventFrame`, `SourceQuote`, `EventContext`, `SuggestedAction`,
-  `AuditEntry` *types* → **0 referencing files** outside `types.ts`/`core.ts`.
+  `AuditEntry` _types_ → **0 referencing files** outside `types.ts`/`core.ts`.
 - The distinctive fields `restEdge` / `paceEdge` / `exposureScore` /
   `narrativeHints` appear only in the `types.ts` duplicate.
 - `z.infer` is used in **neither** file, so the schema and the type are not bound.
@@ -43,13 +43,13 @@ runtime.
 
 ## Why it matters (the trap)
 
-It is the most authoritative-*looking* model in the codebase: it lives in the
+It is the most authoritative-_looking_ model in the codebase: it lives in the
 `domain` package, it is exported from the barrel, it composes a clean
 event→quotes→context→actions hierarchy with bounded units. A contributor asking
 "what's the canonical event/quote shape?" finds this first and builds against it —
 wiring a feature, a fixture, or a detector input to a model that nothing
 populates and nothing reads. Effort is wasted, or worse, two event models end up
-half-coexisting. And if anyone *does* start using it, the Zod-vs-TS dual
+half-coexisting. And if anyone _does_ start using it, the Zod-vs-TS dual
 definition (unbound by `z.infer`) is an F-001-class agree-by-accident surface.
 
 ## Fix

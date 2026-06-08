@@ -8,11 +8,11 @@
 
 ## The four definitions of one quote tick
 
-| field | DB `quote_ticks` | domain `live.ts` `quoteTickSchema` | `/v1/live` route JSON schema | web `queries.ts` `quoteTickSchema` |
-|---|---|---|---|---|
-| `volume` | `REAL` (nullable) | `z.number().nullable()` | `{ type: "number" }` (**non-null**) | `z.number()` (**non-null**) |
-| `isHeartbeat` | `INTEGER` 0/1 | `z.boolean()` | `{ type: "integer" }` | `z.number().int()` |
-| `impliedProbability` | `REAL` (unconstrained) | `.min(0).max(1).nullable()` | `["number","null"]` (no bound) | `z.number().nullable()` (no bound) |
+| field                | DB `quote_ticks`       | domain `live.ts` `quoteTickSchema` | `/v1/live` route JSON schema        | web `queries.ts` `quoteTickSchema` |
+| -------------------- | ---------------------- | ---------------------------------- | ----------------------------------- | ---------------------------------- |
+| `volume`             | `REAL` (nullable)      | `z.number().nullable()`            | `{ type: "number" }` (**non-null**) | `z.number()` (**non-null**)        |
+| `isHeartbeat`        | `INTEGER` 0/1          | `z.boolean()`                      | `{ type: "integer" }`               | `z.number().int()`                 |
+| `impliedProbability` | `REAL` (unconstrained) | `.min(0).max(1).nullable()`        | `["number","null"]` (no bound)      | `z.number().nullable()` (no bound) |
 
 Two of these are the same exported name (`quoteTickSchema` / `type QuoteTick`)
 in two packages — `packages/domain/src/schemas/live.ts` and
@@ -36,7 +36,7 @@ also adds `source`/`instrumentId`/`rawFamily`/`rawLabel` and drops
    successfully parse the same bytes: a payload with `isHeartbeat: 1` fails the
    domain schema; `isHeartbeat: true` fails the web schema and the route's
    `integer`. Today web+route agree on integer, so the web path works — but any
-   code that reaches for the *domain* `quoteTickSchema` to validate a route-shaped
+   code that reaches for the _domain_ `quoteTickSchema` to validate a route-shaped
    payload (the natural thing to do, since it's the "canonical" one in the domain
    package) will throw on every non-trivial tick.
 

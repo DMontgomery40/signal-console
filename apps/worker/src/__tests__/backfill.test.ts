@@ -64,6 +64,7 @@ describe("backfill CLI", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     process.exitCode = undefined;
   });
 
@@ -93,8 +94,10 @@ describe("backfill CLI", () => {
 
     expect(nbaSidecarMocks.syncNbaSidecarWindow).toHaveBeenCalledWith(
       expect.objectContaining({
+        captureMode: "historical",
         lookaheadDays: 0,
         lookbackDays: 1,
+        skipFutureScheduledGames: false,
       }),
     );
     const sidecarOptions = nbaSidecarMocks.syncNbaSidecarWindow.mock.calls[0]?.[0] as
@@ -129,5 +132,61 @@ describe("backfill CLI", () => {
       "NBA all-source historical backfill step failed.",
     );
     expect(process.exitCode).toBe(1);
+  });
+
+  it("keeps future scheduled-game PBP suppression for current-day NBA backfills", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-06T15:00:00.000Z"));
+    nbaSidecarMocks.syncNbaSidecarWindow.mockResolvedValue({
+      dateErrors: [],
+      ok: true,
+    });
+
+    await runBackfill(["nba"]);
+
+    expect(nbaSidecarMocks.syncNbaSidecarWindow).toHaveBeenCalledWith(
+      expect.objectContaining({
+        captureMode: "historical",
+        lookaheadDays: 0,
+        lookbackDays: 30,
+        playByPlayReferenceNow: expect.any(Function),
+        skipFutureScheduledGames: true,
+      }),
+    );
+    const sidecarOptions = nbaSidecarMocks.syncNbaSidecarWindow.mock.calls[0]?.[0] as
+      | { playByPlayReferenceNow?: () => Date }
+      | undefined;
+    expect(sidecarOptions?.playByPlayReferenceNow?.().toISOString()).toBe(
+      "2026-06-06T15:00:00.000Z",
+    );
+    expect(process.exitCode).toBeUndefined();
+  });
+
+  it("keeps future scheduled-game PBP suppression for default nba-history through today", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-06T15:00:00.000Z"));
+    nbaSidecarMocks.syncNbaSidecarWindow.mockResolvedValue({
+      dateErrors: [],
+      ok: true,
+    });
+
+    await runBackfill(["nba-history"]);
+
+    expect(nbaSidecarMocks.syncNbaSidecarWindow).toHaveBeenCalledWith(
+      expect.objectContaining({
+        captureMode: "historical",
+        lookaheadDays: 0,
+        playByPlayReferenceNow: expect.any(Function),
+        skipFutureScheduledGames: true,
+      }),
+    );
+    const sidecarOptions = nbaSidecarMocks.syncNbaSidecarWindow.mock.calls[0]?.[0] as
+      | { now?: () => Date; playByPlayReferenceNow?: () => Date }
+      | undefined;
+    expect(sidecarOptions?.now?.().toISOString()).toBe("2026-06-06T12:00:00.000Z");
+    expect(sidecarOptions?.playByPlayReferenceNow?.().toISOString()).toBe(
+      "2026-06-06T15:00:00.000Z",
+    );
+    expect(process.exitCode).toBeUndefined();
   });
 });

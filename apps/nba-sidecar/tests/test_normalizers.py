@@ -195,16 +195,19 @@ def test_normalize_live_boxscore_payload_uses_status_text_when_numeric_code_is_m
     assert normalized.game.gameState.isFinal is True
 
 
-def test_normalize_live_playbyplay_payload_keeps_core_action_fields() -> None:
+def test_normalize_live_playbyplay_payload_keeps_core_and_attribution_fields() -> None:
     payload = {
         "meta": {"time": "2026-04-22T05:55:15.000Z"},
         "game": {
             "actions": [
                 {
                     "actionNumber": 1,
-                    "actionType": "jumpball",
+                    "actionType": "rebound",
+                    "subType": "offensive",
+                    "personId": "1641705",
+                    "playerName": "V. Wembanyama",
                     "clock": "PT12M00.00S",
-                    "description": "Opening tip",
+                    "description": "V. Wembanyama offensive rebound",
                     "period": 1,
                     "scoreAway": "0",
                     "scoreHome": "0",
@@ -218,7 +221,10 @@ def test_normalize_live_playbyplay_payload_keeps_core_action_fields() -> None:
     normalized = normalize_live_playbyplay_payload("0022600001", payload)
 
     assert normalized.gameId == "0022600001"
-    assert normalized.actions[0].actionType == "jumpball"
+    assert normalized.actions[0].actionType == "rebound"
+    assert normalized.actions[0].subType == "offensive"
+    assert normalized.actions[0].personId == 1641705
+    assert normalized.actions[0].playerName == "V. Wembanyama"
     assert normalized.actions[0].teamTricode == "BOS"
 
 
