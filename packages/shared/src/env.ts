@@ -20,6 +20,30 @@ export function resetRuntimeEnvForTests() {
   lastLoadSummary = null;
 }
 
+// Odds-API.io credential lookup order is documented in AGENTS.md/CLAUDE.md:
+// ODDSAPI_API_KEY (preferred), then ODDS_API_KEY, then ODDS_API_IO_KEY. This is
+// the single source of truth so a user who sets only the preferred name is not a
+// silent provider no-op (audit F-012).
+export const ODDS_API_KEY_ENV_NAMES = [
+  "ODDSAPI_API_KEY",
+  "ODDS_API_KEY",
+  "ODDS_API_IO_KEY",
+] as const;
+
+export function resolveOddsApiKey(
+  env: NodeJS.ProcessEnv = process.env,
+  options?: { explicitKey?: string | null },
+): string | null {
+  if (options?.explicitKey != null && options.explicitKey !== "") {
+    return options.explicitKey;
+  }
+  for (const name of ODDS_API_KEY_ENV_NAMES) {
+    const value = env[name];
+    if (value != null && value !== "") return value;
+  }
+  return null;
+}
+
 export function loadRuntimeEnv(options?: { envFiles?: string[] }) {
   if (runtimeEnvLoaded && lastLoadSummary) {
     return lastLoadSummary;

@@ -26,63 +26,18 @@ Scope: `staged`
 
 Source/config changes:
 
-- `apps/api/src/routes/research.ts`
-- `apps/api/src/services/research.ts`
-- `apps/api/tests/research.test.ts`
-- `apps/nba-sidecar/src/nba_sidecar/normalizers.py`
-- `apps/nba-sidecar/src/nba_sidecar/research/attribution.py`
-- `apps/nba-sidecar/src/nba_sidecar/research/attribution_eval.py`
-- `apps/nba-sidecar/src/nba_sidecar/research/attribution_snapshot.py`
-- `apps/nba-sidecar/src/nba_sidecar/research/candidates.py`
-- `apps/nba-sidecar/src/nba_sidecar/research/cli/bootstrap.py`
-- `apps/nba-sidecar/src/nba_sidecar/research/cli/main.py`
-- `apps/nba-sidecar/src/nba_sidecar/research/contracts/__init__.py`
-- `apps/nba-sidecar/src/nba_sidecar/research/contracts/columns.py`
-- `apps/nba-sidecar/src/nba_sidecar/research/contracts/schemas.py`
-- `apps/nba-sidecar/src/nba_sidecar/research/evaluation/artifacts.py`
-- `apps/nba-sidecar/src/nba_sidecar/research/evaluation/separation.py`
-- `apps/nba-sidecar/src/nba_sidecar/research/experiments/__init__.py`
-- `apps/nba-sidecar/src/nba_sidecar/research/experiments/confluence_features.py`
-- `apps/nba-sidecar/src/nba_sidecar/research/experiments/confluence_killtest.py`
-- `apps/nba-sidecar/src/nba_sidecar/research/experiments/confluence_operating_point.py`
-- `apps/nba-sidecar/src/nba_sidecar/research/far_calibration.py`
-- `apps/nba-sidecar/src/nba_sidecar/research/loader.py`
-- `apps/nba-sidecar/src/nba_sidecar/research/oncourt.py`
-- `apps/nba-sidecar/tests/test_attribution.py`
-- `apps/nba-sidecar/tests/test_attribution_eval.py`
-- `apps/nba-sidecar/tests/test_attribution_snapshot.py`
-- `apps/nba-sidecar/tests/test_candidates.py`
-- `apps/nba-sidecar/tests/test_confluence_features.py`
-- `apps/nba-sidecar/tests/test_confluence_killtest.py`
-- `apps/nba-sidecar/tests/test_confluence_operating_point.py`
-- `apps/nba-sidecar/tests/test_emit_models.py`
-- `apps/nba-sidecar/tests/test_far_calibration.py`
-- `apps/nba-sidecar/tests/test_normalizers.py`
-- `apps/nba-sidecar/tests/test_oncourt.py`
-- `apps/nba-sidecar/tests/test_player_prop_ticks.py`
-- `apps/nba-sidecar/tests/test_research.py`
-- `apps/nba-sidecar/tests/test_separation.py`
-- `apps/web/src/data/queries.ts`
-- `apps/web/src/features/research/ResearchPage.tsx`
-- `apps/web/src/features/research/__tests__/ResearchPage.test.tsx`
-- `eslint.config.js`
-- `packages/shared/src/__tests__/live-repository.test.ts`
+- `apps/worker/src/index.ts`
+- `package.json`
+- `packages/adapters/src/bet365-historical.ts`
+- `packages/adapters/src/odds-api.ts`
+- `packages/shared/src/__tests__/odds-api-key-resolver.test.ts`
+- `packages/shared/src/env.ts`
 - `packages/shared/src/live-repository.ts`
-- `packages/ui/src/explainers.ts`
-- `scripts/backfill-pbp-attribution.ts`
-- `scripts/capture-pbp-revisions.ts`
-- `scripts/harvest-incident-labels.ts`
-- `scripts/ingest-incident-games.ts`
-- `scripts/lib/cdn-pbp.ts`
-- `scripts/tsconfig.json`
+- `scripts/verify-citations.ts`
 
 Normal docs, repo-memory, or instruction refresh changes:
 
-- `docs/nba-miscredit-label-harvester.md`
-- `docs/research-2026-05-31-miscredit-model-direction.md`
-- `docs/research-2026-05-31b-attribution-expectation-direction.md`
-- `docs/research-2026-05-31c-literature-scratchpad.md`
-- `docs/research-2026-05-31d-far-calibration-result.md`
+- `docs/design-language.md`
 
 ## Issues
 

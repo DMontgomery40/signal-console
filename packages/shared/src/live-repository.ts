@@ -47,6 +47,7 @@ import {
   getDatabaseSchemaVersion,
 } from "./db-core";
 import { DatabaseFailureError } from "./errors";
+import { resolveOddsApiKey } from "./env";
 import {
   gapToSeverity,
   lineValuesMatch,
@@ -4659,7 +4660,7 @@ function latestRun(source: string) {
 
 export function listAdminSources() {
   return executeDatabaseOperation("admin.sources.list", () => {
-    const oddsApiKey = process.env.ODDS_API_KEY ?? process.env.ODDS_API_IO_KEY;
+    const oddsApiKey = resolveOddsApiKey();
     const bet365SessionStatePath = process.env.BET365_SESSION_STATE_PATH;
     const bet365SessionReady =
       typeof bet365SessionStatePath === "string" &&
@@ -5021,7 +5022,7 @@ function inferRuntimeWarnings(input: {
     );
   }
 
-  if (bet365 && bet365.quoteTickCount > 0 && process.env.ODDS_API_KEY) {
+  if (bet365 && bet365.quoteTickCount > 0 && resolveOddsApiKey() != null) {
     warnings.push(
       "Bet365 ticks are currently sourced through ODDS_API_KEY provider plumbing, not a direct internal book feed. Label this as proxy sportsbook pricing until the internal feed is wired.",
     );
