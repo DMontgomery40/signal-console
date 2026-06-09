@@ -1914,7 +1914,7 @@ function selectCrossVenueContext(
           FROM quote_ticks q2
           WHERE q2.source_market_id = sm.id
             AND ABS(strftime('%s', q2.captured_at) - ?) <= ?
-            AND COALESCE(q2.implied_probability, CASE WHEN q2.price_raw BETWEEN 0 AND 1 THEN q2.price_raw END) IS NOT NULL
+            AND COALESCE(CASE WHEN q2.implied_probability BETWEEN 0 AND 1 THEN q2.implied_probability END, CASE WHEN q2.price_raw BETWEEN 0 AND 1 THEN q2.price_raw END) IS NOT NULL
           ORDER BY ABS(strftime('%s', q2.captured_at) - ?) ASC, q2.id DESC
           LIMIT 1
         )
@@ -2287,7 +2287,7 @@ function selectQuoteAnomalyCandidates(
           LEFT JOIN market_instruments mi ON mi.id = sm.instrument_id`
           }
           WHERE (q.implied_probability IS NOT NULL OR q.price_raw IS NOT NULL)
-            AND COALESCE(q.implied_probability, CASE WHEN q.price_raw BETWEEN 0 AND 1 THEN q.price_raw END) IS NOT NULL
+            AND COALESCE(CASE WHEN q.implied_probability BETWEEN 0 AND 1 THEN q.implied_probability END, CASE WHEN q.price_raw BETWEEN 0 AND 1 THEN q.price_raw END) IS NOT NULL
             AND q.is_heartbeat = 0
             ${useLiveWindow ? "" : `AND ${whereSql}`}
           ORDER BY q.captured_at DESC, q.id DESC
@@ -2310,12 +2310,12 @@ function selectQuoteAnomalyCandidates(
           'quote-tick' AS apiSurface,
           q.captured_at AS eventTimestamp,
           q.captured_at AS capturedAt,
-          COALESCE(q.implied_probability, CASE WHEN q.price_raw BETWEEN 0 AND 1 THEN q.price_raw END) AS price,
+          COALESCE(CASE WHEN q.implied_probability BETWEEN 0 AND 1 THEN q.implied_probability END, CASE WHEN q.price_raw BETWEEN 0 AND 1 THEN q.price_raw END) AS price,
           (
-            SELECT COALESCE(prev.implied_probability, CASE WHEN prev.price_raw BETWEEN 0 AND 1 THEN prev.price_raw END)
+            SELECT COALESCE(CASE WHEN prev.implied_probability BETWEEN 0 AND 1 THEN prev.implied_probability END, CASE WHEN prev.price_raw BETWEEN 0 AND 1 THEN prev.price_raw END)
             FROM quote_ticks prev
             WHERE prev.source_market_id = q.source_market_id
-              AND COALESCE(prev.implied_probability, CASE WHEN prev.price_raw BETWEEN 0 AND 1 THEN prev.price_raw END) IS NOT NULL
+              AND COALESCE(CASE WHEN prev.implied_probability BETWEEN 0 AND 1 THEN prev.implied_probability END, CASE WHEN prev.price_raw BETWEEN 0 AND 1 THEN prev.price_raw END) IS NOT NULL
               AND prev.is_heartbeat = 0
               AND (
                 prev.captured_at < q.captured_at
