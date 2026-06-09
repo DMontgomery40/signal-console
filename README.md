@@ -11,13 +11,39 @@ and a read-only API.
 **`main` is the single source-of-truth branch.** Local `main`, `origin/main`, and the
 GitHub default branch all point at the same commit. Treat anything else as not authoritative:
 
-- **Stale local branches and merged/closed PR branches are not authority.** They are
-  historical or in-flight and may lag, diverge from, or predate `main`.
-- **Unmerged work on an open PR or `preserve/*` branch is not part of `main`** until it has
-  been integrated via a PR that merges into `main`. Such work is tracked on its branch, not
+- **Stale local branches, worktrees, and merged/closed PR branches are not authority.**
+  They are historical or in-flight and may lag, diverge from, or predate `main`.
+- **Unmerged work on an open PR branch is not part of `main`** until it has been
+  integrated via a PR that merges into `main`. Such work is tracked on its branch, not
   here, and does not change what `main` is.
 - Generated artifacts under `outputs/`, `apps/worker/data/`, and `.claude/tmp/` are local
   scratch/derived state and are not source of truth.
+
+### Repo identity and sibling checkouts
+
+- **`signal-console-mlb` and `signal-console-nfl` are SEPARATE projects**, not branches,
+  worktrees, or forks of this repo. Never treat their code, docs, or memory as authority
+  here (and vice versa).
+- **Any other local `signal-console*` directory or worktree** (e.g. `signal-console-v2`,
+  `signal-console-research`, dated copies) maps to THIS repo and is only a checkout of
+  some branch/commit of it. Do not let work accumulate there: land it on `main` via a PR,
+  then delete the worktree. When in doubt, `git -C <dir> remote -v` decides identity.
+- `~/nba-predict` is reference-only historical context (see
+  [docs/agent-context.md](docs/agent-context.md)).
+
+### Historical branches (archived 2026-06-09)
+
+The long-lived side branches were reconciled into `main` (PRs #1/#5/#9 plus the
+branch-parity consolidation), tagged, and deleted:
+
+- `archive/ralph-signal-console-v2` — the Ralph v2 build branch (fully superseded by
+  `main`; its only unique tree content was the deliberately-deleted dead client-recompute
+  engine, audit F-002, and generated skill files).
+- `archive/preserve-main-statespace-20260529` — the state-space/research-lab preserve
+  branch. Its real fixes and docs now live on `main`. It additionally carries the
+  **gold-DB sidecar LFS archive** under `archives/gold-db-sidecars-20260603T142044Z/`
+  (with `RESTORE.txt`), which is intentionally NOT on `main`; fetch the tag if you need
+  that backup.
 
 The current agent/operator context — the live, maintained description of repo reality — is
 **[docs/agent-context.md](docs/agent-context.md)**. Read it before making changes.

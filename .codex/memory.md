@@ -1,10 +1,30 @@
 # Codex memory — signal-console
 
-Last verified: 2026-06-07
+Last verified: 2026-06-09
 
 Per-repo persistent notes for the Codex agent. Update entries when they become stale; date entries when context decays fast.
 
 ---
+
+## Authority + repo identity (2026-06-09)
+
+`main` is the only living branch; the long-lived side branches
+(`ralph/signal-console-v2`, `preserve/main-statespace-20260529`) were reconciled
+into `main`, archived as `archive/*` tags, and deleted. Do not resurrect them as
+working branches; fetch the tags only for history or the gold-DB LFS archive
+(preserve tag only).
+
+`signal-console-mlb` and `signal-console-nfl` are SEPARATE projects — never
+current Signal Console authority, in either direction. Any other local
+`signal-console*` directory or git worktree (e.g. `signal-console-v2`,
+`signal-console-research`) is a checkout of THIS repo: land its work on `main`
+via PR, then delete the worktree. `git -C <dir> remote -v` decides identity.
+
+Sibling-project memory paths such as AnalogLabor, `nba-predict`,
+`signal-console-mlb`, or `signal-console-nfl` are not current Signal Console
+authority. The root `PRD.md` and the PRD-driven Ralph loop are historical
+context, not the controlling spec (the 2026-05-31 authority cleanup on the
+preserve branch retired them; `main` keeps the files for history).
 
 ## Math home architecture (decided 2026-05-25, not yet implemented)
 
