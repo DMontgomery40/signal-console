@@ -101,8 +101,10 @@ board, so you can export and model straight from gold.
 `--limit N`, `--since DATE|ISO`, and `--until DATE|ISO` post-filter whatever was selected
 on any path. Date-only `--since` starts at `00:00:00Z`; date-only `--until` is inclusive
 through `23:59:59Z`. `--seed N` and `--out <dir>` are also accepted (default seed 42,
-default out root `outputs/nba-quant-lab/snapshots`). Sampling is **never** implicit —
-omitting `--sample` gives you the full corpus.
+default out root `outputs/nba-quant-lab/snapshots`), as is `--control-ticks N`, which
+widens `player_prop_ticks.parquet` (only) with N deterministic assumed-negative control
+games for FAR calibration. Sampling is **never** implicit — omitting `--sample` gives
+you the full corpus.
 
 > Passing flags through pnpm: put a `--` separator first, e.g.
 > `pnpm quant:export -- --sample 15 --since 2026-04-01`.
