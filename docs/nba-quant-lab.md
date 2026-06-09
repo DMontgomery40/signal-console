@@ -131,9 +131,10 @@ Sampling is **opt-in**, never the default:
 
 `--limit N`, `--since DATE|ISO`, and `--until DATE|ISO` post-filter whatever was selected
 on any path. Date-only `--since` starts at `00:00:00Z`; date-only `--until` is inclusive
-through `23:59:59Z`. The `sample-fixed` snapshot below was built with the **opt-in
-`--sample 15`** path (29 games), kept frozen as a small, fast reference; it is
-**not** what a default `pnpm quant:export` produces today.
+through `23:59:59Z`. `--control-ticks N` widens `player_prop_ticks.parquet` (only) with
+N assumed-negative control games (§3.5b). The `sample-fixed` snapshot below was built
+with the **opt-in `--sample 15`** path (29 games), kept frozen as a small, fast
+reference; it is **not** what a default `pnpm quant:export` produces today.
 
 ### The hard rule
 
@@ -258,8 +259,10 @@ only.
 
 ### 3.5 `source_coverage.parquet` — provenance (non-causal)
 
-278 rows (game × source × market_family × window). Sources in this snapshot:
-polymarket 101, bet365 96, kalshi 81.
+One row per game × source × market_family × window for sources that are present, PLUS
+one explicit `class = missing` row per game for each eligible source ENTIRELY absent
+from that game — so missing coverage is recorded, not invisible. Per-snapshot
+present-source counts vary (e.g. polymarket / bet365 / kalshi).
 
 | column                                         | type            | meaning                                                                  |
 | ---------------------------------------------- | --------------- | ------------------------------------------------------------------------ |
@@ -268,6 +271,17 @@ polymarket 101, bet365 96, kalshi 81.
 | `market_count`                                 | int (nullable)  | Distinct markets in window.                                              |
 | `tick_count`                                   | int (nullable)  | Quote ticks in window.                                                   |
 | `eligible`                                     | bool (nullable) | Whether the window is snapshot-eligible.                                 |
+
+### 3.5b `player_prop_ticks.parquet` — re-ranker input (causal, leakage-safe)
+
+Per-player rebound-prop microstructure for the attribution re-ranker: raw causal
+ticks (`game_id`, `player_key`, `source`, `line`, `stat`, `captured_at`,
+`implied_probability`, `volume`). Scoped to truth-bearing games (incident +
+tape-episode games); pass `--control-ticks N` to add a deterministic sample of N
+assumed-negative games so the re-ranker's false-alarm rate can be calibrated on a
+real control universe (see `docs/research-2026-05-31d-far-calibration-result.md`).
+The Python loader (`read_player_prop_ticks`) fails loudly on a snapshot missing
+this file — re-export with the current exporter rather than suppressing.
 
 ### 3.6 `games.parquet` — game index
 
