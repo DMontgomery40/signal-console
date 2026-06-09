@@ -74,6 +74,16 @@ def _extract_from_pydantic() -> dict[str, dict]:
 
 
 def test_pydantic_bounds_match_shared_contract() -> None:
+    in_monorepo = (Path(__file__).resolve().parents[3] / "packages").is_dir()
     if not _bounds_path().exists():
+        # An isolated package checkout legitimately lacks the TS-side JSON, so
+        # skipping is honest there. But inside the monorepo a missing/misresolved
+        # path would silently STOP enforcing the cross-language contract (green by
+        # skip) — that is the failure mode this test exists to prevent, so fail loud.
+        assert not in_monorepo, (
+            f"shared bounds JSON missing inside the monorepo: {_bounds_path()} — "
+            "path resolution broke and the Zod<->pydantic bounds contract is no "
+            "longer enforced."
+        )
         pytest.skip("shared bounds JSON not present (isolated package checkout)")
     assert _extract_from_pydantic() == _load_contract()

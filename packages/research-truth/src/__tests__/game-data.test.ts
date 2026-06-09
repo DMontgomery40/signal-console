@@ -17,15 +17,15 @@ const GOLD_DB_PATH = "/Users/davidmontgomery/signal-console/data/signal-console.
 const REPRESENTATIVE_GAME_ID = "nba-0042500222";
 const REAL_GOLD_DB_TIMEOUT_MS = 60_000;
 
-describe("research-truth game-data loaders against the real gold DB", () => {
+// Same convention as quant-snapshot-contract.test.ts: machines without the
+// read-only gold DB (CI VMs, fresh checkouts) skip this gate visibly instead
+// of failing the whole suite on an unavailable local artifact.
+const describeMaybe = existsSync(GOLD_DB_PATH) ? describe : describe.skip;
+
+describeMaybe("research-truth game-data loaders against the real gold DB", () => {
   it(
     "loads a non-empty GameData (pbp points + quote pairs) for the representative game",
     () => {
-      if (!existsSync(GOLD_DB_PATH)) {
-        throw new Error(
-          `gold DB not found at ${GOLD_DB_PATH}; this smoke test requires the read-only gold DB`,
-        );
-      }
       const db = openGoldDb(GOLD_DB_PATH);
       try {
         const windows = loadGameWindows(db);
