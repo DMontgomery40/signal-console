@@ -42,6 +42,14 @@ const forwarded = process.argv.slice(2);
 // so `python -m nba_sidecar.research` imports cwd-independently.
 const result = spawnSync(pythonPath, ["-m", "nba_sidecar.research", ...forwarded], {
   cwd: repoRoot,
+  // Pass the research output root as CONFIG (RESEARCH_OUTPUT_ROOT) so the sidecar
+  // writes run artifacts where the /research API reads them, independent of cwd.
+  // Mirrors apps/api/src/services/research.ts; an operator-set value is respected.
+  env: {
+    ...process.env,
+    RESEARCH_OUTPUT_ROOT:
+      process.env["RESEARCH_OUTPUT_ROOT"] ?? join(repoRoot, "outputs", "nba-quant-lab"),
+  },
   stdio: "inherit",
 });
 if (result.error !== undefined) {
