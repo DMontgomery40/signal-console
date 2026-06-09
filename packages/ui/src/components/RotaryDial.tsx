@@ -220,6 +220,18 @@ export function RotaryDial(props: RotaryDialProps): JSX.Element {
     [],
   );
 
+  // Reconcile an out-of-range controlled value instead of silently displaying a
+  // clamped lie. The dial clamps `value` to [valueMin, valueMax] for DISPLAY; if
+  // the incoming value sits outside that range, push the clamped value back to
+  // the owner so the form state and the dial can never disagree. Without this, a
+  // value above the max rendered as the max while the form kept the real value,
+  // then got truncated to the max on the first interaction (audit F-004). Once
+  // the range derives from the kMad contract this is also the belt-and-suspenders
+  // guarantee that no legacy/out-of-contract value can masquerade as in-range.
+  useEffect(() => {
+    if (value !== clamped) onChange(clamped);
+  }, [value, clamped, onChange]);
+
   const triggerSnapTransition = useCallback(() => {
     if (snapTimerRef.current !== null) clearTimeout(snapTimerRef.current);
     setSnapTransitioning(true);
