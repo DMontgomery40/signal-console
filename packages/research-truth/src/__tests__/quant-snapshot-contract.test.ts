@@ -192,6 +192,7 @@ describeMaybe("quant-lab snapshot exporter contract", () => {
     "market_outlier_episodes.parquet",
     "source_coverage.parquet",
     "player_prop_ticks.parquet",
+    "pbp_actions.parquet",
     "splits.json",
     "feature_catalog.md",
     "feature_catalog.json",

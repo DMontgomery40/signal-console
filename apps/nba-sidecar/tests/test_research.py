@@ -40,7 +40,7 @@ pytestmark = pytest.mark.skipif(
 
 # Small games (by bucket count) keep the suite fast while still real.
 SMALL_GAMES = ("nba-0022500547", "nba-0042500224")
-CAUSAL_MODELS = ("robust_mad", "state_space_current")
+CAUSAL_MODELS = ("robust_mad", "state_space_current", "virtual_source_state_space")
 
 
 @pytest.fixture(scope="module")
@@ -58,9 +58,14 @@ def small_series(all_series) -> dict[str, GameBucketSeries]:
 # ---------------------------------------------------------------------------
 
 
-def test_three_models_self_register():
+def test_seeded_models_self_register():
     ids = list_models()
-    for expected in ("robust_mad", "state_space_current", "template_model"):
+    for expected in (
+        "robust_mad",
+        "state_space_current",
+        "template_model",
+        "virtual_source_state_space",
+    ):
         assert expected in ids, f"{expected} did not self-register; got {ids}"
 
 

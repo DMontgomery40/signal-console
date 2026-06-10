@@ -180,15 +180,18 @@ leakage-safe, it is truth, not input.
 ## 4. Run and compare the built-in baselines
 
 Two baselines ship as the bars to beat: `robust_mad` (robust statistics) and
-`state_space_current` (Kalman-style state space). The third registered id,
-`template_model`, is a copy-me example — not a real candidate.
+`state_space_current` (Kalman-style state space). `virtual_source_state_space` is a
+registered research candidate (per-virtual-source Kalman filters with a
+precision-weighted combine — see `docs/moniac-pipeline-plan-and-code-draft.md`),
+not a baseline. The remaining registered id, `template_model`, is a copy-me
+example — not a real candidate.
 
 ```bash
 SNAP=/absolute/path/to/outputs/nba-quant-lab/snapshots/<id>
 
 pnpm quant list-models
 pnpm quant run-model robust_mad "$SNAP"
-pnpm quant compare robust_mad state_space_current --snapshot "$SNAP"
+pnpm quant compare robust_mad state_space_current virtual_source_state_space --snapshot "$SNAP"
 ```
 
 `pnpm quant <cmd>` forwards verbatim to `python -m nba_sidecar.research <cmd>` via
@@ -198,7 +201,7 @@ pnpm quant compare robust_mad state_space_current --snapshot "$SNAP"
 cd apps/nba-sidecar
 uv sync --extra research   # pandas, pyarrow, duckdb, numpy, matplotlib
 uv run --extra research python -m nba_sidecar.research compare \
-    robust_mad state_space_current --snapshot "$SNAP"
+    robust_mad state_space_current virtual_source_state_space --snapshot "$SNAP"
 ```
 
 Note the `compare` shape: models are **positional** and `--snapshot` is a **required
@@ -208,6 +211,46 @@ positional). `compare` needs ≥ 2 models and writes a leaderboard.
 For the recorded baseline numbers (scoreable recall, fires/game, residual coverage) do
 not invent fresh figures — cite the recorded `REAL-compare-sample-fixed` run in
 `docs/nba-quant-lab.md` §6, or read the `leaderboard.json` from your own run.
+
+Two diagnostic CLIs sit on top of `compare` (both honest-by-construction: missing
+dimensions stay `None`/`n/a`, never fabricated — provenance in
+`docs/moniac-pipeline-plan-and-code-draft.md`):
+
+```bash
+cd apps/nba-sidecar
+
+# Pareto-front dominance over (recall ↑, fires/game ↓ [, ECE ↓ when available]):
+# which models are nondominated operating points, which are strictly worse.
+uv run --extra research python -m nba_sidecar.research.evaluation.pareto \
+    --snapshot "$SNAP" \
+    --models robust_mad state_space_current virtual_source_state_space
+
+# Expected Calibration Error: does a bounded 0-1 score (regimeScore diagnostic
+# when present, else top-level score) match the empirical TRUTH-outcome rate
+# per bin? Outcomes are per-bucket truth labels derived from the snapshot's
+# scoreable catch windows + tape episodes — never the model's own fired gate.
+# --pareto appends the full three-dimension front with ECE wired in.
+uv run --extra research python -m nba_sidecar.research.evaluation.calibration \
+    --snapshot "$SNAP" --model virtual_source_state_space --bins 10 --pareto
+```
+
+There is also an **external** composite producer (board state-space × signed-paired
+attribution, `research/experiments/composite_attribution.py`) that writes a
+`predictions.parquet` for `pnpm quant score-predictions`. It is deliberately NOT a
+registered `BoardModel` (it needs prop ticks, candidate pairs, and event anchors the
+bucket contract does not carry). Its attribution inputs are real snapshot tables:
+`player_prop_ticks.parquet` (per-player rebound-prop series) and `pbp_actions.parquet`
+(raw play-by-play actions, from which rebound events + candidate pairs are derived via
+`candidates.rebound_candidates`). A snapshot exported before those tables existed
+degrades to board-only composition with a loud warning — re-export rather than
+trusting that run. This is offline Research evidence, not live suspend behavior.
+
+```bash
+uv run --extra research python -m nba_sidecar.research.experiments.composite_attribution \
+    --snapshot "$SNAP" --out outputs/nba-quant-lab/external/composite_attribution/predictions.parquet
+pnpm quant score-predictions outputs/nba-quant-lab/external/composite_attribution/predictions.parquet \
+    "$SNAP" --model-id composite_attribution
+```
 
 ---
 

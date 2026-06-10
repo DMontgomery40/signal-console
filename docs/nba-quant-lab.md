@@ -276,12 +276,32 @@ present-source counts vary (e.g. polymarket / bet365 / kalshi).
 
 Per-player rebound-prop microstructure for the attribution re-ranker: raw causal
 ticks (`game_id`, `player_key`, `source`, `line`, `stat`, `captured_at`,
-`implied_probability`, `volume`). Scoped to truth-bearing games (incident +
+`implied_probability`, `volume`), **OVER side only** — the series selection
+groups by (source, line) with no selection column, so exporting both sides
+would blend complementary probabilities (matches
+`attribution_eval.player_rebound_over_ticks`). Scoped to truth-bearing games (incident +
 tape-episode games); pass `--control-ticks N` to add a deterministic sample of N
 assumed-negative games so the re-ranker's false-alarm rate can be calibrated on a
 real control universe (see `docs/research-2026-05-31d-far-calibration-result.md`).
 The Python loader (`read_player_prop_ticks`) fails loudly on a snapshot missing
 this file — re-export with the current exporter rather than suppressing.
+
+### 3.5c `pbp_actions.parquet` — attribution raw material (causal, leakage-safe)
+
+Raw play-by-play action rows for **every** selected game (`game_id`,
+`action_number`, `action_type`, `sub_type`, `person_id`, `team_tricode`,
+`player_name`, `period`, `clock`, `time_actual`). The research package derives
+rebound events and (credited, rightful-candidate) pairs from these via
+`candidates.rebound_candidates` + on-court reconstruction — the snapshot carries
+the RAW actions, not a derived event table, so that tested Python path stays the
+single owner of the derivation logic. Credit fields are the **earliest observed**
+state (joined from `nba_pbp_revisions`): the live actions table is upserted in
+place, so after a silent stat correction it already shows the corrected rightful
+player as credited — exporting that would reverse the paired-drift signature and
+suppress exactly the miscredits the composite producer hunts. This is what lets the composite
+board×attribution producer (and, eventually, snapshot-only FAR calibration) run
+without reading the gold DB. The loader is `read_pbp_actions`; it fails loudly
+on a snapshot missing this file.
 
 ### 3.6 `games.parquet` — game index
 
@@ -378,9 +398,12 @@ uv run --extra research python -m nba_sidecar.research compare my_model robust_m
 `outputs/nba-quant-lab/runs/<id>/` with `metrics.json`, `casebook.json`,
 `leaderboard.json`, and a rendered `REPORT.md` / `report.html`.
 
-> The three currently-registered models are `robust_mad`, `state_space_current`, and
-> `template_model` (the last is a non-candidate example — do not enter it in a bake-off
-> as if it were real).
+> The currently-registered models are `robust_mad` and `state_space_current` (the two
+> baselines), `virtual_source_state_space` (a registered research candidate:
+> per-virtual-source Kalman filters combined by precision weighting, approximating the
+> source split from aggregate dominance/disagreement columns — see
+> `docs/moniac-pipeline-plan-and-code-draft.md`), and `template_model` (a non-candidate
+> example — do not enter it in a bake-off as if it were real).
 
 ---
 
