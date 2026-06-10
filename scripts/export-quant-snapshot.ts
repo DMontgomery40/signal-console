@@ -549,6 +549,15 @@ async function run(): Promise<number> {
         .filter((id): id is string => typeof id === "string" && !truthBearingIds.includes(id)),
     ).size;
 
+    // 12. pbp_actions.parquet — raw play-by-play actions for EVERY selected game
+    //     (the attribution surfaces' raw material). The Python research package
+    //     derives rebound events + confusability candidate pairs from these rows
+    //     (candidates.rebound_candidates + oncourt reconstruction) — the snapshot
+    //     carries the RAW causal actions, not a derived event table, so the
+    //     tested Python candidate path stays the single source of that logic.
+    //     Columns mirror exactly what far-calibration reads from the gold DB.
+    const pbpActionRows = buildPbpActionRows(db, selectedIds);
+
     // --- write parquet via duckdb ----------------------------------------
     const instance = await DuckDBInstance.create(resolve(snapshotDir, "snapshot.duckdb"));
     const connection = await instance.connect();
@@ -602,6 +611,13 @@ async function run(): Promise<number> {
       PLAYER_PROP_TICKS_COLUMNS,
       playerPropTickRows,
       resolve(snapshotDir, "player_prop_ticks.parquet"),
+    );
+    await writeParquetTable(
+      target,
+      "pbp_actions",
+      PBP_ACTIONS_COLUMNS,
+      pbpActionRows,
+      resolve(snapshotDir, "pbp_actions.parquet"),
     );
     connection.disconnectSync();
     instance.closeSync();
@@ -700,6 +716,7 @@ async function run(): Promise<number> {
         marketOutlierEpisodes: episodeRows.length,
         sourceCoverage: coverageRows.length,
         playerPropTicks: playerPropTickRows.length,
+        pbpActions: pbpActionRows.length,
       },
       boardObservationDiagnostics: Object.fromEntries(boardDiag),
       sourceCoverageSummary,
@@ -712,6 +729,7 @@ async function run(): Promise<number> {
         "market_outlier_episodes.parquet",
         "source_coverage.parquet",
         "player_prop_ticks.parquet",
+        "pbp_actions.parquet",
         "splits.json",
         "feature_catalog.md",
         "feature_catalog.json",
@@ -967,6 +985,46 @@ function buildPlayerPropTickRows(
   return rows;
 }
 
+// --- pbp actions (attribution raw material) ----------------------------------
+
+// Raw play-by-play action rows for every selected game. The Python research
+// package derives rebound events + (credited, rightful-candidate) pairs from
+// these via candidates.rebound_candidates + oncourt reconstruction; exporting
+// the RAW actions (instead of a TS-derived event/candidate table) keeps that
+// tested Python path the single owner of the derivation logic. Column set
+// mirrors the far-calibration gold-DB read exactly, so PBP-consuming research
+// paths can become snapshot-only without changing semantics.
+function buildPbpActionRows(db: ReturnType<typeof openGoldDb>, gameIds: readonly string[]): Row[] {
+  const stmt = db.prepare(
+    `SELECT action_number, action_type, sub_type, person_id, team_tricode,
+            player_name, period, clock, time_actual
+     FROM nba_play_by_play_actions
+     WHERE game_id = ?
+     ORDER BY action_number`,
+  );
+  const rows: Row[] = [];
+  for (const gameId of gameIds) {
+    for (const rec of stmt.all(gameId)) {
+      if (!isRecord(rec)) continue;
+      const actionNumber = typeof rec["action_number"] === "number" ? rec["action_number"] : null;
+      if (actionNumber === null) continue;
+      rows.push({
+        game_id: gameId,
+        action_number: actionNumber,
+        action_type: typeof rec["action_type"] === "string" ? rec["action_type"] : null,
+        sub_type: typeof rec["sub_type"] === "string" ? rec["sub_type"] : null,
+        person_id: typeof rec["person_id"] === "number" ? rec["person_id"] : null,
+        team_tricode: typeof rec["team_tricode"] === "string" ? rec["team_tricode"] : null,
+        player_name: typeof rec["player_name"] === "string" ? rec["player_name"] : null,
+        period: typeof rec["period"] === "number" ? rec["period"] : null,
+        clock: typeof rec["clock"] === "string" ? rec["clock"] : null,
+        time_actual: typeof rec["time_actual"] === "string" ? rec["time_actual"] : null,
+      });
+    }
+  }
+  return rows;
+}
+
 function minIso(ids: readonly string[], byId: Map<string, GameWindow>): string | null {
   let best: string | null = null;
   for (const id of ids) {
@@ -1085,6 +1143,24 @@ const PLAYER_PROP_TICKS_COLUMNS: readonly ColumnSpec[] = [
   { name: "captured_at", type: "VARCHAR" },
   { name: "implied_probability", type: "DOUBLE" },
   { name: "volume", type: "DOUBLE" },
+];
+
+// Raw PBP actions — the attribution surfaces' raw material (see
+// buildPbpActionRows). Causal: every column is a recorded in-game fact at
+// action time; the only label-adjacent risk (silent stat corrections) changes
+// the NAME on a rebound, which the candidate generator is invariant to by
+// construction.
+const PBP_ACTIONS_COLUMNS: readonly ColumnSpec[] = [
+  { name: "game_id", type: "VARCHAR" },
+  { name: "action_number", type: "INTEGER" },
+  { name: "action_type", type: "VARCHAR" },
+  { name: "sub_type", type: "VARCHAR" },
+  { name: "person_id", type: "INTEGER" },
+  { name: "team_tricode", type: "VARCHAR" },
+  { name: "player_name", type: "VARCHAR" },
+  { name: "period", type: "INTEGER" },
+  { name: "clock", type: "VARCHAR" },
+  { name: "time_actual", type: "VARCHAR" },
 ];
 
 // --- feature catalog --------------------------------------------------------
@@ -1271,6 +1347,26 @@ const FEATURE_CATALOG: readonly FeatureCatalogEntry[] = [
     causalOrNoncausal: "causal",
     leakageSafeForOnlineScoring: true,
     derivedFromSourceTables: ["quote_ticks", "source_markets", "market_instruments"],
+  },
+  {
+    file: "pbp_actions.parquet",
+    name: "person_id",
+    meaning:
+      "NBA person id credited on the action (null = team-credited); with player_name/team_tricode it drives the confusability candidate generator",
+    units: "identifier",
+    causalOrNoncausal: "causal",
+    leakageSafeForOnlineScoring: true,
+    derivedFromSourceTables: ["nba_play_by_play_actions"],
+  },
+  {
+    file: "pbp_actions.parquet",
+    name: "time_actual",
+    meaning:
+      "Wall-clock instant of the action — the event anchor the attribution re-ranker windows prop ticks around",
+    units: "ISO-8601 instant",
+    causalOrNoncausal: "causal",
+    leakageSafeForOnlineScoring: true,
+    derivedFromSourceTables: ["nba_play_by_play_actions"],
   },
 ];
 
