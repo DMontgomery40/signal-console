@@ -676,7 +676,7 @@ It is a sanity check on a model's extra fires. A model can post great recall by 
     eli5: String.raw`A snapshot is a frozen, reproducible copy of the slice of the gold database the research lab scores against. It is frozen on purpose: two models can only be compared fairly if they see the exact same data, and a frozen snapshot means today's leaderboard still means the same thing next week, even as new live data keeps arriving.
 
 Inside it are the games, the whole-board observations, the labeled incident truth, and the per-player prop ticks — everything a model or the attribution re-ranker needs to be scored, packaged once so the run is repeatable.`,
-    formal: String.raw`Materialized by \`pnpm quant:export\` from the READ-ONLY gold DB plus the committed incident registry, using the shared truth functions so snapshot truth equals the bakeoff truth. Parquet tables: \`games\`, \`board_observations\` (live board lane shape), \`market_outlier_episodes\` (bakeoff path), \`incidents\`, \`score_windows\`, \`player_prop_ticks\`, plus \`manifest.json\` and \`snapshot.duckdb\`. Selection modes: \`full-corpus\` (default — every board-eligible game), \`explicit-games\` (\`--games\`), or \`incident-plus-sample\` (\`--sample N\` = all incident games + N deterministic controls). Output: \`outputs/nba-quant-lab/snapshots/<id>/\`.`,
+    formal: String.raw`Materialized by \`pnpm quant:export\` from the READ-ONLY gold DB plus the committed incident registry, using the shared truth functions so snapshot truth equals the bakeoff truth. Parquet tables: \`games\`, \`board_observations\` (live board lane shape), \`market_outlier_episodes\` (bakeoff path), \`incidents\`, \`score_windows\`, \`player_prop_ticks\`, \`pbp_actions\` (raw play-by-play, the attribution candidate raw material), plus \`manifest.json\` and \`snapshot.duckdb\`. Selection modes: \`full-corpus\` (default — every board-eligible game), \`explicit-games\` (\`--games\`), or \`incident-plus-sample\` (\`--sample N\` = all incident games + N deterministic controls). Output: \`outputs/nba-quant-lab/snapshots/<id>/\`.`,
   },
 
   "research-model-lab": {
@@ -688,7 +688,7 @@ Inside it are the games, the whole-board observations, the labeled incident trut
   "research-leaderboard": {
     title: "Research leaderboard",
     eli5: String.raw`How each model did on one snapshot: of the incidents we know about, how many it caught (recall), how often it fired per game (burden), and how its catches split between whole-board volatility and single off-price prints. This is a research-snapshot result, not live production behavior — read it as a bakeoff scorecard, not a promise about tomorrow's games.`,
-    formal: String.raw`Per-model rows from \`outputs/nba-quant-lab/runs/<id>/leaderboard.json\`: \`incident_recall\` (caught / total labeled), \`fires_per_game\`, \`tape_outlier_recall\` vs board-volatility attribution, and \`residual_coverage\` (quality of the un-labeled fire budget). Produced by \`pnpm quant compare <models> --snapshot <snap>\`.`,
+    formal: String.raw`Per-model rows from \`outputs/nba-quant-lab/runs/<id>/leaderboard.json\`: \`incident_recall\` (caught / total labeled), \`fires_per_game\`, \`tape_outlier_recall\` vs board-volatility attribution, and \`residual_coverage\` (quality of the un-labeled fire budget). Produced by \`pnpm quant compare <models> --snapshot <snap>\`; external producers (e.g. \`composite_attribution\`) land rows via \`pnpm quant score-predictions <predictions> <snap> --model-id <id>\`.`,
   },
 
   "research-attribution": {

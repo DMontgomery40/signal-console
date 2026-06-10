@@ -283,6 +283,19 @@ real control universe (see `docs/research-2026-05-31d-far-calibration-result.md`
 The Python loader (`read_player_prop_ticks`) fails loudly on a snapshot missing
 this file — re-export with the current exporter rather than suppressing.
 
+### 3.5c `pbp_actions.parquet` — attribution raw material (causal, leakage-safe)
+
+Raw play-by-play action rows for **every** selected game (`game_id`,
+`action_number`, `action_type`, `sub_type`, `person_id`, `team_tricode`,
+`player_name`, `period`, `clock`, `time_actual`). The research package derives
+rebound events and (credited, rightful-candidate) pairs from these via
+`candidates.rebound_candidates` + on-court reconstruction — the snapshot carries
+the RAW actions, not a derived event table, so that tested Python path stays the
+single owner of the derivation logic. This is what lets the composite
+board×attribution producer (and, eventually, snapshot-only FAR calibration) run
+without reading the gold DB. The loader is `read_pbp_actions`; it fails loudly
+on a snapshot missing this file.
+
 ### 3.6 `games.parquet` — game index
 
 29 rows. `game_id`, `scheduled_start`, `home_key`/`away_key`, full-window bounds

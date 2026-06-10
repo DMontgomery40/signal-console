@@ -174,6 +174,18 @@ const LEADERBOARD_RESPONSE = {
       burden: 42,
       residual_coverage: null,
     },
+    // External producer scored via `pnpm quant score-predictions` — appears in
+    // the leaderboard BESIDE the registered models, never instead of them.
+    {
+      model: "composite_attribution",
+      incident_recall: 0.0,
+      incidents_caught: 0,
+      incidents_total: 5,
+      fires_per_game: 0.4,
+      tape_outlier_recall: 0.0303,
+      burden: 8,
+      residual_coverage: null,
+    },
   ],
 };
 
@@ -592,7 +604,7 @@ describe("ResearchPage", () => {
     // its own row simultaneously, so one model cannot masquerade as another.
     const lbRows = await screen.findAllByTestId("research-leaderboard-row");
     const lbIds = lbRows.map((r) => r.getAttribute("data-model-id"));
-    expect(lbIds).toEqual(["robust_mad", "virtual_source_state_space"]);
+    expect(lbIds).toEqual(["robust_mad", "virtual_source_state_space", "composite_attribution"]);
     const baselineRow = lbRows[0];
     expect(baselineRow?.textContent).toContain("60.0%"); // incident recall
     expect(baselineRow?.textContent).toContain("3 / 5"); // caught / scoreable

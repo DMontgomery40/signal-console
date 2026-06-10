@@ -236,10 +236,12 @@ There is also an **external** composite producer (board state-space × signed-pa
 attribution, `research/experiments/composite_attribution.py`) that writes a
 `predictions.parquet` for `pnpm quant score-predictions`. It is deliberately NOT a
 registered `BoardModel` (it needs prop ticks, candidate pairs, and event anchors the
-bucket contract does not carry). **Pending:** the snapshot does not yet carry a
-bucket-indexed rebound-event/candidate table and the exporter does not yet write
-`player_prop_ticks.parquet`, so running it today degrades to board-only composition
-and says so — fixture-backed tests cover the full composition path.
+bucket contract does not carry). Its attribution inputs are real snapshot tables:
+`player_prop_ticks.parquet` (per-player rebound-prop series) and `pbp_actions.parquet`
+(raw play-by-play actions, from which rebound events + candidate pairs are derived via
+`candidates.rebound_candidates`). A snapshot exported before those tables existed
+degrades to board-only composition with a loud warning — re-export rather than
+trusting that run. This is offline Research evidence, not live suspend behavior.
 
 ```bash
 uv run --extra research python -m nba_sidecar.research.experiments.composite_attribution \

@@ -311,6 +311,38 @@ PLAYER_PROP_TICKS_COLUMNS = ParquetTableSpec(
 )
 
 
+# Raw play-by-play actions for every snapshot game — the attribution surfaces'
+# raw material. The research package derives rebound events + confusability
+# candidate pairs from these rows (candidates.rebound_candidates + oncourt
+# reconstruction); the snapshot carries the RAW causal actions, not a derived
+# event table. Column set mirrors the far-calibration gold-DB read exactly.
+PBP_ACTIONS_COLUMNS = ParquetTableSpec(
+    name="pbp_actions",
+    columns=(
+        ColumnSpec("game_id", "string", meaning="Game identifier."),
+        ColumnSpec("action_number", "int", meaning="PBP action sequence number (unique per game)."),
+        ColumnSpec("action_type", "string", nullable=True, meaning="PBP action type (e.g. 'rebound', 'substitution')."),
+        ColumnSpec("sub_type", "string", nullable=True, meaning="PBP sub-type (e.g. 'offensive'/'defensive' for rebounds)."),
+        ColumnSpec(
+            "person_id",
+            "int",
+            nullable=True,
+            meaning="NBA person id credited on the action; null = team-credited. Causal.",
+        ),
+        ColumnSpec("team_tricode", "string", nullable=True, meaning="Team tricode on the action."),
+        ColumnSpec("player_name", "string", nullable=True, meaning="Player display name on the action."),
+        ColumnSpec("period", "int", nullable=True, meaning="Game period of the action."),
+        ColumnSpec("clock", "string", nullable=True, meaning="Game-clock string at the action."),
+        ColumnSpec(
+            "time_actual",
+            "datetime",
+            nullable=True,
+            meaning="Wall-clock instant of the action — the attribution event anchor. Causal.",
+        ),
+    ),
+)
+
+
 # ---------------------------------------------------------------------------
 # Model output contract: predictions.parquet
 #
@@ -376,6 +408,7 @@ __all__ = [
     "MARKET_OUTLIER_EPISODE_COLUMNS",
     "SOURCE_COVERAGE_COLUMNS",
     "PLAYER_PROP_TICKS_COLUMNS",
+    "PBP_ACTIONS_COLUMNS",
     "PREDICTION_COLUMNS",
     "EVAL_GAME_COLUMNS",
     "EVAL_SUMMARY_COLUMNS",

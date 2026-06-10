@@ -13,6 +13,8 @@ Run with:
 
 from __future__ import annotations
 
+import json
+from datetime import datetime, timezone
 from types import SimpleNamespace
 
 import pandas as pd
@@ -25,6 +27,8 @@ from nba_sidecar.research.experiments.composite_attribution import (
     _compose_product,
     _compose_weighted_sum,
     _normalize_paired_score,
+    load_attribution_inputs,
+    write_composite_predictions,
 )
 
 # Event anchor used by the tick fixtures (epoch seconds).
@@ -279,3 +283,313 @@ class TestBuildPredictions:
         for gid in ("nba-game-A", "nba-game-B"):
             game_preds = preds[preds["game_id"] == gid]
             assert int(game_preds["fired"].sum()) == 1
+
+
+# ---------------------------------------------------------------------------
+# load_attribution_inputs / write_composite_predictions — REAL snapshot tables
+# (fixture snapshot in tmp_path exercising the new exporter tables end-to-end)
+# ---------------------------------------------------------------------------
+
+_S0 = 1_700_000_000  # fixture game epoch
+_N_BUCKETS = 30  # past both the board-model (20) and attribution (20) warmups
+_EVENT_BUCKET = 22
+_EVENT_SEC = _S0 + _EVENT_BUCKET * 60 + 30
+
+
+def _snap_iso(sec: float) -> str:
+    return datetime.fromtimestamp(sec, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+
+
+def _pbp_rows(game_id: str = "G1") -> list[dict]:
+    # Two AAA players act before any substitution -> both inferred on court, so
+    # the rebound credited to 101 (Embiid) yields the candidate pair (101 -> 102).
+    def act(num: int, atype: str, pid, name, sec: float, sub_type=None) -> dict:
+        return {
+            "game_id": game_id,
+            "action_number": num,
+            "action_type": atype,
+            "sub_type": sub_type,
+            "person_id": pid,
+            "team_tricode": "AAA",
+            "player_name": name,
+            "period": 1,
+            "clock": "PT10M00S",
+            "time_actual": _snap_iso(sec),
+        }
+
+    return [
+        act(1, "2pt", 101, "Joel Embiid", _S0 + 60),
+        act(2, "2pt", 102, "Kelly Oubre", _S0 + 120),
+        act(3, "rebound", 101, "Joel Embiid", _EVENT_SEC, sub_type="defensive"),
+    ]
+
+
+def _tick_rows(game_id: str = "G1") -> list[dict]:
+    # Credited (embiid) drifts DOWN -0.2; rightful candidate (oubre) UP +0.3
+    # around the event -> raw paired score +0.5 ("ok" support).
+    def tick(player_key: str, sec: float, prob: float) -> dict:
+        return {
+            "game_id": game_id,
+            "player_key": player_key,
+            "source": "kalshi",
+            "line": 7.5,
+            "stat": "rebounds",
+            "captured_at": _snap_iso(sec),
+            "implied_probability": prob,
+            "volume": 10.0,
+        }
+
+    return [
+        tick("joel-embiid", _EVENT_SEC - 60, 0.5),
+        tick("joel-embiid", _EVENT_SEC + 200, 0.3),
+        tick("kelly-oubre", _EVENT_SEC - 60, 0.4),
+        tick("kelly-oubre", _EVENT_SEC + 200, 0.7),
+    ]
+
+
+def _board_pred_frame(game_id: str = "G1", base: int = _S0, n: int = _N_BUCKETS) -> pd.DataFrame:
+    rows = []
+    for i in range(n):
+        s = base + i * 60
+        rows.append(
+            {
+                "game_id": game_id,
+                "bucket_start": _snap_iso(s),
+                "bucket_end": _snap_iso(s + 60),
+                "score": 0.1,
+                "fired": False,
+                "regimeScore": 0.1,
+                "zCombined": 0.6,
+                "warmed": 1.0,
+                "intensity": 1.0,
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def _write_attribution_tables(snap, pbp_rows: list[dict], tick_rows: list[dict]) -> None:
+    pd.DataFrame(pbp_rows).to_parquet(snap / "pbp_actions.parquet", index=False)
+    pd.DataFrame(tick_rows).to_parquet(snap / "player_prop_ticks.parquet", index=False)
+
+
+@pytest.fixture()
+def attribution_snapshot(tmp_path):
+    snap = tmp_path / "snap"
+    snap.mkdir()
+    _write_attribution_tables(snap, _pbp_rows(), _tick_rows())
+    return snap
+
+
+class TestLoadAttributionInputs:
+    def test_builds_bucketed_events_and_person_keyed_ticks(self, attribution_snapshot):
+        board = _board_pred_frame()
+        events, ticks, status = load_attribution_inputs(attribution_snapshot, board)
+
+        assert status["mode"] == "composite"
+        assert status["events_bucketed"] == 1
+        assert status["events_outside_buckets"] == 0
+        bucket_key = ("G1", str(board["bucket_start"][_EVENT_BUCKET]))
+        assert list(events.keys()) == [bucket_key]
+        (event,) = events[bucket_key]
+        assert event["event_epoch"] == pytest.approx(float(_EVENT_SEC))
+        (cand,) = event["candidates"]
+        assert (cand.credited_person_id, cand.candidate_person_id) == (101, 102)
+        # Ticks keyed by str(person_id) — the join key the producer looks up.
+        assert set(ticks.keys()) == {("G1", "101"), ("G1", "102")}
+        assert status["players_with_series"] == 2
+
+    def test_missing_tables_degrade_to_board_only(self, tmp_path):
+        snap = tmp_path / "empty-snap"
+        snap.mkdir()
+        events, ticks, status = load_attribution_inputs(snap, _board_pred_frame())
+        assert status["mode"] == "board-only"
+        assert "reason" in status
+        assert events == {} and ticks == {}
+
+    def test_event_outside_board_buckets_is_dropped_and_counted(self, tmp_path):
+        snap = tmp_path / "snap"
+        snap.mkdir()
+        pbp = _pbp_rows()
+        pbp[2]["time_actual"] = _snap_iso(_S0 + 99_999)  # far past the last bucket
+        _write_attribution_tables(snap, pbp, _tick_rows())
+        events, _, status = load_attribution_inputs(snap, _board_pred_frame())
+        assert events == {}
+        assert status["events_outside_buckets"] == 1
+        assert status["events_bucketed"] == 0
+
+    def test_pbp_game_without_board_buckets_is_skipped(self, tmp_path):
+        snap = tmp_path / "snap"
+        snap.mkdir()
+        _write_attribution_tables(snap, _pbp_rows(game_id="G9"), _tick_rows(game_id="G9"))
+        events, ticks, status = load_attribution_inputs(snap, _board_pred_frame(game_id="G1"))
+        assert events == {} and ticks == {}
+        assert status["events_bucketed"] == 0
+
+    def test_illiquid_player_yields_no_series_key(self, tmp_path):
+        # Drop the credited player's ticks: candidate pair survives, but only the
+        # rightful leg has a series -> downstream support is "rightful_only",
+        # never a fabricated credited series.
+        snap = tmp_path / "snap"
+        snap.mkdir()
+        ticks = [t for t in _tick_rows() if t["player_key"] != "joel-embiid"]
+        _write_attribution_tables(snap, _pbp_rows(), ticks)
+        _, ticks_map, _ = load_attribution_inputs(snap, _board_pred_frame())
+        assert set(ticks_map.keys()) == {("G1", "102")}
+
+    def test_real_inputs_through_producer_score_the_event_bucket(self, attribution_snapshot):
+        board = _board_pred_frame()
+        events, ticks, _ = load_attribution_inputs(attribution_snapshot, board)
+        producer = CompositeAttributionProducer()  # default warmups (20 buckets)
+        preds = producer.build_predictions(board, events, ticks)
+        assert len(preds) == len(board)
+        row = preds.iloc[_EVENT_BUCKET]
+        assert row["pairedSupport"] == "ok"
+        assert row["pairedScore"] == pytest.approx(_normalize_paired_score(0.5))
+        # every other bucket stays honest: no events -> zero contribution
+        others = preds.drop(index=_EVENT_BUCKET)
+        assert (others["pairedScore"] == 0.0).all()
+
+
+class TestWriteCompositePredictionsEndToEnd:
+    @pytest.fixture()
+    def full_snapshot(self, tmp_path):
+        """Fixture snapshot with board observations + truth tables + the two
+        attribution tables, mirroring what the current exporter writes."""
+        snap = tmp_path / "full-snap"
+        snap.mkdir()
+
+        board_rows = []
+        for gid, base in (("G1", _S0), ("G2", _S0 + 100_000)):
+            for i in range(_N_BUCKETS):
+                s = base + i * 60
+                board_rows.append(
+                    {
+                        "game_id": gid,
+                        "bucket_start": _snap_iso(s),
+                        "bucket_end": _snap_iso(s + 60),
+                        "game_elapsed_seconds": float(i * 60),
+                        "intensity": 1.0,
+                        "active_market_count": 2,
+                        "source_count": 2,
+                        "source_dominance": 0.5,
+                        "source_disagreement": 0.1,
+                    }
+                )
+        pd.DataFrame(board_rows).to_parquet(snap / "board_observations.parquet", index=False)
+
+        pd.DataFrame(
+            [
+                {
+                    "incident_id": "inc1",
+                    "canonical_game_id": "G1",
+                    "has_local_window": True,
+                    "scoreable": True,
+                    "confidence": "high",
+                    "anchor_type": "second",
+                    "utc_time": _snap_iso(_EVENT_SEC),
+                    "event_sec": _EVENT_SEC,
+                    "stat": "rebound",
+                    "credited_player": "Joel Embiid",
+                    "rightful_player": "Kelly Oubre",
+                    "official_correction": False,
+                }
+            ]
+        ).to_parquet(snap / "incidents.parquet", index=False)
+        pd.DataFrame(
+            [
+                {
+                    "incident_id": "inc1",
+                    "game_id": "G1",
+                    "window_start": _snap_iso(_EVENT_SEC - 60),
+                    "window_end": _snap_iso(_EVENT_SEC + 300),
+                    "window_start_sec": _EVENT_SEC - 60,
+                    "window_end_sec": _EVENT_SEC + 300,
+                }
+            ]
+        ).to_parquet(snap / "score_windows.parquet", index=False)
+        pd.DataFrame(
+            [
+                {
+                    "episode_id": "G1:moe:0",
+                    "game_id": "G1",
+                    "start_sec": _S0 + 300,
+                    "end_sec": _S0 + 360,
+                    "bucket_seconds": 60,
+                    "bucket_count": 1,
+                    "peak_severity": 5.0,
+                    "peak_price_move_z": 4.0,
+                    "diagnosis": "price move outlier",
+                }
+            ]
+        ).to_parquet(snap / "market_outlier_episodes.parquet", index=False)
+        pd.DataFrame(
+            [
+                {
+                    "game_id": "G1",
+                    "source": "kalshi",
+                    "market_family": "player_rebounds",
+                    "window": "full-game",
+                    "class": "canonical",
+                    "market_count": 2,
+                    "tick_count": 4,
+                    "eligible": True,
+                }
+            ]
+        ).to_parquet(snap / "source_coverage.parquet", index=False)
+
+        # G2 deliberately has NO pbp/tick rows: its composite rows must degrade
+        # honestly (pairedScore 0.0) while G1 carries the real signal.
+        _write_attribution_tables(snap, _pbp_rows(), _tick_rows())
+        return snap
+
+    def test_writes_one_row_per_board_bucket_with_real_attribution(self, full_snapshot, tmp_path, capsys):
+        out = tmp_path / "out" / "predictions.parquet"
+        written = write_composite_predictions(full_snapshot, out)
+        assert written == out
+        preds = pd.read_parquet(out)
+        assert len(preds) == 2 * _N_BUCKETS  # one row per board bucket, both games
+
+        printed = capsys.readouterr().out
+        assert "BOARD-ONLY" not in printed
+        assert "1 rebound events bucketed" in printed
+
+        g1 = preds[preds["game_id"] == "G1"].reset_index(drop=True)
+        event_row = g1.iloc[_EVENT_BUCKET]
+        assert event_row["pairedSupport"] == "ok"
+        assert event_row["pairedScore"] == pytest.approx(_normalize_paired_score(0.5))
+        # The no-data game stays board-only: absence contributes 0.0, never 0.5.
+        g2 = preds[preds["game_id"] == "G2"]
+        assert (g2["pairedScore"] == 0.0).all()
+        assert (g2["pairedSupport"] == "insufficient_support").all()
+
+    def test_old_snapshot_without_attribution_tables_warns_board_only(self, full_snapshot, tmp_path, capsys):
+        (full_snapshot / "pbp_actions.parquet").unlink()
+        out = tmp_path / "out" / "predictions.parquet"
+        write_composite_predictions(full_snapshot, out)
+        printed = capsys.readouterr().out
+        assert "BOARD-ONLY" in printed
+        preds = pd.read_parquet(out)
+        assert (preds["pairedScore"] == 0.0).all()
+
+    def test_scores_through_score_predictions_into_leaderboard(self, full_snapshot, tmp_path):
+        from nba_sidecar.research.cli.main import main as cli_main
+
+        out = tmp_path / "out" / "predictions.parquet"
+        write_composite_predictions(full_snapshot, out)
+        runs_root = tmp_path / "runs"
+        rc = cli_main(
+            [
+                "score-predictions",
+                str(out),
+                str(full_snapshot),
+                "--model-id",
+                "composite_attribution",
+                "--run-id",
+                "t-composite",
+                "--runs-root",
+                str(runs_root),
+            ]
+        )
+        assert rc == 0
+        leaderboard = json.loads((runs_root / "t-composite" / "leaderboard.json").read_text())
+        assert [r["model"] for r in leaderboard] == ["composite_attribution"]

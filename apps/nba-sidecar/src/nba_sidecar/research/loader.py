@@ -25,6 +25,7 @@ import pandas as pd
 
 from .contracts import (
     BOARD_OBSERVATION_COLUMNS,
+    PBP_ACTIONS_COLUMNS,
     PLAYER_PROP_TICKS_COLUMNS,
     GameBucketSeries,
     ModelInputBucket,
@@ -33,6 +34,7 @@ from .contracts import (
 
 _BOARD_FILE = "board_observations.parquet"
 _PLAYER_PROP_TICKS_FILE = "player_prop_ticks.parquet"
+_PBP_ACTIONS_FILE = "pbp_actions.parquet"
 _DUCKDB_FILE = "snapshot.duckdb"
 
 # Causal, leakage-safe columns that flow into a model input bucket.
@@ -77,6 +79,18 @@ def read_player_prop_ticks(snapshot_path: str | Path) -> pd.DataFrame:
         raise FileNotFoundError(f"missing {_PLAYER_PROP_TICKS_FILE} in snapshot: {path}")
     df = pd.read_parquet(path)
     return validate_dataframe(df, PLAYER_PROP_TICKS_COLUMNS)
+
+
+def read_pbp_actions(snapshot_path: str | Path) -> pd.DataFrame:
+    """Read + validate the pbp_actions parquet (raw play-by-play actions, the
+    attribution surfaces' raw material). A missing file raises, mirroring
+    read_player_prop_ticks, so an old snapshot fails loudly rather than
+    silently yielding no rebound events/candidates."""
+    path = _snapshot_dir(snapshot_path) / _PBP_ACTIONS_FILE
+    if not path.exists():
+        raise FileNotFoundError(f"missing {_PBP_ACTIONS_FILE} in snapshot: {path}")
+    df = pd.read_parquet(path)
+    return validate_dataframe(df, PBP_ACTIONS_COLUMNS)
 
 
 def read_board_observations_duckdb(snapshot_path: str | Path) -> pd.DataFrame:
@@ -162,6 +176,7 @@ def load_game_series(
 __all__ = [
     "read_board_observations",
     "read_player_prop_ticks",
+    "read_pbp_actions",
     "read_board_observations_duckdb",
     "build_game_series",
     "load_game_series",

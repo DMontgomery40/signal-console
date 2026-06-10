@@ -38,14 +38,16 @@ not carry; it writes a ``predictions.parquet`` scored via
 register it in ``nba_sidecar.research.models`` until those inputs have a
 formal contract.
 
-CURRENT DATA BLOCKER (kept honest, not papered over): the repo has the
-signed-paired scorer and a ``player_prop_ticks`` loader contract, but no
-bucket-indexed rebound-event/candidate snapshot table, and
-``scripts/export-quant-snapshot.ts`` does not yet write
-``player_prop_ticks.parquet``. Until those exist, ``write_composite_predictions``
-degrades to board-only composition (empty event context → pairedScore 0.0,
-support "insufficient_support") and says so. Fixture-backed tests cover the
-full composition path; live-snapshot proof is pending those artifacts.
+DATA PATH (real, snapshot-backed): ``scripts/export-quant-snapshot.ts`` writes
+``player_prop_ticks.parquet`` (per-player rebound-prop series) and
+``pbp_actions.parquet`` (raw play-by-play actions). ``load_attribution_inputs``
+derives rebound events + (credited, rightful-candidate) pairs from the raw
+actions via candidates.rebound_candidates — the snapshot deliberately carries
+RAW actions, not a derived event table, so the tested Python candidate path
+stays the single owner of that logic — and joins each event into its board
+bucket by wall-clock time. A snapshot missing either table degrades honestly
+to board-only composition (empty event context → pairedScore 0.0, support
+"insufficient_support") with a loud warning, never fabricated inputs.
 
 References:
     Ingram (Swish workshop June 2026) — B-T + NN residual architecture.
@@ -59,6 +61,7 @@ from __future__ import annotations
 
 import argparse
 import math
+from bisect import bisect_right
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
@@ -351,6 +354,12 @@ class CompositeAttributionProducer:
         rows: list[dict[str, Any]] = []
         ordered = board_predictions.sort_values(["game_id", "bucket_start"])
 
+        # Per-game tick lookup, built once (not per bucket — a real snapshot has
+        # thousands of buckets x hundreds of (game, player) keys).
+        ticks_by_game: dict[str, dict[str, list[tuple[float, float]]]] = {}
+        for (gid, player_id), ticks in ticks_by_game_player.items():
+            ticks_by_game.setdefault(str(gid), {})[str(player_id)] = ticks
+
         for _, board_row in ordered.iterrows():
             game_id = str(board_row["game_id"])
             bucket_key = (game_id, str(board_row["bucket_start"]))
@@ -367,11 +376,7 @@ class CompositeAttributionProducer:
             paired_score = 0.0
             paired_support = "insufficient_support"
             if attribution_open:
-                prop_ticks_by_player = {
-                    player_id: ticks
-                    for (gid, player_id), ticks in ticks_by_game_player.items()
-                    if gid == game_id
-                }
+                prop_ticks_by_player = ticks_by_game.get(game_id, {})
                 for event in events_by_bucket.get(bucket_key, []):
                     score, support = self._paired_for_event(event, prop_ticks_by_player)
                     if score > paired_score or (
@@ -385,6 +390,136 @@ class CompositeAttributionProducer:
         return pd.DataFrame(rows)
 
 
+def _bucket_intervals(
+    board_predictions: pd.DataFrame,
+) -> dict[str, list[tuple[str, float, float]]]:
+    """Per-game (bucket_start_key, start_epoch, end_epoch) intervals, ascending.
+
+    The bucket key is ``str(bucket_start)`` exactly as build_predictions derives
+    it from the same frame, so event assignment and bucket lookup cannot drift.
+    Rows whose bucket bounds fail to parse are skipped (no bucket = no events).
+    """
+    from ..attribution_snapshot import _epoch
+
+    out: dict[str, list[tuple[str, float, float]]] = {}
+    for _, row in board_predictions.iterrows():
+        start = _epoch(row["bucket_start"])
+        end = _epoch(row.get("bucket_end")) if "bucket_end" in row.index else None
+        if start is None:
+            continue
+        if end is None:
+            end = start + 60.0  # board lane bucketSeconds default
+        out.setdefault(str(row["game_id"]), []).append((str(row["bucket_start"]), start, end))
+    for intervals in out.values():
+        intervals.sort(key=lambda iv: iv[1])
+    return out
+
+
+def load_attribution_inputs(
+    snapshot_path: Path,
+    board_predictions: pd.DataFrame,
+) -> tuple[
+    dict[tuple[str, str], list[dict[str, Any]]],
+    dict[tuple[str, str], list[tuple[float, float]]],
+    dict[str, Any],
+]:
+    """Build the producer's attribution inputs from REAL snapshot tables.
+
+    - ``pbp_actions.parquet`` -> per-game rebound events + (credited, candidate)
+      pairs via the tested candidates.rebound_candidates / oncourt path, keyed
+      into board buckets by event wall-clock time.
+    - ``player_prop_ticks.parquet`` -> ONE coherent (source, line) implied-prob
+      series per candidate person, selected by the existing most_active
+      convention and joined person_id -> player_name -> last-name suffix match
+      against ``player_key`` (the same identity convention attribution_snapshot
+      and far_calibration use).
+
+    Fail-open: a snapshot missing either table returns empty inputs plus a
+    status dict saying WHY, so the caller degrades to board-only composition
+    loudly instead of crashing or fabricating inputs.
+    """
+    from ..attribution_snapshot import _epoch, last_name, select_player_series
+    from ..candidates import rebound_candidates
+    from ..loader import read_pbp_actions, read_player_prop_ticks
+
+    status: dict[str, Any] = {
+        "mode": "composite",
+        "events_bucketed": 0,
+        "events_outside_buckets": 0,
+        "players_with_series": 0,
+    }
+    try:
+        ticks_df = read_player_prop_ticks(snapshot_path)
+        pbp_df = read_pbp_actions(snapshot_path)
+    except FileNotFoundError as exc:
+        status["mode"] = "board-only"
+        status["reason"] = str(exc)
+        return {}, {}, status
+
+    intervals_by_game = _bucket_intervals(board_predictions)
+
+    def _to_int(value: object) -> int | None:
+        return int(value) if pd.notna(value) else None  # type: ignore[arg-type]
+
+    def _to_str(value: object) -> str | None:
+        return str(value) if pd.notna(value) else None  # type: ignore[arg-type]
+
+    events_by_bucket: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    ticks_by_game_player: dict[tuple[str, str], list[tuple[float, float]]] = {}
+    name_by_person: dict[tuple[str, int], str] = {}
+
+    for game_id, game_pbp in pbp_df.groupby("game_id", sort=True):
+        gid = str(game_id)
+        intervals = intervals_by_game.get(gid)
+        if not intervals:
+            continue  # game has no board buckets -> no composite rows to join to
+        actions = [
+            {
+                "action_number": _to_int(r["action_number"]),
+                "action_type": _to_str(r["action_type"]),
+                "sub_type": _to_str(r["sub_type"]),
+                "person_id": _to_int(r["person_id"]),
+                "team_tricode": _to_str(r["team_tricode"]),
+                "player_name": _to_str(r["player_name"]),
+                "period": _to_int(r["period"]),
+                "clock": _to_str(r["clock"]),
+                "time_actual": _to_str(r["time_actual"]),
+            }
+            for r in game_pbp.sort_values("action_number").to_dict("records")
+        ]
+        by_action: dict[int, list[Any]] = {}
+        for cand in rebound_candidates(actions, game_id=gid):
+            by_action.setdefault(cand.action_number, []).append(cand)
+            for pid, name in (
+                (cand.credited_person_id, cand.credited_name),
+                (cand.candidate_person_id, cand.candidate_name),
+            ):
+                if name:
+                    name_by_person.setdefault((gid, pid), name)
+
+        starts = [iv[1] for iv in intervals]
+        for action_number, cands in sorted(by_action.items()):
+            event_epoch = _epoch(cands[0].time_actual)
+            if event_epoch is None:
+                continue
+            idx = bisect_right(starts, event_epoch) - 1
+            if idx < 0 or event_epoch >= intervals[idx][2]:
+                status["events_outside_buckets"] += 1
+                continue
+            bucket_key = (gid, intervals[idx][0])
+            events_by_bucket.setdefault(bucket_key, []).append(
+                {"event_epoch": event_epoch, "candidates": cands}
+            )
+            status["events_bucketed"] += 1
+
+    for (gid, pid), name in name_by_person.items():
+        series = select_player_series(ticks_df, gid, last_name(name))
+        if series:
+            ticks_by_game_player[(gid, str(pid))] = series
+    status["players_with_series"] = len(ticks_by_game_player)
+    return events_by_bucket, ticks_by_game_player, status
+
+
 def write_composite_predictions(
     snapshot_path: Path,
     out_path: Path,
@@ -396,25 +531,33 @@ def write_composite_predictions(
     """External producer entry point: board layer from the snapshot, then write
     ``predictions.parquet`` for ``pnpm quant score-predictions``.
 
-    DATA BLOCKER (see module docstring): the snapshot does not yet carry a
-    bucket-indexed rebound-event/candidate table, and the TS exporter does not
-    yet write ``player_prop_ticks.parquet``. Until those exist this degrades
-    honestly to board-only composition (empty event context) and prints a
-    warning rather than fabricating attribution inputs.
+    Attribution inputs come from the snapshot's ``pbp_actions.parquet`` +
+    ``player_prop_ticks.parquet`` (see :func:`load_attribution_inputs`). When a
+    snapshot lacks those tables (exported before they existed) this degrades
+    honestly to board-only composition and says so loudly rather than
+    fabricating attribution inputs.
     """
     from ..evaluation.evaluator import evaluate_model
 
     _, _, board_predictions = evaluate_model(board_model_id, snapshot_path)
 
-    # Pending artifacts — replace with real loads once the snapshot carries
-    # them (see "Fixture and data gates" in the plan doc).
-    events_by_bucket: dict[tuple[str, str], list[dict[str, Any]]] = {}
-    ticks_by_game_player: dict[tuple[str, str], list[tuple[float, float]]] = {}
-    print(
-        "WARNING: no bucket-indexed rebound-event/candidate snapshot table exists "
-        "yet; composite predictions are BOARD-ONLY (pairedScore=0.0). This is a "
-        "degraded smoke path, not a Phase 4 result."
+    events_by_bucket, ticks_by_game_player, status = load_attribution_inputs(
+        snapshot_path, board_predictions
     )
+    if status["mode"] == "board-only":
+        print(
+            "WARNING: attribution inputs missing from this snapshot "
+            f"({status['reason']}); composite predictions are BOARD-ONLY "
+            "(pairedScore=0.0). Re-export with the current exporter — this is a "
+            "degraded smoke path, not a Phase 4 result."
+        )
+    else:
+        print(
+            "composite attribution inputs: "
+            f"{status['events_bucketed']} rebound events bucketed, "
+            f"{status['events_outside_buckets']} outside board buckets (dropped), "
+            f"{status['players_with_series']} (game, player) prop-tick series."
+        )
 
     producer = CompositeAttributionProducer(
         strategy=strategy, fire_threshold=fire_threshold
@@ -469,5 +612,6 @@ if __name__ == "__main__":
 
 __all__ = [
     "CompositeAttributionProducer",
+    "load_attribution_inputs",
     "write_composite_predictions",
 ]
