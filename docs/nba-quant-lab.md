@@ -294,7 +294,11 @@ Raw play-by-play action rows for **every** selected game (`game_id`,
 rebound events and (credited, rightful-candidate) pairs from these via
 `candidates.rebound_candidates` + on-court reconstruction — the snapshot carries
 the RAW actions, not a derived event table, so that tested Python path stays the
-single owner of the derivation logic. This is what lets the composite
+single owner of the derivation logic. Credit fields are the **earliest observed**
+state (joined from `nba_pbp_revisions`): the live actions table is upserted in
+place, so after a silent stat correction it already shows the corrected rightful
+player as credited — exporting that would reverse the paired-drift signature and
+suppress exactly the miscredits the composite producer hunts. This is what lets the composite
 board×attribution producer (and, eventually, snapshot-only FAR calibration) run
 without reading the gold DB. The loader is `read_pbp_actions`; it fails loudly
 on a snapshot missing this file.

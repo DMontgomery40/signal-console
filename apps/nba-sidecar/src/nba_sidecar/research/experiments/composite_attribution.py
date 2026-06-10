@@ -68,7 +68,7 @@ from typing import Any, Optional
 
 import pandas as pd
 
-from ..attribution import signed_paired_score
+from ..attribution import AttributionParams, signed_paired_score
 
 # ---------------------------------------------------------------------------
 # Constants (defaults; the producer takes them as constructor params)
@@ -427,7 +427,13 @@ def load_attribution_inputs(
 
     - ``pbp_actions.parquet`` -> per-game rebound events + (credited, candidate)
       pairs via the tested candidates.rebound_candidates / oncourt path, keyed
-      into board buckets by event wall-clock time.
+      into board buckets by DECISION time, not event time: the signed-paired
+      response window ends at ``event + post_hi`` (AttributionParams, default
+      +300 s), so the contribution lands in the bucket CONTAINING that instant
+      — the first bucket whose data horizon (its own bucket_end, the same
+      horizon board-observation rows summarize) covers the full response
+      window. Keying by event time would let the event bucket fire on quote
+      ticks minutes in its future and inflate recall non-causally.
     - ``player_prop_ticks.parquet`` -> ONE coherent (source, line) implied-prob
       series per candidate person, selected by the existing most_active
       convention and joined person_id -> player_name -> last-name suffix match
@@ -498,12 +504,19 @@ def load_attribution_inputs(
                     name_by_person.setdefault((gid, pid), name)
 
         starts = [iv[1] for iv in intervals]
+        post_hi = AttributionParams().post_hi
         for action_number, cands in sorted(by_action.items()):
             event_epoch = _epoch(cands[0].time_actual)
             if event_epoch is None:
                 continue
-            idx = bisect_right(starts, event_epoch) - 1
-            if idx < 0 or event_epoch >= intervals[idx][2]:
+            # Decision-time bucketing (causality; see module docstring): the
+            # paired score consumes ticks through event + post_hi, so it may
+            # only influence the bucket whose interval contains that instant.
+            # events_outside_buckets counts events whose DECISION time falls
+            # outside board coverage (e.g. a rebound in the final minutes).
+            decision_epoch = event_epoch + post_hi
+            idx = bisect_right(starts, decision_epoch) - 1
+            if idx < 0 or decision_epoch >= intervals[idx][2]:
                 status["events_outside_buckets"] += 1
                 continue
             bucket_key = (gid, intervals[idx][0])

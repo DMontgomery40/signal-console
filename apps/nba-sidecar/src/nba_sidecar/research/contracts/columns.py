@@ -315,7 +315,9 @@ PLAYER_PROP_TICKS_COLUMNS = ParquetTableSpec(
 # raw material. The research package derives rebound events + confusability
 # candidate pairs from these rows (candidates.rebound_candidates + oncourt
 # reconstruction); the snapshot carries the RAW causal actions, not a derived
-# event table. Column set mirrors the far-calibration gold-DB read exactly.
+# event table. Credit fields are the EARLIEST observed revision state (the
+# live actions table is upserted in place, so a silent correction would
+# otherwise present the corrected rightful player as the causal credit).
 PBP_ACTIONS_COLUMNS = ParquetTableSpec(
     name="pbp_actions",
     columns=(
@@ -327,7 +329,10 @@ PBP_ACTIONS_COLUMNS = ParquetTableSpec(
             "person_id",
             "int",
             nullable=True,
-            meaning="NBA person id credited on the action; null = team-credited. Causal.",
+            meaning=(
+                "NBA person id credited on the action (earliest observed state; "
+                "null = team-credited). Causal."
+            ),
         ),
         ColumnSpec("team_tricode", "string", nullable=True, meaning="Team tricode on the action."),
         ColumnSpec("player_name", "string", nullable=True, meaning="Player display name on the action."),

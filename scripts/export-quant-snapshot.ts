@@ -555,7 +555,9 @@ async function run(): Promise<number> {
     //     (candidates.rebound_candidates + oncourt reconstruction) — the snapshot
     //     carries the RAW causal actions, not a derived event table, so the
     //     tested Python candidate path stays the single source of that logic.
-    //     Columns mirror exactly what far-calibration reads from the gold DB.
+    //     Credit fields come from the EARLIEST observed revision (pre-correction
+    //     state) — see buildPbpActionRows. Columns mirror what far-calibration
+    //     reads from the gold DB.
     const pbpActionRows = buildPbpActionRows(db, selectedIds);
 
     // --- write parquet via duckdb ----------------------------------------
@@ -1001,12 +1003,38 @@ function buildPlayerPropTickRows(
 // mirrors the far-calibration gold-DB read exactly, so PBP-consuming research
 // paths can become snapshot-only without changing semantics.
 function buildPbpActionRows(db: ReturnType<typeof openGoldDb>, gameIds: readonly string[]): Row[] {
+  // EARLIEST-OBSERVED credit, not latest: nba_play_by_play_actions is upserted
+  // in place (recordNbaPlayByPlayActions overwrites person_id/player_name on
+  // conflict), so after a silent stat correction the actions table already
+  // shows the corrected (rightful) player as credited — which would reverse
+  // the paired-drift signature and suppress exactly the miscredits the
+  // composite producer hunts. The nba_pbp_revisions shadow table appends a
+  // snapshot per capture; its MIN(captured_at) row per action is the earliest
+  // observed (pre-correction, when capture preceded the correction) state.
+  // When a revision row exists its fields are taken WHOLESALE (an originally
+  // team-credited rebound has person_id NULL — per-column COALESCE would
+  // resurrect the corrected person over that meaningful null).
   const stmt = db.prepare(
-    `SELECT action_number, action_type, sub_type, person_id, team_tricode,
-            player_name, period, clock, time_actual
-     FROM nba_play_by_play_actions
-     WHERE game_id = ?
-     ORDER BY action_number`,
+    `SELECT a.action_number AS action_number,
+            r.action_number IS NOT NULL AS has_revision,
+            CASE WHEN r.action_number IS NOT NULL THEN r.action_type ELSE a.action_type END AS action_type,
+            CASE WHEN r.action_number IS NOT NULL THEN r.sub_type ELSE a.sub_type END AS sub_type,
+            CASE WHEN r.action_number IS NOT NULL THEN r.person_id ELSE a.person_id END AS person_id,
+            CASE WHEN r.action_number IS NOT NULL THEN r.team_tricode ELSE a.team_tricode END AS team_tricode,
+            CASE WHEN r.action_number IS NOT NULL THEN r.player_name ELSE a.player_name END AS player_name,
+            CASE WHEN r.action_number IS NOT NULL THEN r.period ELSE a.period END AS period,
+            CASE WHEN r.action_number IS NOT NULL THEN r.clock ELSE a.clock END AS clock,
+            CASE WHEN r.action_number IS NOT NULL THEN r.time_actual ELSE a.time_actual END AS time_actual
+     FROM nba_play_by_play_actions a
+     LEFT JOIN nba_pbp_revisions r
+       ON r.game_id = a.game_id
+      AND r.action_number = a.action_number
+      AND r.captured_at = (
+        SELECT MIN(r2.captured_at)
+        FROM nba_pbp_revisions r2
+        WHERE r2.game_id = a.game_id AND r2.action_number = a.action_number)
+     WHERE a.game_id = ?
+     ORDER BY a.action_number`,
   );
   const rows: Row[] = [];
   for (const gameId of gameIds) {
@@ -1358,11 +1386,11 @@ const FEATURE_CATALOG: readonly FeatureCatalogEntry[] = [
     file: "pbp_actions.parquet",
     name: "person_id",
     meaning:
-      "NBA person id credited on the action (null = team-credited); with player_name/team_tricode it drives the confusability candidate generator",
+      "NBA person id credited on the action, EARLIEST observed state (pre-correction when capture preceded the correction; null = team-credited); with player_name/team_tricode it drives the confusability candidate generator",
     units: "identifier",
     causalOrNoncausal: "causal",
     leakageSafeForOnlineScoring: true,
-    derivedFromSourceTables: ["nba_play_by_play_actions"],
+    derivedFromSourceTables: ["nba_play_by_play_actions", "nba_pbp_revisions"],
   },
   {
     file: "pbp_actions.parquet",

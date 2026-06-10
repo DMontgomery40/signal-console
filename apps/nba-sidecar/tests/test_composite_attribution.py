@@ -294,6 +294,10 @@ _S0 = 1_700_000_000  # fixture game epoch
 _N_BUCKETS = 30  # past both the board-model (20) and attribution (20) warmups
 _EVENT_BUCKET = 22
 _EVENT_SEC = _S0 + _EVENT_BUCKET * 60 + 30
+# Causality: the paired contribution lands in the bucket CONTAINING the
+# decision instant event + post_hi (default +300 s), NOT the event bucket —
+# the event bucket must never fire on ticks minutes in its own future.
+_DECISION_BUCKET = (_EVENT_BUCKET * 60 + 30 + 300) // 60  # = 27
 
 
 def _snap_iso(sec: float) -> str:
@@ -388,7 +392,7 @@ class TestLoadAttributionInputs:
         assert status["mode"] == "composite"
         assert status["events_bucketed"] == 1
         assert status["events_outside_buckets"] == 0
-        bucket_key = ("G1", str(board["bucket_start"][_EVENT_BUCKET]))
+        bucket_key = ("G1", str(board["bucket_start"][_DECISION_BUCKET]))
         assert list(events.keys()) == [bucket_key]
         (event,) = events[bucket_key]
         assert event["event_epoch"] == pytest.approx(float(_EVENT_SEC))
@@ -456,18 +460,21 @@ class TestLoadAttributionInputs:
         _, ticks_map, _ = load_attribution_inputs(snap, _board_pred_frame())
         assert set(ticks_map.keys()) == {("G1", "102")}
 
-    def test_real_inputs_through_producer_score_the_event_bucket(self, attribution_snapshot):
+    def test_real_inputs_through_producer_score_the_decision_bucket(self, attribution_snapshot):
         board = _board_pred_frame()
         events, ticks, _ = load_attribution_inputs(attribution_snapshot, board)
         producer = CompositeAttributionProducer()  # default warmups (20 buckets)
         preds = producer.build_predictions(board, events, ticks)
         assert len(preds) == len(board)
-        row = preds.iloc[_EVENT_BUCKET]
+        row = preds.iloc[_DECISION_BUCKET]
         assert row["pairedSupport"] == "ok"
         assert row["pairedScore"] == pytest.approx(_normalize_paired_score(0.5))
-        # every other bucket stays honest: no events -> zero contribution
-        others = preds.drop(index=_EVENT_BUCKET)
+        # Causality: the EVENT bucket itself must stay 0 — its row may not use
+        # quote ticks from minutes in its own future. Same for every other
+        # bucket: no decision -> zero contribution.
+        others = preds.drop(index=_DECISION_BUCKET)
         assert (others["pairedScore"] == 0.0).all()
+        assert preds.iloc[_EVENT_BUCKET]["pairedScore"] == 0.0
 
 
 class TestWriteCompositePredictionsEndToEnd:
@@ -574,9 +581,11 @@ class TestWriteCompositePredictionsEndToEnd:
         assert "1 rebound events bucketed" in printed
 
         g1 = preds[preds["game_id"] == "G1"].reset_index(drop=True)
-        event_row = g1.iloc[_EVENT_BUCKET]
-        assert event_row["pairedSupport"] == "ok"
-        assert event_row["pairedScore"] == pytest.approx(_normalize_paired_score(0.5))
+        decision_row = g1.iloc[_DECISION_BUCKET]
+        assert decision_row["pairedSupport"] == "ok"
+        assert decision_row["pairedScore"] == pytest.approx(_normalize_paired_score(0.5))
+        # causality: the event's own bucket never uses its future post-window
+        assert g1.iloc[_EVENT_BUCKET]["pairedScore"] == 0.0
         # The no-data game stays board-only: absence contributes 0.0, never 0.5.
         g2 = preds[preds["game_id"] == "G2"]
         assert (g2["pairedScore"] == 0.0).all()
