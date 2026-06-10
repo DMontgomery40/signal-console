@@ -34,7 +34,7 @@
 //   GOLD_DB_PATH=... pnpm tsx scripts/export-quant-snapshot.ts        # full corpus
 //   GOLD_DB_PATH=... pnpm tsx scripts/export-quant-snapshot.ts [--games a,b] \
 //     [--limit N] [--sample N] [--since DATE|ISO] [--until DATE|ISO] [--seed N] \
-//     [--out DIR] [--snapshot-id ID]
+//     [--out DIR] [--snapshot-id ID] [--control-ticks N]
 
 import { execSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -103,6 +103,12 @@ interface CliOptions {
   readonly seed: number;
   readonly outRoot: string;
   readonly snapshotId: string | null;
+  // Max number of NON-truth-bearing (assumed-negative) games to include in
+  // player_prop_ticks so the attribution re-ranker's false-alarm rate can be
+  // calibrated on a real control universe. 0 = truth-bearing games only
+  // (the original tight slice). Sampled deterministically from the selected
+  // scope by seed; games lacking rebound prop ticks contribute no rows.
+  readonly controlTicks: number;
 }
 
 const ISO_CALENDAR_DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -127,6 +133,7 @@ function parseArgs(argv: readonly string[]): CliOptions {
   let seed = 42;
   let outRoot = resolve(REPO_ROOT, "outputs", "nba-quant-lab", "snapshots");
   let snapshotId: string | null = null;
+  let controlTicks = 0;
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     const next = (): string => {
@@ -147,6 +154,7 @@ function parseArgs(argv: readonly string[]): CliOptions {
     else if (arg === "--seed") seed = Number.parseInt(next(), 10);
     else if (arg === "--out") outRoot = resolve(next());
     else if (arg === "--snapshot-id") snapshotId = next();
+    else if (arg === "--control-ticks") controlTicks = Number.parseInt(next(), 10);
   }
   return {
     games,
@@ -157,6 +165,7 @@ function parseArgs(argv: readonly string[]): CliOptions {
     seed,
     outRoot,
     snapshotId,
+    controlTicks,
   };
 }
 
@@ -505,8 +514,51 @@ async function run(): Promise<number> {
     //                             single mapped market with no usable quotes
     //       artifact_only       - present only in source_markets with
     //                             mapping_status != 'mapped' (no real coverage)
-    //       missing             - eligible source absent for this game/family
+    //       missing             - eligible source ENTIRELY absent for this game
+    //                             (one row per absent eligible source; makes absence
+    //                             explicit rather than invisible)
     const coverageRows = buildSourceCoverageRows(db, selectedIds);
+
+    // 11. player_prop_ticks.parquet — per-player rebound-prop microstructure for
+    //     the attribution re-ranker. Scoped to truth-bearing games (incident +
+    //     tape-episode games) so the re-ranker can window per candidate event
+    //     without reading the gold DB. Raw causal ticks.
+    const truthBearingIds = selectedIds.filter(
+      (id) => incidentGameIdSet.has(id) || (episodesByGame.get(id)?.length ?? 0) > 0,
+    );
+    // FAR-on-control: also include a deterministic sample of NON-truth-bearing
+    // (assumed-negative) games so the re-ranker's false-alarm rate can be
+    // calibrated against a real control universe instead of only the incident
+    // slice. Capped by --control-ticks (0 = truth-bearing only). Sampled by a
+    // seed-offset PRNG; games without rebound prop ticks yield no rows.
+    const controlPoolIds =
+      opts.controlTicks > 0
+        ? selectedIds.filter(
+            (id) => !incidentGameIdSet.has(id) && (episodesByGame.get(id)?.length ?? 0) === 0,
+          )
+        : [];
+    const controlSampleIds = deterministicShuffle(controlPoolIds, mulberry32(opts.seed + 7)).slice(
+      0,
+      opts.controlTicks,
+    );
+    const playerPropTickGameIds = [...truthBearingIds, ...controlSampleIds];
+    const playerPropTickRows = buildPlayerPropTickRows(db, playerPropTickGameIds);
+    const controlTickGameCount = new Set(
+      playerPropTickRows
+        .map((r) => r["game_id"])
+        .filter((id): id is string => typeof id === "string" && !truthBearingIds.includes(id)),
+    ).size;
+
+    // 12. pbp_actions.parquet — raw play-by-play actions for EVERY selected game
+    //     (the attribution surfaces' raw material). The Python research package
+    //     derives rebound events + confusability candidate pairs from these rows
+    //     (candidates.rebound_candidates + oncourt reconstruction) — the snapshot
+    //     carries the RAW causal actions, not a derived event table, so the
+    //     tested Python candidate path stays the single source of that logic.
+    //     Credit fields come from the EARLIEST observed revision (pre-correction
+    //     state) — see buildPbpActionRows. Columns mirror what far-calibration
+    //     reads from the gold DB.
+    const pbpActionRows = buildPbpActionRows(db, selectedIds);
 
     // --- write parquet via duckdb ----------------------------------------
     const instance = await DuckDBInstance.create(resolve(snapshotDir, "snapshot.duckdb"));
@@ -554,6 +606,20 @@ async function run(): Promise<number> {
       SOURCE_COVERAGE_COLUMNS,
       coverageRows,
       resolve(snapshotDir, "source_coverage.parquet"),
+    );
+    await writeParquetTable(
+      target,
+      "player_prop_ticks",
+      PLAYER_PROP_TICKS_COLUMNS,
+      playerPropTickRows,
+      resolve(snapshotDir, "player_prop_ticks.parquet"),
+    );
+    await writeParquetTable(
+      target,
+      "pbp_actions",
+      PBP_ACTIONS_COLUMNS,
+      pbpActionRows,
+      resolve(snapshotDir, "pbp_actions.parquet"),
     );
     connection.disconnectSync();
     instance.closeSync();
@@ -634,6 +700,14 @@ async function run(): Promise<number> {
         regularGameCount: nonIncidentSelected.length,
         games: selectedIds,
       },
+      // Scope of player_prop_ticks: truth-bearing games always included; a
+      // capped deterministic control sample is added when --control-ticks > 0
+      // so the re-ranker's false-alarm rate is calibrated on assumed-negatives.
+      playerPropTickScope: {
+        controlTicksRequested: opts.controlTicks,
+        truthBearingGameCount: truthBearingIds.length,
+        controlGameCount: controlTickGameCount,
+      },
       liveBoardConfig: LIVE_BOARD_CONFIG,
       eligibleSources: [...SNAPSHOT_ELIGIBLE_SOURCES].sort(),
       counts: {
@@ -643,6 +717,8 @@ async function run(): Promise<number> {
         scoreWindows: scoreWindowRows.length,
         marketOutlierEpisodes: episodeRows.length,
         sourceCoverage: coverageRows.length,
+        playerPropTicks: playerPropTickRows.length,
+        pbpActions: pbpActionRows.length,
       },
       boardObservationDiagnostics: Object.fromEntries(boardDiag),
       sourceCoverageSummary,
@@ -654,6 +730,8 @@ async function run(): Promise<number> {
         "score_windows.parquet",
         "market_outlier_episodes.parquet",
         "source_coverage.parquet",
+        "player_prop_ticks.parquet",
+        "pbp_actions.parquet",
         "splits.json",
         "feature_catalog.md",
         "feature_catalog.json",
@@ -794,7 +872,9 @@ function buildSourceCoverageRows(
         tickCount: (prev?.tickCount ?? 0) + tickCount,
       });
     }
+    const presentSources = new Set<string>();
     for (const entry of byKey.values()) {
+      presentSources.add(entry.source);
       const eligible = SNAPSHOT_ELIGIBLE_SOURCES.has(entry.source);
       const klass = classifyCoverage(eligible, entry);
       rows.push({
@@ -806,6 +886,24 @@ function buildSourceCoverageRows(
         market_count: entry.marketCount,
         tick_count: entry.tickCount,
         eligible,
+      });
+    }
+    // Record eligible sources ENTIRELY absent for this game as explicit `missing`
+    // rows. Without this the promised `missing` class never appears — the query
+    // groups only source_markets rows that EXIST, so classifyCoverage's missing
+    // branch is unreachable and absence is invisible rather than recorded. Driven
+    // by the SNAPSHOT_ELIGIBLE_SOURCES config set (not a hardcoded source list).
+    for (const source of SNAPSHOT_ELIGIBLE_SOURCES) {
+      if (presentSources.has(source)) continue;
+      rows.push({
+        game_id: gameId,
+        source,
+        market_family: "",
+        window: "full-game",
+        class: "missing",
+        market_count: 0,
+        tick_count: 0,
+        eligible: true,
       });
     }
   }
@@ -826,6 +924,139 @@ function summarizeCoverage(rows: readonly Row[]): Record<string, number> {
     out[klass] = (out[klass] ?? 0) + 1;
   }
   return out;
+}
+
+// --- player prop ticks (re-ranker input) ------------------------------------
+
+// Raw per-player rebound-prop ticks for the attribution re-ranker's signed-paired
+// legs. Scoped by the caller to truth-bearing games to bound size. Causal (raw
+// ticks, no future info); the re-ranker windows them around candidate events and
+// never reads the gold DB directly.
+function buildPlayerPropTickRows(
+  db: ReturnType<typeof openGoldDb>,
+  gameIds: readonly string[],
+): Row[] {
+  // OVER side only, matching the documented re-ranker contract and the direct
+  // gold-DB diagnostic (attribution_eval.player_rebound_over_ticks). The
+  // downstream series selection groups by (source, line) with no selection
+  // column, so exporting both sides would blend complementary over/under
+  // probabilities into one series and cancel or invert the signed drift.
+  const stmt = db.prepare(
+    `SELECT mi.participant_key AS player_key,
+            sm.source AS source,
+            mi.line AS line,
+            qt.captured_at AS captured_at,
+            qt.implied_probability AS implied_probability,
+            qt.volume AS volume
+     FROM source_markets sm
+     JOIN market_instruments mi ON sm.instrument_id = mi.id
+     JOIN quote_ticks qt ON qt.source_market_id = sm.id AND qt.is_heartbeat = 0
+     WHERE sm.game_id = ?
+       AND mi.family = 'player-prop'
+       AND lower(mi.display_label) LIKE '%rebound%'
+       AND mi.selection = 'over'
+       AND qt.implied_probability IS NOT NULL
+     ORDER BY mi.participant_key, sm.source, mi.line, qt.captured_at`,
+  );
+  const rows: Row[] = [];
+  for (const gameId of gameIds) {
+    for (const rec of stmt.all(gameId)) {
+      if (!isRecord(rec)) continue;
+      const playerKey = typeof rec["player_key"] === "string" ? rec["player_key"] : null;
+      const source = typeof rec["source"] === "string" ? rec["source"] : null;
+      const capturedAt = typeof rec["captured_at"] === "string" ? rec["captured_at"] : null;
+      const impliedProbability =
+        typeof rec["implied_probability"] === "number" ? rec["implied_probability"] : null;
+      if (
+        playerKey === null ||
+        source === null ||
+        capturedAt === null ||
+        impliedProbability === null
+      ) {
+        continue;
+      }
+      rows.push({
+        game_id: gameId,
+        player_key: playerKey,
+        source,
+        // line distinguishes the over/under threshold (e.g. 5.5 vs 9.5) so the
+        // re-ranker can select ONE coherent series per player/source instead of
+        // blending levels; null for line-less props.
+        line: typeof rec["line"] === "number" ? rec["line"] : null,
+        stat: "rebounds",
+        captured_at: capturedAt,
+        implied_probability: impliedProbability,
+        volume: typeof rec["volume"] === "number" ? rec["volume"] : null,
+      });
+    }
+  }
+  return rows;
+}
+
+// --- pbp actions (attribution raw material) ----------------------------------
+
+// Raw play-by-play action rows for every selected game. The Python research
+// package derives rebound events + (credited, rightful-candidate) pairs from
+// these via candidates.rebound_candidates + oncourt reconstruction; exporting
+// the RAW actions (instead of a TS-derived event/candidate table) keeps that
+// tested Python path the single owner of the derivation logic. Column set
+// mirrors the far-calibration gold-DB read exactly, so PBP-consuming research
+// paths can become snapshot-only without changing semantics.
+function buildPbpActionRows(db: ReturnType<typeof openGoldDb>, gameIds: readonly string[]): Row[] {
+  // EARLIEST-OBSERVED credit, not latest: nba_play_by_play_actions is upserted
+  // in place (recordNbaPlayByPlayActions overwrites person_id/player_name on
+  // conflict), so after a silent stat correction the actions table already
+  // shows the corrected (rightful) player as credited — which would reverse
+  // the paired-drift signature and suppress exactly the miscredits the
+  // composite producer hunts. The nba_pbp_revisions shadow table appends a
+  // snapshot per capture; its MIN(captured_at) row per action is the earliest
+  // observed (pre-correction, when capture preceded the correction) state.
+  // When a revision row exists its fields are taken WHOLESALE (an originally
+  // team-credited rebound has person_id NULL — per-column COALESCE would
+  // resurrect the corrected person over that meaningful null).
+  const stmt = db.prepare(
+    `SELECT a.action_number AS action_number,
+            r.action_number IS NOT NULL AS has_revision,
+            CASE WHEN r.action_number IS NOT NULL THEN r.action_type ELSE a.action_type END AS action_type,
+            CASE WHEN r.action_number IS NOT NULL THEN r.sub_type ELSE a.sub_type END AS sub_type,
+            CASE WHEN r.action_number IS NOT NULL THEN r.person_id ELSE a.person_id END AS person_id,
+            CASE WHEN r.action_number IS NOT NULL THEN r.team_tricode ELSE a.team_tricode END AS team_tricode,
+            CASE WHEN r.action_number IS NOT NULL THEN r.player_name ELSE a.player_name END AS player_name,
+            CASE WHEN r.action_number IS NOT NULL THEN r.period ELSE a.period END AS period,
+            CASE WHEN r.action_number IS NOT NULL THEN r.clock ELSE a.clock END AS clock,
+            CASE WHEN r.action_number IS NOT NULL THEN r.time_actual ELSE a.time_actual END AS time_actual
+     FROM nba_play_by_play_actions a
+     LEFT JOIN nba_pbp_revisions r
+       ON r.game_id = a.game_id
+      AND r.action_number = a.action_number
+      AND r.captured_at = (
+        SELECT MIN(r2.captured_at)
+        FROM nba_pbp_revisions r2
+        WHERE r2.game_id = a.game_id AND r2.action_number = a.action_number)
+     WHERE a.game_id = ?
+     ORDER BY a.action_number`,
+  );
+  const rows: Row[] = [];
+  for (const gameId of gameIds) {
+    for (const rec of stmt.all(gameId)) {
+      if (!isRecord(rec)) continue;
+      const actionNumber = typeof rec["action_number"] === "number" ? rec["action_number"] : null;
+      if (actionNumber === null) continue;
+      rows.push({
+        game_id: gameId,
+        action_number: actionNumber,
+        action_type: typeof rec["action_type"] === "string" ? rec["action_type"] : null,
+        sub_type: typeof rec["sub_type"] === "string" ? rec["sub_type"] : null,
+        person_id: typeof rec["person_id"] === "number" ? rec["person_id"] : null,
+        team_tricode: typeof rec["team_tricode"] === "string" ? rec["team_tricode"] : null,
+        player_name: typeof rec["player_name"] === "string" ? rec["player_name"] : null,
+        period: typeof rec["period"] === "number" ? rec["period"] : null,
+        clock: typeof rec["clock"] === "string" ? rec["clock"] : null,
+        time_actual: typeof rec["time_actual"] === "string" ? rec["time_actual"] : null,
+      });
+    }
+  }
+  return rows;
 }
 
 function minIso(ids: readonly string[], byId: Map<string, GameWindow>): string | null {
@@ -932,6 +1163,38 @@ const SOURCE_COVERAGE_COLUMNS: readonly ColumnSpec[] = [
   { name: "market_count", type: "INTEGER" },
   { name: "tick_count", type: "BIGINT" },
   { name: "eligible", type: "BOOLEAN" },
+];
+
+// Per-player rebound-prop microstructure — the attribution re-ranker's input.
+// Raw causal ticks (no whole-game stats), so it is leakage-safe for online
+// scoring; the re-ranker windows these per candidate event.
+const PLAYER_PROP_TICKS_COLUMNS: readonly ColumnSpec[] = [
+  { name: "game_id", type: "VARCHAR" },
+  { name: "player_key", type: "VARCHAR" },
+  { name: "source", type: "VARCHAR" },
+  { name: "line", type: "DOUBLE" },
+  { name: "stat", type: "VARCHAR" },
+  { name: "captured_at", type: "VARCHAR" },
+  { name: "implied_probability", type: "DOUBLE" },
+  { name: "volume", type: "DOUBLE" },
+];
+
+// Raw PBP actions — the attribution surfaces' raw material (see
+// buildPbpActionRows). Causal: every column is a recorded in-game fact at
+// action time; the only label-adjacent risk (silent stat corrections) changes
+// the NAME on a rebound, which the candidate generator is invariant to by
+// construction.
+const PBP_ACTIONS_COLUMNS: readonly ColumnSpec[] = [
+  { name: "game_id", type: "VARCHAR" },
+  { name: "action_number", type: "INTEGER" },
+  { name: "action_type", type: "VARCHAR" },
+  { name: "sub_type", type: "VARCHAR" },
+  { name: "person_id", type: "INTEGER" },
+  { name: "team_tricode", type: "VARCHAR" },
+  { name: "player_name", type: "VARCHAR" },
+  { name: "period", type: "INTEGER" },
+  { name: "clock", type: "VARCHAR" },
+  { name: "time_actual", type: "VARCHAR" },
 ];
 
 // --- feature catalog --------------------------------------------------------
@@ -1079,6 +1342,65 @@ const FEATURE_CATALOG: readonly FeatureCatalogEntry[] = [
     causalOrNoncausal: "noncausal",
     leakageSafeForOnlineScoring: false,
     derivedFromSourceTables: ["quote_ticks", "source_markets"],
+  },
+  {
+    file: "player_prop_ticks.parquet",
+    name: "source",
+    meaning:
+      "Book/exchange for the prop (kalshi/bet365/polymarket); lets the re-ranker pick a per-source series + measure cross-source divergence",
+    units: "categorical",
+    causalOrNoncausal: "causal",
+    leakageSafeForOnlineScoring: true,
+    derivedFromSourceTables: ["source_markets", "market_instruments"],
+  },
+  {
+    file: "player_prop_ticks.parquet",
+    name: "line",
+    meaning:
+      "Over/under threshold for the prop (e.g. 5.5, 9.5); lets the re-ranker select ONE coherent line per player/source rather than blending levels",
+    units: "rebounds",
+    causalOrNoncausal: "causal",
+    leakageSafeForOnlineScoring: true,
+    derivedFromSourceTables: ["market_instruments"],
+  },
+  {
+    file: "player_prop_ticks.parquet",
+    name: "implied_probability",
+    meaning:
+      "Per-player rebound-OVER implied probability per tick (raw causal series the attribution re-ranker windows around candidate events; over side only — both sides would blend in the (source, line) series selection)",
+    units: "probability 0..1",
+    causalOrNoncausal: "causal",
+    leakageSafeForOnlineScoring: true,
+    derivedFromSourceTables: ["quote_ticks", "source_markets", "market_instruments"],
+  },
+  {
+    file: "player_prop_ticks.parquet",
+    name: "volume",
+    meaning: "Per-player rebound-prop traded volume at the tick (for signed-flow / BVC features)",
+    units: "contracts/shares (source-native)",
+    causalOrNoncausal: "causal",
+    leakageSafeForOnlineScoring: true,
+    derivedFromSourceTables: ["quote_ticks", "source_markets", "market_instruments"],
+  },
+  {
+    file: "pbp_actions.parquet",
+    name: "person_id",
+    meaning:
+      "NBA person id credited on the action, EARLIEST observed state (pre-correction when capture preceded the correction; null = team-credited); with player_name/team_tricode it drives the confusability candidate generator",
+    units: "identifier",
+    causalOrNoncausal: "causal",
+    leakageSafeForOnlineScoring: true,
+    derivedFromSourceTables: ["nba_play_by_play_actions", "nba_pbp_revisions"],
+  },
+  {
+    file: "pbp_actions.parquet",
+    name: "time_actual",
+    meaning:
+      "Wall-clock instant of the action — the event anchor the attribution re-ranker windows prop ticks around",
+    units: "ISO-8601 instant",
+    causalOrNoncausal: "causal",
+    leakageSafeForOnlineScoring: true,
+    derivedFromSourceTables: ["nba_play_by_play_actions"],
   },
 ];
 

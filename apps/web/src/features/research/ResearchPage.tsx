@@ -374,7 +374,7 @@ const QUANT_SNAPSHOTS_DIR = "outputs/nba-quant-lab/snapshots";
 const QUANT_CLI_QUICKSTART = [
   "pnpm quant:export",
   `SNAP="${QUANT_SNAPSHOTS_DIR}/$(ls -t ${QUANT_SNAPSHOTS_DIR} | head -1)"`,
-  'pnpm quant compare robust_mad state_space_current --snapshot "$SNAP"',
+  'pnpm quant compare robust_mad state_space_current virtual_source_state_space --snapshot "$SNAP"',
 ].join("\n");
 
 function QuantGuidePanel(): JSX.Element {

@@ -21,6 +21,14 @@ outputs/nba-detector-bakeoff/research/*.json
 outputs/nba-quant-lab/
 notebooks/
 
+# Preserved planning transcript (verbatim source material for the Moniac/Bobby
+# Ingram research integration; reflowing it would corrupt the preserved code
+# blocks downstream agents copy from).
+docs/moniac-pipeline-plan-and-code-draft.md
+
+# Harness-managed local settings (not a formatting target, never committed)
+.claude/settings.local.json
+
 # Owner-maintained docs / Ralph runtime state
 AGENTS.md
 CLAUDE.md

@@ -105,13 +105,27 @@ const SOURCES_RESPONSE = {
   ],
 };
 
+// Incumbent baselines AND a registered candidate together: the Model lab must
+// render candidates beside the baselines, never instead of them.
 const MODELS_RESPONSE = {
   models: [
     {
       id: "robust_mad",
       label: "Robust MAD",
       description: "Robust median-absolute-deviation residual detector.",
-      source: "static",
+      source: "registry",
+    },
+    {
+      id: "state_space_current",
+      label: "State-space (current production)",
+      description: "Current production baseline state-space filter.",
+      source: "registry",
+    },
+    {
+      id: "virtual_source_state_space",
+      label: "Virtual source state space",
+      description: "Source-aware state-space candidate (virtual-source approximation).",
+      source: "registry",
     },
   ],
 };
@@ -135,6 +149,8 @@ const SNAPSHOT_RESPONSE = {
 };
 
 // Mirrors the REAL leaderboard.json row shape (snake_case, recall fractions).
+// Baseline + candidate rows together: a compare run renders every scored
+// model_id side by side, so one model cannot masquerade as another.
 const LEADERBOARD_RESPONSE = {
   runId: "run-2026-05-20T09:00:00Z",
   rows: [
@@ -147,6 +163,28 @@ const LEADERBOARD_RESPONSE = {
       tape_outlier_recall: 0.5758,
       burden: 311,
       residual_coverage: 0.81,
+    },
+    {
+      model: "virtual_source_state_space",
+      incident_recall: 0.2,
+      incidents_caught: 1,
+      incidents_total: 5,
+      fires_per_game: 2.1,
+      tape_outlier_recall: 0.1212,
+      burden: 42,
+      residual_coverage: null,
+    },
+    // External producer scored via `pnpm quant score-predictions` — appears in
+    // the leaderboard BESIDE the registered models, never instead of them.
+    {
+      model: "composite_attribution",
+      incident_recall: 0.0,
+      incidents_caught: 0,
+      incidents_total: 5,
+      fires_per_game: 0.4,
+      tape_outlier_recall: 0.0303,
+      burden: 8,
+      residual_coverage: null,
     },
   ],
 };
@@ -451,7 +489,9 @@ describe("ResearchPage", () => {
     expect(writeText).toHaveBeenCalledTimes(1);
     const copied = writeText.mock.calls[0]?.[0] ?? "";
     expect(copied).toContain("pnpm quant:export");
-    expect(copied).toContain("pnpm quant compare robust_mad state_space_current");
+    expect(copied).toContain(
+      "pnpm quant compare robust_mad state_space_current virtual_source_state_space",
+    );
     expect(copied).toContain("--snapshot");
     expect(copied).not.toContain("<snapshot>");
     // SNAP must resolve to a real snapshot PATH (the snapshots dir + id), not a bare
@@ -554,16 +594,25 @@ describe("ResearchPage", () => {
       "All sources fresh",
     );
 
-    // Models.
-    const modelRow = await screen.findByTestId("research-model-row");
-    expect(modelRow.getAttribute("data-model-id")).toBe("robust_mad");
+    // Models: baselines AND the registered candidate render side by side —
+    // a candidate appears beside the incumbents, never instead of them.
+    const modelRows = await screen.findAllByTestId("research-model-row");
+    const modelIds = modelRows.map((r) => r.getAttribute("data-model-id"));
+    expect(modelIds).toEqual(["robust_mad", "state_space_current", "virtual_source_state_space"]);
 
-    // Leaderboard row with mono tabular metrics.
-    const lbRow = await screen.findByTestId("research-leaderboard-row");
-    expect(lbRow.getAttribute("data-model-id")).toBe("robust_mad");
-    expect(lbRow.textContent).toContain("60.0%"); // incident recall
-    expect(lbRow.textContent).toContain("3 / 5"); // caught / scoreable
-    expect(lbRow.textContent).toContain("18.4"); // fires/game
+    // Leaderboard rows with mono tabular metrics: every scored model_id renders
+    // its own row simultaneously, so one model cannot masquerade as another.
+    const lbRows = await screen.findAllByTestId("research-leaderboard-row");
+    const lbIds = lbRows.map((r) => r.getAttribute("data-model-id"));
+    expect(lbIds).toEqual(["robust_mad", "virtual_source_state_space", "composite_attribution"]);
+    const baselineRow = lbRows[0];
+    expect(baselineRow?.textContent).toContain("60.0%"); // incident recall
+    expect(baselineRow?.textContent).toContain("3 / 5"); // caught / scoreable
+    expect(baselineRow?.textContent).toContain("18.4"); // fires/game
+    const candidateRow = lbRows[1];
+    expect(candidateRow?.textContent).toContain("20.0%"); // incident recall
+    expect(candidateRow?.textContent).toContain("1 / 5"); // caught / scoreable
+    expect(candidateRow?.textContent).toContain("—"); // null residual coverage stays honest
 
     // Export enabled (gold present); Open report enabled once a report exists.
     expect(isDisabled(screen.getByTestId("research-cta-export"))).toBe(false);
@@ -573,7 +622,7 @@ describe("ResearchPage", () => {
   it("wires the recall@fires/game explainer to the Incident recall column, not fires-per-game", async () => {
     mockResearch({ leaderboard: LEADERBOARD_RESPONSE });
     render(<ResearchPage />, { wrapper: makeWrapper() });
-    await screen.findByTestId("research-leaderboard-row");
+    await screen.findAllByTestId("research-leaderboard-row");
 
     // ExplainerCard marks its trigger with data-explainer-id. The "Incident
     // recall" header must carry the recall-at-fire-budget explainer.
