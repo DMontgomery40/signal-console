@@ -1,107 +1,94 @@
-# F-008 — The state-space board loader pools ALL market families with no family filter, while its sibling board-anomaly model is family-aware
+# F-008 — RETRACTED (family thesis was wrong): the board is whole-board BY DESIGN. Real residual: book-vs-market source counting is misnamed + schema-version-dependent
 
-- **Severity:** medium–high, **pending design-intent confirmation** (if the board is
-  meant to be moneyline win-probability, this silently corrupts the core signal;
-  if it's meant to be all-market churn, the copy/semantics are under-specified and
-  mixing probability scales is still questionable)
-- **Boundary crossed:** DB (`quote_ticks` across families) ↔ board-mad/state-space
-  detector input ↔ the sibling board-anomaly model's family model
-- **Status:** confirmed mechanism; active-vs-latent and intended-vs-bug need an owner call
-- **Surfaces no error:** yes — the signal is just computed over a different market
-  set than its name implies; nothing throws.
+- **Original severity:** medium–high → **RETRACTED as a defect.** The premise was
+  wrong. Replaced by a low–medium naming/legacy-fallback residual (below).
+- **Status:** corrected after researching design intent (design-language + owner
+  confirmation). The old root PRD is retired and deleted, so it is not live
+  authority.
 
-## The mechanism (confirmed)
+## Retraction — the family-blind loader is CORRECT
 
-`apps/api/src/services/board-mad-context.ts` `loadBoardMadTicksForGame` selects:
+I initially flagged that `loadBoardMadTicksForGame` pools all market families
+(no family filter) and suspected it should be moneyline-only. **That is the
+intended design, not a bug.** The board signal is deliberately _whole-board_:
 
-```sql
-SELECT ... qt.implied_probability, COALESCE(qt.volume,0) ...
-FROM quote_ticks qt
-JOIN source_markets sm ON sm.id = qt.source_market_id
-WHERE sm.game_id = ?  AND qt.captured_at BETWEEN ? AND ?
-```
+- **`docs/design-language.md:223`:** the canonical explainer voice is "We watch
+  **how much every market on a game wiggles** relative to its own recent calm,"
+  framed for the operator's job of "deciding whether to **suspend a market**."
+- **Owner confirmation:** the board is meant to span _everything_ — every market
+  is a potential needle; filtering families would _remove needles_. The breadth
+  normalizer (÷ `activeMarketCount`) exists precisely because it pools all markets.
 
-There is **no filter on market family or instrument** — not in the SQL, not in
-`rowToTick`, and the detector never even SELECTs `family`, so it cannot filter
-what it never loads. Every `quote_tick` for the game is treated as one
-interchangeable probability stream and fed into the board intensity
-(`log(1+v)·|Δp|`) and into `sourceCount` / `sourceDisagreement`.
+Adding a moneyline (or game-lines) family filter would have **corrupted the core
+signal** — the exact destructive change this audit exists to prevent. Lesson
+logged: confirm design intent from active docs/owner before "fixing" a signal
+whose name (`whole-board`) already states the intent. `sanitizeTicks`
+(`board-volatility-model.ts:35-50`) correctly keeps all non-heartbeat,
+real-probability (≠ 0.5), finite-volume ticks across every family — by design.
 
-Meanwhile `quote_ticks` demonstrably holds multiple families:
+## The real (narrow) residual — book vs market counting
 
-- `appendQuoteTick` (`live-repository.ts`) is family-agnostic — it writes whatever
-  `source_market_id` it's handed.
-- The Kalshi adapter (`kalshi-direct.ts`) emits `moneyline, spread, total,
-team-prop, player-prop, other`; the odds-api classifier emits
-  `moneyline/spread/total/player-prop`.
-- The Live view's own tick schema carries `rawFamily`/`rawLabel` (F-006), i.e. the
-  product expects mixed families in `quote_ticks`.
-- CLAUDE.md states Kalshi **NBA player props** are actively ingested, and they
-  share the NBA game's `game_id`.
+While verifying, the genuine subtlety: `sourceCount` / `sourceDominance` /
+`sourceDisagreement` feed the state-space `sourceTrust` gate and are meant to be
+**cross-book** (how many independent _books_ agree), per the contract in
+`docs/board-volatility-state-space.md` ("source dominance / agreement / count").
+The implementation in `board-volatility-model.ts`:
 
-So for a game with prop/spread/total markets, those ticks' `implied_probability`
-(a spread-cover prob, a total-over prob, a player-prop prob — different
-quantities, all in [0,1]) are pooled into the "whole-board **win-probability**
-volatility" intensity and inflate the source count that gates firing.
+- `tickSourceKey = tick.source ?? tick.sourceMarketId` (`:56-58`).
+- `bucket.sourceMarkets.add(sourceKey)` (`:103`) — **misnamed**: the set holds the
+  _sourceKey_ (the book, when `tick.source` is present), not source-market ids.
+- `sourceCount: bucket.sourceMarkets.size` (`:145`).
 
-## Why I'm not calling it a flat bug
+Two problems, both invisible:
 
-The detector's displayName is **"Board State-Space (whole-board volatility)."**
-"Whole-board" could legitimately mean "how much is the entire board of markets
-churning," in which case pooling families is intentional and the breadth
-normalizer (`activeMarketCount`) is consistent with it.
+1. **Misnaming (cognitive trap).** A maintainer reading `sourceMarkets.size →
+sourceCount` reasonably concludes the gate counts distinct _markets_. It
+   actually counts distinct _books_ (when source is populated). The name lies
+   about which quantity drives firing. `activeMarkets` (`:102`) is the real
+   market set → `activeMarketCount`. The two sets are easy to confuse.
 
-The disconnect that is NOT ambiguous: the **sibling** board-volatility model —
-the board-anomaly residual detector (`board-volatility-baselines.ts`,
-`board-volatility-model.ts`) — is explicitly **family-aware**: it computes
-`coreFamilies`, `distinctCoreSources`, `predictionMarketRows`, and buckets
-baselines by `core_family_bucket`. So two sibling "board volatility" models
-disagree on whether market family matters: one buckets by it, the other is blind
-to it. At most one of those reflects the real intent; the other is wrong or
-mislabeled.
+2. **Schema-version-dependent meaning (latent).** `tick.source` is populated only
+   when `sourceMarketsHaveSourceColumn(goldDb)` is true; otherwise the loader
+   selects `NULL AS source` (`board-mad-context.ts:80-82`). On a gold DB without
+   the `source` column, every `sourceKey` falls back to `sourceMarketId`, so
+   `sourceCount` silently becomes per-**(book×market)** instead of per-book, and
+   `sourceDominance`/`sourceDisagreement` recompute over source-markets, not
+   books — a different fire/disagreement profile with **no error**. The current
+   migrations have `source_markets.source TEXT NOT NULL`, so production is
+   book-level and correct _today_; the degradation is a legacy/edge fragility.
 
-## The risk, both ways
+## Fix (small, mechanics-level)
 
-- **If the board is meant to be moneyline win-probability:** prop/spread/total
-  ticks silently corrupt the intensity AND inflate `sourceCount` /
-  `sourceDisagreement` (more families → more "sources" → easier/harder firing via
-  the source-trust multiplier). The corruption scales with how many non-moneyline
-  markets a game has — so a calibrated K behaves differently on prop-rich games,
-  the exact "great model looks erratic for no visible reason" failure.
-- **If it's meant to be whole-board churn:** then (a) `|Δp|` is pooling
-  heterogeneous probability types as if equivalent, which needs justification, and
-  (b) the explainers and `sourceCount`/`sourceDisagreement` semantics must say
-  "all markets," because a desk operator reading "board volatility" on a
-  win-probability product will assume moneyline.
-
-## Confirm before fixing (cheap, decisive)
-
-On the gold DB, for a representative board game (e.g. `nba-0042500222`):
-
-```sql
-SELECT mi.family, COUNT(*) AS ticks
-FROM quote_ticks qt
-JOIN source_markets sm ON sm.id = qt.source_market_id
-LEFT JOIN market_instruments mi ON mi.id = sm.instrument_id
-WHERE sm.game_id = 'nba-0042500222' AND qt.implied_probability IS NOT NULL
-GROUP BY mi.family;
-```
-
-If anything but `moneyline` returns rows, the pollution is active today.
-
-## Fix (if moneyline-intended)
-
-- Filter the board loader to moneyline instruments
-  (`JOIN market_instruments mi ON mi.id = sm.instrument_id AND mi.family = 'moneyline'`),
-  or to source_markets mapped to a moneyline instrument.
-- Add a test/fixture with a prop tick in the window asserting it does NOT change
-  board intensity or `sourceCount`.
-- Reconcile with the family-aware board-anomaly model so the two siblings share
-  one definition of "the board."
+- Rename `bucket.sourceMarkets` → `bucket.contributingSources` (or
+  `bookKeys`) and `sourceCount`'s comment to state it is distinct _books_, so the
+  name matches the contract. Distinguish it unmistakably from `activeMarkets`.
+- Make the `NULL AS source` fallback explicit: either drop the legacy branch (the
+  column is `NOT NULL` now) or, if kept, assert/log that source-trust degrades to
+  per-market on a column-less DB so the meaning shift can't pass silently.
+- Optional test: a bucket with 1 book quoting 3 markets should yield
+  `sourceCount == 1` (not 3) when `source` is populated — pins book-level
+  semantics against the misnaming.
 
 ## Evidence
 
-`board-mad-context.ts:85-136` (no family filter); `live-repository.ts`
-`appendQuoteTick` (generic writer); `kalshi-direct.ts` (multi-family producer);
-`board-volatility-model.ts` / `board-volatility-baselines.ts` (family-aware
-sibling); `live.ts` route + web tick schema carry `rawFamily` (F-006).
+`docs/design-language.md:223`; `board-volatility-model.ts:35-50,56-58,102-103,145`;
+`board-mad-context.ts:80-82`; `migrations.ts:117` (`source NOT NULL`).
+
+---
+
+## RESOLUTION of the residual (2026-05-30)
+
+The family-blind loader was left UNCHANGED (correct by design — whole-board). The
+narrow book-vs-market residual is fixed:
+
+- `board-volatility-model.ts`: renamed the misleading `sourceMarkets` set →
+  `contributingSourceKeys` and documented that it holds BOOK keys
+  (`tickSourceKey = tick.source ?? sourceMarketId`), feeding the book-level
+  `sourceCount` — distinct from `activeMarkets` (market-level breadth). The comment
+  also flags the legacy `NULL AS source` degradation path.
+- `apps/api/tests/board-volatility-model.test.ts`: new test pins the semantics —
+  one book quoting two markets yields `sourceCount: 1` (book) and
+  `activeMarketCount: 2` (markets), so a refactor can't silently turn the
+  source-trust input into a market count.
+
+Verified: `apps/api tsc` clean; board-volatility-model suite 5/5 pass.

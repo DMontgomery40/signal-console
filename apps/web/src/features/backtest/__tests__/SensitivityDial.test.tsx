@@ -8,7 +8,19 @@ import { useState } from "react";
 import type { JSX } from "react";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 
+import {
+  BOARD_MAD_K_MAD_MAX,
+  BOARD_MAD_K_MAD_MIN,
+} from "@signal-console/detectors/board-mad/config";
+
 import { SensitivityDial } from "../SensitivityDial";
+
+// The dial range IS the kMad contract (audit F-004). Read the bounds from config
+// so this test moves in lockstep with the contract and can never re-pin a stale
+// hardcoded range. MIN=1, MAX=12 today; midpoint maps to compass 0°.
+const MIN = BOARD_MAD_K_MAD_MIN;
+const MAX = BOARD_MAD_K_MAD_MAX;
+const MID = (MIN + MAX) / 2;
 
 function Harness({
   initial,
@@ -31,13 +43,15 @@ function Harness({
 }
 
 describe("SensitivityDial geometry contract", () => {
-  it("renders an SVG (NOT an <input type=range>) with role=slider and aria range 2–8", () => {
+  it("renders an SVG (NOT an <input type=range>) with role=slider and aria range from the kMad contract", () => {
     render(<Harness initial={3} />);
     const dial = screen.getByTestId("sensitivity-dial");
     expect(dial.tagName.toLowerCase()).toBe("svg");
     expect(dial.getAttribute("role")).toBe("slider");
-    expect(dial.getAttribute("aria-valuemin")).toBe("2");
-    expect(dial.getAttribute("aria-valuemax")).toBe("8");
+    // Range derives from BOARD_MAD_K_MAD_MIN/MAX — the same contract the params
+    // schema and Settings slider enforce. Not a bare [2,8] (audit F-004).
+    expect(dial.getAttribute("aria-valuemin")).toBe(String(MIN));
+    expect(dial.getAttribute("aria-valuemax")).toBe(String(MAX));
     expect(dial.getAttribute("aria-valuenow")).toBe("3");
     expect(dial.getAttribute("aria-valuetext")).toBe("3.00");
     expect(screen.getByTestId("sensitivity-dial-inline-value").textContent).toBe("1.25");
@@ -49,11 +63,11 @@ describe("SensitivityDial geometry contract", () => {
     expect(inputs.length).toBe(0);
   });
 
-  it("has 7 ticks at K=2..8 with K=3 and K=6 as accent-green majors", () => {
+  it("has one tick per integer K across the contract range with K=3 and K=6 as accent-green majors", () => {
     render(<Harness initial={3} />);
     const ticks = screen.getAllByTestId(/^sensitivity-dial-tick-/);
-    expect(ticks.length).toBe(7);
-    for (let k = 2; k <= 8; k++) {
+    expect(ticks.length).toBe(MAX - MIN + 1);
+    for (let k = MIN; k <= MAX; k++) {
       const t = screen.getByTestId(`sensitivity-dial-tick-${String(k)}`);
       expect(t.getAttribute("data-tick-value")).toBe(String(k));
       const majorExpected = k === 3 || k === 6;
@@ -69,11 +83,11 @@ describe("SensitivityDial geometry contract", () => {
     }
   });
 
-  it("indicator rotates with K (compass −135° at K=2, 0° at K=5, +135° at K=8)", () => {
+  it("indicator rotates with K (compass −135° at MIN, 0° at midpoint, +135° at MAX)", () => {
     const cases: readonly { readonly k: number; readonly deg: string }[] = [
-      { k: 2, deg: "-135" },
-      { k: 5, deg: "0" },
-      { k: 8, deg: "135" },
+      { k: MIN, deg: "-135" },
+      { k: MID, deg: "0" },
+      { k: MAX, deg: "135" },
     ];
     for (const { k, deg } of cases) {
       const { unmount } = render(<Harness initial={k} />);
@@ -131,23 +145,23 @@ describe("SensitivityDial keyboard", () => {
     expect(dial.getAttribute("aria-valuetext")).toBe("4.00");
   });
 
-  it("Home jumps to K=2, End jumps to K=8", () => {
+  it("Home jumps to MIN, End jumps to MAX", () => {
     render(<Harness initial={5} />);
     const dial = screen.getByTestId("sensitivity-dial");
     fireEvent.keyDown(dial, { key: "Home" });
-    expect(dial.getAttribute("aria-valuetext")).toBe("2.00");
+    expect(dial.getAttribute("aria-valuetext")).toBe(MIN.toFixed(2));
     fireEvent.keyDown(dial, { key: "End" });
-    expect(dial.getAttribute("aria-valuetext")).toBe("8.00");
+    expect(dial.getAttribute("aria-valuetext")).toBe(MAX.toFixed(2));
   });
 
-  it("does not move past 2.0 or 8.0 (clamped)", () => {
-    render(<Harness initial={2} />);
+  it("does not move past MIN or MAX (clamped)", () => {
+    render(<Harness initial={MIN} />);
     const dial = screen.getByTestId("sensitivity-dial");
     fireEvent.keyDown(dial, { key: "ArrowLeft" });
-    expect(dial.getAttribute("aria-valuetext")).toBe("2.00");
+    expect(dial.getAttribute("aria-valuetext")).toBe(MIN.toFixed(2));
     fireEvent.keyDown(dial, { key: "End" });
     fireEvent.keyDown(dial, { key: "ArrowRight" });
-    expect(dial.getAttribute("aria-valuetext")).toBe("8.00");
+    expect(dial.getAttribute("aria-valuetext")).toBe(MAX.toFixed(2));
   });
 });
 
@@ -232,16 +246,16 @@ describe("SensitivityDial tick click", () => {
 });
 
 describe("SensitivityDial mouse drag", () => {
-  it("vertical drag up raises K (200 px ≈ full 6.0 K range; 33 px ≈ +1.0)", () => {
+  it("vertical drag up raises K (200 px ≈ full range; 100 px ≈ half-range)", () => {
     render(<Harness initial={3} />);
     const dial = screen.getByTestId("sensitivity-dial");
     const knob = dial.querySelector("circle.fill-surface-1");
     if (knob === null) throw new Error("missing knob circle");
     fireEvent.mouseDown(knob, { clientY: 500 });
-    // Drag up by 100 px == half-range == K + 3.0 → 3 + 3 = 6
+    // Drag up by 100 px == half of the 200 px full-travel == half the K range.
     fireEvent.mouseMove(window, { clientY: 400 });
     fireEvent.mouseUp(window);
-    expect(dial.getAttribute("aria-valuetext")).toBe("6.00");
+    expect(dial.getAttribute("aria-valuetext")).toBe((3 + (MAX - MIN) / 2).toFixed(2));
   });
 
   it("drag stops moving K after mouseup", () => {
@@ -255,5 +269,42 @@ describe("SensitivityDial mouse drag", () => {
     const valueAfterUp = dial.getAttribute("aria-valuetext");
     fireEvent.mouseMove(window, { clientY: 200 });
     expect(dial.getAttribute("aria-valuetext")).toBe(valueAfterUp);
+  });
+});
+
+describe("SensitivityDial contract range (F-004)", () => {
+  it("can reach the full deployable kMad range the Settings slider allows", () => {
+    render(<Harness initial={MID} />);
+    const dial = screen.getByTestId("sensitivity-dial");
+    // End/Home reach MAX/MIN — values that exist in the params schema and the
+    // Settings slider but were unreachable on the old hardcoded [2,8] dial.
+    fireEvent.keyDown(dial, { key: "End" });
+    expect(dial.getAttribute("aria-valuetext")).toBe(MAX.toFixed(2));
+    fireEvent.keyDown(dial, { key: "Home" });
+    expect(dial.getAttribute("aria-valuetext")).toBe(MIN.toFixed(2));
+  });
+
+  it("reconciles an out-of-range controlled value to the owner instead of displaying a clamped lie", () => {
+    const spy = vi.fn();
+    // A kMad above the dial max must NOT render as MAX while the form keeps the
+    // real value; the dial pushes the clamped value back so form and dial agree
+    // and the value can't be silently truncated on first interaction (F-004).
+    render(<Harness initial={MAX + 5} onChangeSpy={spy} />);
+    expect(spy).toHaveBeenCalledWith(MAX);
+    expect(screen.getByTestId("sensitivity-dial").getAttribute("aria-valuetext")).toBe(
+      MAX.toFixed(2),
+    );
+  });
+
+  it("does NOT call onChange on mount for an in-range value (no spurious write / no reconcile loop)", () => {
+    const spy = vi.fn();
+    // The reconcile effect must fire ONLY for out-of-range values. An in-range
+    // value must not trigger a write — otherwise mounting the dial would mark the
+    // backtest snapshot stale spuriously, and a consumer that re-clamps could loop.
+    render(<Harness initial={MID} onChangeSpy={spy} />);
+    expect(spy).not.toHaveBeenCalled();
+    expect(screen.getByTestId("sensitivity-dial").getAttribute("aria-valuetext")).toBe(
+      MID.toFixed(2),
+    );
   });
 });

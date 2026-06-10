@@ -89,3 +89,30 @@ guard-asymmetry fragility still stands).
 `off-price-print/index.ts:51`; `live-types.ts:3-15`; `board-volatility-model.ts`
 (`sourceMarkets.size` → `sourceCount`, `dominantShare` → `sourceDominance`);
 `odds-api.ts` (`Extract<ResearchSourceId,"bet365"|"kalshi">`); no DK/FD adapter.
+
+---
+
+## RESOLUTION (fixed 2026-05-30)
+
+The "three definitions" framing was right; the fix respects the real dependency
+shape discovered while fixing: **`domain` imports `detectors`** (board-anomaly
+uses board-mad config), so `detectors` cannot import `domain` to type-bind
+`Source` — that would cycle. The detector `Source` union is therefore a legitimate
+_subset_ of the domain source universe, and the durable fix is to make that subset
+relationship enforced rather than asserted:
+
+- `packages/detectors/src/types.ts`: replaced the false comment ("forces a single
+  source of truth" — it didn't) with an honest one stating `Source` is the
+  consumed-subset of `marketResearchSourceIds`, why it can't be type-bound, and
+  where the enforcement lives. Also documented that the live whole-board signal
+  counts sources **data-drivenly** (per PRD FR-8), so this union is advertised
+  coverage, not a runtime filter — removing the F-008-adjacent confusion.
+- `packages/shared/src/__tests__/detector-source-contract.test.ts` (new): iterates
+  the detector `registry` and asserts every advertised source ∈
+  `marketResearchSourceIds`. Drift (a detector declaring a source the domain
+  universe doesn't know) now fails loudly. Hosted in `shared` — the lowest layer
+  that depends on both packages.
+
+Verified: `vitest run detector-source-contract` → 4/4 pass; `detectors tsc` clean.
+The data-driven `sourceCount` semantics (book-level, by design) were separately
+confirmed correct in the F-008 retraction.

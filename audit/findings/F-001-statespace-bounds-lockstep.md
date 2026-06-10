@@ -83,8 +83,9 @@ validators):
 - Added `packages/detectors/src/board-mad/state-space-bounds.json` — the single
   source of truth for all 30 `(field → min,max,int?)` bounds.
 - `packages/detectors/src/board-mad/__tests__/state-space-bounds.contract.test.ts`
-  introspects the live `BoardStateSpaceConfigSchema` (Zod `_def`) and asserts it
-  equals the JSON.
+  introspects the live `BoardStateSpaceConfigSchema` (Zod) and asserts it equals
+  the JSON. (The original fix branch hosted this test in
+  `packages/shared/src/__tests__/`; on `main` it lives in the detectors package.)
 - `apps/nba-sidecar/tests/test_state_space_bounds_contract.py` introspects the
   live pydantic models (`model_fields` + annotated-types `Ge`/`Le`) and asserts
   the same.

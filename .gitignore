@@ -34,6 +34,10 @@ apps/worker/data/heartbeat.json
 .agents/
 .claude/scheduled_tasks.lock
 
+# Generated GitNexus / Agent Memory index; local-only and can be very large
+.agent-memory-nexus/project-index/
+.agent-memory-nexus/*.log
+
 # Python sidecar virtualenv + pytest cache
 .venv/
 .pytest_cache/
@@ -43,4 +47,6 @@ __pycache__/
 # NBA Quant Lab: generated snapshots/runs/pulls (parquet/duckdb/json artifacts)
 # and the bootstrap-generated starter notebook — regenerable via `pnpm quant:*`.
 outputs/nba-quant-lab/
+# Backfill driver logs/scripts (generated per-run; stray *.sh here is not source).
+outputs/backfill-nba-history/
 notebooks/

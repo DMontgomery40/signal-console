@@ -2054,6 +2054,49 @@ describe("live repository", () => {
     expect(alerts[0]?.score).toBeGreaterThanOrEqual(60);
   });
 
+  it("guards out-of-range implied_probability like price_raw in quote anomaly candidates (F-006)", () => {
+    seedLiveRepositoryGame();
+
+    // Garbage row: implied_probability holds an odds-style/percent value (61)
+    // instead of a unit-interval probability, while price_raw is sane. The old
+    // unguarded COALESCE trusted implied_probability blindly, so this row
+    // surfaced as price=61 and manufactured a monster fake price jump.
+    recordQuoteObservation({
+      bestAsk: null,
+      bestBid: null,
+      capturedAt: "2026-04-21T23:41:00.000Z",
+      depthScore: 90,
+      heartbeatAfterMs: 60_000,
+      impliedProbability: 61,
+      lineRaw: null,
+      oddsRaw: "-156",
+      priceRaw: 0.62,
+      sourceMarketId: "sm-bet365-bos-moneyline",
+      volume: 100,
+    });
+
+    const alerts = listMarketAnomalyAlerts({
+      includeUnmapped: true,
+      minScore: 0,
+      now: "2026-04-21T23:45:00.000Z",
+      requireBet365: false,
+    });
+
+    const quoteAlert = alerts.find(
+      (alert) =>
+        alert.sourceMarketId === "sm-bet365-bos-moneyline" &&
+        alert.apiSurface === "quote-tick" &&
+        alert.eventTimestamp === "2026-04-21T23:41:00.000Z",
+    );
+    expect(quoteAlert).toBeDefined();
+    // The guarded COALESCE must fall back to the in-range price_raw.
+    expect(quoteAlert?.metrics.price).toBe(0.62);
+    for (const alert of alerts) {
+      if (alert.apiSurface !== "quote-tick") continue;
+      expect(alert.metrics.price ?? 0).toBeLessThanOrEqual(1);
+    }
+  });
+
   it("keeps same-second same-size trades separate when transaction hashes differ", () => {
     seedLiveRepositoryGame();
 

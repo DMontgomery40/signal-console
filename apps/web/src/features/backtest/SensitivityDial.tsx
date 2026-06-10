@@ -6,11 +6,21 @@
 
 import type { JSX } from "react";
 
-import { K_MAD_CALM, K_MAD_LIVE } from "@signal-console/detectors/board-mad/config";
+import {
+  BOARD_MAD_K_MAD_MAX,
+  BOARD_MAD_K_MAD_MIN,
+  K_MAD_CALM,
+  K_MAD_LIVE,
+} from "@signal-console/detectors/board-mad/config";
 import { RotaryDial, type RotaryDialSnapChip } from "@signal-console/ui";
 
-const SENSITIVITY_MIN = 2;
-const SENSITIVITY_MAX = 8;
+// The dial range IS the kMad contract — never bare literals. The params schema,
+// the Settings slider, and live-defaults all bound kMad to
+// [BOARD_MAD_K_MAD_MIN, BOARD_MAD_K_MAD_MAX]; the calibration tool must be able
+// to reach every value the product can deploy. Deriving the bounds from config
+// makes it impossible for the dial to drift from that contract (audit F-004).
+const SENSITIVITY_MIN = BOARD_MAD_K_MAD_MIN;
+const SENSITIVITY_MAX = BOARD_MAD_K_MAD_MAX;
 const SENSITIVITY_SMALL_STEP = 0.25;
 const SENSITIVITY_LARGE_STEP = 1.0;
 

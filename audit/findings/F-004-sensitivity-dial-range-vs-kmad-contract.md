@@ -70,3 +70,27 @@ claim); `params.ts:68`, `config.ts` (`BOARD_MAD_K_MAD_MIN=1`/`MAX=12`);
 `detector-defaults.ts` + `SettingsPage.tsx` (both [1,12]);
 `RotaryDial.tsx:189, 206-207, 245, 251` (display-clamp, no mount write-back).
 Related: F-003 (frozen preview hides the truncation).
+
+---
+
+## RESOLUTION (fixed 2026-05-30 — owner chose "expose full [1,12]")
+
+Fabric-level fix (single source of truth + reconcile + enforcement), not a literal patch:
+
+- `SensitivityDial.tsx`: `SENSITIVITY_MIN/MAX` now derive from
+  `BOARD_MAD_K_MAD_MIN`/`BOARD_MAD_K_MAD_MAX` (the same constants the params
+  schema, Settings slider, and live-defaults use). The dial can no longer hold a
+  range that disagrees with the kMad contract — drift would require changing
+  config, which moves every surface together.
+- `RotaryDial.tsx`: added a reconcile effect — an out-of-range controlled `value`
+  is pushed back to the owner via `onChange(clamped)` instead of rendering a
+  clamped lie. A kMad outside the range can no longer display as the boundary
+  while the form keeps the real value (and then get truncated on first touch).
+- `SensitivityDial.test.tsx`: retired the hardcoded `[2,8]` assertions (they
+  encoded the bug); the geometry/keyboard/drag tests now read the range from
+  config, plus two new tests: full-range reachability (End/Home hit MAX/MIN) and
+  the reconcile guarantee (an out-of-range init calls `onChange(MAX)` and never
+  shows a lie).
+
+Verified: `vitest run SensitivityDial BacktestPage` → 50/50 pass. The `k-mad`
+explainer states no numeric range, so no copy drift.

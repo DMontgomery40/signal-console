@@ -40,5 +40,8 @@ describe("resolveOddsApiKey", () => {
   it("treats empty strings as unset and returns null when no key is present", () => {
     expect(resolveOddsApiKey({ ODDSAPI_API_KEY: "" }, { explicitKey: "" })).toBeNull();
     expect(resolveOddsApiKey({})).toBeNull();
+    // An empty preferred name must fall THROUGH to a later real key, not stop
+    // resolution (no silent empty-key auth, no lost fallback).
+    expect(resolveOddsApiKey({ ODDSAPI_API_KEY: "", ODDS_API_KEY: "real" })).toBe("real");
   });
 });
