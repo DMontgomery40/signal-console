@@ -210,6 +210,26 @@ For the recorded baseline numbers (scoreable recall, fires/game, residual covera
 not invent fresh figures — cite the recorded `REAL-compare-sample-fixed` run in
 `docs/nba-quant-lab.md` §6, or read the `leaderboard.json` from your own run.
 
+Two diagnostic CLIs sit on top of `compare` (both honest-by-construction: missing
+dimensions stay `None`/`n/a`, never fabricated — provenance in
+`docs/moniac-pipeline-plan-and-code-draft.md`):
+
+```bash
+cd apps/nba-sidecar
+
+# Pareto-front dominance over (recall ↑, fires/game ↓ [, ECE ↓ when available]):
+# which models are nondominated operating points, which are strictly worse.
+uv run --extra research python -m nba_sidecar.research.evaluation.pareto \
+    --snapshot "$SNAP" \
+    --models robust_mad state_space_current virtual_source_state_space
+
+# Expected Calibration Error: does a bounded 0-1 score (regimeScore diagnostic
+# when present, else top-level score) match the empirical fire rate per bin?
+# --pareto appends the full three-dimension front with ECE wired in.
+uv run --extra research python -m nba_sidecar.research.evaluation.calibration \
+    --snapshot "$SNAP" --model virtual_source_state_space --bins 10 --pareto
+```
+
 ---
 
 ## 5. Add a Python model (the `BoardModel` + `@register` pattern)
