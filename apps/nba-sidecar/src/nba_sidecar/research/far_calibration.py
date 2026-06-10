@@ -28,7 +28,13 @@ from typing import Any
 import pandas as pd
 
 from .attribution import AttributionParams, LegResult, leg_drift, paired_from_legs
-from .attribution_snapshot import _epoch, last_name, normalize_player_key, score_incident_snapshot
+from .attribution_snapshot import (
+    _epoch,
+    grouped_series_for_player_key,
+    last_name,
+    resolve_player_key,
+    score_incident_snapshot,
+)
 from .candidates import rebound_candidates, team_rebound_candidates
 from .oncourt import infer_starters, oncourt_by_action, player_teams
 
@@ -53,28 +59,24 @@ def _agg_from_series(series_list: list[list[tuple[float, float]]], t: float, par
 
 def _make_aggregate_scorer(game_ticks: pd.DataFrame, params: AttributionParams):
     """Closure scoring (credited, rightful) NAME pairs for ONE game, caching each
-    player's (source,line) series so repeated candidates don't re-group the slice."""
+    player's (source,line) series so repeated candidates don't re-group the slice.
+
+    Identity join is by resolve_player_key on the FULL candidate name (PBP names
+    carry first names), so two same-surname players in one game bind their OWN
+    series — an unresolvable ambiguity yields [] and the leg abstains, never a
+    blended or wrong-player series."""
     empty = game_ticks.empty
     cache: dict[str, list[list[tuple[float, float]]]] = {}
 
-    def series_for(player_last: str) -> list[list[tuple[float, float]]]:
-        if player_last in cache:
-            return cache[player_last]
+    def series_for_name(full_name: str) -> list[list[tuple[float, float]]]:
+        if full_name in cache:
+            return cache[full_name]
         out: list[list[tuple[float, float]]] = []
-        if player_last and not empty:
-            sub = game_ticks[
-                game_ticks["player_key"]
-                .map(lambda k: normalize_player_key(str(k)), na_action="ignore")
-                .str.endswith(player_last, na=False)
-            ]
-            for _, g in sub.groupby(["source", "line"], dropna=False):
-                ser: list[tuple[float, float]] = []
-                for captured_at, prob in zip(g["captured_at"], g["implied_probability"]):
-                    e = _epoch(captured_at)
-                    if e is not None and pd.notna(prob):
-                        ser.append((e, float(prob)))
-                out.append(ser)
-        cache[player_last] = out
+        if full_name and not empty:
+            key = resolve_player_key(game_ticks, full_name)
+            if key is not None:
+                out = grouped_series_for_player_key(game_ticks, key)
+        cache[full_name] = out
         return out
 
     def score(credited_name: str, rightful_name: str, event_iso: str):
@@ -83,8 +85,8 @@ def _make_aggregate_scorer(game_ticks: pd.DataFrame, params: AttributionParams):
         t = _epoch(event_iso)
         if t is None:
             return None, stratum
-        c_leg = _agg_from_series(series_for(cl), t, params)
-        r_leg = _agg_from_series(series_for(rl), t, params)
+        c_leg = _agg_from_series(series_for_name(credited_name) if cl else [], t, params)
+        r_leg = _agg_from_series(series_for_name(rightful_name) if rl else [], t, params)
         return paired_from_legs(c_leg, r_leg), stratum
 
     return score

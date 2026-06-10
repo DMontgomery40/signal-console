@@ -449,6 +449,44 @@ class TestLoadAttributionInputs:
         assert ("G1", "103") in ticks_map
         assert [p for _, p in ticks_map[("G1", "103")]] == [0.4, 0.7]  # trent's, not the decoy's
 
+    def test_same_surname_teammates_bind_their_own_series(self, tmp_path):
+        # Two Williamses in one game: the identity join must resolve each
+        # person_id to HIS OWN slug via the full PBP name — never a blended
+        # series and never the other Williams' ticks.
+        snap = tmp_path / "snap"
+        snap.mkdir()
+        pbp = _pbp_rows()
+        pbp[0]["person_id"], pbp[0]["player_name"] = 201, "Jalen Williams"
+        pbp[1]["person_id"], pbp[1]["player_name"] = 202, "Jaylin Williams"
+        pbp[2]["person_id"], pbp[2]["player_name"] = 201, "Jalen Williams"
+        ticks = []
+        for t in _tick_rows():
+            if t["player_key"] == "joel-embiid":
+                ticks.append({**t, "player_key": "jalen-williams"})
+            else:
+                ticks.append({**t, "player_key": "jaylin-williams"})
+        _write_attribution_tables(snap, pbp, ticks)
+        _, ticks_map, _ = load_attribution_inputs(snap, _board_pred_frame())
+        assert set(ticks_map.keys()) == {("G1", "201"), ("G1", "202")}
+        assert [p for _, p in ticks_map[("G1", "201")]] == [0.5, 0.3]  # jalen's only
+        assert [p for _, p in ticks_map[("G1", "202")]] == [0.4, 0.7]  # jaylin's only
+
+    def test_ambiguous_surname_without_first_name_abstains(self, tmp_path):
+        # Initial-only PBP names cannot separate two same-initial Williamses:
+        # the join must abstain (no series key), never guess.
+        snap = tmp_path / "snap"
+        snap.mkdir()
+        pbp = _pbp_rows()
+        pbp[0]["person_id"], pbp[0]["player_name"] = 201, "J. Williams"
+        pbp[2]["person_id"], pbp[2]["player_name"] = 201, "J. Williams"
+        ticks = []
+        for t in _tick_rows():
+            key = "jalen-williams" if t["player_key"] == "joel-embiid" else "jaylin-williams"
+            ticks.append({**t, "player_key": key})
+        _write_attribution_tables(snap, pbp, ticks)
+        _, ticks_map, _ = load_attribution_inputs(snap, _board_pred_frame())
+        assert ("G1", "201") not in ticks_map
+
     def test_illiquid_player_yields_no_series_key(self, tmp_path):
         # Drop the credited player's ticks: candidate pair survives, but only the
         # rightful leg has a series -> downstream support is "rightful_only",

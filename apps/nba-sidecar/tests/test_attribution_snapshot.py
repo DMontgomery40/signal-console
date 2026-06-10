@@ -16,8 +16,10 @@ from nba_sidecar.research.attribution_snapshot import (
     evaluate_snapshot,
     last_name,
     normalize_player_key,
+    resolve_player_key,
     score_incident_snapshot,
     select_player_series,
+    series_for_player_key,
 )
 from nba_sidecar.research.attribution import AttributionParams
 from nba_sidecar.research.loader import read_player_prop_ticks
@@ -103,6 +105,58 @@ def test_suffix_player_matches_own_series_not_other_jr_player(tmp_path):
 
 def _epoch_of(iso: str) -> float:
     return datetime.fromisoformat(iso.replace("Z", "+00:00")).timestamp()
+
+
+def _two_williams_df(tmp_path):
+    # Two same-surname players in ONE game, both with a (kalshi, 5.5) series —
+    # the worst case for a last-name suffix join.
+    rows = _ticks("g", "jalen-williams", "kalshi", 5.5, [(-60, 0.40), (200, 0.45)]) + _ticks(
+        "g", "jaylin-williams", "kalshi", 5.5, [(-60, 0.70), (200, 0.75), (210, 0.76)]
+    )
+    return read_player_prop_ticks(_snap(tmp_path, rows))
+
+
+def test_resolve_player_key_unique_surname(tmp_path):
+    rows = _ticks("g", "victor-wembanyama", "kalshi", 9.5, [(-60, 0.5)])
+    df = read_player_prop_ticks(_snap(tmp_path, rows))
+    assert resolve_player_key(df, "Victor Wembanyama") == "victor-wembanyama"
+    assert resolve_player_key(df, "V. Wembanyama") == "victor-wembanyama"
+    assert resolve_player_key(df, "Nonexistent Player") is None
+    assert resolve_player_key(df, "") is None
+
+
+def test_resolve_player_key_same_surname_disambiguates_by_first_name(tmp_path):
+    df = _two_williams_df(tmp_path)
+    assert resolve_player_key(df, "Jalen Williams") == "jalen-williams"
+    assert resolve_player_key(df, "Jaylin Williams") == "jaylin-williams"
+    # A bare surname (or a shared initial) cannot separate them: abstain, never
+    # blend or guess.
+    assert resolve_player_key(df, "Williams") is None
+    assert resolve_player_key(df, "J. Williams") is None
+
+
+def test_resolve_player_key_surname_is_segment_bounded(tmp_path):
+    rows = _ticks("g", "josh-hart", "kalshi", 5.5, [(-60, 0.5)]) + _ticks(
+        "g", "delon-lockhart", "kalshi", 4.5, [(-60, 0.6)]
+    )
+    df = read_player_prop_ticks(_snap(tmp_path, rows))
+    # 'lockhart' must not suffix-match 'hart'.
+    assert resolve_player_key(df, "Josh Hart") == "josh-hart"
+
+
+def test_series_for_player_key_is_key_exact(tmp_path):
+    df = _two_williams_df(tmp_path)
+    series = series_for_player_key(df, "jalen-williams")
+    assert [p for _, p in series] == [0.40, 0.45]
+
+
+def test_select_player_series_never_blends_same_surname_players(tmp_path):
+    # Without a full name the suffix path keeps working, but the (player_key,
+    # source, line) grouping guarantees the returned series belongs to ONE
+    # player (most active), never a blend of both.
+    df = _two_williams_df(tmp_path)
+    series = select_player_series(df, "g", "williams")
+    assert [p for _, p in series] == [0.70, 0.75, 0.76]  # one player's ticks only
 
 
 def test_select_picks_most_active_line(tmp_path):

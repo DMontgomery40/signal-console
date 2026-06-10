@@ -435,16 +435,18 @@ def load_attribution_inputs(
       window. Keying by event time would let the event bucket fire on quote
       ticks minutes in its future and inflate recall non-causally.
     - ``player_prop_ticks.parquet`` -> ONE coherent (source, line) implied-prob
-      series per candidate person, selected by the existing most_active
-      convention and joined person_id -> player_name -> last-name suffix match
-      against ``player_key`` (the same identity convention attribution_snapshot
-      and far_calibration use).
+      series per candidate person, selected by the most_active convention.
+      Identity join: person_id -> full PBP player_name ->
+      attribution_snapshot.resolve_player_key, which resolves to exactly ONE
+      participant_key slug (surname at a segment boundary, first-name/initial
+      disambiguation for same-surname teammates) — an unresolvable name yields
+      no series and the leg abstains, never a blended or wrong-player series.
 
     Fail-open: a snapshot missing either table returns empty inputs plus a
     status dict saying WHY, so the caller degrades to board-only composition
     loudly instead of crashing or fabricating inputs.
     """
-    from ..attribution_snapshot import _epoch, last_name, select_player_series
+    from ..attribution_snapshot import _epoch, resolve_player_key, series_for_player_key
     from ..candidates import rebound_candidates
     from ..loader import read_pbp_actions, read_player_prop_ticks
 
@@ -525,8 +527,19 @@ def load_attribution_inputs(
             )
             status["events_bucketed"] += 1
 
+    ticks_by_game = (
+        {str(g): sub for g, sub in ticks_df.groupby("game_id", sort=False)}
+        if not ticks_df.empty
+        else {}
+    )
     for (gid, pid), name in name_by_person.items():
-        series = select_player_series(ticks_df, gid, last_name(name))
+        game_ticks = ticks_by_game.get(gid)
+        if game_ticks is None:
+            continue
+        key = resolve_player_key(game_ticks, name)
+        if key is None:
+            continue  # absent or ambiguous identity -> the leg abstains
+        series = series_for_player_key(game_ticks, key)
         if series:
             ticks_by_game_player[(gid, str(pid))] = series
     status["players_with_series"] = len(ticks_by_game_player)
