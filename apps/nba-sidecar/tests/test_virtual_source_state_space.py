@@ -24,6 +24,7 @@ from nba_sidecar.research.models.base import ScoreRequest
 from nba_sidecar.research.models.virtual_source_state_space import (
     _SCALE_FLOOR,
     VirtualSourceStateSpaceModel,
+    _bounded_regime_score,
     _FilterState,
     _kalman_predict,
     _kalman_update,
@@ -182,6 +183,40 @@ class TestPrecisionWeightedCombine:
 # ---------------------------------------------------------------------------
 # Integration tests — the full model through the BoardModel contract
 # ---------------------------------------------------------------------------
+
+
+class TestBoundedRegimeScore:
+    def test_extreme_negative_z_returns_near_zero_without_overflow(self):
+        # Below ~enter_z - 709/k the unclamped sigmoid raises OverflowError
+        # (math.exp overflow) and aborts the whole model run.
+        regime = _bounded_regime_score(-1e9, 6.0)
+        assert 0.0 <= regime < 1e-20
+
+    def test_extreme_positive_z_returns_near_one(self):
+        # 1.0 - 1e-20 == 1.0 in float64, so assert exact saturation instead.
+        assert _bounded_regime_score(1e9, 6.0) == pytest.approx(1.0)
+        assert _bounded_regime_score(1e9, 6.0) <= 1.0
+
+    def test_moderate_values_match_unclamped_sigmoid(self):
+        for z in (-10.0, 0.0, 6.0, 12.0):
+            expected = 1.0 / (1.0 + math.exp(-1.5 * (z - 6.0)))
+            assert _bounded_regime_score(z, 6.0) == pytest.approx(expected)
+
+    def test_full_model_survives_quiet_bucket_after_tiny_mad_scale(self):
+        # Stable near-identical buckets shrink the MAD scale toward the 1e-6
+        # floor; a fully quiet bucket then yields a huge negative z_combined.
+        # The model must score it (regime ~0), not crash with OverflowError.
+        # 240 constant buckets converge the filter until the MAD scale rides
+        # the 1e-6 floor (empirically z_combined ≈ -5600 at the quiet bucket).
+        intensities = [1.0] * 240 + [0.0]
+        result = _score(_series(intensities))
+        assert len(result.predictions) == len(intensities)
+        last = result.predictions[-1]
+        # The fixture must actually reach the unclamped-overflow regime
+        # (exp argument > 709, i.e. z below enter_z - 709/k ≈ -466).
+        assert last.diagnostics["zCombined"] < -500.0
+        assert last.diagnostics["regimeScore"] == pytest.approx(0.0, abs=1e-12)
+        assert not last.fired
 
 
 class TestVirtualSourceStateSpaceModel:

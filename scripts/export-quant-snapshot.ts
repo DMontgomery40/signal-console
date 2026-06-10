@@ -934,6 +934,11 @@ function buildPlayerPropTickRows(
   db: ReturnType<typeof openGoldDb>,
   gameIds: readonly string[],
 ): Row[] {
+  // OVER side only, matching the documented re-ranker contract and the direct
+  // gold-DB diagnostic (attribution_eval.player_rebound_over_ticks). The
+  // downstream series selection groups by (source, line) with no selection
+  // column, so exporting both sides would blend complementary over/under
+  // probabilities into one series and cancel or invert the signed drift.
   const stmt = db.prepare(
     `SELECT mi.participant_key AS player_key,
             sm.source AS source,
@@ -947,6 +952,7 @@ function buildPlayerPropTickRows(
      WHERE sm.game_id = ?
        AND mi.family = 'player-prop'
        AND lower(mi.display_label) LIKE '%rebound%'
+       AND mi.selection = 'over'
        AND qt.implied_probability IS NOT NULL
      ORDER BY mi.participant_key, sm.source, mi.line, qt.captured_at`,
   );
@@ -1333,7 +1339,7 @@ const FEATURE_CATALOG: readonly FeatureCatalogEntry[] = [
     file: "player_prop_ticks.parquet",
     name: "implied_probability",
     meaning:
-      "Per-player rebound-prop implied probability per tick (raw causal series the attribution re-ranker windows around candidate events)",
+      "Per-player rebound-OVER implied probability per tick (raw causal series the attribution re-ranker windows around candidate events; over side only — both sides would blend in the (source, line) series selection)",
     units: "probability 0..1",
     causalOrNoncausal: "causal",
     leakageSafeForOnlineScoring: true,

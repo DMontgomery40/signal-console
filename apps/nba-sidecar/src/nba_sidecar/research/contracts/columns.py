@@ -299,7 +299,7 @@ PLAYER_PROP_TICKS_COLUMNS = ParquetTableSpec(
         ColumnSpec(
             "implied_probability",
             "float",
-            meaning="Per-player rebound-prop implied probability at the tick (0..1). Causal.",
+            meaning="Per-player rebound-OVER implied probability at the tick (0..1). Causal.",
         ),
         ColumnSpec(
             "volume",

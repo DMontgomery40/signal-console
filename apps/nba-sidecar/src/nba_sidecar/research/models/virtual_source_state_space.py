@@ -112,6 +112,9 @@ _PRECISION_FLOOR: float = 1e-8
 # k=1.5 chosen so sigma(enter_z) ≈ 0.95 relative to the trigger.
 _REGIME_SIGMOID_K: float = 1.5
 
+# |exponent| cap for the regime sigmoid (see _bounded_regime_score).
+_SIGMOID_EXP_CLAMP: float = 60.0
+
 
 # ---------------------------------------------------------------------------
 # Per-filter state dataclass
@@ -286,6 +289,20 @@ def _precision_weighted_combine(
         return 0.0
 
     return weighted_sum / total_precision
+
+
+def _bounded_regime_score(z_combined: float, enter_z: float) -> float:
+    """Bounded 0–1 sigmoid view of the combined z, for calibration diagnostics.
+
+    The exponent is clamped: math.exp overflows above ~709, so an extreme
+    negative surprise (tiny MAD scale followed by a much quieter bucket) would
+    otherwise raise OverflowError and abort scoring the whole model. At the
+    clamp (|exponent| = 60) the sigmoid is within ~1e-26 of its asymptote, so
+    the clamped value is numerically indistinguishable from the true one.
+    """
+    exponent = -_REGIME_SIGMOID_K * (z_combined - enter_z)
+    exponent = max(-_SIGMOID_EXP_CLAMP, min(_SIGMOID_EXP_CLAMP, exponent))
+    return 1.0 / (1.0 + math.exp(exponent))
 
 
 # ---------------------------------------------------------------------------
@@ -467,7 +484,7 @@ class VirtualSourceStateSpaceModel(BoardModel):
 
             # Bounded 0–1 reliability view of the combined z, for calibration
             # diagnostics ("when the model says 0.8, does it fire ~80%?").
-            regime = 1.0 / (1.0 + math.exp(-_REGIME_SIGMOID_K * (z_combined - enter_z)))
+            regime = _bounded_regime_score(z_combined, enter_z)
 
             predictions.append(
                 PredictionRow(

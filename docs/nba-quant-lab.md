@@ -276,7 +276,10 @@ present-source counts vary (e.g. polymarket / bet365 / kalshi).
 
 Per-player rebound-prop microstructure for the attribution re-ranker: raw causal
 ticks (`game_id`, `player_key`, `source`, `line`, `stat`, `captured_at`,
-`implied_probability`, `volume`). Scoped to truth-bearing games (incident +
+`implied_probability`, `volume`), **OVER side only** — the series selection
+groups by (source, line) with no selection column, so exporting both sides
+would blend complementary probabilities (matches
+`attribution_eval.player_rebound_over_ticks`). Scoped to truth-bearing games (incident +
 tape-episode games); pass `--control-ticks N` to add a deterministic sample of N
 assumed-negative games so the re-ranker's false-alarm rate can be calibrated on a
 real control universe (see `docs/research-2026-05-31d-far-calibration-result.md`).
