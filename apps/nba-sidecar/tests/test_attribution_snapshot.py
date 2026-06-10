@@ -15,6 +15,7 @@ from nba_sidecar.research.attribution_snapshot import (
     aggregate_leg_drift,
     evaluate_snapshot,
     last_name,
+    normalize_player_key,
     score_incident_snapshot,
     select_player_series,
 )
@@ -62,6 +63,46 @@ def test_last_name_prefers_leading_token_over_trailing_prose():
     # plain names with no leading initial still resolve via the trailing word
     assert last_name("Sam Hauser") == "hauser"
     assert last_name("Stephon Castle") == "castle"
+
+
+def test_last_name_strips_generational_suffixes():
+    # Suffix tokens are NOT last names: pre-fix, 'Gary Trent Jr' -> 'jr'
+    # (endswith-matches EVERY -jr slug in the game) and 'Gary Trent Jr.' -> ''
+    # (drops out of the denominator entirely).
+    assert last_name("Gary Trent Jr") == "trent"
+    assert last_name("Gary Trent Jr.") == "trent"
+    assert last_name("Jaren Jackson Jr.") == "jackson"
+    assert last_name("Wendell Carter III") == "carter"
+    assert last_name("G. Trent Jr.") == "trent"
+    assert last_name("Tim Hardaway, Jr.") == "hardaway"
+
+
+def test_normalize_player_key_strips_suffix_segments():
+    assert normalize_player_key("gary-trent-jr") == "gary-trent"
+    assert normalize_player_key("Jaren-Jackson-Jr") == "jaren-jackson"
+    assert normalize_player_key("wendell-carter-iii") == "wendell-carter"
+    assert normalize_player_key("victor-wembanyama") == "victor-wembanyama"
+
+
+def test_suffix_player_matches_own_series_not_other_jr_player(tmp_path):
+    # Two -jr slugs in one game: the suffix-name join must bind each player to
+    # HIS OWN series, never the other -jr player's (the pre-fix collision).
+    rows = _ticks("g", "gary-trent-jr", "kalshi", 4.5, [(-60, 0.40), (200, 0.45)]) + _ticks(
+        "g", "tim-hardaway-jr", "kalshi", 5.5, [(-60, 0.70), (200, 0.75), (210, 0.76)]
+    )
+    snap = _snap(tmp_path, rows)
+    df = read_player_prop_ticks(snap)
+    trent = select_player_series(df, "g", last_name("Gary Trent Jr."))
+    hardaway = select_player_series(df, "g", last_name("Tim Hardaway Jr."))
+    assert [p for _, p in trent] == [0.40, 0.45]
+    assert [p for _, p in hardaway] == [0.70, 0.75, 0.76]
+    # aggregate_drift leg path uses the same normalized-key match
+    leg = aggregate_leg_drift(df, "g", last_name("Gary Trent Jr."), _epoch_of(EVENT), AttributionParams())
+    assert not leg.abstain and leg.n_ticks == 2
+
+
+def _epoch_of(iso: str) -> float:
+    return datetime.fromisoformat(iso.replace("Z", "+00:00")).timestamp()
 
 
 def test_select_picks_most_active_line(tmp_path):

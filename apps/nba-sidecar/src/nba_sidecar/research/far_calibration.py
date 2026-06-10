@@ -28,7 +28,7 @@ from typing import Any
 import pandas as pd
 
 from .attribution import AttributionParams, LegResult, leg_drift, paired_from_legs
-from .attribution_snapshot import _epoch, last_name, score_incident_snapshot
+from .attribution_snapshot import _epoch, last_name, normalize_player_key, score_incident_snapshot
 from .candidates import rebound_candidates, team_rebound_candidates
 from .oncourt import infer_starters, oncourt_by_action, player_teams
 
@@ -62,7 +62,11 @@ def _make_aggregate_scorer(game_ticks: pd.DataFrame, params: AttributionParams):
             return cache[player_last]
         out: list[list[tuple[float, float]]] = []
         if player_last and not empty:
-            sub = game_ticks[game_ticks["player_key"].str.lower().str.endswith(player_last, na=False)]
+            sub = game_ticks[
+                game_ticks["player_key"]
+                .map(lambda k: normalize_player_key(str(k)), na_action="ignore")
+                .str.endswith(player_last, na=False)
+            ]
             for _, g in sub.groupby(["source", "line"], dropna=False):
                 ser: list[tuple[float, float]] = []
                 for captured_at, prob in zip(g["captured_at"], g["implied_probability"]):

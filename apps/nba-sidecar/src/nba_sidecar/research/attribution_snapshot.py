@@ -40,6 +40,22 @@ def _epoch(iso: object) -> float | None:
         return None
 
 
+# Generational suffix tokens that are NOT a basketball last name. Without
+# stripping them, 'Gary Trent Jr' -> 'jr' (which endswith-matches EVERY -jr
+# player slug in the game) and 'Gary Trent Jr.' -> '' (drops out entirely).
+_NAME_SUFFIX_RE = re.compile(r"(?:[\s,]+(?:jr|sr|ii|iii|iv|v)\.?)+\s*$", re.IGNORECASE)
+
+# Same suffixes at the END of a participant_key slug ('gary-trent-jr').
+_KEY_SUFFIX_RE = re.compile(r"(?:[-_](?:jr|sr|ii|iii|iv|v))+$")
+
+
+def normalize_player_key(key: str) -> str:
+    """'Gary-Trent-Jr' / 'gary-trent-jr' -> 'gary-trent' (lowercased, suffix-free),
+    so the last-name suffix match pairs 'trent' with the right slug instead of
+    abstaining on (or colliding with) the generational suffix."""
+    return _KEY_SUFFIX_RE.sub("", key.strip().lower())
+
+
 def last_name(player: str) -> str:
     """'V. Wembanyama' / 'Victor Wembanyama' -> 'wembanyama'; '' / 'TEAM ...' -> ''.
 
@@ -48,9 +64,13 @@ def last_name(player: str) -> str:
     where the player NAME leads and prose trails. Prefer a leading 'I. Lastname'
     token so the name wins over the trailing word; only fall back to the trailing
     word for plain names ('Sam Hauser', 'Victor Wembanyama'). Without this, those
-    incidents silently mis-parse and drop out of the eval denominator."""
+    incidents silently mis-parse and drop out of the eval denominator.
+
+    Generational suffixes are stripped FIRST ('Gary Trent Jr.' -> 'trent',
+    'Wendell Carter III' -> 'carter'); see _NAME_SUFFIX_RE."""
     if not player or "team" in player.lower():
         return ""
+    player = _NAME_SUFFIX_RE.sub("", player.strip())
     lead = re.search(r"\b[A-Z]\.\s*([A-Z][a-zA-Z'\-]+)", player.strip())
     if lead:
         return lead.group(1).lower()
@@ -79,7 +99,9 @@ def select_player_series(
         return []
     sub = ticks_df[
         (ticks_df["game_id"] == game_id)
-        & ticks_df["player_key"].str.lower().str.endswith(player_last.lower(), na=False)
+        & ticks_df["player_key"]
+        .map(lambda k: normalize_player_key(str(k)), na_action="ignore")
+        .str.endswith(player_last.lower(), na=False)
     ]
     if sub.empty:
         return []
@@ -112,7 +134,9 @@ def aggregate_leg_drift(
         return LegResult(drift=None, n_ticks=0, abstain=True)
     sub = ticks_df[
         (ticks_df["game_id"] == game_id)
-        & ticks_df["player_key"].str.lower().str.endswith(player_last.lower(), na=False)
+        & ticks_df["player_key"]
+        .map(lambda k: normalize_player_key(str(k)), na_action="ignore")
+        .str.endswith(player_last.lower(), na=False)
     ]
     if sub.empty:
         return LegResult(drift=None, n_ticks=0, abstain=True)
@@ -215,6 +239,7 @@ def evaluate_snapshot(
 
 __all__ = [
     "last_name",
+    "normalize_player_key",
     "select_player_series",
     "aggregate_leg_drift",
     "score_incident_snapshot",

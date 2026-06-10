@@ -425,6 +425,26 @@ class TestLoadAttributionInputs:
         assert events == {} and ticks == {}
         assert status["events_bucketed"] == 0
 
+    def test_suffix_name_binds_own_series_not_other_jr_player(self, tmp_path):
+        # PBP names with generational suffixes must join to THEIR OWN slug:
+        # pre-fix, last_name('Gary Trent Jr') == 'jr' bound whichever -jr slug
+        # matched first (here a decoy teammate), contaminating pairedScore.
+        snap = tmp_path / "snap"
+        snap.mkdir()
+        pbp = _pbp_rows()
+        pbp[1]["person_id"] = 103
+        pbp[1]["player_name"] = "Gary Trent Jr"
+        ticks = [t for t in _tick_rows() if t["player_key"] != "kelly-oubre"]
+        for t in _tick_rows():
+            if t["player_key"] == "kelly-oubre":
+                ticks.append({**t, "player_key": "gary-trent-jr"})
+                # decoy -jr teammate with a DIFFERENT probability path
+                ticks.append({**t, "player_key": "tim-hardaway-jr", "implied_probability": 0.99})
+        _write_attribution_tables(snap, pbp, ticks)
+        _, ticks_map, _ = load_attribution_inputs(snap, _board_pred_frame())
+        assert ("G1", "103") in ticks_map
+        assert [p for _, p in ticks_map[("G1", "103")]] == [0.4, 0.7]  # trent's, not the decoy's
+
     def test_illiquid_player_yields_no_series_key(self, tmp_path):
         # Drop the credited player's ticks: candidate pair survives, but only the
         # rightful leg has a series -> downstream support is "rightful_only",
