@@ -3,6 +3,55 @@
 **Branch:** `claude/moniac-pipeline-branch-xpx7uh` on `DMontgomery40/signal-console` (continue here unless instructed otherwise).
 **Date written:** 2026-06-10.
 
+## STATUS — 2026-06-10, build complete; real-data proof run pending (operator)
+
+Both gaps below are CLOSED on `claude/phase-4-handoff-1qu8qg` (continued from this
+branch's tip after the remote `claude/phase-4-handoff-1qu8qg` session branch was
+designated for the work):
+
+- `player_prop_ticks.parquet` export: adopted the parity-consolidation port
+  (`--control-ticks N`, explicit `missing` coverage rows, catalog + contract-test
+  coverage) onto this lineage.
+- Rebound-event/candidate snapshot representation: **raw `pbp_actions.parquet`**
+  (exact far-calibration gold-DB column set) instead of the draft's derived
+  bucket-indexed table — candidate derivation stays in the tested Python path
+  (`candidates.rebound_candidates` + oncourt), and `load_attribution_inputs`
+  buckets events against the same board-prediction frame the producer consumes.
+- `write_composite_predictions` loads real inputs; board-only degradation now
+  triggers only on genuinely missing tables (reason printed).
+- Verified: sidecar 304 passed / 19 gold-gated skips, compileall, prettier,
+  eslint, scripts tsc, stale-plan + citation guards, web 186 passed,
+  api 202 passed, ui 90 passed. `packages/research-truth` `game-data.test.ts`
+  fails only where the gold DB is absent (by design).
+
+**Remaining: the real proof run needs the operator's gold DB.**
+
+```bash
+# 1. Fresh snapshot with the new tables (control sample sized for FAR work too):
+GOLD_DB_PATH=~/signal-console/data/signal-console.sqlite \
+  pnpm quant:export -- --control-ticks 40 --snapshot-id phase4-proof
+
+# 2. Composite predictions (board virtual_source_state_space x signed-paired):
+SNAP=outputs/nba-quant-lab/snapshots/phase4-proof
+cd apps/nba-sidecar && uv run --extra research python -m \
+  nba_sidecar.research.experiments.composite_attribution \
+  --snapshot "../../$SNAP" --out ../../outputs/nba-quant-lab/external/composite_attribution/predictions.parquet
+cd ../..
+# Expect the "composite attribution inputs: N rebound events bucketed ..." line,
+# NOT the BOARD-ONLY warning. BOARD-ONLY on a fresh export is a bug — report it.
+
+# 3. Score into a run dir + leaderboard row:
+pnpm quant score-predictions \
+  outputs/nba-quant-lab/external/composite_attribution/predictions.parquet \
+  "$SNAP" --model-id composite_attribution
+
+# 4. (Optional sweep) --strategy weighted_sum|gate|max and --fire-threshold.
+```
+
+If the candidate still scores 0/15 recall at low burden on real data, that is a
+reportable result, not a failure to hide. Rollback: revert the three commits on
+the branch tip; old snapshots keep working (the producer degrades loudly).
+
 ## Read this first: the plan is source material, not gospel
 
 The original plan in `docs/moniac-pipeline-plan-and-code-draft.md` was written by an
