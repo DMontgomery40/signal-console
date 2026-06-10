@@ -364,9 +364,12 @@ uv run --extra research python -m nba_sidecar.research compare my_model robust_m
 `outputs/nba-quant-lab/runs/<id>/` with `metrics.json`, `casebook.json`,
 `leaderboard.json`, and a rendered `REPORT.md` / `report.html`.
 
-> The three currently-registered models are `robust_mad`, `state_space_current`, and
-> `template_model` (the last is a non-candidate example — do not enter it in a bake-off
-> as if it were real).
+> The currently-registered models are `robust_mad` and `state_space_current` (the two
+> baselines), `virtual_source_state_space` (a registered research candidate:
+> per-virtual-source Kalman filters combined by precision weighting, approximating the
+> source split from aggregate dominance/disagreement columns — see
+> `docs/moniac-pipeline-plan-and-code-draft.md`), and `template_model` (a non-candidate
+> example — do not enter it in a bake-off as if it were real).
 
 ---
 

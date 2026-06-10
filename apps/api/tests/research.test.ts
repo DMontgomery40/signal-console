@@ -98,11 +98,17 @@ function seedArtifacts(): void {
     createdAt: "2026-05-29T00:00:00.000Z",
   });
 
-  // models.json registry at the root.
+  // models.json registry at the root: incumbents PLUS a registered candidate,
+  // proving candidates surface beside the baselines, never instead of them.
   writeJson(join(root, "models.json"), {
     models: [
       { id: "robust_mad", label: "Robust MAD", description: "from registry" },
       { id: "state_space_current", label: "State-space", description: "from registry" },
+      {
+        id: "virtual_source_state_space",
+        label: "Virtual source state space",
+        description: "from registry",
+      },
     ],
   });
 
@@ -323,7 +329,12 @@ describe("research routes — read endpoints (seeded artifact tree)", () => {
     if (!isRecord(body)) throw new Error("body not object");
     const models = body["models"];
     if (!isUnknownArray(models)) throw new Error("models not array");
-    expect(models).toHaveLength(2);
+    expect(models).toHaveLength(3);
+    const ids = models.map((m) => (isRecord(m) ? m["id"] : undefined));
+    // The candidate appears BESIDE the incumbents, never instead of them.
+    expect(ids).toContain("robust_mad");
+    expect(ids).toContain("state_space_current");
+    expect(ids).toContain("virtual_source_state_space");
     const first = models[0];
     if (!isRecord(first)) throw new Error("model not object");
     expect(first["source"]).toBe("registry");
@@ -507,6 +518,12 @@ describe("research routes — empty / absent artifact states (no seed)", () => {
     const modelsArr = modelsBody["models"];
     if (!isUnknownArray(modelsArr)) throw new Error("models not array");
     expect(modelsArr.length).toBeGreaterThan(0);
+    // The static fallback keeps the incumbent baselines; registry-only
+    // candidates must not be fabricated into the fallback list.
+    const fallbackIds = modelsArr.map((m) => (isRecord(m) ? m["id"] : undefined));
+    expect(fallbackIds).toContain("robust_mad");
+    expect(fallbackIds).toContain("state_space_current");
+    expect(fallbackIds).not.toContain("virtual_source_state_space");
     const firstModel = modelsArr[0];
     if (!isRecord(firstModel)) throw new Error("model not object");
     expect(firstModel["source"]).toBe("static");

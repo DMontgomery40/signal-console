@@ -20,6 +20,7 @@ from .base import (
 from . import robust_mad as robust_mad  # noqa: E402,F401
 from . import state_space_current as state_space_current  # noqa: E402,F401
 from . import template_model as template_model  # noqa: E402,F401
+from . import virtual_source_state_space as virtual_source_state_space  # noqa: E402,F401
 
 __all__ = [
     "BoardModel",

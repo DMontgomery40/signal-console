@@ -178,15 +178,18 @@ leakage-safe, it is truth, not input.
 ## 4. Run and compare the built-in baselines
 
 Two baselines ship as the bars to beat: `robust_mad` (robust statistics) and
-`state_space_current` (Kalman-style state space). The third registered id,
-`template_model`, is a copy-me example — not a real candidate.
+`state_space_current` (Kalman-style state space). `virtual_source_state_space` is a
+registered research candidate (per-virtual-source Kalman filters with a
+precision-weighted combine — see `docs/moniac-pipeline-plan-and-code-draft.md`),
+not a baseline. The remaining registered id, `template_model`, is a copy-me
+example — not a real candidate.
 
 ```bash
 SNAP=/absolute/path/to/outputs/nba-quant-lab/snapshots/<id>
 
 pnpm quant list-models
 pnpm quant run-model robust_mad "$SNAP"
-pnpm quant compare robust_mad state_space_current --snapshot "$SNAP"
+pnpm quant compare robust_mad state_space_current virtual_source_state_space --snapshot "$SNAP"
 ```
 
 `pnpm quant <cmd>` forwards verbatim to `python -m nba_sidecar.research <cmd>` via
@@ -196,7 +199,7 @@ pnpm quant compare robust_mad state_space_current --snapshot "$SNAP"
 cd apps/nba-sidecar
 uv sync --extra research   # pandas, pyarrow, duckdb, numpy, matplotlib
 uv run --extra research python -m nba_sidecar.research compare \
-    robust_mad state_space_current --snapshot "$SNAP"
+    robust_mad state_space_current virtual_source_state_space --snapshot "$SNAP"
 ```
 
 Note the `compare` shape: models are **positional** and `--snapshot` is a **required

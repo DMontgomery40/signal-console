@@ -95,7 +95,10 @@ the enter/exit thresholds, make measurement noise a sharper function of
 - Libraries: `pykalman`, `filterpy` (Labbe, "Kalman and Bayesian Filters in Python"),
   `statsmodels` `UnobservedComponents` (local-linear-trend in Python).
 - In-repo: `apps/nba-sidecar/src/nba_sidecar/research/models/state_space_current.py`,
-  `apps/nba-sidecar/src/nba_sidecar/volatility.py`.
+  `apps/nba-sidecar/src/nba_sidecar/volatility.py`, and the registered candidate
+  `apps/nba-sidecar/src/nba_sidecar/research/models/virtual_source_state_space.py`
+  (per-virtual-source filters + precision-weighted combine; see
+  `docs/moniac-pipeline-plan-and-code-draft.md`).
 
 ---
 

@@ -681,7 +681,7 @@ Inside it are the games, the whole-board observations, the labeled incident trut
 
   "research-model-lab": {
     title: "Model lab",
-    eli5: String.raw`These are baseline research models, not tuned production detectors. They exist so a snapshot can be scored repeatably — humble reference points to compare new candidates against, not the live suspend signal.`,
+    eli5: String.raw`These are baseline and candidate research models, not tuned production detectors. They exist so a snapshot can be scored repeatably — the baselines are humble reference points, and registered candidates line up beside them for comparison, not the live suspend signal.`,
     formal: String.raw`Registered \`BoardModel\`s from the python registry (emitted to \`models.json\` via \`pnpm quant emit-models\`, read by \`GET /v1/research/models\`). Each scores a snapshot through the same contract, so a candidate's leaderboard line is directly comparable to these incumbents.`,
   },
 
