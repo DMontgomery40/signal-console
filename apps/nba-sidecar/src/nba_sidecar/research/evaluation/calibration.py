@@ -7,19 +7,29 @@ Inspired by Bobby Ingram's MLB player-props pipeline (Swish workshop, June 2026)
      discrimination but terrible calibration — it will still misprice markets."
 
 Signal console analog:
-    A bounded score column (0–1) is the model's soft probability of an alert.
-    Native predictions always carry a top-level ``score``; models whose primary
-    score is unbounded (a z) may also flatten a ``regimeScore`` diagnostic
-    column. ECE measures whether score=0.7 corresponds to a 70% empirical fire
-    rate:
+    A bounded score column (0–1) is the model's soft probability that the
+    bucket sits on a TRUE event. Native predictions always carry a top-level
+    ``score``; models whose primary score is unbounded (a z) may also flatten
+    a ``regimeScore`` diagnostic column. ECE measures whether score=0.7
+    corresponds to a 70% empirical TRUTH-outcome rate:
 
         ECE = Σ_b (|b| / N) × |acc_b - conf_b|
 
     where B equal-width bins partition [0, 1] by the selected score column,
-    conf_b = mean(score) in bin b (model confidence), acc_b = mean(fired) in
-    bin b (empirical fire rate), |b| = warmed buckets in bin b, and N = total
-    warmed buckets. A perfectly calibrated model has ECE = 0. Overconfident:
-    conf_b > acc_b in the high bins. Underconfident: the reverse.
+    conf_b = mean(score) in bin b (model confidence), acc_b = mean(outcome) in
+    bin b (empirical truth-outcome rate), |b| = warmed buckets in bin b, and
+    N = total warmed buckets. A perfectly calibrated model has ECE = 0.
+    Overconfident: conf_b > acc_b in the high bins. Underconfident: reverse.
+
+    The outcome column must be a TRUTH label, never the model's own ``fired``
+    decision: ``fired`` is the model's threshold/hysteresis gate, so binning
+    against it measures agreement between the score and its own trigger
+    (self-consistency), not calibration to reality — a high-score false
+    positive would look "accurate" and sustained in-alert buckets after the
+    first hysteresis fire would count as misses. The model path
+    (compute_ece_for_model) derives per-bucket labels from SnapshotTruth via
+    :func:`truth_outcome_labels` (scoreable incident catch windows + tape
+    episodes, the same interval-overlap join the scorer uses).
 
 Reliability diagram:
     The calibration curve plots conf_b against acc_b; perfect calibration lies
@@ -72,8 +82,9 @@ class BinStats:
         bin_upper:    upper edge (exclusive, except the last bin)
         count:        warmed buckets in this bin
         mean_score:   mean selected score in this bin (confidence)
-        fire_rate:    empirical fire rate = mean(fired) in this bin (accuracy)
-        gap:          |fire_rate - mean_score|
+        outcome_rate: empirical truth-outcome rate = mean(outcome) in this bin
+                      (accuracy; NEVER the model's own fired gate)
+        gap:          |outcome_rate - mean_score|
         weight:       count / total_count
         weighted_gap: weight × gap — the bin's direct ECE contribution
     """
@@ -82,7 +93,7 @@ class BinStats:
     bin_upper: float
     count: int
     mean_score: float
-    fire_rate: float
+    outcome_rate: float
     gap: float
     weight: float
     weighted_gap: float
@@ -124,19 +135,23 @@ def calibration_bins(
     predictions_df: pd.DataFrame,
     n_bins: int = 10,
     score_col: str = "score",
-    fired_col: str = "fired",
+    outcome_col: str = "truthOutcome",
     warmed_col: str = "warmed",
 ) -> list[BinStats]:
     """Compute per-bin calibration statistics.
 
     Args:
         predictions_df: one row per bucket prediction. Must carry the selected
-                        score column (values in [0, 1]) and ``fired``;
-                        ``warmed`` is optional and defaults to True when absent.
+                        score column (values in [0, 1]) and the binary TRUTH
+                        outcome column; ``warmed`` is optional and defaults to
+                        True when absent.
         n_bins:         equal-width bins partitioning [0, 1]. 10 is standard
                         (Naeini et al. 2015); use 5 for sparse data.
         score_col:      bounded soft-score column (default: ``score``).
-        fired_col:      binary outcome column (default: ``fired``).
+        outcome_col:    binary TRUTH-label column (default: ``truthOutcome``;
+                        see truth_outcome_labels). Passing the model's own
+                        ``fired`` here measures self-consistency, not
+                        calibration — don't.
         warmed_col:     warmup gate column (default: ``warmed``).
 
     Returns:
@@ -145,7 +160,7 @@ def calibration_bins(
     Raises:
         ValueError: if required columns are missing or scores leave [0, 1].
     """
-    required = {score_col, fired_col}
+    required = {score_col, outcome_col}
     missing = required - set(predictions_df.columns)
     if missing:
         raise ValueError(
@@ -163,7 +178,7 @@ def calibration_bins(
         return []
 
     scores = warmed[score_col].astype(float).to_numpy()
-    fired = warmed[fired_col].astype(float).to_numpy()
+    outcomes = warmed[outcome_col].astype(float).to_numpy()
 
     if np.any(scores < 0.0) or np.any(scores > 1.0):
         bad_count = int(np.sum((scores < 0.0) | (scores > 1.0)))
@@ -195,7 +210,7 @@ def calibration_bins(
                     bin_upper=upper,
                     count=0,
                     mean_score=0.0,
-                    fire_rate=0.0,
+                    outcome_rate=0.0,
                     gap=0.0,
                     weight=0.0,
                     weighted_gap=0.0,
@@ -204,8 +219,8 @@ def calibration_bins(
             continue
 
         mean_score = float(scores[mask].mean())
-        fire_rate = float(fired[mask].mean())
-        gap = abs(fire_rate - mean_score)
+        outcome_rate = float(outcomes[mask].mean())
+        gap = abs(outcome_rate - mean_score)
         weight = count / total
         result_bins.append(
             BinStats(
@@ -213,7 +228,7 @@ def calibration_bins(
                 bin_upper=upper,
                 count=count,
                 mean_score=mean_score,
-                fire_rate=fire_rate,
+                outcome_rate=outcome_rate,
                 gap=gap,
                 weight=weight,
                 weighted_gap=weight * gap,
@@ -227,7 +242,7 @@ def compute_ece(
     predictions_df: pd.DataFrame,
     n_bins: int = 10,
     score_col: str = "score",
-    fired_col: str = "fired",
+    outcome_col: str = "truthOutcome",
     warmed_col: str = "warmed",
     model_name: str = "unknown",
 ) -> CalibrationResult:
@@ -235,13 +250,15 @@ def compute_ece(
 
     Only meaningful for a bounded 0–1 score: if the top-level ``score`` is an
     unbounded z, pass ``score_col="regimeScore"`` (the bounded diagnostic).
-    NaN ECE means no warmed buckets — never fabricated as 0.
+    ``outcome_col`` must be a per-bucket TRUTH label (see truth_outcome_labels),
+    not the model's own fired gate. NaN ECE means no warmed buckets — never
+    fabricated as 0.
     """
     bins = calibration_bins(
         predictions_df=predictions_df,
         n_bins=n_bins,
         score_col=score_col,
-        fired_col=fired_col,
+        outcome_col=outcome_col,
         warmed_col=warmed_col,
     )
 
@@ -273,7 +290,7 @@ def compute_ece(
     # Systematic bias direction over the upper half of the score range.
     top_bins = [b for b in populated if b.bin_lower >= 0.5]
     if top_bins:
-        mean_gap_signed = float(np.mean([b.mean_score - b.fire_rate for b in top_bins]))
+        mean_gap_signed = float(np.mean([b.mean_score - b.outcome_rate for b in top_bins]))
         overconfident = mean_gap_signed > 0.05
         underconfident = mean_gap_signed < -0.05
     else:
@@ -285,14 +302,14 @@ def compute_ece(
 
     if overconfident:
         notes.append(
-            f"Model is OVERCONFIDENT: {score_col} exceeds the empirical fire "
-            "rate in the upper bins. Consider softening the score-to-probability "
+            f"Model is OVERCONFIDENT: {score_col} exceeds the empirical truth-"
+            "outcome rate in the upper bins. Consider softening the score-to-probability "
             "mapping (e.g. the regime sigmoid steepness) or re-tuning enter_z."
         )
     elif underconfident:
         notes.append(
             f"Model is UNDERCONFIDENT: {score_col} sits below the empirical "
-            "fire rate in the upper bins. Consider steepening the mapping."
+            "truth-outcome rate in the upper bins. Consider steepening the mapping."
         )
 
     if empty_bins > n_bins // 2:
@@ -348,17 +365,17 @@ def print_calibration_report(result: CalibrationResult) -> None:
     print(f"  Total warmed buckets scored: {result.total_buckets}")
     print(f"  Populated bins: {len(result.populated_bins)}/{result.n_bins}")
     if result.overconfident:
-        print("  Bias: OVERCONFIDENT (fires less often than its scores suggest)")
+        print("  Bias: OVERCONFIDENT (true events occur less often than its scores suggest)")
     elif result.underconfident:
-        print("  Bias: UNDERCONFIDENT (fires more often than its scores suggest)")
+        print("  Bias: UNDERCONFIDENT (true events occur more often than its scores suggest)")
     else:
         print("  Bias: balanced (no systematic over/under-confidence detected)")
     print()
 
     print("  RELIABILITY DIAGRAM (each row = one score bin; bar = empirical")
-    print("  fire rate; │ marks the bin's mean score = perfect-calibration mark):")
+    print("  truth-outcome rate; │ marks the bin's mean score = perfect-calibration mark):")
     print()
-    print(f"  {'Bin':<14} {'Count':>6} {'Conf':>6} {'FireRate':>9}  Reliability")
+    print(f"  {'Bin':<14} {'Count':>6} {'Conf':>6} {'Outcome':>9}  Reliability")
     print("  " + _line)
 
     bar_width = 30
@@ -368,7 +385,7 @@ def print_calibration_report(result: CalibrationResult) -> None:
             print(f"  {bin_label:<14} {'—':>6} {'—':>6} {'—':>9}  (empty)")
             continue
 
-        fire_pos = int(round(b.fire_rate * bar_width))
+        fire_pos = int(round(b.outcome_rate * bar_width))
         conf_pos = int(round(b.mean_score * bar_width))
         bar = [" "] * (bar_width + 1)
         for k in range(min(fire_pos, bar_width + 1)):
@@ -378,14 +395,14 @@ def print_calibration_report(result: CalibrationResult) -> None:
         gap_marker = f"  gap={b.gap:.3f}" if b.gap > 0.05 else ""
         print(
             f"  {bin_label:<14} {b.count:>6} {b.mean_score:>6.3f} "
-            f"{b.fire_rate:>9.3f}  {''.join(bar)}{gap_marker}"
+            f"{b.outcome_rate:>9.3f}  {''.join(bar)}{gap_marker}"
         )
     print()
 
     print("  PER-BIN DETAIL:")
     print(
         f"  {'Bin':<14} {'Count':>6} {'Weight':>8} {'Conf':>7} "
-        f"{'FireRate':>9} {'Gap':>7} {'WtdGap':>8}"
+        f"{'Outcome':>9} {'Gap':>7} {'WtdGap':>8}"
     )
     print("  " + _line)
     for b in result.bins:
@@ -394,7 +411,7 @@ def print_calibration_report(result: CalibrationResult) -> None:
         print(
             f"  [{b.bin_lower:.1f},{b.bin_upper:.1f})  "
             f"{b.count:>6}  {b.weight:>8.4f}  {b.mean_score:>7.4f}  "
-            f"{b.fire_rate:>9.4f}  {b.gap:>7.4f}  {b.weighted_gap:>8.4f}"
+            f"{b.outcome_rate:>9.4f}  {b.gap:>7.4f}  {b.weighted_gap:>8.4f}"
         )
     print()
 
@@ -423,30 +440,73 @@ def print_calibration_report(result: CalibrationResult) -> None:
 # ---------------------------------------------------------------------------
 
 
+def truth_outcome_labels(predictions_df: pd.DataFrame, truth) -> pd.Series:
+    """Per-bucket binary TRUTH labels from a SnapshotTruth, aligned to the frame.
+
+    A bucket is a positive outcome iff its ``[bucket_start_sec,
+    bucket_end_sec)`` interval overlaps a scoreable incident catch window or a
+    market-outlier episode for its game — the same materialized-truth
+    interval-overlap join the scorer uses (no recompute from board
+    observations). This is the calibration target; the model's own ``fired``
+    gate must never stand in for it.
+    """
+    from nba_sidecar.research.evaluation.scorer import (
+        _intervals_overlap,
+        _prepare_predictions,
+    )
+
+    prepared = _prepare_predictions(predictions_df)
+
+    spans_by_game: dict[str, list[tuple[int, int]]] = {}
+    for _, w in truth.scoreable_windows().iterrows():
+        spans_by_game.setdefault(str(w["game_id"]), []).append(
+            (int(w["window_start_sec"]), int(w["window_end_sec"]))
+        )
+    for _, e in truth.market_outlier_episodes.iterrows():
+        spans_by_game.setdefault(str(e["game_id"]), []).append(
+            (int(e["start_sec"]), int(e["end_sec"]))
+        )
+
+    labels: list[float] = []
+    for _, row in prepared.iterrows():
+        spans = spans_by_game.get(str(row["game_id"]), [])
+        bs, be = int(row["bucket_start_sec"]), int(row["bucket_end_sec"])
+        labels.append(1.0 if any(_intervals_overlap(bs, be, ws, we) for ws, we in spans) else 0.0)
+    return pd.Series(labels, index=predictions_df.index, dtype=float)
+
+
 def compute_ece_for_model(
     model_name: str,
     snapshot_path: Path,
     n_bins: int = 10,
     score_col: str | None = None,
 ) -> CalibrationResult:
-    """Score a registered model and compute its ECE in one call.
+    """Score a registered model and compute its ECE against TRUTH labels.
 
     Uses the shared ``evaluate_model`` path (no hand-rolled snapshot loading),
-    then computes reliability over the returned predictions frame. The score
-    column defaults to the bounded ``regimeScore`` diagnostic when the model
-    emits it, else the top-level ``score``.
+    derives per-bucket truth labels from the snapshot's materialized truth
+    tables (:func:`truth_outcome_labels` — never the model's own ``fired``
+    gate), then computes reliability over the returned predictions frame. The
+    score column defaults to the bounded ``regimeScore`` diagnostic when the
+    model emits it, else the top-level ``score``.
     """
     from nba_sidecar.research.evaluation.evaluator import evaluate_model
+    from nba_sidecar.research.evaluation.truth import load_truth
 
-    _, _, predictions_df = evaluate_model(model_name, snapshot_path)
+    truth = load_truth(snapshot_path)
+    _, _, predictions_df = evaluate_model(model_name, snapshot_path, truth=truth)
     selected = score_col
     if selected is None:
         selected = "regimeScore" if "regimeScore" in predictions_df.columns else "score"
+
+    predictions_df = predictions_df.copy()
+    predictions_df["truthOutcome"] = truth_outcome_labels(predictions_df, truth)
 
     return compute_ece(
         predictions_df=predictions_df,
         n_bins=n_bins,
         score_col=selected,
+        outcome_col="truthOutcome",
         warmed_col="warmed",
         model_name=model_name,
     )
@@ -557,6 +617,7 @@ __all__ = [
     "calibration_bins",
     "compute_ece",
     "compute_ece_for_model",
+    "truth_outcome_labels",
     "build_pareto_points_with_ece",
     "print_calibration_report",
 ]

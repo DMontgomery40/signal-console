@@ -226,7 +226,9 @@ uv run --extra research python -m nba_sidecar.research.evaluation.pareto \
     --models robust_mad state_space_current virtual_source_state_space
 
 # Expected Calibration Error: does a bounded 0-1 score (regimeScore diagnostic
-# when present, else top-level score) match the empirical fire rate per bin?
+# when present, else top-level score) match the empirical TRUTH-outcome rate
+# per bin? Outcomes are per-bucket truth labels derived from the snapshot's
+# scoreable catch windows + tape episodes — never the model's own fired gate.
 # --pareto appends the full three-dimension front with ECE wired in.
 uv run --extra research python -m nba_sidecar.research.evaluation.calibration \
     --snapshot "$SNAP" --model virtual_source_state_space --bins 10 --pareto
