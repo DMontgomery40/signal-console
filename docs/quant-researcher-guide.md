@@ -230,6 +230,22 @@ uv run --extra research python -m nba_sidecar.research.evaluation.calibration \
     --snapshot "$SNAP" --model virtual_source_state_space --bins 10 --pareto
 ```
 
+There is also an **external** composite producer (board state-space × signed-paired
+attribution, `research/experiments/composite_attribution.py`) that writes a
+`predictions.parquet` for `pnpm quant score-predictions`. It is deliberately NOT a
+registered `BoardModel` (it needs prop ticks, candidate pairs, and event anchors the
+bucket contract does not carry). **Pending:** the snapshot does not yet carry a
+bucket-indexed rebound-event/candidate table and the exporter does not yet write
+`player_prop_ticks.parquet`, so running it today degrades to board-only composition
+and says so — fixture-backed tests cover the full composition path.
+
+```bash
+uv run --extra research python -m nba_sidecar.research.experiments.composite_attribution \
+    --snapshot "$SNAP" --out outputs/nba-quant-lab/external/composite_attribution/predictions.parquet
+pnpm quant score-predictions outputs/nba-quant-lab/external/composite_attribution/predictions.parquet \
+    "$SNAP" --model-id composite_attribution
+```
+
 ---
 
 ## 5. Add a Python model (the `BoardModel` + `@register` pattern)
